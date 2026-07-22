@@ -1,0 +1,10 @@
+@import 'tailwindcss' source(none);
+@source '../**/*.{js,ts,jsx,tsx}';
+
+@import 'tw-animate-css';
+
+/* 全局文字颜色 - 依据设计规范 */
+body {
+  color: #0A1B39;
+  font-family: 'PingFang SC', 'Microsoft YaHei', 'Noto Sans SC', 'Inter', 'Helvetica', 'Arial', sans-serif;
+}

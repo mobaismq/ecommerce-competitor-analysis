@@ -1,0 +1,4 @@
+interface:
+  display_name: "店透视 MySQL 入库"
+  short_description: "Import 店透视 Excel exports into MySQL"
+  default_prompt: "Use $mysql-import to clean a 店透视 export folder and import 商品数据, SKU预览, and 问大家 data into MySQL."

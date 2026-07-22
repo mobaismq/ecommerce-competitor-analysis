@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Local environment files
+.env
+.env.local
+.env.*.local
+
+# Keep sanitized examples
+!.env.example
+
+# Runtime state and generated data
+.rpa-run-state.json
+.analysis-report-state.json
+rpa_output/
+rpa_runs/
+*.log
+
+# Duplicate local media copies. The app uses app/public/videos/.
+app/*.mp4
+app/*.mov
+app/src/imports/*.mp4
+app/src/imports/*.mov
+
+# macOS metadata
+.DS_Store
+__MACOSX/
+._*
+
+# IDE
+.vscode/
+.idea/

@@ -1,0 +1,4 @@
+interface:
+  display_name: "店透视商品导出"
+  short_description: "Search products and export 店透视 files"
+  default_prompt: "Use $diantoushi-product-research local RPA runner when possible: search Taobao for this product name, choose the highest-sales visible normal item, export 商品数据, SKU预览 with xlsx+图片链接, and 问大家 files, then collect them into a Desktop folder."
