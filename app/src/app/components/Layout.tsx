@@ -1,6 +1,6 @@
 import { useState, useEffect, type ReactNode } from "react";
 import { Link, Outlet, useLocation } from "react-router";
-import { ChevronDown, Copy, FileText, Flame, FolderOpen, Moon, Package, Plus, Store, Target, Cpu, FileBarChart, Video, WalletCards } from "lucide-react";
+import { ChevronDown, Copy, FileText, Flame, FolderOpen, Moon, Package, Plus, Target, Cpu, FileBarChart, Video, WalletCards, ShoppingBag, Database, Boxes, Image, Film, Sparkles, Globe, Settings, UserCog, Users, Store } from "lucide-react";
 import brandLogo from "@/imports/image-5.png";
 import { SidebarContext } from "./SidebarContext";
 
@@ -12,10 +12,9 @@ type NavItem = {
 };
 
 const nav: NavItem[] = [
-  { to: "/", label: "资产库", icon: <FolderOpen className="h-4 w-4 shrink-0" /> },
   {
     label: "市场",
-    icon: <Store className="h-4 w-4 shrink-0" />,
+    icon: <Globe className="h-4 w-4 shrink-0" />,
     children: [
       {
         label: "竞品分析",
@@ -27,10 +26,41 @@ const nav: NavItem[] = [
       },
     ],
   },
-  { to: "/product-sets", label: "商品套图", icon: <WalletCards className="h-4 w-4 shrink-0" /> },
-  { to: "/aplus", label: "A+详情", icon: <FileText className="h-4 w-4 shrink-0" /> },
-  { to: "/replicate", label: "爆款图复刻", icon: <Copy className="h-4 w-4 shrink-0" /> },
-  { to: "/video-replicate", label: "爆款视频复刻", icon: <Video className="h-4 w-4 shrink-0" /> },
+  {
+    label: "AIGC",
+    icon: <Sparkles className="h-4 w-4 shrink-0" />,
+    children: [
+      { to: "/product-sets", label: "商品主图", icon: <WalletCards className="h-4 w-4 shrink-0" /> },
+      { to: "/aplus", label: "详情图", icon: <FileText className="h-4 w-4 shrink-0" /> },
+      { to: "/replicate", label: "爆款图复刻", icon: <Copy className="h-4 w-4 shrink-0" /> },
+      { to: "/video-replicate", label: "爆款视频复刻", icon: <Video className="h-4 w-4 shrink-0" /> },
+    ],
+  },
+  {
+    label: "资产库",
+    icon: <FolderOpen className="h-4 w-4 shrink-0" />,
+    children: [
+      { to: "/asset/image-gallery", label: "图库", icon: <Image className="h-4 w-4 shrink-0" /> },
+      { to: "/asset/video-gallery", label: "视频库", icon: <Film className="h-4 w-4 shrink-0" /> },
+    ],
+  },
+  {
+    label: "商品",
+    icon: <ShoppingBag className="h-4 w-4 shrink-0" />,
+    children: [
+      { to: "/product/master-data", label: "商品主档", icon: <Database className="h-4 w-4 shrink-0" /> },
+      { to: "/product/management", label: "平台商品", icon: <Package className="h-4 w-4 shrink-0" /> },
+    ],
+  },
+  {
+    label: "设置",
+    icon: <Settings className="h-4 w-4 shrink-0" />,
+    children: [
+      { to: "/settings/account", label: "账号管理", icon: <UserCog className="h-4 w-4 shrink-0" /> },
+      { to: "/settings/role", label: "角色管理", icon: <Users className="h-4 w-4 shrink-0" /> },
+      { to: "/settings/store", label: "店铺管理", icon: <Store className="h-4 w-4 shrink-0" /> },
+    ],
+  },
   { to: "/listing", label: "图片上架", icon: <Package className="h-4 w-4 shrink-0" /> },
 ];
 
@@ -42,7 +72,7 @@ function hasActiveChild(item: NavItem, pathname: string): boolean {
 export function Layout() {
   const location = useLocation();
   const [expanded, setExpanded] = useState(true);
-  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(["市场", "竞品分析"]));
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(["资产库", "市场", "竞品分析"]));
 
   useEffect(() => {
     setExpandedGroups((prev) => {
