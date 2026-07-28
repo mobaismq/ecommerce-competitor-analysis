@@ -6,6 +6,7 @@ import { APlusDetail } from "./pages/APlusDetail";
 import { ViralReplication } from "./pages/ViralReplication";
 import { ViralVideoReplication } from "./pages/ViralVideoReplication";
 import { ImageListing } from "./pages/ImageListing";
+import { ManualListing } from "./pages/ManualListing";
 import { DataAnalytics } from "./pages/DataAnalytics";
 import { OneClickReplicate } from "./pages/OneClickReplicate";
 import { DataDownload } from "./pages/DataDownload";
@@ -27,6 +28,7 @@ export const router = createBrowserRouter([
       { path: "replicate", Component: ViralReplication },
       { path: "video-replicate", Component: ViralVideoReplication },
       { path: "listing", Component: ImageListing },
+      { path: "listing/manual", Component: ManualListing },
       { path: "analytics", Component: DataAnalytics },
       { path: "data-download", Component: DataDownload },
       { path: "data-download/run", Component: DataDownloadRun },
