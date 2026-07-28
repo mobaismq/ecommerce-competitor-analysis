@@ -16,6 +16,13 @@ import { AIDataCollection } from "./pages/AIDataCollection";
 import { AnalysisReport } from "./pages/AnalysisReport";
 import { AnalysisReportView } from "./pages/AnalysisReportView";
 import { AnalysisProductsView } from "./pages/AnalysisProductsView";
+import { ProductMasterData } from "./pages/ProductMasterData";
+import { ProductManagement } from "./pages/ProductManagement";
+import { ImageGallery } from "./pages/ImageGallery";
+import { VideoGallery } from "./pages/VideoGallery";
+import { AccountManagement } from "./pages/AccountManagement";
+import { RoleManagement } from "./pages/RoleManagement";
+import { StoreManagement } from "./pages/StoreManagement";
 
 export const router = createBrowserRouter([
   {
@@ -23,6 +30,8 @@ export const router = createBrowserRouter([
     Component: Layout,
     children: [
       { index: true, Component: AssetLibrary },
+      { path: "product/master-data", Component: ProductMasterData },
+      { path: "product/management", Component: ProductManagement },
       { path: "product-sets", Component: ProductImageSets },
       { path: "aplus", Component: APlusDetail },
       { path: "replicate", Component: ViralReplication },
@@ -38,6 +47,11 @@ export const router = createBrowserRouter([
       { path: "market/competitive/report/products", Component: AnalysisProductsView },
       { path: "market-report", Component: MarketReport },
       { path: "one-click-replicate", Component: OneClickReplicate },
+      { path: "asset/image-gallery", Component: ImageGallery },
+      { path: "asset/video-gallery", Component: VideoGallery },
+      { path: "settings/account", Component: AccountManagement },
+      { path: "settings/role", Component: RoleManagement },
+      { path: "settings/store", Component: StoreManagement },
     ],
   },
 ]);
