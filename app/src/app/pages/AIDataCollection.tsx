@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, ChevronRight, Cpu, Loader2, Play, Square, Terminal } from "lucide-react";
+import { AlertCircle, Cpu, Loader2, Play, Square, Terminal } from "lucide-react";
+import { PageHeader } from "@/app/components/PageHeader";
 import { parseRpaProgress } from "../utils/rpaProgress";
 
 type CollectionStatus = "idle" | "collecting" | "stopped" | "completed" | "failed";
@@ -186,13 +187,7 @@ export function AIDataCollection() {
 
   return (
     <div className="h-full overflow-y-auto bg-[#f4f7fb] p-6 custom-scrollbar">
-      <div className="mb-4 flex items-center gap-1.5 text-[13px] font-medium text-[#86909C]">
-        <span>市场</span>
-        <ChevronRight className="h-3.5 w-3.5" />
-        <span>竞品分析</span>
-        <ChevronRight className="h-3.5 w-3.5" />
-        <span className="font-bold text-[#0A1B39]">AI数据采集</span>
-      </div>
+      <PageHeader breadcrumbs={[{ label: "市场" }, { label: "竞品分析" }, { label: "AI数据采集" }]} />
 
       <div className="grid grid-cols-[minmax(420px,1fr)_1fr] gap-5">
         <section className="rounded-2xl bg-white p-6 shadow-[0_8px_32px_rgba(29,38,52,.06)]">

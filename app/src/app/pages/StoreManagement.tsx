@@ -5,6 +5,7 @@ import platformTmall from "@/imports/platform-tmall.png";
 import platformJd from "@/imports/platform-jd.png";
 import platformPdd from "@/imports/platform-pdd.png";
 import platformDoudian from "@/imports/platform-doudian.png";
+import { PageHeader } from "@/app/components/PageHeader";
 
 // ── Types ──
 interface Store {
@@ -556,11 +557,7 @@ export function StoreManagement() {
 
   return (
     <div className="p-6 overflow-y-auto h-full">
-      <div className="flex items-center gap-1 text-[13px] text-[#86909C] mb-4">
-        <span>设置</span>
-        <span className="text-[#c0c4cc]">/</span>
-        <span className="text-[#0A1B39] font-medium">店铺管理</span>
-      </div>
+      <PageHeader breadcrumbs={[{ label: "设置" }, { label: "店铺管理" }]} />
 
       <div className="mb-4 rounded-xl bg-white p-4">
         <div className="grid grid-cols-4 gap-3">

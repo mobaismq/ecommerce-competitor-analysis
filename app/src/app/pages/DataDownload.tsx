@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { AlertCircle, CheckCircle2, Database, Download, ExternalLink, FolderOpen, Loader2, Play, RefreshCw, Square, Terminal } from "lucide-react";
+import { PageHeader } from "@/app/components/PageHeader";
 import { parseRpaProgress } from "../utils/rpaProgress";
 
 type RunInfo = {
@@ -123,8 +124,8 @@ export function DataDownload() {
     <div className="h-full overflow-y-auto bg-[#f4f7fb] p-6 custom-scrollbar">
       <div className="mb-6 flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-[28px] font-extrabold text-[#0A1B39]">商品数据下载</h1>
-          <p className="mt-2 text-[14px] font-medium text-[#667085]">输入商品和价格区间，启动店透视 RPA 下载，并可选择下载后自动入库。</p>
+          <PageHeader title="商品数据下载" className="mb-1" />
+          <p className="text-[14px] font-medium text-[#667085]">输入商品和价格区间，启动店透视 RPA 下载，并可选择下载后自动入库。</p>
         </div>
         <button
           onClick={refreshStatus}

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router";
 import { Search, RotateCcw, Eye, Download, Trash2, X, ChevronLeft, ChevronRight, ChevronDown, Calendar } from "lucide-react";
 import { createPortal } from "react-dom";
+import { PageHeader } from "@/app/components/PageHeader";
 
 function MultiSelect({
   options,
@@ -469,10 +470,7 @@ export function ImageGallery() {
     <>
     <div className="h-full overflow-auto bg-[#f4f7fb]">
       <div className="p-6">
-        {/* 页面路径 */}
-        <div className="mb-2 text-[14px] text-[#86909C]">
-          资产库 / 图库
-        </div>
+        <PageHeader breadcrumbs={[{ label: "资产库" }, { label: "图库" }]} className="mb-2" />
 
         {/* 查询条件 */}
         <div className="mb-4 rounded-xl bg-white p-4">

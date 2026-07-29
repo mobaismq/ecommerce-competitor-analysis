@@ -5,6 +5,7 @@ import platformTmall from "@/imports/platform-tmall.png";
 import platformJd from "@/imports/platform-jd.png";
 import platformPdd from "@/imports/platform-pdd.png";
 import platformDoudian from "@/imports/platform-doudian.png";
+import { PageHeader } from "@/app/components/PageHeader";
 
 // ── Types ──
 interface Role {
@@ -298,13 +299,7 @@ function RoleForm({
 
   return (
     <div className="p-6 overflow-y-auto h-full">
-      <div className="flex items-center gap-1 text-[13px] text-[#86909C] mb-4">
-        <span>设置</span>
-        <span className="text-[#c0c4cc]">/</span>
-        <span>角色管理</span>
-        <span className="text-[#c0c4cc]">/</span>
-        <span className="text-[#0A1B39] font-medium">{role ? "编辑角色" : "创建角色"}</span>
-      </div>
+      <PageHeader breadcrumbs={[{ label: "设置" }, { label: "角色管理" }, { label: role ? "编辑角色" : "创建角色" }]} />
 
       <div className="bg-white rounded-xl p-6">
         {/* Role Name */}
@@ -729,11 +724,7 @@ export function RoleManagement() {
   // List View
   return (
     <div className="p-6 overflow-y-auto h-full">
-      <div className="flex items-center gap-1 text-[13px] text-[#86909C] mb-4">
-        <span>设置</span>
-        <span className="text-[#c0c4cc]">/</span>
-        <span className="text-[#0A1B39] font-medium">角色管理</span>
-      </div>
+      <PageHeader breadcrumbs={[{ label: "设置" }, { label: "角色管理" }]} />
 
       {/* Search */}
       <div className="mb-4 rounded-xl bg-white p-4">

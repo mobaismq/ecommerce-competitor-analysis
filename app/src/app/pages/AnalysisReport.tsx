@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 import { AlertCircle, Boxes, CheckCircle2, ChevronLeft, ChevronRight, Eye, FileBarChart, Loader2, Search, Sparkles, Trash2, X } from "lucide-react";
+import { PageHeader } from "@/app/components/PageHeader";
 import { ReportJobBanner } from "../components/ReportJobBanner";
 
 type ReportStatus = "not_generated" | "generating" | "failed" | "generated";
@@ -388,14 +389,7 @@ export function AnalysisReport() {
 
   return (
     <div className="h-full overflow-y-auto bg-[#f4f7fb] p-6 custom-scrollbar">
-      {/* Breadcrumb */}
-      <div className="mb-4 flex items-center gap-1.5 text-[13px] font-medium text-[#86909C]">
-        <span>市场</span>
-        <ChevronRight className="h-3.5 w-3.5" />
-        <span>竞品分析</span>
-        <ChevronRight className="h-3.5 w-3.5" />
-        <span className="font-bold text-[#0A1B39]">分析报告</span>
-      </div>
+      <PageHeader breadcrumbs={[{ label: "市场" }, { label: "竞品分析" }, { label: "分析报告" }]} />
 
       <ReportJobBanner />
 

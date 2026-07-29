@@ -1,6 +1,7 @@
 import { useSearchParams, Link } from "react-router";
-import { ArrowLeft, BarChart3, ChevronDown, ChevronRight, Database, ExternalLink, HelpCircle, LayoutGrid, Lightbulb, Loader2, MessageSquare, TrendingUp, X } from "lucide-react";
+import { ArrowLeft, BarChart3, ChevronDown, Database, ExternalLink, HelpCircle, LayoutGrid, Lightbulb, Loader2, MessageSquare, TrendingUp, X } from "lucide-react";
 import { useEffect, useState } from "react";
+import { PageHeader } from "@/app/components/PageHeader";
 
 interface PriceBandSales {
   band: string;
@@ -1400,13 +1401,13 @@ export function AnalysisReportView() {
   if (loadingReport) {
     return (
       <div className="h-full overflow-y-auto bg-[#f4f7fb] p-6 custom-scrollbar">
-        <div className="mb-4 flex items-center gap-1.5 text-[13px] font-medium text-[#86909C]">
-          <Link to="/market/competitive/report" className="hover:text-[#3388ff]">市场</Link>
-          <ChevronRight className="h-3.5 w-3.5" />
-          <Link to="/market/competitive/report" className="hover:text-[#3388ff]">竞品分析</Link>
-          <ChevronRight className="h-3.5 w-3.5" />
-          <span className="font-bold text-[#0A1B39]">报告查看</span>
-        </div>
+        <PageHeader
+          breadcrumbs={[
+            { label: "市场", to: "/market/competitive/report" },
+            { label: "竞品分析", to: "/market/competitive/report" },
+            { label: "报告查看" },
+          ]}
+        />
         <div className="grid min-h-[360px] place-items-center rounded-2xl bg-white shadow-[0_8px_32px_rgba(29,38,52,.06)]">
           <div className="flex items-center gap-2 text-[14px] font-bold text-[#667085]">
             <Loader2 className="h-5 w-5 animate-spin text-[#3388ff]" />
@@ -1436,16 +1437,14 @@ export function AnalysisReportView() {
 
   return (
     <div className="h-full overflow-y-auto bg-[#f4f7fb] p-6 custom-scrollbar">
-      {/* Breadcrumb */}
-      <div className="mb-4 flex items-center gap-1.5 text-[13px] font-medium text-[#86909C]">
-        <Link to="/market/competitive/report" className="hover:text-[#3388ff]">市场</Link>
-        <ChevronRight className="h-3.5 w-3.5" />
-        <Link to="/market/competitive/report" className="hover:text-[#3388ff]">竞品分析</Link>
-        <ChevronRight className="h-3.5 w-3.5" />
-        <Link to="/market/competitive/report" className="hover:text-[#3388ff]">分析报告</Link>
-        <ChevronRight className="h-3.5 w-3.5" />
-        <span className="font-bold text-[#0A1B39]">报告查看</span>
-      </div>
+      <PageHeader
+        breadcrumbs={[
+          { label: "市场", to: "/market/competitive/report" },
+          { label: "竞品分析", to: "/market/competitive/report" },
+          { label: "分析报告", to: "/market/competitive/report" },
+          { label: "报告查看" },
+        ]}
+      />
 
       {/* Back */}
       <Link to="/market/competitive/report" className="mb-4 inline-flex items-center gap-2 text-[13px] font-bold text-[#3388ff] hover:text-[#1a6fe8]">
