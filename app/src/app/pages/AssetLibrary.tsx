@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import { Check, ChevronRight, Copy, Download, Eye, Folder, Image as ImageIcon, Plus, Search, Sparkles, Trash2, Upload, X } from "lucide-react";
+import { PageHeader } from "@/app/components/PageHeader";
 import image1 from "@/imports/image-1.png";
 import image9 from "@/imports/image-9.png";
 import image10 from "@/imports/image-10.png";
@@ -111,10 +112,8 @@ export function AssetLibrary({ selectionMode = false, selectedIds = [], onSelect
         {/* Header */}
         <div className="mb-6 sm:mb-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="text-[28px] font-extrabold tracking-[-0.02em] text-[#0A1B39]">
-              {selectionMode ? "选择图片" : "资产库"}
-            </h1>
-            <p className="mt-2 text-[14px] font-medium text-[#86909C]">
+            <PageHeader title={selectionMode ? "选择图片" : "资产库"} className="mb-1" />
+            <p className="text-[14px] font-medium text-[#86909C]">
               {selectionMode ? "从资产库中选择图片进行上架" : "管理商品信息与生成的图片"}
             </p>
           </div>

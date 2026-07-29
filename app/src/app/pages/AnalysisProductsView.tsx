@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router";
-import { BrainCircuit, ChevronRight, ExternalLink, Eye, ImageIcon, Loader2, Package, Search, X } from "lucide-react";
+import { BrainCircuit, ExternalLink, Eye, ImageIcon, Loader2, Package, Search, X } from "lucide-react";
+import { PageHeader } from "@/app/components/PageHeader";
 
 const PAGE_SIZE = 10;
 
@@ -233,15 +234,14 @@ export function AnalysisProductsView() {
 
   return (
     <div className="h-full overflow-y-auto bg-[#f4f7fb] p-6 custom-scrollbar">
-      <div className="mb-4 flex items-center gap-1.5 text-[13px] font-medium text-[#86909C]">
-        <Link to="/market/competitive/report" className="hover:text-[#3388ff]">市场</Link>
-        <ChevronRight className="h-3.5 w-3.5" />
-        <Link to="/market/competitive/report" className="hover:text-[#3388ff]">竞品分析</Link>
-        <ChevronRight className="h-3.5 w-3.5" />
-        <Link to="/market/competitive/report" className="hover:text-[#3388ff]">分析报告</Link>
-        <ChevronRight className="h-3.5 w-3.5" />
-        <span className="font-bold text-[#0A1B39]">全部商品</span>
-      </div>
+      <PageHeader
+        breadcrumbs={[
+          { label: "市场", to: "/market/competitive/report" },
+          { label: "竞品分析", to: "/market/competitive/report" },
+          { label: "分析报告", to: "/market/competitive/report" },
+          { label: "全部商品" },
+        ]}
+      />
 
       <section className="mb-5 rounded-2xl bg-white p-5 shadow-[0_8px_32px_rgba(29,38,52,.06)]">
         <div className="flex flex-wrap items-start justify-between gap-4">

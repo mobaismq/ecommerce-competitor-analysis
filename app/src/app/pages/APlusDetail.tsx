@@ -4,6 +4,7 @@ import earbudFront from "@/imports/image-15.png";
 import earbudCase from "@/imports/image-16.png";
 import earbudSingle from "@/imports/image-17.png";
 import { useSidebar } from "@/app/components/SidebarContext";
+import { PageHeader } from "@/app/components/PageHeader";
 import detailLong from "@/imports/image-18.png";
 import heroBanner from "@/imports/image-19.png";
 import specsBanner from "@/imports/image-20.png";
@@ -81,7 +82,7 @@ export function APlusDetail() {
       </div>
     </div>
     <div className={`fixed bottom-0 z-20 w-[360px] border-t border-[#eef1f5] bg-white p-3 sm:p-4 transition-all duration-300 ${expanded ? "left-[240px]" : "left-[72px]"}`}><button className="h-12 sm:h-14 w-full rounded-lg bg-[#505154] text-[14px] font-semibold text-white">请上传产品图</button></div>
-    <main className="flex-1 overflow-hidden p-6"><div className="w-full text-center"><h1 className="text-[28px] sm:text-[32px] lg:text-[36px] font-medium tracking-[-0.03em] text-[#0A1B39]">A+/详情页</h1><p className="mt-3 text-[14px] sm:text-[15px] lg:text-[16px] font-normal text-[#86909C]">上传商品图，AI 即刻生成 <span className="text-[#3388ff]">符合多电商平台规范</span> 的专业详情页。</p>
+    <main className="flex-1 overflow-hidden p-6"><div className="w-full"><PageHeader breadcrumbs={[{ label: "AIGC" }, { label: "详情图" }]} className="mb-1" /><p className="text-[14px] font-normal text-[#86909C]">上传商品图，AI 即刻生成 <span className="text-[#3388ff]">符合多电商平台规范</span> 的专业详情页。</p>
       <div className="mt-6 sm:mt-8 rounded-[20px] sm:rounded-[24px] lg:rounded-[28px] bg-white p-4 sm:p-6 lg:p-8 shadow-[0_18px_50px_rgba(29,38,52,.06)]"><div className="grid grid-cols-1 lg:grid-cols-[140px_38px_120px_1fr] gap-4 lg:gap-6 items-center lg:items-stretch h-auto lg:h-[430px]">
         <div className="grid grid-cols-3 lg:grid-rows-3 gap-1.5 rounded-[22px] overflow-hidden h-[120px] lg:h-auto">
           <div className="bg-[#f5f6fa] grid place-items-center"><img src={earbudFront} alt="蓝色无线耳机开盖产品图" className="h-full w-full object-contain p-3" /></div>

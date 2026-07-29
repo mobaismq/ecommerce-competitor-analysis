@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { useSearchParams } from "react-router";
 import { Search, RotateCcw, Plus, Upload, Edit, Trash2, ChevronDown, ChevronRight, X, Calendar } from "lucide-react";
+import { PageHeader } from "@/app/components/PageHeader";
 
 function ImageUpload({
   size = "md",
@@ -316,10 +317,7 @@ export function ProductMasterData() {
   return (
     <div className="h-full overflow-auto bg-[#f4f7fb]">
       <div className="p-6">
-        {/* 页面路径 */}
-        <div className="mb-2 text-[14px] text-[#86909C]">
-          商品 / 商品主档
-        </div>
+        <PageHeader breadcrumbs={[{ label: "商品" }, { label: "商品主档" }]} className="mb-2" />
 
         {/* 查询条件 */}
         <div className="mb-4 rounded-xl bg-white p-4">

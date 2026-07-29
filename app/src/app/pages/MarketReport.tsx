@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useSearchParams } from "react-router";
 import { AlertCircle, BarChart3, Check, ChevronDown, ChevronRight, Database, ExternalLink, FileText, Image, KeyRound, Loader2, RefreshCw, Search, Sparkles, TrendingUp } from "lucide-react";
+import { PageHeader } from "@/app/components/PageHeader";
 
 type Metric = {
   term?: string;
@@ -578,8 +579,8 @@ export function MarketReport() {
     <div className="h-full overflow-y-auto bg-[#f4f7fb] p-6 custom-scrollbar">
       <div className="mb-5 flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-[28px] font-extrabold text-[#0A1B39]">竞品分析报告</h1>
-          <p className="mt-2 text-[14px] font-medium text-[#667085]">先筛选商品生成 AI 视觉报告，再从价格段总览进入详细分析。</p>
+          <PageHeader title="竞品分析报告" className="mb-1" />
+          <p className="text-[14px] font-medium text-[#667085]">先筛选商品生成 AI 视觉报告，再从价格段总览进入详细分析。</p>
         </div>
         <button onClick={loadLatest} className="flex h-10 items-center gap-2 rounded-lg bg-white px-4 text-[13px] font-bold text-[#344054] shadow-[0_4px_16px_rgba(29,38,52,.06)] hover:bg-[#f8fafc]">
           <RefreshCw className="h-4 w-4" />

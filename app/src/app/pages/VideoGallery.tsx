@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Search, X } from "lucide-react";
+import { PageHeader } from "@/app/components/PageHeader";
 
 interface VideoItem {
   id: string;
@@ -132,7 +133,7 @@ export function VideoGallery() {
   return (
     <div className="h-full overflow-auto bg-[#f4f7fb]">
       <div className="p-6">
-        <div className="mb-2 text-[14px] text-[#86909C]">资产库 / 视频库</div>
+        <PageHeader breadcrumbs={[{ label: "资产库" }, { label: "视频库" }]} className="mb-2" />
 
         <div className="mb-4 rounded-xl bg-white p-4">
           <div className="grid grid-cols-4 gap-3">

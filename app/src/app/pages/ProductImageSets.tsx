@@ -6,6 +6,7 @@ import modelScene from "@/imports/image-11.png";
 import detailExplain from "@/imports/image-12.png";
 import sellingPoint from "@/imports/image-13.png";
 import { useSidebar } from "@/app/components/SidebarContext";
+import { PageHeader } from "@/app/components/PageHeader";
 
 function SelectBox({ value, options, open, onToggle, onSelect }: { value: string; options: string[]; open: boolean; onToggle: () => void; onSelect: (value: string) => void }) {
   return (
@@ -598,9 +599,9 @@ export function ProductImageSets() {
       </div>
 
       <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
-        <div className="mx-auto w-full max-w-[1480px] text-center">
-          <h1 className="text-[28px] sm:text-[32px] lg:text-[36px] font-medium tracking-[-0.03em] text-[#0A1B39]">AI商品套图</h1>
-          <p className="mt-3 text-[14px] sm:text-[15px] lg:text-[16px] font-normal text-[#86909C]">选择已完成整体报告后，可多选图位批量生成，右侧会展示每张生成结果。</p>
+        <div className="mx-auto w-full max-w-[1480px]">
+          <PageHeader breadcrumbs={[{ label: "AIGC" }, { label: "商品主图" }]} className="mb-1" />
+          <p className="text-[14px] font-normal text-[#86909C]">选择已完成整体报告后，可多选图位批量生成，右侧会展示每张生成结果。</p>
 
           <div className="mt-6 sm:mt-8 rounded-[20px] sm:rounded-[24px] lg:rounded-[28px] bg-white p-4 sm:p-5 lg:p-6 shadow-[0_18px_50px_rgba(29,38,52,.06)]">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3 text-left">

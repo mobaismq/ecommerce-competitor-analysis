@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { BarChart3, TrendingUp, Eye, ShoppingCart, Calendar, AlertTriangle, Zap, ChevronDown, Check } from "lucide-react";
+import { PageHeader } from "@/app/components/PageHeader";
 
 interface DataPoint {
   date: string;
@@ -57,8 +58,8 @@ export function DataAnalytics() {
         {/* Header */}
         <div className="mb-6 sm:mb-8 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
           <div>
-            <h1 className="text-[28px] font-extrabold tracking-[-0.02em] text-[#0A1B39]">数据分析</h1>
-            <p className="mt-2 text-[14px] font-medium text-[#86909C]">追踪商品图片的点击率和转化率，优化营销效果</p>
+            <PageHeader title="数据分析" className="mb-1" />
+            <p className="text-[14px] font-medium text-[#86909C]">追踪商品图片的点击率和转化率，优化营销效果</p>
           </div>
           <div className="flex items-center gap-3">
             {/* Platform Dropdown */}

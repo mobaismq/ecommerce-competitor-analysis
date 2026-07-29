@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { ArrowRight, ChevronDown, CircleHelp, Link2, Lock, Play, Sparkles, Upload, Video } from "lucide-react";
 import { useSidebar } from "@/app/components/SidebarContext";
+import { PageHeader } from "@/app/components/PageHeader";
 import image1 from "@/imports/image-1.png";
 import image9 from "@/imports/image-9.png";
 import image10 from "@/imports/image-10.png";
@@ -472,9 +473,9 @@ export function ViralVideoReplication() {
       <main className="flex-1 overflow-y-auto p-6 custom-scrollbar">
         {tab === "generate" ? (
           <>
-            <div className="w-full text-center">
-              <h1 className="text-[28px] sm:text-[32px] lg:text-[36px] font-extrabold tracking-[-0.03em] text-[#0A1B39]">爆款电商视频</h1>
-              <p className="mt-3 text-[14px] sm:text-[15px] lg:text-[16px] font-normal text-[#86909C]">上传商品图，AI 一键批量生成多类型高转化视频。</p>
+            <div className="w-full">
+              <PageHeader breadcrumbs={[{ label: "AIGC" }, { label: "爆款视频复刻" }]} className="mb-1" />
+              <p className="text-[14px] font-normal text-[#86909C]">上传商品图，AI 一键批量生成多类型高转化视频。</p>
             </div>
             <div className="mt-8 rounded-[20px] sm:rounded-[24px] bg-white p-4 sm:p-6 shadow-[0_18px_50px_rgba(29,38,52,.06)]">
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
@@ -494,9 +495,9 @@ export function ViralVideoReplication() {
           </>
         ) : (
           <>
-            <div className="w-full text-center">
-              <h1 className="text-[28px] sm:text-[32px] lg:text-[36px] font-extrabold tracking-[-0.03em] text-[#0A1B39]">爆款视频复刻</h1>
-              <p className="mt-3 text-[14px] sm:text-[15px] lg:text-[16px] font-normal text-[#86909C]">上传商品图和参考视频，AI 一键批量复刻高转化视频。</p>
+            <div className="w-full">
+              <PageHeader breadcrumbs={[{ label: "AIGC" }, { label: "爆款视频复刻" }]} className="mb-1" />
+              <p className="text-[14px] font-normal text-[#86909C]">上传商品图和参考视频，AI 一键批量复刻高转化视频。</p>
             </div>
             <div className="mt-8 rounded-[20px] sm:rounded-[24px] bg-white p-4 sm:p-6 shadow-[0_18px_50px_rgba(29,38,52,.06)]">
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
