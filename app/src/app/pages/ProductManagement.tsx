@@ -273,10 +273,10 @@ const initialProducts: Product[] = [
       { skuImage: "https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=black+usb+cable+product+photo&image_size=square", skuName: "黑色2m", skuCode: "SKU016-B2", skuId: "SKU-PDD-004", price: 19.9 },
     ],
   },
-  // 抖音
+  // 抖店
   {
     id: 13,
-    platform: "抖音",
+    platform: "抖店",
     productImage: "https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=ring+light+product+photo+white+background&image_size=square",
     productName: "直播补光灯",
     productCode: "SP2026017",
@@ -296,7 +296,7 @@ const initialProducts: Product[] = [
   },
   {
     id: 14,
-    platform: "抖音",
+    platform: "抖店",
     productImage: "https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=tripod+stand+product+photo+white+background&image_size=square",
     productName: "手机支架",
     productCode: "SP2026018",
@@ -317,7 +317,7 @@ const initialProducts: Product[] = [
 ];
 
 const statusOptions = ["草稿", "已发布", "发布失败", "审核中"];
-const platforms = ["淘宝", "天猫", "京东", "拼多多", "抖音"];
+const platforms = ["淘宝", "天猫", "京东", "拼多多", "抖店"];
 
 export function ProductManagement() {
   const [products, setProducts] = useState<Product[]>(initialProducts);

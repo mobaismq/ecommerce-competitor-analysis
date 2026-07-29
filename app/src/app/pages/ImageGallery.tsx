@@ -119,7 +119,7 @@ const MOCK_PRODUCT_NAMES = [
   "智能门锁",
 ];
 
-const MOCK_PLATFORMS = ["淘宝", "天猫", "京东", "拼多多", "抖音"];
+const MOCK_PLATFORMS = ["淘宝", "天猫", "京东", "拼多多", "抖店"];
 
 // Real product image generation using trae-api
 const IMG = (prompt: string, size: "square" | "landscape_16_9" = "square") =>

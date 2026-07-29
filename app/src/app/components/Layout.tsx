@@ -71,17 +71,39 @@ function hasActiveChild(item: NavItem, pathname: string): boolean {
 
 export function Layout() {
   const location = useLocation();
-  const [expanded, setExpanded] = useState(true);
-  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(["资产库", "市场", "竞品分析"]));
+  const [expanded, setExpanded] = useState(() => {
+    const saved = localStorage.getItem("sidebar_expanded");
+    return saved !== null ? JSON.parse(saved) : true;
+  });
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => {
+    const saved = localStorage.getItem("sidebar_expanded_groups");
+    return saved ? new Set(JSON.parse(saved)) : new Set(["资产库", "市场", "竞品分析"]);
+  });
+  const [manuallyCollapsed, setManuallyCollapsed] = useState<Set<string>>(() => {
+    const saved = localStorage.getItem("sidebar_manually_collapsed");
+    return saved ? new Set(JSON.parse(saved)) : new Set();
+  });
+
+  useEffect(() => {
+    localStorage.setItem("sidebar_expanded", JSON.stringify(expanded));
+  }, [expanded]);
+
+  useEffect(() => {
+    localStorage.setItem("sidebar_expanded_groups", JSON.stringify(Array.from(expandedGroups)));
+  }, [expandedGroups]);
+
+  useEffect(() => {
+    localStorage.setItem("sidebar_manually_collapsed", JSON.stringify(Array.from(manuallyCollapsed)));
+  }, [manuallyCollapsed]);
 
   useEffect(() => {
     setExpandedGroups((prev) => {
       const next = new Set(prev);
       nav.forEach((item) => {
-        if (item.children && hasActiveChild(item, location.pathname)) {
+        if (item.children && hasActiveChild(item, location.pathname) && !manuallyCollapsed.has(item.label)) {
           next.add(item.label);
           item.children.forEach((child) => {
-            if (child.children && hasActiveChild(child, location.pathname)) {
+            if (child.children && hasActiveChild(child, location.pathname) && !manuallyCollapsed.has(child.label)) {
               next.add(child.label);
             }
           });
@@ -89,13 +111,26 @@ export function Layout() {
       });
       return next;
     });
-  }, [location.pathname]);
+  }, [location.pathname, manuallyCollapsed]);
 
   const toggleGroup = (label: string) => {
     setExpandedGroups((prev) => {
       const next = new Set(prev);
-      if (next.has(label)) next.delete(label);
-      else next.add(label);
+      if (next.has(label)) {
+        next.delete(label);
+        setManuallyCollapsed((mc) => {
+          const mcNext = new Set(mc);
+          mcNext.add(label);
+          return mcNext;
+        });
+      } else {
+        next.add(label);
+        setManuallyCollapsed((mc) => {
+          const mcNext = new Set(mc);
+          mcNext.delete(label);
+          return mcNext;
+        });
+      }
       return next;
     });
   };
