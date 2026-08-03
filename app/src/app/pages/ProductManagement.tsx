@@ -1,5 +1,7 @@
-import { useState, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router";
 import { Search, RotateCcw, Plus, Upload, ChevronDown, ChevronRight, X, Calendar } from "lucide-react";
+import { PageHeader } from "@/app/components/PageHeader";
 
 type SKU = {
   skuImage: string | null;
@@ -320,10 +322,12 @@ const statusOptions = ["草稿", "已发布", "发布失败", "审核中"];
 const platforms = ["淘宝", "天猫", "京东", "拼多多", "抖店"];
 
 export function ProductManagement() {
+  const navigate = useNavigate();
   const [products, setProducts] = useState<Product[]>(initialProducts);
   const [activePlatform, setActivePlatform] = useState("淘宝");
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
   const [toast, setToast] = useState<{ message: string; visible: boolean }>({ message: "", visible: false });
+  const [showPublishDropdown, setShowPublishDropdown] = useState(false);
 
   // Search states (input values)
   const [searchStore, setSearchStore] = useState("");
@@ -335,7 +339,19 @@ export function ProductManagement() {
   const [searchUpdateTimeEnd, setSearchUpdateTimeEnd] = useState("");
   const [showUpdateTimeRange, setShowUpdateTimeRange] = useState(false);
   const updateTimeBtnRef = useRef<HTMLButtonElement>(null);
+  const publishBtnRef = useRef<HTMLDivElement>(null);
   const [updateTimePopupPos, setUpdateTimePopupPos] = useState({ top: 0, left: 0 });
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (publishBtnRef.current && !publishBtnRef.current.contains(e.target as Node)) {
+        setShowPublishDropdown(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   const toggleUpdateTimeRange = () => {
     if (!showUpdateTimeRange && updateTimeBtnRef.current) {
@@ -432,6 +448,17 @@ export function ProductManagement() {
     showToast("同步商品成功");
   };
 
+  const handlePublishSelect = (type: "manual" | "select") => {
+    setShowPublishDropdown(false);
+
+    if (type === "manual") {
+      navigate("/product/management/manual");
+      return;
+    }
+
+    showToast("从商品列表选取功能待接入");
+  };
+
   return (
     <div className="h-full overflow-y-auto p-6">
       {/* Toast */}
@@ -441,12 +468,7 @@ export function ProductManagement() {
         </div>
       )}
 
-      {/* Breadcrumb */}
-      <div className="mb-2 text-[14px] text-[#86909C]">
-        <span>商品</span>
-        <span className="mx-2">/</span>
-        <span className="text-[#0A1B39]">平台商品</span>
-      </div>
+      <PageHeader breadcrumbs={[{ label: "商品" }, { label: "平台商品" }]} className="mb-2" />
 
       {/* Platform Tabs */}
       <div className="mb-2 flex border-b border-[#e6e9ef]">
@@ -675,9 +697,35 @@ export function ProductManagement() {
 
       {/* Action Buttons */}
       <div className="mb-4 flex gap-3">
-        <button className="flex items-center gap-1.5 h-9 rounded-lg bg-[#409eff] px-4 text-[14px] font-bold text-white hover:bg-[#66b1ff]">
-          <Plus className="h-4 w-4" /> 发布商品
-        </button>
+        <div ref={publishBtnRef} className="relative">
+          <button
+            type="button"
+            onClick={() => setShowPublishDropdown((open) => !open)}
+            className="flex h-9 items-center gap-1.5 rounded-lg bg-[#409eff] px-4 text-[14px] font-bold text-white transition-colors hover:bg-[#66b1ff]"
+          >
+            <Plus className="h-4 w-4" />
+            发布商品
+            <ChevronDown className={`h-4 w-4 transition-transform ${showPublishDropdown ? "rotate-180" : ""}`} />
+          </button>
+          {showPublishDropdown && (
+            <div className="absolute left-0 top-full z-50 mt-1 w-40 overflow-hidden rounded-xl border border-[#e1e6ee] bg-white py-1 shadow-[0_8px_24px_rgba(29,38,52,.12)]">
+              <button
+                type="button"
+                onClick={() => handlePublishSelect("manual")}
+                className="block w-full px-4 py-3 text-left text-[14px] font-bold text-[#0A1B39] transition-colors hover:bg-[#f4f7fb] hover:text-[#3388ff]"
+              >
+                手动上架
+              </button>
+              <button
+                type="button"
+                onClick={() => handlePublishSelect("select")}
+                className="block w-full px-4 py-3 text-left text-[14px] font-bold text-[#0A1B39] transition-colors hover:bg-[#f4f7fb] hover:text-[#3388ff]"
+              >
+                从商品列表选取
+              </button>
+            </div>
+          )}
+        </div>
         <button
           onClick={handleSync}
           className="flex items-center gap-1.5 h-9 rounded-lg border border-[#e6e9ef] bg-white px-4 text-[14px] font-bold text-[#0A1B39] hover:bg-[#f5f6f8]"
