@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 import { useNavigate } from "react-router";
 import { ArrowLeft, Check, ChevronDown, ChevronRight, CircleHelp, Copy, Eye, Folder, Image as ImageIcon, Sparkles, Upload, Wand2, X } from "lucide-react";
 import { useSidebar } from "@/app/components/SidebarContext";
+import { PageHeader } from "@/app/components/PageHeader";
 import image1 from "@/imports/image-1.png";
 import image9 from "@/imports/image-9.png";
 import image10 from "@/imports/image-10.png";
@@ -269,9 +270,9 @@ export function OneClickReplicate() {
 
       {/* ─── 右侧主内容区 ─── */}
       <main className="flex-1 overflow-y-auto p-6 custom-scrollbar">
-        <div className="w-full text-center">
-          <h1 className="text-[28px] sm:text-[32px] lg:text-[36px] font-extrabold tracking-[-0.03em] text-[#0A1B39]">一键复刻</h1>
-          <p className="mt-3 text-[14px] sm:text-[15px] lg:text-[16px] font-normal text-[#86909C]">选择商品 + 参考爆款 = 你的专属爆款图</p>
+        <div className="w-full">
+          <PageHeader title="一键复刻" className="mb-1" />
+          <p className="text-[14px] font-normal text-[#86909C]">选择商品 + 参考爆款 = 你的专属爆款图</p>
         </div>
 
         {/* 流程示意 */}

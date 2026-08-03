@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, CheckCircle2, FolderOpen, Loader2, RefreshCw, Square, Terminal } from "lucide-react";
-import { Link } from "react-router";
+import { CheckCircle2, FolderOpen, Loader2, RefreshCw, Square, Terminal } from "lucide-react";
+import { PageHeader } from "@/app/components/PageHeader";
 import { parseRpaProgress } from "../utils/rpaProgress";
 
 type RunInfo = {
@@ -73,12 +73,8 @@ export function DataDownloadRun() {
     <div className="h-full overflow-y-auto bg-[#f4f7fb] p-6 custom-scrollbar">
       <div className="mb-6 flex items-start justify-between gap-4">
         <div>
-          <Link to="/data-download" className="mb-3 inline-flex items-center gap-2 text-[13px] font-bold text-[#3388ff]">
-            <ArrowLeft className="h-4 w-4" />
-            返回下载参数
-          </Link>
-          <h1 className="text-[28px] font-extrabold text-[#0A1B39]">脚本运行状态</h1>
-          <p className="mt-2 text-[14px] font-medium text-[#667085]">这里会自动刷新后台 RPA 的状态和最新日志。</p>
+          <PageHeader breadcrumbs={[{ label: "商品数据下载", to: "/data-download" }, { label: "脚本运行状态" }]} className="mb-1" />
+          <p className="text-[14px] font-medium text-[#667085]">这里会自动刷新后台 RPA 的状态和最新日志。</p>
         </div>
         <div className="flex gap-3">
           <button

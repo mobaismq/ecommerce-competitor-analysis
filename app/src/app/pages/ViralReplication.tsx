@@ -5,6 +5,7 @@ import highCopyAd from "@/imports/image-27.png";
 import styleCopyAd from "@/imports/image.png";
 import productCloth from "@/imports/image-1.png";
 import { useSidebar } from "@/app/components/SidebarContext";
+import { PageHeader } from "@/app/components/PageHeader";
 
 function Title({ children, help = false, muted = false }: { children: ReactNode; help?: boolean; muted?: boolean }) { return <h2 className={`mb-4 flex items-center gap-1 text-[14px] font-semibold ${muted ? "text-[#86909C]" : "text-[#0A1B39]"}`}>{children}{help && <CircleHelp className="h-4 w-4 text-[#86909C]" />}</h2>; }
 function SelectBox({ value, options, open, onToggle, onSelect }: { value: string; options: string[]; open: boolean; onToggle: () => void; onSelect: (value: string) => void }) {
@@ -58,7 +59,7 @@ export function ViralReplication() {
       </div>
     </div>
     <div className={`fixed bottom-0 z-20 w-[360px] border-t border-[#eef1f5] bg-white p-3 sm:p-4 transition-all duration-300 ${expanded ? "left-[240px]" : "left-[72px]"}`}><button className="h-12 sm:h-14 w-full rounded-lg bg-[#C9CDD4] text-[14px] font-semibold text-white">一键复刻爆款图</button></div>
-    <main className="flex-1 overflow-hidden p-6"><div className="w-full text-center"><h1 className="text-[28px] sm:text-[32px] lg:text-[36px] font-medium tracking-[-0.03em] text-[#0A1B39]">爆款图复刻</h1><p className="mt-3 text-[14px] sm:text-[15px] lg:text-[16px] font-normal text-[#86909C]">想参考的爆款 + 你的产品图 = 你的爆款图</p>
+    <main className="flex-1 overflow-hidden p-6"><div className="w-full"><PageHeader breadcrumbs={[{ label: "AIGC" }, { label: "爆款图复刻" }]} className="mb-1" /><p className="text-[14px] font-normal text-[#86909C]">想参考的爆款 + 你的产品图 = 你的爆款图</p>
       <div className="mt-6 sm:mt-8 rounded-[20px] sm:rounded-[24px] lg:rounded-[28px] bg-white p-4 sm:p-6 lg:p-8 shadow-[0_18px_50px_rgba(29,38,52,.06)]">
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_80px_1.06fr] items-center gap-4 sm:gap-6">
           <div className="relative">

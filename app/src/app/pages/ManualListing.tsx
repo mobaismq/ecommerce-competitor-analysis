@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState, type Dispatch, type DragEvent, type SetStateAction } from "react";
-import { useNavigate } from "react-router";
 import {
   AlignCenter,
   AlignJustify,
@@ -22,6 +21,7 @@ import {
   Video,
   X,
 } from "lucide-react";
+import { PageHeader } from "@/app/components/PageHeader";
 
 const PLATFORMS = ["淘宝", "天猫", "京东", "拼多多", "抖店", "小红书", "亚马逊", "Shopee", "Lazada"];
 const PLATFORMS_WITH_MANUAL_TEMPLATE = ["淘宝", "京东", "拼多多", "抖店", "小红书"];
@@ -765,8 +765,22 @@ function DetailPreviewModal({
   );
 }
 
-export function ManualListing() {
-  const navigate = useNavigate();
+type ManualListingBreadcrumb = {
+  label: string;
+  to?: string;
+};
+
+type ManualListingProps = {
+  breadcrumbs?: ManualListingBreadcrumb[];
+};
+
+export function ManualListing({
+  breadcrumbs = [
+    { label: "商品" },
+    { label: "平台商品", to: "/product/management" },
+    { label: "手动上架" },
+  ],
+}: ManualListingProps = {}) {
   const [activePlatform, setActivePlatform] = useState("抖店");
   const [activeTab, setActiveTab] = useState<TabName>("基础信息");
 
@@ -989,21 +1003,12 @@ export function ManualListing() {
   const pddDetailPreviewImages = pddDetailImages.filter((item): item is UploadPreview => Boolean(item));
 
   return (
-    <div className="min-h-screen bg-[#f4f7fb] p-6">
+    <div className="h-full overflow-y-auto bg-[#f4f7fb] p-6">
       {/* Single White Container */}
       <div className="rounded-2xl bg-white p-6">
         {/* Top Bar */}
         <div className="flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-2 text-[14px]">
-            <button
-              onClick={() => navigate("/listing")}
-              className="text-[#86909C] hover:text-[#3388ff] transition-colors font-medium"
-            >
-              图片上架
-            </button>
-            <span className="text-[#c0c4cc] mx-1">/</span>
-            <span className="font-bold text-[#0A1B39]">手动上架</span>
-          </div>
+          <PageHeader breadcrumbs={breadcrumbs} className="mb-0" />
           <div className="flex items-center gap-3">
             <button className="h-[38px] rounded-xl border border-[#e1e6ee] bg-white px-5 text-[14px] font-bold text-[#0A1B39] transition-colors hover:bg-[#f5f6f8]">
               存草稿
