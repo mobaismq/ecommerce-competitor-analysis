@@ -66,6 +66,17 @@ interface QaAnalysis {
   questions: { question: string; count: number }[];
 }
 
+interface KeywordMatrixTerm {
+  keyword: string;
+  frequency: number;
+  productCoverage?: number;
+  titleCoverage?: number;
+  demandSignals?: number;
+  salesSignal?: number;
+  sources?: string[];
+  reason?: string;
+}
+
 const MOCK_REPORT = {
   title: "水平仪20260715121212",
   keyword: "水平仪",
@@ -374,6 +385,18 @@ function textValue(value: unknown, fallback = "暂无") {
   return fallback;
 }
 
+function pickSellingPointValue(...values: unknown[]) {
+  for (const value of values) {
+    if (value == null) continue;
+    if (Array.isArray(value)) {
+      if (value.length > 0) return value;
+      continue;
+    }
+    if (typeof value === "string" && value.trim()) return value;
+  }
+  return null;
+}
+
 function moneyText(value: unknown, fallback = "暂无") {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return textValue(value, fallback);
@@ -447,6 +470,74 @@ function shortText(value: unknown, limit = 34) {
   return text.length > limit ? `${text.slice(0, limit)}...` : text;
 }
 
+function looksLikeSkuText(value: unknown) {
+  const text = textValue(value, "");
+  if (!text) return false;
+  const quantityMatches = text.match(/\d+(?:\.\d+)?\s*(?:g|kg|克|斤|包|袋|盒|罐|瓶|片|条|支|个|枚|只|件|套|箱|ml|mL|L)/gi) || [];
+  const skuSeparators = (text.match(/[+*×xX]|约|共|送|任选|组合|套餐|规格/g) || []).length;
+  return quantityMatches.length >= 2 || (quantityMatches.length >= 1 && skuSeparators >= 2);
+}
+
+function titleSellingPoints(titleValue: unknown, keywordValue: unknown = "") {
+  const title = textValue(titleValue, "");
+  const keyword = textValue(keywordValue, "");
+  if (!title) return "";
+  const candidates: Array<[string, (text: string) => boolean]> = [
+    ["高蛋白", (text) => text.includes("高蛋白")],
+    ["靖江特产", (text) => text.includes("靖江") || text.includes("特产")],
+    ["原切大片", (text) => text.includes("原切") || text.includes("大片")],
+    ["厚切口感", (text) => text.includes("厚切")],
+    ["手撕肉感", (text) => text.includes("手撕")],
+    ["独立包装", (text) => text.includes("独立") || text.includes("小包装")],
+    ["蜜汁风味", (text) => text.includes("蜜汁")],
+    ["香辣风味", (text) => text.includes("香辣") || text.includes("麻辣")],
+    ["黑椒风味", (text) => text.includes("黑椒")],
+    ["酥脆口感", (text) => text.includes("酥脆") || text.includes("脆片")],
+    ["休闲解馋", (text) => text.includes("休闲") || text.includes("解馋") || text.includes("零食")],
+    ["办公室零食", (text) => text.includes("办公室")],
+    ["追剧零食", (text) => text.includes("追剧")],
+    ["即食方便", (text) => text.includes("即食") || text.includes("开袋")],
+    ["真空包装", (text) => text.includes("真空")],
+  ];
+  const matched = uniqueTerms(candidates.filter(([, test]) => test(title)).map(([term]) => term), 4);
+  if (matched.length) return matched.join("、");
+  const cleanedTitle = title
+    .replace(/【[^】]*】|\[[^\]]*]/g, " ")
+    .replace(/\d+(?:\.\d+)?\s*(?:g|kg|克|斤|包|袋|盒|罐|瓶|片|条|支|个|枚|只|件|套|箱|ml|mL|L)/gi, " ")
+    .replace(/[+*×xX]|买\d+|送\d+|任选|组合|套餐|规格|包邮|满减|官方|旗舰店|店铺热销/g, " ")
+    .replace(/\s+/g, "");
+  const fallbackTerms = uniqueTerms([keyword, ...cleanedTitle.split(/[，,、\s/_-]+/).filter((item) => item.length >= 2 && item.length <= 8)], 3);
+  return fallbackTerms.join("、");
+}
+
+function cleanSellingPointText(value: unknown, fallbackTitle: unknown = "", keyword: unknown = "") {
+  const terms = toTermList(value, 6)
+    .filter((item) => !looksLikeSkuText(item))
+    .filter((item) => !/^\d+(?:\.\d+)?/.test(item.trim()));
+  if (terms.length) return terms.join("、");
+  const text = textValue(value, "");
+  if (text && !looksLikeSkuText(text)) return text;
+  return titleSellingPoints(fallbackTitle, keyword);
+}
+
+function competitorIdentityKeys(item: AnyRecord) {
+  const keys: string[] = [];
+  const id = textValue(item.id, "");
+  const url = textValue(item.url, "");
+  const title = textValue(item.title, "");
+  const urlId = url.match(/[?&](?:id|item_id|itemId)=(\d{6,})/)?.[1] || "";
+  const titleKey = title
+    .toLowerCase()
+    .replace(/\s+/g, "")
+    .replace(/[^\u4e00-\u9fffa-z0-9]+/gi, "");
+
+  if (urlId) keys.push(`id:${urlId}`);
+  if (/^\d{6,}$/.test(id)) keys.push(`id:${id}`);
+  if (titleKey.length >= 8) keys.push(`title:${titleKey}`);
+  if (!keys.length && id) keys.push(`raw:${id}`);
+  return keys;
+}
+
 function SectionCard({
   no,
   title,
@@ -506,6 +597,443 @@ function FieldGrid({ rows }: { rows: { label: string; value: unknown }[] }) {
   );
 }
 
+function KeywordMatrixTable({
+  rows,
+  variant,
+}: {
+  rows: KeywordMatrixTerm[];
+  variant: "core" | "blue";
+}) {
+  if (!rows.length) {
+    return (
+      <div className="rounded-xl border border-dashed border-[#d8e0ea] bg-[#f8fafc] p-5 text-[13px] font-bold text-[#98A2B3]">
+        暂无可统计关键词数据
+      </div>
+    );
+  }
+
+  return (
+    <div className="overflow-x-auto rounded-2xl border border-[#edf1f6] bg-white">
+      <table className="w-full min-w-[860px] border-collapse">
+        <thead>
+          <tr className="bg-[#f8fafc] text-left text-[12px] font-extrabold text-[#86909C]">
+            <th className="px-4 py-3">关键词</th>
+            <th className="px-4 py-3 text-right">词频</th>
+            <th className="px-4 py-3 text-right">商品覆盖</th>
+            {variant === "blue" ? <th className="px-4 py-3 text-right">标题覆盖</th> : null}
+            {variant === "blue" ? <th className="px-4 py-3 text-right">需求信号</th> : <th className="px-4 py-3 text-right">销量权重</th>}
+            <th className="px-4 py-3">数据来源</th>
+            <th className="px-4 py-3">判断</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((item, index) => (
+            <tr key={`${item.keyword}-${index}`} className="border-t border-[#edf1f6] text-[13px] font-bold text-[#344054]">
+              <td className="max-w-[320px] break-words px-4 py-3.5 text-[14px] font-extrabold text-[#0A1B39]">{item.keyword}</td>
+              <td className="px-4 py-3.5 text-right text-[#0A1B39]">{textValue(item.frequency, "0")}</td>
+              <td className="px-4 py-3.5 text-right">{textValue(item.productCoverage, "0")}%</td>
+              {variant === "blue" ? <td className="px-4 py-3.5 text-right">{textValue(item.titleCoverage, "0")}%</td> : null}
+              <td className="px-4 py-3.5 text-right">
+                {variant === "blue" ? textValue(item.demandSignals, "0") : formatCount(Math.round(Number(item.salesSignal || 0)))}
+              </td>
+              <td className="max-w-[220px] px-4 py-3.5">
+                <div className="flex flex-wrap gap-1.5">
+                  {(item.sources || []).slice(0, 4).map((source) => (
+                    <span key={source} className="rounded-md bg-[#eef6ff] px-2 py-0.5 text-[11px] font-extrabold text-[#3388ff]">{source}</span>
+                  ))}
+                </div>
+              </td>
+              <td className="max-w-[340px] px-4 py-3.5 text-[12px] font-medium leading-5 text-[#667085]">{textValue(item.reason)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function KeywordMatrixSection({ matrix }: { matrix?: AnyRecord | null }) {
+  const coreKeywords = asArray<KeywordMatrixTerm>(matrix?.coreKeywords);
+  const blueOceanKeywords = asArray<KeywordMatrixTerm>(matrix?.blueOceanKeywords);
+  if (!coreKeywords.length && !blueOceanKeywords.length) return null;
+
+  return (
+    <SectionCard no="KW" title="关键词矩阵" subtitle="基于数据库里的商品标题、SKU、主图识别、评论和问大家文本统计。" tone="green">
+      <div className="mb-4 grid gap-3 md:grid-cols-3">
+        <div className="rounded-xl bg-[#f8fafc] p-4">
+          <p className="text-[12px] font-bold text-[#86909C]">覆盖商品</p>
+          <p className="mt-1 text-[18px] font-extrabold text-[#0A1B39]">{textValue(matrix?.productCount, "0")} 个</p>
+        </div>
+        <div className="rounded-xl bg-[#f8fafc] p-4">
+          <p className="text-[12px] font-bold text-[#86909C]">文本样本</p>
+          <p className="mt-1 text-[18px] font-extrabold text-[#0A1B39]">{textValue(matrix?.textSampleCount, "0")} 条</p>
+        </div>
+        <div className="rounded-xl bg-[#f8fafc] p-4">
+          <p className="text-[12px] font-bold text-[#86909C]">数据来源</p>
+          <p className="mt-1 text-[15px] font-extrabold text-[#0A1B39]">{firstAvailable(matrix?.source, "database")}</p>
+        </div>
+      </div>
+
+      <div className="space-y-5">
+        <div>
+          <h3 className="mb-3 text-[17px] font-extrabold text-[#0A1B39]">核心关键词数据</h3>
+          <KeywordMatrixTable rows={coreKeywords.slice(0, 5)} variant="core" />
+        </div>
+        <div>
+          <h3 className="mb-3 text-[17px] font-extrabold text-[#0A1B39]">蓝海词机会</h3>
+          <KeywordMatrixTable rows={blueOceanKeywords.slice(0, 5)} variant="blue" />
+        </div>
+      </div>
+    </SectionCard>
+  );
+}
+
+function RecommendationActionsSection({ actions }: { actions?: AnyRecord | null }) {
+  if (!actions || (!actions.actionPlan && !asArray(actions.positiveSellingPoints).length && !asArray(actions.negativePainPoints).length)) return null;
+  const actionPlan = actions.actionPlan || {};
+  const positiveRows = asArray<AnyRecord>(actions.positiveSellingPoints).slice(0, 3);
+  const painRows = asArray<AnyRecord>(actions.negativePainPoints).slice(0, 3);
+  const maxPainCount = Math.max(1, ...painRows.map((item) => numericValue(item.count) || 0));
+
+  return (
+    <SectionCard no="ACT" title="建议动作与评论反推" subtitle="基于数据库中的 SKU、评论、问大家、关键词矩阵和商品洞察生成。" tone="orange">
+      <div className="mb-5 rounded-xl border border-[#edf1f6] bg-[#f8fafc] p-4 text-[12px] font-bold leading-5 text-[#667085]">
+        {textValue(actions.dataNote, "基于当前报告关联数据生成。")}
+      </div>
+
+      <div className="mb-6 rounded-2xl border border-[#edf1f6] bg-white p-5">
+        <h3 className="mb-4 text-[18px] font-extrabold text-[#0A1B39]">建议动作</h3>
+        <div className="space-y-3 text-[14px] font-bold leading-6 text-[#344054]">
+          <p><span className="text-[#0A1B39]">标题结构建议：</span>{textValue(actionPlan.titleStructure)}</p>
+          <p><span className="text-[#0A1B39]">定价锚点：</span>{textValue(actionPlan.priceAnchor)}</p>
+          <p><span className="text-[#0A1B39]">Search Terms 关键词填充：</span>{textValue(actionPlan.searchTerms)}</p>
+          <div>
+            <p className="mb-2 text-[#0A1B39]">五点顺序：</p>
+            <div className="grid gap-2 md:grid-cols-5">
+              {asArray<string>(actionPlan.imageOrder).slice(0, 5).map((item, index) => (
+                <div key={`${item}-${index}`} className="rounded-xl bg-[#f8fafc] px-3 py-3 text-[12px] font-extrabold leading-5 text-[#344054]">
+                  <span className="mr-1 text-[#3388ff]">{index + 1}.</span>{item}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="mb-6">
+        <h3 className="mb-3 text-[18px] font-extrabold text-[#0A1B39]">好评卖点 Top 3</h3>
+        {positiveRows.length ? (
+          <div className="grid gap-4 md:grid-cols-3">
+            {positiveRows.map((item, index) => (
+              <div key={`${textValue(item.title)}-${index}`} className="rounded-2xl border border-[#edf1f6] bg-white p-5">
+                <p className="mb-2 text-[15px] font-extrabold text-[#0A1B39]">卖点 {index + 1}：{textValue(item.title)}</p>
+                <p className="text-[12px] font-bold text-[#86909C]">提及频次 {textValue(item.count, "0")} · 覆盖商品 {textValue(item.productCoverage, "0")} 个</p>
+                <p className="mt-3 text-[13px] font-bold leading-6 text-[#344054]">{textValue(item.action, "可放入主图/副图作为核心卖点验证。")}</p>
+                <div className="mt-3 space-y-2">
+                  {asArray<AnyRecord>(item.evidence).slice(0, 2).map((evidence, evidenceIndex) => (
+                    <p key={evidenceIndex} className="rounded-xl bg-[#f8fafc] px-3 py-2 text-[12px] font-medium leading-5 text-[#667085]">
+                      {textValue(evidence.text)}
+                    </p>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-xl border border-dashed border-[#d8e0ea] bg-[#f8fafc] p-5 text-[13px] font-bold text-[#98A2B3]">暂无好评卖点样本</div>
+        )}
+      </div>
+
+      <div>
+        <h3 className="mb-3 text-[18px] font-extrabold text-[#0A1B39]">差评痛点 Top 3（含反推卖点）</h3>
+        {painRows.length ? (
+          <div className="space-y-4">
+            {painRows.map((item, index) => {
+              const count = numericValue(item.count) || 0;
+              const width = count > 0 ? Math.max(8, Math.round((count / maxPainCount) * 100)) : 0;
+              return (
+                <div key={`${textValue(item.title)}-${index}`} className="rounded-2xl border border-[#edf1f6] bg-white p-5">
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                    <p className="text-[15px] font-extrabold text-[#0A1B39]">{textValue(item.title)} · {count} 条</p>
+                    <p className="text-[12px] font-bold text-[#86909C]">{asArray<string>(item.sources).join(" / ") || "数据库"}</p>
+                  </div>
+                  <div className="grid gap-3 md:grid-cols-[1fr_1fr]">
+                    <div className="space-y-2">
+                      {asArray<AnyRecord>(item.evidence).slice(0, 2).map((evidence, evidenceIndex) => (
+                        <p key={evidenceIndex} className="rounded-xl bg-[#f8fafc] px-3 py-2 text-[12px] font-medium leading-5 text-[#667085]">
+                          {textValue(evidence.text)}
+                        </p>
+                      ))}
+                      {!asArray(item.evidence).length ? (
+                        <p className="rounded-xl bg-[#f8fafc] px-3 py-2 text-[12px] font-medium leading-5 text-[#98A2B3]">
+                          当前缺少真实差评样本，以下为基于商品标题、主图识别和销售表现的反推验证项。
+                        </p>
+                      ) : null}
+                    </div>
+                    <div className="rounded-xl bg-[#fff7ed] px-4 py-3 text-[13px] font-bold leading-6 text-[#9a3412]">
+                      反推卖点：{textValue(item.reverseSellingPoint, "把该痛点转成图片里的明确承诺和证据。")}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="rounded-xl border border-dashed border-[#d8e0ea] bg-[#f8fafc] p-5 text-[13px] font-bold text-[#98A2B3]">暂无差评痛点样本</div>
+        )}
+      </div>
+    </SectionCard>
+  );
+}
+
+function PriceBandStrategySection({
+  report,
+  onOpenProducts,
+}: {
+  report: AnyRecord;
+  onOpenProducts: (band: string) => void;
+}) {
+  const bands = asArray<PriceBandSales>(report.salesAnalysis).filter((band) => textValue(band.band, ""));
+  if (!bands.length) return null;
+
+  const totalSold = bands.reduce((sum, band) => sum + (numericValue(band.totalSold) || 0), 0);
+  const totalSales = bands.reduce((sum, band) => sum + (numericValue(band.totalSales) || 0), 0);
+  const sellingByBand = new Map(asArray<PriceBandSelling>(report.sellingAnalysis).map((item) => [item.band, item]));
+  const demandByBand = new Map(asArray<PriceBandDemand>(report.demandAnalysis).map((item) => [item.band, item]));
+  const layoutByBand = new Map(asArray<LayoutSuggestion>(report.layoutSuggestions).map((item) => [item.band, item]));
+  const sortedBands = [...bands].sort((a, b) =>
+    (numericValue(b.totalSales) || 0) - (numericValue(a.totalSales) || 0)
+    || (numericValue(b.totalSold) || 0) - (numericValue(a.totalSold) || 0)
+    || (numericValue(b.competitorCount) || 0) - (numericValue(a.competitorCount) || 0)
+  );
+  const mainBand = sortedBands[0];
+  const lowBand = [...bands].sort((a, b) => (numericValue(a.avgPrice) || 0) - (numericValue(b.avgPrice) || 0))[0];
+  const highBand = [...bands].sort((a, b) => (numericValue(b.avgPrice) || 0) - (numericValue(a.avgPrice) || 0))[0];
+
+  const bandRole = (band: PriceBandSales) => {
+    if (band.band === mainBand?.band) return "主推承接";
+    if (band.band === lowBand?.band) return "引流/尝鲜";
+    if (band.band === highBand?.band) return "高客单/利润";
+    return "补充覆盖";
+  };
+
+  const bandSuggestion = (band: PriceBandSales) => {
+    const layout = layoutByBand.get(band.band);
+    const role = bandRole(band);
+    if (textValue(layout?.suggestion, "")) return textValue(layout?.suggestion);
+    if (role === "主推承接") return "作为当前最有销售验证的价格区间，主图优先承接该区间的高频卖点和用户需求。";
+    if (role === "引流/尝鲜") return "适合做低门槛尝鲜款，图片重点讲清数量、口味和到手价，避免承诺过度。";
+    if (role === "高客单/利润") return "适合用规格、品质、品牌背书或组合装支撑溢价，详情页补足价值解释。";
+    return "作为补充价格带观察，重点看是否有独立卖点或人群场景。";
+  };
+
+  return (
+    <SectionCard
+      no="¥"
+      title="价格区间分析"
+      subtitle={`生成时设置的价格范围为 ${textValue(report.priceRange)}，报告按已划分价格区间呈现竞品分布、销量销额和铺货建议。`}
+      tone="green"
+    >
+      <div className="mb-4 grid gap-3 md:grid-cols-4">
+        <div className="rounded-xl bg-[#f8fafc] p-4">
+          <p className="text-[12px] font-bold text-[#86909C]">有效价格区间</p>
+          <p className="mt-1 text-[18px] font-extrabold text-[#0A1B39]">{bands.length} 个</p>
+          <p className="mt-1 text-[12px] font-bold text-[#667085]">空区间不会进入报告</p>
+        </div>
+        <div className="rounded-xl bg-[#f8fafc] p-4">
+          <p className="text-[12px] font-bold text-[#86909C]">主力价格区间</p>
+          <p className="mt-1 text-[18px] font-extrabold text-[#0A1B39]">{textValue(mainBand?.band)}</p>
+          <p className="mt-1 text-[12px] font-bold text-[#667085]">按销售额/销量综合排序</p>
+        </div>
+        <div className="rounded-xl bg-[#f8fafc] p-4">
+          <p className="text-[12px] font-bold text-[#86909C]">样本总销量</p>
+          <p className="mt-1 text-[18px] font-extrabold text-[#0A1B39]">{totalSold > 0 ? formatCount(Math.round(totalSold)) : "暂无"}</p>
+        </div>
+        <div className="rounded-xl bg-[#f8fafc] p-4">
+          <p className="text-[12px] font-bold text-[#86909C]">样本总销售额</p>
+          <p className="mt-1 text-[18px] font-extrabold text-[#0A1B39]">{totalSales > 0 ? moneyText(totalSales) : "暂无"}</p>
+        </div>
+      </div>
+
+      <div className="overflow-x-auto rounded-2xl border border-[#edf1f6] bg-white">
+        <table className="w-full min-w-[1180px] border-collapse">
+          <thead>
+            <tr className="bg-[#f8fafc] text-left text-[12px] font-extrabold text-[#86909C]">
+              <th className="px-4 py-3">价格区间</th>
+              <th className="px-4 py-3">定位</th>
+              <th className="px-4 py-3 text-right">竞品数</th>
+              <th className="px-4 py-3 text-right">均价</th>
+              <th className="px-4 py-3 text-right">销量</th>
+              <th className="px-4 py-3 text-right">销售额</th>
+              <th className="px-4 py-3">占比</th>
+              <th className="px-4 py-3">核心卖点</th>
+              <th className="px-4 py-3">铺货/图片建议</th>
+              <th className="px-4 py-3">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {bands.map((band) => {
+              const sold = numericValue(band.totalSold) || 0;
+              const sales = numericValue(band.totalSales) || 0;
+              const soldShare = totalSold > 0 ? Math.round((sold / totalSold) * 100) : numericValue(band.share) || 0;
+              const salesShare = totalSales > 0 ? Math.round((sales / totalSales) * 100) : 0;
+              const selling = sellingByBand.get(band.band);
+              const demand = demandByBand.get(band.band);
+              const points = asArray(selling?.coreSellingPoints).map((item) => item.term).filter(Boolean).slice(0, 4);
+              const needs = asArray(demand?.unmetNeeds).slice(0, 2).filter(Boolean);
+              return (
+                <tr key={band.band} className="border-t border-[#edf1f6] text-[13px] font-bold text-[#344054]">
+                  <td className="px-4 py-4 font-extrabold text-[#0A1B39]">{band.band}</td>
+                  <td className="px-4 py-4">
+                    <span className="rounded-md bg-[#eef6ff] px-2 py-1 text-[12px] font-extrabold text-[#3388ff]">{bandRole(band)}</span>
+                  </td>
+                  <td className="px-4 py-4 text-right">{textValue(band.competitorCount, "0")}</td>
+                  <td className="px-4 py-4 text-right text-[#ff4d00]">{moneyText(band.avgPrice)}</td>
+                  <td className="px-4 py-4 text-right">{sold > 0 ? formatCount(Math.round(sold)) : "暂无"}</td>
+                  <td className="px-4 py-4 text-right">{sales > 0 ? moneyText(sales) : "暂无"}</td>
+                  <td className="px-4 py-4">
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <span className="w-10 text-[11px] text-[#86909C]">销量</span>
+                        <div className="h-2 w-[92px] rounded-full bg-[#eef2f7]">
+                          <div className="h-2 rounded-full bg-[#3388ff]" style={{ width: `${Math.min(100, soldShare)}%` }} />
+                        </div>
+                        <span className="text-[11px] text-[#3388ff]">{soldShare}%</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="w-10 text-[11px] text-[#86909C]">销额</span>
+                        <div className="h-2 w-[92px] rounded-full bg-[#eef2f7]">
+                          <div className="h-2 rounded-full bg-[#16a34a]" style={{ width: `${Math.min(100, salesShare)}%` }} />
+                        </div>
+                        <span className="text-[11px] text-[#16a34a]">{salesShare}%</span>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="max-w-[220px] px-4 py-4 leading-5">
+                    {points.length ? points.join("、") : needs.length ? needs.join("、") : "暂无"}
+                  </td>
+                  <td className="max-w-[300px] px-4 py-4 text-[12px] font-medium leading-5 text-[#667085]">{bandSuggestion(band)}</td>
+                  <td className="px-4 py-4">
+                    <button onClick={() => onOpenProducts(band.band)} className="text-[13px] font-extrabold text-[#3388ff] hover:text-[#1a6fe8]">
+                      查看商品
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </SectionCard>
+  );
+}
+
+function ListingSellingPointsSection({ points }: { points?: AnyRecord | null }) {
+  const mainPoints = asArray<AnyRecord>(points?.mainImageSellingPoints);
+  const detailPoints = asArray<AnyRecord>(points?.detailPageSellingPoints);
+  if (!mainPoints.length && !detailPoints.length) return null;
+
+  return (
+    <SectionCard no="SELL" title="主图卖点与详情页卖点" subtitle="基于竞品主图、评论/问大家、关键词矩阵和痛点反推生成。" tone="purple">
+      {/* 综合总结话术 */}
+      <div className="mb-6 rounded-xl border border-[#e0e7ff] bg-[#f5f7ff] p-5 text-[14px] font-bold leading-7 text-[#1e293b]">
+        <p className="mb-2 text-[12px] font-extrabold uppercase tracking-wider text-[#7c3aed]">主图卖点分析总结</p>
+        {textValue(points?.summary, "主图负责第一眼转化，详情页负责证据解释、规格说明和痛点消除。")}
+      </div>
+
+      {/* 推荐主图文案 */}
+      {textValue(points?.imageTextCopy, "") && (
+        <div className="mb-6 rounded-xl border border-[#d1fae5] bg-[#ecfdf5] p-5">
+          <p className="mb-3 text-[13px] font-extrabold text-[#059669]">推荐主图文案</p>
+          {textValue(points?.imageTextCopy, "").split("\n").map((line, i) => {
+            const trimmed = line.trim();
+            if (!trimmed) return null;
+            if (trimmed.startsWith("【布局建议】")) {
+              return <p key={i} className="mb-3 text-[13px] font-bold leading-6 text-[#374151]">{trimmed}</p>;
+            }
+            if (trimmed.startsWith("【推荐主图文案】")) {
+              return <p key={i} className="mb-2 text-[12px] font-extrabold text-[#059669]">推荐文案：</p>;
+            }
+            const match = trimmed.match(/^(\d+)\.\s*大字：「(.+?)」\s*\|\s*副文案：(.+?)\s*\|\s*位置：(.+)$/);
+            if (match) {
+              return (
+                <div key={i} className="mb-2 flex items-start gap-3 rounded-lg border border-[#d1fae5] bg-white px-4 py-3">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[#059669] text-[11px] font-extrabold text-white">{match[1]}</span>
+                  <div>
+                    <span className="text-[18px] font-extrabold text-[#0A1B39]">「{match[2]}」</span>
+                    {match[3] && match[3] !== "（无）" && <span className="ml-3 text-[12px] font-bold text-[#667085]">{match[3]}</span>}
+                    <span className="ml-3 text-[11px] font-bold text-[#86909C]">@ {match[4]}</span>
+                  </div>
+                </div>
+              );
+            }
+            return <p key={i} className="text-[12px] font-medium text-[#667085]">{trimmed}</p>;
+          })}
+        </div>
+      )}
+
+      {/* 主图卖点紧凑列表 */}
+      {mainPoints.length > 0 && (
+        <div className="mb-6">
+          <h3 className="mb-3 text-[16px] font-extrabold text-[#0A1B39]">主图卖点参考</h3>
+          <div className="space-y-2">
+            {mainPoints.map((item, index) => (
+              <div key={`${textValue(item.title)}-${index}`} className="flex items-start gap-3 rounded-xl border border-[#edf1f6] bg-white px-4 py-3">
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[#eef2ff] text-[12px] font-extrabold text-[#4f46e5]">
+                  {textValue(item.priority, String(index + 1))}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-[14px] font-extrabold text-[#0A1B39]">{textValue(item.title)}</span>
+                    <span className="text-[11px] font-bold text-[#86909C]">{asArray<string>(item.source).join(" / ") || "数据库"}</span>
+                  </div>
+                  <p className="mt-1 text-[12px] font-medium leading-5 text-[#667085]">
+                    {textValue(item.dataBasis)}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div>
+        <h3 className="mb-3 text-[18px] font-extrabold text-[#0A1B39]">详情页卖点</h3>
+        <div className="overflow-x-auto rounded-2xl border border-[#edf1f6] bg-white">
+          <table className="w-full min-w-[920px] border-collapse">
+            <thead>
+              <tr className="bg-[#f8fafc] text-left text-[12px] font-extrabold text-[#86909C]">
+                <th className="px-4 py-3">顺序</th>
+                <th className="px-4 py-3">详情模块</th>
+                <th className="px-4 py-3">内容重点</th>
+                <th className="px-4 py-3">证据点</th>
+                <th className="px-4 py-3">建议位置</th>
+              </tr>
+            </thead>
+            <tbody>
+              {detailPoints.map((item, index) => (
+                <tr key={`${textValue(item.title)}-${index}`} className="border-t border-[#edf1f6] text-[13px] font-bold text-[#344054]">
+                  <td className="px-4 py-4 text-[#7c3aed]">#{textValue(item.priority, String(index + 1))}</td>
+                  <td className="max-w-[220px] px-4 py-4 font-extrabold text-[#0A1B39]">{textValue(item.title)}</td>
+                  <td className="max-w-[320px] px-4 py-4 leading-6">{textValue(item.contentFocus)}</td>
+                  <td className="max-w-[300px] px-4 py-4">
+                    <div className="space-y-1.5">
+                      {asArray<string>(item.proofPoints).length ? asArray<string>(item.proofPoints).map((proof, proofIndex) => (
+                        <p key={proofIndex} className="rounded-lg bg-[#f8fafc] px-2.5 py-1.5 text-[12px] font-medium leading-5 text-[#667085]">{proof}</p>
+                      )) : <span className="text-[#98A2B3]">暂无</span>}
+                    </div>
+                  </td>
+                  <td className="px-4 py-4 text-[#3388ff]">{textValue(item.recommendedModule)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </SectionCard>
+  );
+}
+
 function StrategyReportBody({
   report,
   onOpenProducts,
@@ -520,6 +1048,7 @@ function StrategyReportBody({
   const consumerDemand = report.consumer_demand_analysis || {};
   const positioning = report.product_positioning_visual_strategy || {};
   const decision = report.final_image_decision_card || {};
+  const recommendationActions = report.recommendationActions || {};
 
   const salesRows = asArray(salesStructure.price_band_analysis).length
     ? asArray<AnyRecord>(salesStructure.price_band_analysis)
@@ -546,7 +1075,7 @@ function StrategyReportBody({
         monthly_sales: product.totalSold,
         monthly_sales_amount: product.totalSales,
         rating: "暂无",
-        core_selling_points: product.skus.slice(0, 2).map((sku) => sku.name).join("、"),
+        core_selling_points: cleanSellingPointText((product as AnyRecord).sellingPoints, product.title, report.keyword),
         representative_reason: `${band.band} 代表商品`,
       })),
     ).slice(0, 8);
@@ -576,6 +1105,14 @@ function StrategyReportBody({
         market_gap: "待挖掘",
       })),
     ).slice(0, 8);
+  const recommendationNeedTerms = uniqueTerms([
+    ...asArray<AnyRecord>(recommendationActions.positiveSellingPoints).map((item) => firstAvailable(item.title, item.user_benefit, "")),
+    ...asArray<AnyRecord>(recommendationActions.negativePainPoints).map((item) => firstAvailable(item.title, item.reverseSellingPoint, "")),
+  ], 8);
+  const recommendationEvidence = [
+    ...asArray<AnyRecord>(recommendationActions.positiveSellingPoints).flatMap((item) => asArray<AnyRecord>(item.evidence).map((ev) => textValue(ev.text, ""))),
+    ...asArray<AnyRecord>(recommendationActions.negativePainPoints).flatMap((item) => asArray<AnyRecord>(item.evidence).map((ev) => textValue(ev.text, ""))),
+  ].filter(Boolean).slice(0, 3);
 
   const imagePlan = asArray<AnyRecord>(report.listing_image_overall_plan).length
     ? asArray<AnyRecord>(report.listing_image_overall_plan)
@@ -618,27 +1155,49 @@ function StrategyReportBody({
 
   const productName = firstAvailable(scope.product_name, report.keyword);
   const platformName = firstAvailable(scope.amazon_site, scope.platform, "淘宝/天猫");
-  const dataSourceName = firstAvailable(scope.data_sources, report.source);
+  const dataSourceName = Array.isArray(scope.data_sources)
+    ? listText(scope.data_sources.map((item) => textValue(item, "")).filter(Boolean), firstAvailable(report.source))
+    : firstAvailable(scope.data_sources, report.source);
   const dataTime = firstAvailable(scope.data_time, report.collectTime);
-  const sampleCountText = firstAvailable(scope.product_sample_count, report.competitorCount);
+  const sampleCountText = firstAvailable(scope.product_sample_count, scope.sample_product_count, report.competitorCount);
   const validCountText = firstAvailable(scope.valid_product_count, report.competitorCount);
   const reviewSampleCount =
-    numericValue(firstAvailable(scope.review_sample_count, consumerDemand.review_sample_count, report.reviewCount, report.reviewSampleCount, ""));
-  const totalSoldNumber = sumNumeric(salesRows, [
+    numericValue(firstAvailable(scope.review_sample_count, consumerDemand.review_sample_count, recommendationActions.reviewCount, report.reviewCount, report.reviewSampleCount, ""));
+  const metricRows = asArray<AnyRecord>(report.salesAnalysis).length
+    ? asArray<AnyRecord>(report.salesAnalysis)
+    : asArray<AnyRecord>(report.price_band_report).length
+      ? asArray<AnyRecord>(report.price_band_report)
+      : salesRows;
+  const summedSoldNumber = sumNumeric(metricRows, [
     "totalSold",
     "total_sold",
+    "sold_count_total",
+    "soldCountTotal",
     "total_sales_volume",
     "monthly_sales",
     "sales_volume",
     "sales_count",
   ]);
-  const totalSalesNumber = sumNumeric(salesRows, [
+  const summedSalesNumber = sumNumeric(metricRows, [
     "totalSales",
     "total_sales",
+    "sales_amount_total",
+    "salesAmountTotal",
     "total_sales_amount",
     "monthly_sales_amount",
     "sales_amount",
   ]);
+  const totalSoldNumber = numericValue(firstAvailable(
+    conclusions.core_metrics?.total_sold_count,
+    conclusions.core_metrics?.sample_total_sold_count,
+    conclusions.core_metrics?.sample_total_sales_volume,
+    summedSoldNumber > 0 ? summedSoldNumber : "",
+  )) ?? 0;
+  const totalSalesNumber = numericValue(firstAvailable(
+    conclusions.core_metrics?.total_sales_amount,
+    conclusions.core_metrics?.sample_total_sales_amount,
+    summedSalesNumber > 0 ? summedSalesNumber : "",
+  )) ?? 0;
   const avgPriceNumber =
     numericValue(conclusions.core_metrics?.average_price) ??
     numericValue(report.avgPrice) ??
@@ -650,7 +1209,9 @@ function StrategyReportBody({
       sold: numericValue(firstAvailable(product.monthly_sales, product.totalSold, "")),
       sales: numericValue(firstAvailable(product.monthly_sales_amount, product.totalSales, "")),
       reason: firstAvailable(product.representative_reason, "代表商品"),
-      sellingPoints: textValue(product.core_selling_points, ""),
+      sellingPoints: Array.isArray(product.core_selling_points)
+        ? cleanSellingPointText(product.core_selling_points, product.brand_model || product.title, report.keyword)
+        : textValue(product.core_selling_points, ""),
     }))
     .sort((a, b) => (b.sales || 0) - (a.sales || 0) || (b.sold || 0) - (a.sold || 0));
   const topProduct = overviewProducts[0];
@@ -659,7 +1220,10 @@ function StrategyReportBody({
     8,
   );
   const demandTerms = uniqueTerms(
-    needRows.flatMap((item) => toTermList(firstAvailable(item.user_need, item.need, item.pain_point), 4)),
+    [
+      ...needRows.flatMap((item) => toTermList(firstAvailable(item.user_need, item.need, item.pain_point), 4)),
+      ...recommendationNeedTerms,
+    ],
     8,
   );
   const imageModules = uniqueTerms(
@@ -678,9 +1242,11 @@ function StrategyReportBody({
     }，销额 ${product.sales != null ? moneyText(product.sales) : "暂无"}）`;
   const highProductText = listText(topProducts.map(formatOverviewProduct), "高销量/高销额代表商品样本不足");
   const comparisonProductText = listText(comparisonProducts.map(formatOverviewProduct), "普通或低表现商品样本不足");
+  const mainstreamPriceBand = firstAvailable(conclusions.core_metrics?.mainstream_price_band, report.priceRange);
+  const hasReviewQaSamples = Boolean(reviewSampleCount && reviewSampleCount > 0);
   const reviewQaEvidenceText = reviewSampleCount && reviewSampleCount > 0
-    ? `已纳入 ${formatCount(Math.round(reviewSampleCount))} 条评价/问大家样本，重点关注 ${demandFocus}。`
-    : "评价/问大家样本不足，先以商品标题、SKU、主图识别和销量表现判断；补齐后建议刷新需求优先级。";
+    ? `已纳入 ${formatCount(Math.round(reviewSampleCount))} 条评价正文/追评样本，重点关注 ${demandFocus}${recommendationEvidence.length ? `；代表评价：${listText(recommendationEvidence.map((item) => `“${shortText(item, 42)}”`), "")}` : ""}。`
+    : "评价/问大家样本不足，先以商品标题、主图识别和销量表现判断；补齐后建议刷新需求优先级。";
   const normalizeComparedProducts = (value: unknown) => {
     const fromArray = asArray<unknown>(value).map((item) => textValue(item, "")).filter(Boolean);
     return fromArray.length ? fromArray : toTermList(value, 8);
@@ -692,6 +1258,7 @@ function StrategyReportBody({
   const normalizedAiDirections = aiDifferentiationRows
     .map((item, index) => {
       const comparedProducts = normalizeComparedProducts(firstAvailable(item.compared_products, item.comparedProducts, ""));
+      const score = firstAvailable(item.opportunity_score, item.opportunityScore, {});
       return {
         title: textValue(firstAvailable(item.direction_title, item.title, `方向 ${index + 1}`), `方向 ${index + 1}`),
         body: textValue(firstAvailable(item.market_meaning, item.body, item.analysis, "同类竞品之间的差异化机会需要结合销量、评价和问大家判断。")),
@@ -699,6 +1266,7 @@ function StrategyReportBody({
         compared: listText(comparedProducts, ""),
         salesEvidence: textValue(firstAvailable(item.sales_evidence, item.data_basis, ""), ""),
         reviewQaEvidence: textValue(firstAvailable(item.review_qa_evidence, item.qa_evidence, item.review_evidence, ""), ""),
+        score: score && typeof score === "object" ? score as AnyRecord : {},
       };
     })
     .filter((item) => item.title && item.title !== "暂无");
@@ -710,16 +1278,18 @@ function StrategyReportBody({
       compared: "",
       salesEvidence: "",
       reviewQaEvidence: "",
+      score: {},
     }))
     .filter((item) => item.title && item.title !== "暂无");
   const fallbackDirections = [
     {
       title: `方向 1：「${primarySellingPoint}」—— 对标高表现商品的明确利益表达`,
-      body: `切入：在同类 ${productName} 中，高销量/高销额商品通常不是单纯堆参数，而是把核心利益讲得更清楚；普通商品容易停留在标题和 SKU 信息，购买理由不够集中。`,
+      body: `切入：在同类 ${productName} 中，高销量/高销额商品通常不是单纯堆参数，而是把核心利益讲得更清楚；普通商品容易停留在泛化标题和常规主图，购买理由不够集中。`,
       image: `图片策略：前 2-4 张图优先突出 ${listText(highSellingTerms.slice(0, 4), primarySellingPoint)}，用场景、对比和局部细节证明，而不是堆叠过多文字。`,
       compared: `高表现：${highProductText}；对照：${comparisonProductText}`,
       salesEvidence: `样本总销量 ${totalSoldNumber > 0 ? formatCount(Math.round(totalSoldNumber)) : "暂无"}，样本总销售额 ${totalSalesNumber > 0 ? moneyText(totalSalesNumber) : "暂无"}。`,
       reviewQaEvidence: reviewQaEvidenceText,
+      score: { overall_score: 17, sales_validation_score: 5, demand_strength_score: reviewSampleCount ? 4 : 2, competitor_gap_score: 4, visual_expression_score: 4, score_reason: "高表现商品销售验证较强，卖点适合转成图片证据。" },
     },
     {
       title: `方向 2：「${secondarySellingPoint}」—— 用图片结构拉开同质竞品`,
@@ -728,27 +1298,42 @@ function StrategyReportBody({
       compared: `高表现：${highProductText}；对照：${comparisonProductText}`,
       salesEvidence: `代表商品按销量、销额和价格综合排序，避免只看单个低价爆款。`,
       reviewQaEvidence: reviewQaEvidenceText,
+      score: { overall_score: 16, sales_validation_score: 4, demand_strength_score: reviewSampleCount ? 4 : 2, competitor_gap_score: 3, visual_expression_score: 5, score_reason: "同质主图中，图位结构和证据表达有较高可视化空间。" },
     },
     {
-      title: `方向 3：「${demandFocus}」—— 从评价/问大家反推竞品缺口`,
-      body: `切入：用户在评价或问大家里反复确认的问题，就是同类竞品最需要被图片提前回答的转化阻力。`,
-      image: `图片策略：把用户最担心的问题转成视觉证据，例如使用场景、前后对比、尺寸/参数、材质细节、包装和售后保障，让图片直接回答“为什么买你”。`,
+      title: hasReviewQaSamples
+        ? `方向 3：「${demandFocus}」—— 从评价/问大家反推竞品缺口`
+        : `方向 3：「${mainstreamPriceBand}」—— 用高销价带校准主图承诺`,
+      body: hasReviewQaSamples
+        ? `切入：用户在评价或问大家里反复确认的问题，就是同类竞品最需要被图片提前回答的转化阻力。`
+        : `切入：这批商品没有可用评价/问大家样本，不能硬推消费者原话；应先用销量、销额、价格带和商品标题判断用户愿意为哪些购买理由买单。`,
+      image: hasReviewQaSamples
+        ? `图片策略：把用户最担心的问题转成视觉证据，例如使用场景、前后对比、尺寸/参数、材质细节、包装和售后保障，让图片直接回答“为什么买你”。`
+        : `图片策略：围绕 ${mainstreamPriceBand} 的成交价格承诺组织主图文案，优先讲清 ${listText(highSellingTerms.slice(0, 3), primarySellingPoint)}，少放无法从数据验证的主观判断。`,
       compared: `高表现：${highProductText}；对照：${comparisonProductText}`,
-      salesEvidence: `价格范围 ${report.priceRange}，用销量/销额高的商品验证需求优先级。`,
+      salesEvidence: `价格范围 ${firstAvailable(report.priceRange, mainstreamPriceBand)}，主流贡献价带 ${mainstreamPriceBand}，用销量/销额高的商品验证主图卖点优先级。`,
       reviewQaEvidence: reviewQaEvidenceText,
+      score: { overall_score: reviewSampleCount ? 18 : 12, sales_validation_score: 4, demand_strength_score: reviewSampleCount ? 5 : 2, competitor_gap_score: 4, visual_expression_score: 5, score_reason: "评价/问大家越充分，痛点解决图越值得前置。" },
     },
   ];
+  const scoredAiDirections = normalizedAiDirections.filter((item) => numericValue((item.score as AnyRecord)?.overall_score) != null);
+  const hasWeakReviewFallbackDirection = !hasReviewQaSamples && scoredAiDirections.some((item) => {
+    const text = [item.title, item.body, item.reviewQaEvidence, textValue((item.score as AnyRecord)?.score_reason, "")]
+      .join(" ");
+    return text.includes("本地兜底") || text.includes("评价/问大家反推") || text.includes("真实评价/问大家");
+  });
   const overviewDirections = (
-    normalizedAiDirections.length
-      ? normalizedAiDirections
-      : normalizedVisualDirections.length
-        ? normalizedVisualDirections
-        : fallbackDirections
+    scoredAiDirections.length && !hasWeakReviewFallbackDirection
+      ? scoredAiDirections
+      : fallbackDirections.length
+        ? fallbackDirections
+        : normalizedVisualDirections
   ).slice(0, 3);
   const dbCompetitorRows = asArray<PriceBandProducts>(report.priceBandProducts).flatMap((band) =>
     asArray<AnyRecord>((band as AnyRecord).products).map((product) => {
       const productRecord = product as AnyRecord;
       const skus = asArray<AnyRecord>(productRecord.skus);
+      const title = textValue(firstAvailable(productRecord.title, productRecord.brand_or_model, productRecord.brand_model, productRecord.name), "暂无");
       const skuPrices = skus
         .map((sku) => numericValue(firstAvailable(sku.price, sku.salePrice, sku.discountPrice, sku.skuPrice)))
         .filter((value): value is number => value != null && value > 0);
@@ -791,17 +1376,15 @@ function StrategyReportBody({
         productRecord.questions?.length,
         productRecord.askItems?.length,
       ));
-      const sellingPointText = firstAvailable(
+      const sellingPointText = cleanSellingPointText(pickSellingPointValue(
         productRecord.core_selling_points,
         productRecord.sellingPoints,
         productRecord.imageSellingPoints,
-        skus.map((sku) => textValue(firstAvailable(sku.name, sku.skuName), "")).filter(Boolean).slice(0, 3).join("、"),
-        productRecord.representative_reason,
-      );
+      ), title, report.keyword);
 
       return {
         id: textValue(productRecord.id ?? productRecord.itemId ?? productRecord.product_id, ""),
-        title: textValue(firstAvailable(productRecord.title, productRecord.brand_or_model, productRecord.brand_model, productRecord.name), "暂无"),
+        title,
         shopName: textValue(productRecord.shopName ?? productRecord.shop_name ?? productRecord.shop, ""),
         url: textValue(productRecord.productUrl ?? productRecord.product_url ?? productRecord.url, ""),
         priceText: minPrice != null && maxPrice != null && minPrice !== maxPrice
@@ -815,7 +1398,7 @@ function StrategyReportBody({
         imageCount,
         reviewCount,
         qaCount,
-        sellingPoints: shortText(sellingPointText, 72),
+        sellingPoints: shortText(sellingPointText || titleSellingPoints(title, report.keyword), 72),
       };
     })
   );
@@ -839,16 +1422,16 @@ function StrategyReportBody({
       imageCount: numericValue(firstAvailable(item.imageCount, item.image_count)),
       reviewCount: numericValue(firstAvailable(item.reviewCount, item.review_count)),
       qaCount: numericValue(firstAvailable(item.qaCount, item.qa_count)),
-      sellingPoints: shortText(firstAvailable(item.core_selling_points, item.representative_reason, item.selling_points), 72),
+      sellingPoints: shortText(cleanSellingPointText(pickSellingPointValue(item.core_selling_points, item.selling_points), item.title || item.brand_model, report.keyword), 72),
     };
   });
   const seenCompetitorKeys = new Set<string>();
   const competitorTopRows = [...dbCompetitorRows, ...aiCompetitorRows]
     .filter((item) => item.title && item.title !== "暂无")
     .filter((item) => {
-      const key = item.id && item.id !== "暂无" ? item.id : item.title;
-      if (seenCompetitorKeys.has(key)) return false;
-      seenCompetitorKeys.add(key);
+      const keys = competitorIdentityKeys(item);
+      if (keys.some((key) => seenCompetitorKeys.has(key))) return false;
+      keys.forEach((key) => seenCompetitorKeys.add(key));
       return true;
     })
     .sort((a, b) =>
@@ -857,6 +1440,10 @@ function StrategyReportBody({
       || (b.priceSort ?? 0) - (a.priceSort ?? 0)
     )
     .slice(0, 10);
+  const competitorSampleCount = numericValue(report.competitorCount) ?? dbCompetitorRows.length;
+  const competitorShortageText = competitorTopRows.length > 0 && competitorTopRows.length < 10
+    ? `当前报告只入库 ${competitorSampleCount || competitorTopRows.length} 个有效竞品，因此这里只展示 ${competitorTopRows.length} 个；需要 Top10 请在 AI 数据采集里把竞品数量设为 10 个以上后重新生成报告。`
+    : "";
 
   return (
     <>
@@ -873,13 +1460,17 @@ function StrategyReportBody({
             <div className="rounded-xl bg-white p-4">
               <p className="text-[12px] font-bold text-[#86909C]">样本总销量</p>
               <p className="mt-1 text-[18px] font-extrabold text-[#0A1B39]">
-                {firstAvailable(conclusions.core_metrics?.sample_total_sales_volume, totalSoldNumber > 0 ? formatCount(Math.round(totalSoldNumber)) : "")}
+                {totalSoldNumber > 0
+                  ? formatCount(Math.round(totalSoldNumber))
+                  : firstAvailable(conclusions.core_metrics?.sample_total_sales_volume, conclusions.core_metrics?.sample_total_sold_count, conclusions.core_metrics?.total_sold_count)}
               </p>
             </div>
             <div className="rounded-xl bg-white p-4">
               <p className="text-[12px] font-bold text-[#86909C]">样本总销售额</p>
               <p className="mt-1 text-[18px] font-extrabold text-[#0A1B39]">
-                {firstAvailable(conclusions.core_metrics?.sample_total_sales_amount, totalSalesNumber > 0 ? moneyText(totalSalesNumber) : "")}
+                {totalSalesNumber > 0
+                  ? moneyText(totalSalesNumber)
+                  : firstAvailable(conclusions.core_metrics?.sample_total_sales_amount, conclusions.core_metrics?.total_sales_amount)}
               </p>
             </div>
             <div className="rounded-xl bg-white p-4">
@@ -900,9 +1491,34 @@ function StrategyReportBody({
           <div className="space-y-3">
             {overviewDirections.map((direction, index) => (
               <div key={direction.title} className="rounded-2xl border border-[#eef1f5] bg-white p-5">
-                <p className="text-[15px] font-extrabold leading-6 text-[#0A1B39]">{direction.title}</p>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <p className="text-[15px] font-extrabold leading-6 text-[#0A1B39]">{direction.title}</p>
+                  {numericValue((direction.score as AnyRecord)?.overall_score) != null ? (
+                    <div className="rounded-full bg-[#eef4ff] px-3 py-1 text-[12px] font-extrabold text-[#3388ff]">
+                      机会分 {numericValue((direction.score as AnyRecord)?.overall_score)}
+                    </div>
+                  ) : null}
+                </div>
                 <p className="mt-2 text-[13px] font-medium leading-6 text-[#667085]">{direction.body}</p>
                 <p className="mt-2 text-[13px] font-bold leading-6 text-[#3388ff]">{direction.image}</p>
+                {numericValue((direction.score as AnyRecord)?.overall_score) != null ? (
+                  <div className="mt-3 grid gap-2 md:grid-cols-4">
+                    {[
+                      ["销量验证", (direction.score as AnyRecord)?.sales_validation_score],
+                      ["需求强度", (direction.score as AnyRecord)?.demand_strength_score],
+                      ["竞品缺口", (direction.score as AnyRecord)?.competitor_gap_score],
+                      ["图片可表达", (direction.score as AnyRecord)?.visual_expression_score],
+                    ].map(([label, value]) => (
+                      <div key={label} className="rounded-xl bg-[#f8fafc] px-3 py-2">
+                        <p className="text-[11px] font-bold text-[#98A2B3]">{label}</p>
+                        <p className="mt-1 text-[14px] font-extrabold text-[#0A1B39]">{numericValue(value) ?? "暂无"}/5</p>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+                {textValue((direction.score as AnyRecord)?.score_reason, "") ? (
+                  <p className="mt-2 text-[12px] font-bold leading-5 text-[#86909C]">评分依据：{textValue((direction.score as AnyRecord)?.score_reason, "")}</p>
+                ) : null}
                 {direction.compared || direction.salesEvidence || direction.reviewQaEvidence ? (
                   <div className="mt-3 space-y-1 rounded-xl bg-[#f8fafc] px-4 py-3 text-[12px] font-bold leading-5 text-[#667085]">
                     {direction.compared ? <p>对比商品：{direction.compared}</p> : null}
@@ -920,12 +1536,19 @@ function StrategyReportBody({
         </div>
       </SectionCard>
 
+      <PriceBandStrategySection report={report} onOpenProducts={onOpenProducts} />
+
       <SectionCard
         no="01"
         title={`竞品 Top ${competitorTopRows.length ? Math.min(10, competitorTopRows.length) : ""}`.trim()}
         subtitle="按数据库已有的销售额、销量、价格、SKU、图片、评价和问大家字段排序；缺失指标显示暂无。"
         tone="blue"
       >
+        {competitorShortageText ? (
+          <div className="mb-4 rounded-xl border border-[#dbeafe] bg-[#eff6ff] px-4 py-3 text-[13px] font-bold leading-5 text-[#2563eb]">
+            {competitorShortageText}
+          </div>
+        ) : null}
         {competitorTopRows.length ? (
           <div className="overflow-x-auto rounded-2xl border border-[#edf1f6]">
             <table className="w-full min-w-[1080px] border-collapse bg-white">
@@ -983,6 +1606,12 @@ function StrategyReportBody({
           </div>
         )}
       </SectionCard>
+
+      <KeywordMatrixSection matrix={report.keywordMatrix} />
+
+      <RecommendationActionsSection actions={report.recommendationActions} />
+
+      <ListingSellingPointsSection points={report.listingSellingPoints} />
 
       {false && (
         <>
@@ -1073,7 +1702,9 @@ function StrategyReportBody({
                     <td className="px-4 py-3 text-[13px] font-bold text-[#344054]">{textValue(product.monthly_sales)}</td>
                     <td className="px-4 py-3 text-[13px] font-bold text-[#344054]">{moneyText(product.monthly_sales_amount)}</td>
                     <td className="px-4 py-3 text-[13px] font-bold text-[#344054]">{textValue(product.rating)}</td>
-                    <td className="px-4 py-3 text-[13px] font-medium text-[#344054] max-w-[260px]">{textValue(product.core_selling_points)}</td>
+                    <td className="px-4 py-3 text-[13px] font-medium text-[#344054] max-w-[260px]">
+                      {cleanSellingPointText(product.core_selling_points, firstAvailable(product.brand_model, product.title), report.keyword) || "暂无"}
+                    </td>
                     <td className="px-4 py-3 text-[13px] font-medium text-[#667085]">{textValue(product.representative_reason)}</td>
                   </tr>
                 ))}

@@ -261,8 +261,9 @@ export function MarketReport() {
   const [productOptionsLoading, setProductOptionsLoading] = useState(false);
   const [openAiSettings, setOpenAiSettings] = useState<OpenAiSettings | null>(null);
   const [openAiApiKey, setOpenAiApiKey] = useState("");
-  const [openAiModel, setOpenAiModel] = useState("doubao-seed-2-0-pro-260215");
+  const [openAiModel, setOpenAiModel] = useState("doubao-seed-2-1-pro-260628");
   const [savingOpenAi, setSavingOpenAi] = useState(false);
+  const [testingOpenAi, setTestingOpenAi] = useState(false);
   const [settingsMessage, setSettingsMessage] = useState("");
   const [payload, setPayload] = useState<ReportPayload | null>(null);
   const [reportJob, setReportJob] = useState<ReportJob | null>(null);
@@ -448,6 +449,30 @@ export function MarketReport() {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setSavingOpenAi(false);
+    }
+  }
+
+  async function testOpenAiConfig() {
+    setTestingOpenAi(true);
+    setSettingsMessage("");
+    setError("");
+    try {
+      const response = await fetch("/api/report/openai-settings/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          imageUrl: "https://ark-project.tos-cn-beijing.volces.com/doc_image/ark_demo_img_1.png",
+          text: "你看见了什么？",
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.ok) throw new Error(data.error || "豆包 Ark 连接测试失败");
+      const preview = String(data.text || "").replace(/\s+/g, " ").slice(0, 120);
+      setSettingsMessage(`连接成功：${data.model || openAiModel}${preview ? ` · ${preview}` : ""}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setTestingOpenAi(false);
     }
   }
 
@@ -699,7 +724,7 @@ export function MarketReport() {
               placeholder={openAiSettings?.configured ? "留空则继续使用已保存的 key" : "填写 ark-..."}
             />
           </div>
-          <div className="w-[150px] shrink-0">
+          <div className="w-[240px] shrink-0">
             <FieldLabel>模型</FieldLabel>
             <input
               value={openAiModel}
@@ -714,6 +739,14 @@ export function MarketReport() {
           >
             {savingOpenAi ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
             保存
+          </button>
+          <button
+            onClick={testOpenAiConfig}
+            disabled={testingOpenAi || !openAiSettings?.configured}
+            className="flex h-10 w-[120px] shrink-0 items-center justify-center gap-2 rounded-lg border border-[#dce3ee] bg-white text-[13px] font-extrabold text-[#344054] disabled:cursor-not-allowed disabled:text-[#98A2B3]"
+          >
+            {testingOpenAi ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            测试连接
           </button>
         </div>
 

@@ -477,24 +477,49 @@ def clean_review_comment_rows(sidecar_file: Path) -> list[dict[str, Any]]:
         payload = json.loads(sidecar_file.read_text(encoding="utf-8"))
     except Exception:
         return []
+
+    # 新格式：review_comments.json 包含 workbook_files，需要从 xlsx 解析评论
+    workbook_files = payload.get("workbook_files") if isinstance(payload, dict) else []
+    if isinstance(workbook_files, list) and workbook_files:
+        fallback_product_id = normalize_text(payload.get("product_id")) if isinstance(payload, dict) else None
+        all_rows = []
+        for wb_path_str in workbook_files:
+            wb_path = Path(wb_path_str)
+            if not wb_path.exists():
+                continue
+            try:
+                xlsx_rows = read_first_sheet(wb_path)
+                all_rows.extend(xlsx_rows)
+            except Exception:
+                continue
+        if all_rows:
+            return _build_review_rows_from_dicts(all_rows, fallback_product_id, str(sidecar_file))
+
+    # 旧格式：review_comments.json 直接包含 rows 数组
     rows = payload.get("rows") if isinstance(payload, dict) else []
     if not isinstance(rows, list):
         return []
     fallback_product_id = normalize_text(payload.get("product_id")) if isinstance(payload, dict) else None
+    return _build_review_rows_from_dicts(rows, fallback_product_id, str(sidecar_file))
+
+
+def _build_review_rows_from_dicts(rows: list[dict], fallback_product_id: Optional[str], source_file: str) -> list[dict[str, Any]]:
     out = []
     for idx, row in enumerate(rows, start=1):
         if not isinstance(row, dict):
             continue
         product_id = normalize_text(row.get("商品ID")) or fallback_product_id
-        buyer_name = normalize_text(row.get("旺旺号"))
-        review_time = parse_datetime(row.get("初评时间"))
+        buyer_name = normalize_text(row.get("旺旺号")) or normalize_text(row.get("昵称"))
+        review_time = parse_datetime(row.get("初评时间")) or parse_datetime(row.get("评价时间"))
         sku_text = normalize_text(row.get("SKU"))
-        review_text = normalize_text(row.get("初评"))
-        follow_review = normalize_text(row.get("追评"))
+        review_text = normalize_text(row.get("初评")) or normalize_text(row.get("评论")) or normalize_text(row.get("初评内容"))
+        follow_review = normalize_text(row.get("追评")) or normalize_text(row.get("追评内容"))
         follow_time = parse_datetime(row.get("追评时间"))
+        if not review_text and not follow_review:
+            continue  # 跳过没有评论内容的行
         out.append(
             {
-                "source_file": sidecar_file.name,
+                "source_file": source_file,
                 "row_no": parse_int_like(row.get("序号")) or idx,
                 "product_id": product_id,
                 "buyer_name": buyer_name,

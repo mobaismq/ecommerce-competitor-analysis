@@ -4,7 +4,7 @@ import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import fs from 'fs'
 import { spawn } from 'child_process'
-import { analyzeProductMainImageAndSave, generateAiMarketReport, generateOverallReportFromProductMainImageReports, getAnalysisProductsView, getAnalysisReportView, getOpenAiSettings, getProductMainImageAnalysis, getSuiteMainImageDescriptions, listAnalysisReportRows, listProductOptions, listSuitePriceBands, listSuiteProducts, previewMarketPriceBands, readLatestMarketReport, saveOpenAiSettings } from './src/server/aiMarketAnalysis.js'
+import { analyzeProductMainImageAndSave, generateAiMarketReport, generateOverallReportFromProductMainImageReports, getAnalysisProductsView, getAnalysisReportView, getOpenAiSettings, getProductMainImageAnalysis, getSuiteMainImageDescriptions, listAnalysisReportRows, listProductOptions, listSuitePriceBands, listSuiteProducts, previewMarketPriceBands, readLatestMarketReport, saveOpenAiSettings, testArkResponsesConnection } from './src/server/aiMarketAnalysis.js'
 import { generateProductSetImage } from './src/server/arkImageGeneration.js'
 import { expandProductSetPrompts } from './src/server/mainImagePromptExpansion.js'
 
@@ -90,10 +90,67 @@ function localRpaApi() {
     }
   }
 
-  function readLogTail(logFile) {
+  function readLogTail(logFile, maxBytes = 160000) {
     if (!logFile || !fs.existsSync(logFile)) return ''
     const text = fs.readFileSync(logFile, 'utf8')
-    return text.slice(-18000)
+    return text.slice(-maxBytes)
+  }
+
+  function findBatchSummaryFile(run) {
+    if (!run) return ''
+    const directPaths = [
+      run.batch_summary_file,
+      run.batchSummaryFile,
+      run.run_dir ? path.join(run.run_dir, 'batch_summary.json') : '',
+    ].filter(Boolean)
+    for (const filePath of directPaths) {
+      if (fs.existsSync(filePath)) return filePath
+    }
+
+    const runDirName = path.basename(String(run.run_dir || ''))
+    const timeMatch = runDirName.match(/(\d{8}-\d{6})$/)
+    const timestamp = timeMatch?.[1] || ''
+    const productName = String(run.productName || '').trim()
+    const root = path.resolve(__dirname, '..', 'rpa_runs')
+    if (!fs.existsSync(root)) return ''
+    for (const name of fs.readdirSync(root)) {
+      if (productName && !name.includes(productName)) continue
+      if (timestamp && !name.includes(timestamp)) continue
+      const candidate = path.join(root, name, 'batch_summary.json')
+      if (fs.existsSync(candidate)) return candidate
+    }
+    return ''
+  }
+
+  function readBatchSummary(run) {
+    const summaryFile = findBatchSummaryFile(run)
+    if (!summaryFile) return null
+    try {
+      return { file: summaryFile, summary: JSON.parse(fs.readFileSync(summaryFile, 'utf8')) }
+    } catch {
+      return null
+    }
+  }
+
+  function progressFromBatchSummary(batchSummary, run) {
+    const summary = batchSummary?.summary
+    if (!summary) return null
+    const counted = Number(summary.success_count || 0) + Number(summary.failed_count || 0)
+    const current = Number(summary.results?.length ?? (counted > 0 ? counted : summary.selected_count) ?? 0)
+    const total = Number(summary.top_n ?? run?.topN ?? summary.selected_count ?? current)
+    const safeCurrent = Number.isFinite(current) ? current : 0
+    const safeTotal = Number.isFinite(total) && total > 0 ? total : safeCurrent
+    return {
+      current: safeCurrent,
+      total: safeTotal,
+      percent: safeTotal > 0 ? Math.min(100, Math.round((safeCurrent / safeTotal) * 100)) : 0,
+      label: '下载完成',
+      detail: `已完成 ${safeCurrent}/${safeTotal} 个商品`,
+      summaryFile: batchSummary.file,
+      successCount: Number(summary.success_count || 0),
+      failedCount: Number(summary.failed_count || 0),
+      mysqlImportedCount: Number(summary.mysql_imported_count || 0),
+    }
   }
 
   function parseJsonFromOutput(text) {
@@ -108,11 +165,13 @@ function localRpaApi() {
     if (!currentRun) return { ok: true, hasRun: false }
     const running = isPidAlive(currentRun.pid)
     const logTail = readLogTail(currentRun.log_file)
+    const batchSummary = readBatchSummary(currentRun)
+    const summaryProgress = progressFromBatchSummary(batchSummary, currentRun)
     const terminalStatus = running
       ? 'running'
       : logTail.includes('\n=== failed')
         ? 'failed'
-        : logTail.includes('\n=== batch summary') || logTail.includes('\n=== summary')
+        : summaryProgress || logTail.includes('\n=== batch summary') || logTail.includes('\n=== summary')
           ? 'completed'
           : 'stopped'
     return {
@@ -121,6 +180,7 @@ function localRpaApi() {
       running,
       status: terminalStatus,
       run: currentRun,
+      progress: summaryProgress,
       logTail,
     }
   }
@@ -358,92 +418,152 @@ function localRpaApi() {
           }
 
           if (importedCount <= 0) {
-            const skipped = importFailures
-              .slice(0, 5)
-              .map((item) => item.title || item.productId || item.error)
-              .join('、')
-            throw new Error(`这一批商品没有任何可用的单品主图分析报告，无法生成整体报告。已跳过 ${importFailures.length} 个失败商品${skipped ? `：${skipped}` : ''}`)
-          }
+            const reasonCounts = new Map<string, number>()
+            for (const item of importFailures) {
+              const reasonText = String(item.error || '未知原因').replace(/[。.\s]+$/g, '')
+              reasonCounts.set(reasonText, (reasonCounts.get(reasonText) || 0) + 1)
+            }
+            const reason = reasonCounts.size
+              ? Array.from(reasonCounts.entries()).map(([text, count]) => `${count} 个：${text}`).join('；')
+              : '单品主图分析报告不可用'
 
-          updateReportJobProgress({
-            stage: 'price_grouping',
-            message: request.priceGroupingMode === 'ai' ? '单品主图分析入库完成，正在 AI 划分价格区间' : '单品主图分析入库完成，正在应用价格区间',
-            current: pendingProducts.length,
-            total: pendingProducts.length + 1,
-            warnings: importFailures,
-            steps: overallReportSteps(
-              {
-                status: 'completed',
-                current: importedCount,
-                total: selectedProducts.length,
-                message: importFailures.length
-                  ? `可用 ${importedCount}/${selectedProducts.length} 个，跳过 ${importFailures.length} 个失败商品`
-                  : pendingProducts.length
-                    ? `已自动补齐 ${pendingProducts.length} 个商品`
-                    : '全部已入库',
-              },
-              { status: 'pending', current: 0, total: 1, message: '等待价格区间划分完成' },
-              {
-                status: 'running',
-                current: 0,
-                total: 1,
-                message: request.priceGroupingMode === 'ai'
-                  ? `AI 正在划分约 ${request.aiPriceBandCount} 个价格区间`
-                  : request.manualPriceBands?.length
-                    ? `正在应用 ${request.manualPriceBands.length} 个手动价格区间`
-                    : '未设置手动价格区间，将按全量集合汇总',
-              },
-            ),
-          })
+            updateReportJobProgress({
+              stage: 'overall_image_report',
+              message: `单品主图分析全部不可用，正在使用已有商品数据生成兜底整体报告：${reason}`,
+              current: pendingProducts.length,
+              total: pendingProducts.length + 1,
+              warnings: importFailures,
+              steps: overallReportSteps(
+                {
+                  status: 'failed',
+                  current: 0,
+                  total: selectedProducts.length,
+                  message: `单品主图分析未生成：${reason}`,
+                },
+                { status: 'skipped', current: 0, total: 1, message: '跳过基于单品主图报告的价格区间划分' },
+                { status: 'running', current: 0, total: 1, message: '改用商品快照、SKU、销量和评论数据生成兜底报告' },
+              ),
+            })
 
-          payload = await generateOverallReportFromProductMainImageReports({
-            ...request,
-            skippedProducts: importFailures,
-            onProgress(progress) {
-              const groupingRunning = progress.stage === 'price_grouping'
-              const groupingDone = ['compose', 'persist'].includes(progress.stage || '')
-              updateReportJobProgress({
-                ...progress,
-                stage: groupingRunning ? 'price_grouping' : 'overall_image_report',
-                message: progress.message || '正在生成整体图片报告',
-                current: pendingProducts.length + (progress.current || 0),
-                total: pendingProducts.length + Math.max(1, progress.total || 1),
-                warnings: importFailures,
-                steps: overallReportSteps(
-                  {
-                    status: 'completed',
-                    current: importedCount,
-                    total: selectedProducts.length,
-                    message: importFailures.length
-                      ? `可用 ${importedCount}/${selectedProducts.length} 个，跳过 ${importFailures.length} 个失败商品`
-                      : pendingProducts.length
-                        ? `已自动补齐 ${pendingProducts.length} 个商品`
-                        : '全部已入库',
-                  },
-                  {
-                    status: groupingRunning ? 'running' : groupingDone ? 'completed' : 'pending',
-                    current: groupingRunning || groupingDone ? 1 : 0,
-                    total: 1,
-                    message: groupingRunning
-                      ? progress.message || '正在划分价格区间'
-                      : groupingDone
-                        ? '价格区间已确认'
-                        : '等待价格区间划分',
-                  },
-                  {
-                    status: groupingRunning ? 'pending' : 'running',
-                    current: groupingRunning ? 0 : progress.current || 0,
-                    total: Math.max(1, progress.total || 1),
-                    message: groupingRunning ? '等待价格区间划分完成' : progress.message || '正在生成整体图片报告',
-                  },
-                ),
-              })
-            },
-          })
-          payload.report = {
-            ...payload.report,
-            autoImportedProductReports: pendingProducts.length - importFailures.length,
-            skippedProductReports: importFailures,
+            payload = await generateAiMarketReport({
+              ...request,
+              generationMode: 'market_report_fallback',
+              targetPriceBand: '',
+              onProgress(progress) {
+                updateReportJobProgress({
+                  ...progress,
+                  stage: 'overall_image_report',
+                  message: progress.message || '正在生成兜底整体报告',
+                  warnings: importFailures,
+                  steps: overallReportSteps(
+                    {
+                      status: 'failed',
+                      current: 0,
+                      total: selectedProducts.length,
+                      message: `单品主图分析未生成：${reason}`,
+                    },
+                    { status: 'skipped', current: 0, total: 1, message: '跳过基于单品主图报告的价格区间划分' },
+                    {
+                      status: progress.stage === 'persist' ? 'completed' : 'running',
+                      current: progress.current || 0,
+                      total: Math.max(1, progress.total || 1),
+                      message: progress.message || '正在生成兜底整体报告',
+                    },
+                  ),
+                })
+              },
+            })
+            if (Array.isArray(payload.reportJson?.data_gaps)) {
+              payload.reportJson.data_gaps.unshift(`单品主图分析报告全部不可用，已自动降级为商品快照/SKU/销量/评论数据兜底报告：${reason}`)
+            }
+            payload.report = {
+              ...payload.report,
+              generationFallback: 'market_report_without_product_main_image_analysis',
+              autoImportedProductReports: 0,
+              skippedProductReports: importFailures,
+              fallbackReason: reason,
+            }
+          } else {
+            updateReportJobProgress({
+              stage: 'price_grouping',
+              message: request.priceGroupingMode === 'ai' ? '单品主图分析入库完成，正在 AI 划分价格区间' : '单品主图分析入库完成，正在应用价格区间',
+              current: pendingProducts.length,
+              total: pendingProducts.length + 1,
+              warnings: importFailures,
+              steps: overallReportSteps(
+                {
+                  status: 'completed',
+                  current: importedCount,
+                  total: selectedProducts.length,
+                  message: importFailures.length
+                    ? `可用 ${importedCount}/${selectedProducts.length} 个，跳过 ${importFailures.length} 个失败商品`
+                    : pendingProducts.length
+                      ? `已自动补齐 ${pendingProducts.length} 个商品`
+                      : '全部已入库',
+                },
+                { status: 'pending', current: 0, total: 1, message: '等待价格区间划分完成' },
+                {
+                  status: 'running',
+                  current: 0,
+                  total: 1,
+                  message: request.priceGroupingMode === 'ai'
+                    ? `AI 正在划分约 ${request.aiPriceBandCount} 个价格区间`
+                    : request.manualPriceBands?.length
+                      ? `正在应用 ${request.manualPriceBands.length} 个手动价格区间`
+                      : '未设置手动价格区间，将按全量集合汇总',
+                },
+              ),
+            })
+
+            payload = await generateOverallReportFromProductMainImageReports({
+              ...request,
+              skippedProducts: importFailures,
+              onProgress(progress) {
+                const groupingRunning = progress.stage === 'price_grouping'
+                const groupingDone = ['compose', 'persist'].includes(progress.stage || '')
+                updateReportJobProgress({
+                  ...progress,
+                  stage: groupingRunning ? 'price_grouping' : 'overall_image_report',
+                  message: progress.message || '正在生成整体图片报告',
+                  current: pendingProducts.length + (progress.current || 0),
+                  total: pendingProducts.length + Math.max(1, progress.total || 1),
+                  warnings: importFailures,
+                  steps: overallReportSteps(
+                    {
+                      status: 'completed',
+                      current: importedCount,
+                      total: selectedProducts.length,
+                      message: importFailures.length
+                        ? `可用 ${importedCount}/${selectedProducts.length} 个，跳过 ${importFailures.length} 个失败商品`
+                        : pendingProducts.length
+                          ? `已自动补齐 ${pendingProducts.length} 个商品`
+                          : '全部已入库',
+                    },
+                    {
+                      status: groupingRunning ? 'running' : groupingDone ? 'completed' : 'pending',
+                      current: groupingRunning || groupingDone ? 1 : 0,
+                      total: 1,
+                      message: groupingRunning
+                        ? progress.message || '正在划分价格区间'
+                        : groupingDone
+                          ? '价格区间已确认'
+                          : '等待价格区间划分',
+                    },
+                    {
+                      status: groupingRunning ? 'pending' : 'running',
+                      current: groupingRunning ? 0 : progress.current || 0,
+                      total: Math.max(1, progress.total || 1),
+                      message: groupingRunning ? '等待价格区间划分完成' : progress.message || '正在生成整体图片报告',
+                    },
+                  ),
+                })
+              },
+            })
+            payload.report = {
+              ...payload.report,
+              autoImportedProductReports: pendingProducts.length - importFailures.length,
+              skippedProductReports: importFailures,
+            }
           }
         } else {
           payload = await generateAiMarketReport({
@@ -556,12 +676,22 @@ function localRpaApi() {
               settings: body.settings,
               baseText: body.baseText,
               image: body.image,
+              selectedSlots: body.selectedSlots,
             })
             return sendJson(res, 200, payload)
           }
 
           if (req.method === 'GET' && req.url.startsWith('/api/report/openai-settings')) {
             return sendJson(res, 200, getOpenAiSettings())
+          }
+
+          if (req.method === 'POST' && req.url.startsWith('/api/report/openai-settings/test')) {
+            const body = await readBody(req)
+            const payload = await testArkResponsesConnection({
+              imageUrl: body.imageUrl,
+              text: body.text,
+            })
+            return sendJson(res, 200, payload)
           }
 
           if (req.method === 'POST' && req.url.startsWith('/api/report/openai-settings')) {

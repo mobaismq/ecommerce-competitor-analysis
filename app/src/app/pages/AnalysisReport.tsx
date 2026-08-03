@@ -302,6 +302,24 @@ export function AnalysisReport() {
     });
   };
 
+  useEffect(() => {
+    const refreshVisibleRows = () => {
+      if (document.visibilityState === "hidden") return;
+      reloadCurrentRows().catch(() => undefined);
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") refreshVisibleRows();
+    };
+    window.addEventListener("report-job-finished", refreshVisibleRows);
+    window.addEventListener("focus", refreshVisibleRows);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      window.removeEventListener("report-job-finished", refreshVisibleRows);
+      window.removeEventListener("focus", refreshVisibleRows);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [appliedKeyword, appliedStartTime, appliedEndTime, appliedStatus]);
+
   const pollGenerateJob = async (target: ReportRow) => {
     let attempts = 0;
     while (attempts < 180) {
