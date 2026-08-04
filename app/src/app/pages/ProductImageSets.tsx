@@ -48,10 +48,10 @@ function PreviewCard({ n, title, className = "", children }: { n: string; title:
   </div>;
 }
 
-function FitImage({ src, alt, className = "" }: { src: string; alt: string; className?: string }) {
+function FitImage({ src, alt, className = "", onError }: { src: string; alt: string; className?: string; onError?: () => void }) {
   return (
     <div className={`flex h-full w-full items-center justify-center bg-[#f8fafc] p-4 ${className}`}>
-      <img src={src} alt={alt} className="max-h-full max-w-full object-contain" />
+      <img src={src} alt={alt} onError={onError} className="max-h-full max-w-full object-contain" />
     </div>
   );
 }
@@ -102,8 +102,25 @@ type MainImageDescription = {
   demands?: Array<{ term?: string; keyword?: string; count?: number }>;
 };
 
+type ListingMainSellingPoint = {
+  priority?: number;
+  title?: string;
+  customerBenefit?: string;
+  visualExpression?: string;
+  dataBasis?: string;
+  source?: string[];
+};
+
 type DescriptionPayload = {
   ok: boolean;
+  report?: {
+    id?: number;
+    keyword?: string;
+    title?: string;
+    priceRange?: string;
+    competitorCount?: number;
+    source?: string;
+  } | null;
   band?: PriceBand & {
     image_prompts?: {
       main_image_prompt?: string;
@@ -115,6 +132,12 @@ type DescriptionPayload = {
     demands?: Array<{ term?: string; keyword?: string; count?: number }>;
   };
   descriptions?: MainImageDescription[];
+  listingSellingPoints?: {
+    source?: string;
+    summary?: string;
+    mainImageSellingPoints?: ListingMainSellingPoint[];
+  };
+  mainImagePromptSeed?: string;
   error?: string;
 };
 
@@ -141,6 +164,7 @@ type PromptExpansionPayload = {
 
 type GeneratedImageResult = {
   url?: string;
+  fileUrl?: string;
   status?: "generating" | "done" | "failed";
   error?: string;
 };
@@ -210,9 +234,26 @@ export function ProductImageSets() {
   const previewPrompts = expandedPrompts.length ? expandedPrompts : DEFAULT_PROMPT_PREVIEWS;
   const selectedPromptCount = expandedPrompts.length ? selectedPromptIds.length : 1;
   const selectedReport = selectedReportOption || suiteProducts.find((item) => item.value === selectedProduct) || null;
-  const priceBandGenerationText = useMemo(() => {
-    return overallMainDescription || "系统会只把主图生图文本传递到这里。";
-  }, [overallMainDescription]);
+  const reportMainPoints = descriptionPayload?.listingSellingPoints?.mainImageSellingPoints || [];
+  const reportMainPrompt = useMemo(() => {
+    const serverPrompt = String(descriptionPayload?.mainImagePromptSeed || "").trim();
+    if (serverPrompt) return serverPrompt;
+    if (reportMainPoints.length) {
+      const lines = reportMainPoints.slice(0, 5).map((item, index) => {
+        return `${index + 1}. ${item.title || `卖点${index + 1}`}：用户收益=${item.customerBenefit || "突出购买理由"}；画面表达=${item.visualExpression || "商品主体清晰，少量文字表达核心卖点"}；依据=${item.dataBasis || "竞品报告数据库聚合"}`;
+      });
+      return [
+        `请基于我上传的商品原图生成电商主图，关键词：${descriptionPayload?.report?.keyword || selectedReport?.keyword || "当前商品"}。`,
+        descriptionPayload?.report?.priceRange ? `参考竞品价格区间：${descriptionPayload.report.priceRange}。` : "",
+        "主图卖点优先级：",
+        ...lines,
+        "生成要求：必须以我上传的商品图为唯一商品主体，不使用竞品图片，不改变商品核心外观；主图文字少而清晰，优先表现前 1-3 个卖点。",
+      ].filter(Boolean).join("\n");
+    }
+    return overallMainDescription;
+  }, [descriptionPayload?.mainImagePromptSeed, descriptionPayload?.report?.keyword, descriptionPayload?.report?.priceRange, overallMainDescription, reportMainPoints, selectedReport?.keyword]);
+  const hasSelectedExpandedPrompt = expandedPrompts.length ? expandedPrompts.some((item) => selectedPromptIds.includes(item.id) && item.prompt.trim()) : false;
+  const canGenerateImage = Boolean(uploadedImage && (expandedPrompts.length ? hasSelectedExpandedPrompt : generationText.trim() && !selectedPromptIds.length));
 
   async function loadProducts(search = productSearch) {
     setLoadingProducts(true);
@@ -287,6 +328,10 @@ export function ProductImageSets() {
       setError("请至少选择一张要生成的图片");
       return;
     }
+    if (queue.some((item) => !String(item.prompt || generationText).trim())) {
+      setError("请选择或填写相关生成主图的提示词");
+      return;
+    }
     setGeneratingImage(true);
     setError("");
     let failedCount = 0;
@@ -309,11 +354,11 @@ export function ProductImageSets() {
           });
           const data = await response.json();
           if (!response.ok || !data.ok) throw new Error(data.error || "生成图片失败");
-          const imageUrl = data.images?.[0]?.url;
+          const imageUrl = data.images?.[0]?.dataUrl || data.images?.[0]?.url;
           if (!imageUrl) throw new Error("生成成功但没有返回图片 URL");
           setGeneratedImages((current) => ({
             ...current,
-            [item.id]: { status: "done", url: imageUrl },
+            [item.id]: { status: "done", url: imageUrl, fileUrl: data.images?.[0]?.url },
           }));
         } catch (err) {
           failedCount += 1;
@@ -332,8 +377,12 @@ export function ProductImageSets() {
   }
 
   async function expandPrompts() {
-    if (!generationText.trim()) {
-      setError("请先填写主图生图文本");
+    if (!uploadedImage) {
+      setError("请先上传商品原图，再使用 AI 帮写");
+      return;
+    }
+    if (!selectedPromptIds.length) {
+      setError("请先勾选需要生成提示词的图位");
       return;
     }
     setExpandingPrompts(true);
@@ -348,17 +397,26 @@ export function ProductImageSets() {
           settings,
           baseText: generationText,
           image: uploadedImage,
+          selectedSlots: DEFAULT_PROMPT_PREVIEWS
+            .filter((item) => selectedPromptIds.includes(item.id))
+            .map((item) => ({ id: item.id, name: item.name, type: item.type })),
         }),
       });
       const data = await response.json();
       if (!response.ok || !data.ok) throw new Error(data.error || "扩写提示词失败");
       const prompts: ExpandedPrompt[] = data.prompts || [];
-      setPromptExpansion(data);
+      const information = String(data.information || data.text || "").trim();
+      setPromptExpansion(prompts.length ? data : null);
       setGeneratedImages({});
+      if (prompts.length) {
+        setSelectedPromptId(prompts[0].id);
+      }
+      if (information) {
+        setGenerationText(information);
+      }
       const firstPrompt = prompts[0];
-      if (firstPrompt?.prompt) {
+      if (!information && firstPrompt?.prompt) {
         setSelectedPromptId(firstPrompt.id);
-        setSelectedPromptIds([firstPrompt.id]);
         setGenerationText(firstPrompt.prompt);
       }
     } catch (err) {
@@ -375,6 +433,16 @@ export function ProductImageSets() {
 
   function togglePromptSelection(id: string) {
     setSelectedPromptIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
+  }
+
+  function updatePromptText(id: string, prompt: string) {
+    setPromptExpansion((current) => {
+      if (!current?.prompts?.length) return current;
+      return {
+        ...current,
+        prompts: current.prompts.map((item) => item.id === id ? { ...item, prompt } : item),
+      };
+    });
   }
 
   useEffect(() => {
@@ -394,8 +462,87 @@ export function ProductImageSets() {
   }, [selectedProduct]);
 
   useEffect(() => {
-    setGenerationText(priceBandGenerationText);
-  }, [priceBandGenerationText]);
+    if (reportMainPrompt) setGenerationText(reportMainPrompt);
+  }, [reportMainPrompt]);
+
+  function renderPromptSlotConfig() {
+    const generatedById = new Map((promptExpansion?.prompts || []).map((item) => [item.id, item]));
+    const slots = DEFAULT_PROMPT_PREVIEWS.map((item) => generatedById.get(item.id) || item);
+    return (
+      <div className="mb-4 rounded-xl border border-[#e4ebf5] bg-white p-3">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 text-[12px] font-bold text-[#344054]">
+            <FileText className="h-4 w-4 text-[#3388ff]" />
+            生成图位配置
+          </div>
+          <div className="flex items-center gap-2">
+            {promptExpansion?.usage?.total_tokens ? (
+              <span className="text-[11px] font-semibold text-[#98A2B3]">tokens {formatCount(promptExpansion.usage.total_tokens)}</span>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => setSelectedPromptIds(DEFAULT_PROMPT_PREVIEWS.map((item) => item.id))}
+              className="text-[11px] font-bold text-[#3388ff]"
+            >
+              全选
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedPromptIds([])}
+              className="text-[11px] font-bold text-[#98A2B3]"
+            >
+              清空
+            </button>
+          </div>
+        </div>
+        <div className="space-y-2">
+          {slots.map((item) => (
+            <div
+              key={item.id}
+              className={`rounded-lg border p-2.5 text-left transition-colors ${
+                selectedPromptIds.includes(item.id) ? "border-[#3388ff] bg-[#eef6ff] text-[#3388ff]" : "border-[#eef1f5] bg-[#f8fafc] text-[#667085] hover:border-[#b8d7ff]"
+              }`}
+            >
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    togglePromptSelection(item.id);
+                    setSelectedPromptId(item.id);
+                  }}
+                  className="flex min-w-0 items-start gap-2 text-left"
+                >
+                  <span className={`mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded border ${selectedPromptIds.includes(item.id) ? "border-[#3388ff] bg-[#3388ff] text-white" : "border-[#d7deea] bg-white text-transparent"}`}>
+                    <Check className="h-3 w-3" />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block truncate text-[12px] font-bold">{item.name}</span>
+                    <span className="mt-0.5 block text-[11px] font-semibold opacity-70">
+                      {selectedPromptIds.includes(item.id) ? (item.prompt ? "已选择，会生成" : "已勾选，待 AI 生成提示词") : "未勾选，不生成提示词"}
+                    </span>
+                  </span>
+                </button>
+                <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-[#98A2B3] shadow-sm">{item.type}</span>
+              </div>
+              {item.prompt ? (
+                <textarea
+                  value={item.prompt}
+                  onChange={(event) => updatePromptText(item.id, event.target.value)}
+                  className="h-[104px] w-full resize-none rounded-lg border border-[#e1e6ee] bg-white p-2 text-[11px] font-semibold leading-5 text-[#667085] outline-none focus:border-[#3388ff]"
+                  placeholder={`${item.name} 的生图提示词`}
+                />
+              ) : (
+                <div className="rounded-lg border border-dashed border-[#d7deea] bg-white px-2.5 py-2 text-[11px] font-semibold leading-5 text-[#98A2B3]">
+                  勾选后点击 AI 帮写，才会生成该图位提示词。
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+        <div className="mt-2 text-[11px] font-semibold text-[#98A2B3]">已勾选 {formatCount(selectedPromptIds.length)} 张；AI 帮写只生成勾选图位的提示词，未勾选不会生成。</div>
+      </div>
+    );
+  }
 
   return (
     <div className="relative flex h-full bg-[#f4f7fb]">
@@ -495,7 +642,7 @@ export function ProductImageSets() {
           <SectionTitle help>商品卖点&要求</SectionTitle>
           <button
             onClick={expandPrompts}
-            disabled={expandingPrompts || !generationText.trim()}
+            disabled={expandingPrompts || !uploadedImage || !selectedPromptIds.length}
             className="mb-4 flex items-center gap-1.5 rounded-full border border-[#e8edf4] bg-white px-3 py-1.5 text-[14px] font-semibold text-[#3587ff] shadow-sm disabled:cursor-not-allowed disabled:text-[#98A2B3]"
           >
             {expandingPrompts ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lightbulb className="h-4 w-4" />}
@@ -506,60 +653,24 @@ export function ProductImageSets() {
           className="mb-3 h-[164px] w-full resize-none rounded-xl border border-[#e1e6ee] bg-white p-3 text-[14px] font-normal leading-7 text-[#667085] outline-none focus:border-[#4690ff]"
           value={generationText}
           onChange={(event) => setGenerationText(event.target.value)}
+          placeholder="选择已完成报告后会自动回传主图卖点提示词；也可以手动填写你的主图生成要求。"
         />
-        {promptExpansion?.prompts?.length ? (
+        {renderPromptSlotConfig()}
+        {reportMainPoints.length ? (
           <div className="mb-4 rounded-xl border border-[#e4ebf5] bg-white p-3">
             <div className="mb-2 flex items-center justify-between gap-2">
-              <div className="flex items-center gap-1.5 text-[12px] font-bold text-[#344054]">
-                <FileText className="h-4 w-4 text-[#3388ff]" />
-                已按主图 skill 扩写
-              </div>
-              <div className="flex items-center gap-2">
-                {promptExpansion.usage?.total_tokens ? (
-                  <span className="text-[11px] font-semibold text-[#98A2B3]">tokens {formatCount(promptExpansion.usage.total_tokens)}</span>
-                ) : null}
-                <button
-                  type="button"
-                  onClick={() => setSelectedPromptIds(promptExpansion.prompts?.map((item) => item.id) || [])}
-                  className="text-[11px] font-bold text-[#3388ff]"
-                >
-                  全选
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSelectedPromptIds([])}
-                  className="text-[11px] font-bold text-[#98A2B3]"
-                >
-                  清空
-                </button>
-              </div>
+              <div className="text-[12px] font-bold text-[#344054]">已回传主图卖点</div>
+              <span className="rounded-full bg-[#eef6ff] px-2 py-0.5 text-[11px] font-bold text-[#3388ff]">{reportMainPoints.length} 条</span>
             </div>
-            <div className="grid grid-cols-2 gap-2">
-              {promptExpansion.prompts.map((item) => (
-                <button
-                  key={item.id}
-                  onClick={() => {
-                    togglePromptSelection(item.id);
-                    setSelectedPromptId(item.id);
-                    setGenerationText(item.prompt);
-                  }}
-                  className={`rounded-lg border px-2.5 py-2 text-left text-[12px] font-bold transition-colors ${
-                    selectedPromptIds.includes(item.id) ? "border-[#3388ff] bg-[#eef6ff] text-[#3388ff]" : "border-[#eef1f5] bg-[#f8fafc] text-[#667085] hover:border-[#b8d7ff]"
-                  }`}
-                >
-                  <div className="flex items-start gap-2">
-                    <span className={`mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded border ${selectedPromptIds.includes(item.id) ? "border-[#3388ff] bg-[#3388ff] text-white" : "border-[#d7deea] bg-white text-transparent"}`}>
-                      <Check className="h-3 w-3" />
-                    </span>
-                    <span className="min-w-0">
-                      <span className="block truncate">{item.name}</span>
-                      <span className="mt-0.5 block text-[11px] font-semibold opacity-70">{item.type}</span>
-                    </span>
-                  </div>
-                </button>
+            <div className="space-y-2">
+              {reportMainPoints.slice(0, 4).map((item, index) => (
+                <div key={`${item.title || "point"}-${index}`} className="rounded-lg bg-[#f8fafc] p-2.5 text-[12px] leading-5 text-[#667085]">
+                  <div className="font-bold text-[#0A1B39]">{index + 1}. {item.title || "主图卖点"}</div>
+                  <div className="mt-0.5">画面表达：{item.visualExpression || "商品主体清晰，少量文字表达核心卖点"}</div>
+                  <div className="mt-0.5 truncate text-[#98A2B3]">依据：{item.dataBasis || "竞品报告数据库聚合"}</div>
+                </div>
               ))}
             </div>
-            <div className="mt-2 text-[11px] font-semibold text-[#98A2B3]">已选择 {formatCount(selectedPromptIds.length)} 张，点击卡片可选择/取消，并同步查看该图提示词。</div>
           </div>
         ) : null}
         {loadingDescriptions ? (
@@ -591,8 +702,8 @@ export function ProductImageSets() {
       <div className={`fixed bottom-0 z-20 w-[360px] border-t border-[#eef1f5] bg-white p-3 sm:p-4 transition-all duration-300 ${expanded ? "left-[240px]" : "left-[72px]"}`}>
         <button
           onClick={generateMainImage}
-          disabled={generatingImage || !uploadedImage || (!generationText.trim() && !expandedPrompts.length) || (Boolean(expandedPrompts.length) && selectedPromptIds.length === 0)}
-          className={`h-12 sm:h-14 w-full rounded-lg text-[14px] font-semibold text-white ${generatingImage || !uploadedImage || (!generationText.trim() && !expandedPrompts.length) || (Boolean(expandedPrompts.length) && selectedPromptIds.length === 0) ? "bg-[#C9CDD4]" : "bg-[#3388ff] hover:bg-[#1f78f2]"}`}
+          disabled={generatingImage || !canGenerateImage}
+          className={`h-12 sm:h-14 w-full rounded-lg text-[14px] font-semibold text-white ${generatingImage || !canGenerateImage ? "bg-[#C9CDD4]" : "bg-[#3388ff] hover:bg-[#1f78f2]"}`}
         >
           {generatingImage ? "正在生成..." : expandedPrompts.length ? `生成已选 ${selectedPromptCount} 张` : "生成主图"}
         </button>
@@ -618,15 +729,47 @@ export function ProductImageSets() {
               {previewPrompts.slice(0, 5).map((item, index) => {
                 const result = generatedImages[item.id];
                 const isSelected = selectedPromptIds.includes(item.id);
+                const canSelectSlot = true;
                 const src = result?.url || (index === 0 && uploadedImage ? uploadedImage : DEFAULT_PREVIEW_IMAGES[item.id]) || mainHeadphone;
                 const n = String(index + 1).padStart(2, "0");
+                const slotLabel = result?.status === "done"
+                  ? (isSelected ? "已生成/已选" : "已生成")
+                  : isSelected ? "已选择" : "未选择";
 
                 return (
                   <PreviewCard key={item.id} n={n} title={item.type || item.name} className="aspect-square min-h-[260px]">
-                    <FitImage src={src} alt={item.name} className="pt-12" />
-                    <div className={`absolute bottom-3 left-3 rounded-full px-3 py-1.5 text-[11px] font-bold shadow-sm ${result?.status === "done" ? "bg-[#ECFDF3] text-[#079455]" : isSelected ? "bg-[#EFF6FF] text-[#3388ff]" : "bg-white/95 text-[#98A2B3]"}`}>
-                      {result?.status === "done" ? "已生成" : isSelected ? "已选择" : "未选择"}
-                    </div>
+                    <FitImage
+                      src={src}
+                      alt={item.name}
+                      className="pt-12"
+                      onError={result?.status === "done" ? () => {
+                        setGeneratedImages((current) => ({
+                          ...current,
+                          [item.id]: { ...current[item.id], status: "failed", error: "图片文件已生成，但浏览器加载失败，请重新生成" },
+                        }));
+                      } : undefined}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!canSelectSlot) return;
+                        togglePromptSelection(item.id);
+                        setSelectedPromptId(item.id);
+                      }}
+                      disabled={!canSelectSlot}
+                      className={`absolute bottom-3 left-3 flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-bold shadow-sm transition-colors disabled:cursor-default ${
+                        result?.status === "done"
+                          ? "bg-[#ECFDF3] text-[#079455]"
+                          : isSelected
+                            ? "bg-[#EFF6FF] text-[#3388ff]"
+                            : "bg-white/95 text-[#98A2B3]"
+                      }`}
+                    >
+                      <span className={`grid h-3.5 w-3.5 place-items-center rounded border ${isSelected ? "border-[#3388ff] bg-[#3388ff] text-white" : "border-[#d7deea] bg-white text-transparent"}`}>
+                        <Check className="h-2.5 w-2.5" />
+                      </span>
+                      {slotLabel}
+                    </button>
                     {result?.status === "generating" && (
                       <div className="absolute inset-0 grid place-items-center bg-white/70 text-[13px] font-bold text-[#3388ff]">
                         <span className="rounded-full bg-white px-3 py-1.5 shadow-sm">生成中</span>

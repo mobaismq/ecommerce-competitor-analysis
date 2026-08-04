@@ -1,0 +1,80 @@
+[
+  {
+    "source_file": "店透-SKU预览-表格-1053949060370-2026-08-03.xlsx",
+    "row_no": 1,
+    "product_id": "1053949060370",
+    "sku_id": "6254403139804",
+    "sku_info": "薄皮蔬菜卷360g *5袋",
+    "sku_image_url": "https://gw.alicdn.com/bao/uploaded/i4/2207496944938/O1CN01dxBodE1mLevM2jfz0_!!2207496944938-0-scmitem6000.jpg",
+    "sku_image_path": null,
+    "price": 62.9,
+    "coupon_price": null,
+    "package_type": null,
+    "stock_qty": 200
+  },
+  {
+    "source_file": "店透-SKU预览-表格-1053949060370-2026-08-03.xlsx",
+    "row_no": 2,
+    "product_id": "1053949060370",
+    "sku_id": "6254403139805",
+    "sku_info": "薄皮蔬菜卷360g *3袋",
+    "sku_image_url": "https://gw.alicdn.com/bao/uploaded/i3/2207496944938/O1CN01trrLGf1mLevMb3f2v_!!2207496944938-0-scmitem6000.jpg",
+    "sku_image_path": null,
+    "price": 41.9,
+    "coupon_price": null,
+    "package_type": null,
+    "stock_qty": 200
+  },
+  {
+    "source_file": "店透-SKU预览-表格-1053949060370-2026-08-03.xlsx",
+    "row_no": 3,
+    "product_id": "1053949060370",
+    "sku_id": "6254403139806",
+    "sku_info": "薄皮蔬菜卷360g *2袋",
+    "sku_image_url": "https://gw.alicdn.com/bao/uploaded/i2/2207496944938/O1CN019fzy0k1mLevMF3At6_!!2207496944938-0-scmitem6000.jpg",
+    "sku_image_path": null,
+    "price": 32.9,
+    "coupon_price": null,
+    "package_type": null,
+    "stock_qty": 200
+  },
+  {
+    "source_file": "店透-SKU预览-表格-1053949060370-2026-08-03.xlsx",
+    "row_no": 4,
+    "product_id": "1053949060370",
+    "sku_id": "6121145693935",
+    "sku_info": "薄皮蔬菜卷360g *4袋",
+    "sku_image_url": "https://gw.alicdn.com/bao/uploaded/i4/2207496944938/O1CN01hKGyuE1mLevh8X5qW_!!2207496944938-0-scmitem6000.jpg",
+    "sku_image_path": null,
+    "price": 54.9,
+    "coupon_price": null,
+    "package_type": null,
+    "stock_qty": 200
+  },
+  {
+    "source_file": "店透-SKU预览-表格-1053949060370-2026-08-03.xlsx",
+    "row_no": 5,
+    "product_id": "1053949060370",
+    "sku_id": "6121145693936",
+    "sku_info": "薄皮蔬菜卷360g *6袋",
+    "sku_image_url": "https://gw.alicdn.com/bao/uploaded/i1/2207496944938/O1CN018wOZsA1mLevhqehrT_!!2207496944938-0-scmitem6000.jpg",
+    "sku_image_path": null,
+    "price": 74.9,
+    "coupon_price": null,
+    "package_type": null,
+    "stock_qty": 200
+  },
+  {
+    "source_file": "店透-SKU预览-表格-1053949060370-2026-08-03.xlsx",
+    "row_no": 6,
+    "product_id": "1053949060370",
+    "sku_id": "6121145693937",
+    "sku_info": "薄皮蔬菜卷360g *8袋",
+    "sku_image_url": "https://gw.alicdn.com/bao/uploaded/i2/2207496944938/O1CN011KbV5i1mLevcs1mMB_!!2207496944938-0-scmitem6000.jpg",
+    "sku_image_path": null,
+    "price": 99.9,
+    "coupon_price": null,
+    "package_type": null,
+    "stock_qty": 200
+  }
+]

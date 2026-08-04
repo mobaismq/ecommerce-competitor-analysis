@@ -24,6 +24,13 @@ interface StatusPayload {
   running?: boolean;
   status?: "running" | "completed" | "failed" | "stopped";
   run?: RunInfo;
+  progress?: {
+    current?: number | null;
+    total?: number | null;
+    percent?: number | null;
+    label?: string;
+    detail?: string;
+  } | null;
   logTail?: string;
   error?: string;
 }
@@ -64,10 +71,11 @@ export function AIDataCollection() {
   const status = statusFromPayload(statusPayload);
   const run = statusPayload?.run;
   const isRunning = status === "collecting";
-  const progress = useMemo(() => parseRpaProgress(statusPayload?.logTail, run?.topN), [statusPayload?.logTail, run?.topN]);
-  const total = progress.total || Number(run?.topN || competitorCount || 0) || 0;
-  const collected = progress.current || (status === "completed" ? total : 0);
-  const progressPercent = progress.percent ?? (total > 0 ? Math.round((collected / total) * 100) : 0);
+  const parsedProgress = useMemo(() => parseRpaProgress(statusPayload?.logTail, run?.topN), [statusPayload?.logTail, run?.topN]);
+  const progress = statusPayload?.progress || parsedProgress;
+  const total = progress.total || parsedProgress.total || Number(run?.topN || competitorCount || 0) || 0;
+  const collected = progress.current ?? parsedProgress.current ?? (status === "completed" ? total : 0);
+  const progressPercent = progress.percent ?? parsedProgress.percent ?? (total > 0 ? Math.round((collected / total) * 100) : 0);
   const logs = statusPayload?.logTail?.trim() || "";
 
   async function refreshStatus() {

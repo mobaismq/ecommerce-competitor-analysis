@@ -55,13 +55,19 @@ async function saveGeneratedImage(image, index) {
   const extension = ({ 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif' })[contentType] || 'png'
   const fileName = `image-${Date.now()}-${index}.${extension}`
   fs.writeFileSync(path.join(outputDir, fileName), buffer)
-  return { ...image, url: `/generated/product-sets/${fileName}`, sourceUrl: image.url }
+  return {
+    ...image,
+    url: `/generated/product-sets/${fileName}?t=${Date.now()}`,
+    dataUrl: `data:${contentType};base64,${buffer.toString('base64')}`,
+    sourceUrl: image.url,
+  }
 }
 
 export async function generateProductSetImage({ prompt, image, size = '2K', watermark = false }) {
+  loadLocalEnv()
   const apiKey = process.env.ARK_API_KEY
   if (!apiKey) {
-    throw new Error('缺少 ARK_API_KEY，请先配置火山 Ark 图片生成密钥。')
+    throw new Error('后台未配置 ARK_API_KEY，请在服务端环境变量或 .env.local 中配置。')
   }
 
   const cleanPrompt = String(prompt || '').trim()

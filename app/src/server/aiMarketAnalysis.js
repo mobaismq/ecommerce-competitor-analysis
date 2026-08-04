@@ -22,8 +22,10 @@ function loadLocalEnv() {
 
 loadLocalEnv()
 
+const DEFAULT_ARK_ANALYSIS_MODEL = 'doubao-seed-2-1-pro-260628'
+
 function currentModel() {
-  return process.env.ARK_ANALYSIS_MODEL || process.env.OPENAI_ANALYSIS_MODEL || 'doubao-seed-2-0-pro-260215'
+  return process.env.ARK_ANALYSIS_MODEL || process.env.OPENAI_ANALYSIS_MODEL || DEFAULT_ARK_ANALYSIS_MODEL
 }
 
 function maskKey(key) {
@@ -64,7 +66,7 @@ export function getOpenAiSettings() {
 
 export function saveOpenAiSettings({ apiKey, model }) {
   const cleanKey = String(apiKey || '').trim()
-  const cleanModel = String(model || '').trim() || 'doubao-seed-2-0-pro-260215'
+  const cleanModel = String(model || '').trim() || DEFAULT_ARK_ANALYSIS_MODEL
   if (!cleanKey && !process.env.ARK_API_KEY && !process.env.OPENAI_API_KEY) {
     throw new Error('请先填写 ARK_API_KEY')
   }
@@ -83,7 +85,7 @@ export function saveOpenAiSettings({ apiKey, model }) {
 
 const MAX_VISION_IMAGES = Number(process.env.ARK_ANALYSIS_MAX_IMAGES || process.env.OPENAI_ANALYSIS_MAX_IMAGES || 100)
 const VISION_BATCH_SIZE = Math.max(1, Math.min(8, Number(process.env.ARK_ANALYSIS_BATCH_IMAGES || 4)))
-const ARK_ANALYSIS_TIMEOUT_MS = Number(process.env.ARK_ANALYSIS_TIMEOUT_MS || 90000)
+const ARK_ANALYSIS_TIMEOUT_MS = Number(process.env.ARK_ANALYSIS_TIMEOUT_MS || 240000)
 const ARK_RESPONSES_ENDPOINT = 'https://ark.cn-beijing.volces.com/api/v3/responses'
 
 function mysqlConfig() {
@@ -151,9 +153,22 @@ function normalizeUrl(raw) {
   return ''
 }
 
-function maybeLocalImageAsDataUrl(raw) {
+function resolveLocalPath(raw, roots = []) {
   const filePath = String(raw || '').trim()
-  if (!filePath || !path.isAbsolute(filePath) || !fs.existsSync(filePath)) return ''
+  if (!filePath || normalizeUrl(filePath)) return ''
+  if (path.isAbsolute(filePath)) return fs.existsSync(filePath) ? filePath : ''
+
+  const candidates = [
+    ...roots.map((root) => path.resolve(root, filePath)),
+    path.resolve(process.cwd(), filePath),
+    path.resolve(process.cwd(), '..', filePath),
+  ]
+  return candidates.find((candidate) => fs.existsSync(candidate)) || ''
+}
+
+function maybeLocalImageAsDataUrl(raw, roots = []) {
+  const filePath = resolveLocalPath(raw, roots)
+  if (!filePath) return ''
   const stat = fs.statSync(filePath)
   if (stat.size > 4 * 1024 * 1024) return ''
   const ext = path.extname(filePath).toLowerCase()
@@ -161,13 +176,35 @@ function maybeLocalImageAsDataUrl(raw) {
   return `data:${mime};base64,${fs.readFileSync(filePath).toString('base64')}`
 }
 
-function imageUrlFrom(row) {
-  return maybeLocalImageAsDataUrl(row?.storage_path)
-    || maybeLocalImageAsDataUrl(row?.sku_image_path)
+function imageUrlFrom(row, roots = []) {
+  return maybeLocalImageAsDataUrl(row?.storage_path, roots)
+    || maybeLocalImageAsDataUrl(row?.sku_image_path, roots)
     || normalizeUrl(row?.source_url)
     || normalizeUrl(row?.sku_image_url)
     || normalizeUrl(row?.asset_url)
     || ''
+}
+
+function localImagePathFrom(row, roots = []) {
+  return resolveLocalPath(row?.storage_path, roots)
+    || resolveLocalPath(row?.sku_image_path, roots)
+    || ''
+}
+
+function sourceRootsFromRows(rows = []) {
+  const roots = new Set()
+  for (const row of rows) {
+    const localPath = String(row?.local_path || '').trim()
+    if (!localPath || !path.isAbsolute(localPath)) continue
+    const dir = path.dirname(localPath)
+    roots.add(dir)
+    if (path.basename(dir) === 'cleaned_output') {
+      roots.add(path.dirname(dir))
+    } else {
+      roots.add(path.join(dir, 'cleaned_output'))
+    }
+  }
+  return Array.from(roots)
 }
 
 function leafName(categoryPath) {
@@ -290,13 +327,12 @@ export async function listAnalysisReportRows({ keyword = '', startTime = '', end
       LIMIT 500
     `, runParams)
 
-    const generatedKeywordSet = new Set()
+    const generatedKeywordCounts = new Map()
     const generatedBuckets = new Map()
     for (const row of runRows) {
       const label = String(row.keyword || '').trim()
       if (!label) continue
       const key = label.toLowerCase()
-      generatedKeywordSet.add(key)
       const current = generatedBuckets.get(key) || {
         id: `run-group-${Buffer.from(key).toString('base64url')}`,
         source: 'market_analysis_group',
@@ -311,7 +347,8 @@ export async function listAnalysisReportRows({ keyword = '', startTime = '', end
         runIds: [],
       }
       current.runIds.push(toInt(row.id))
-      current.competitorCount = Math.max(current.competitorCount, toInt(row.competitor_count))
+      if (!generatedKeywordCounts.has(key)) generatedKeywordCounts.set(key, toInt(row.competitor_count))
+      if (!current.competitorCount) current.competitorCount = toInt(row.competitor_count)
       const low = money(row.price_min)
       const high = money(row.price_max)
       current.priceMin = current.priceMin == null ? low : Math.min(current.priceMin, low ?? current.priceMin)
@@ -380,11 +417,11 @@ export async function listAnalysisReportRows({ keyword = '', startTime = '', end
       const label = collectionNameFromPath(row.local_path, fallbackLabel)
       if (!label) continue
       const key = label.toLowerCase()
-      if (generatedKeywordSet.has(key)) continue
       const collectionKey = collectionKeyFromPath(row.local_path, `${key}-${row.job_id || row.id}`)
       const current = rawBuckets.get(collectionKey) || {
         id: `raw-${Buffer.from(collectionKey).toString('base64url')}`,
         source: 'product_snapshot',
+        keywordKey: key,
         keyword: label,
         priceMin: null,
         priceMax: null,
@@ -407,16 +444,21 @@ export async function listAnalysisReportRows({ keyword = '', startTime = '', end
       rawBuckets.set(collectionKey, current)
     }
 
-    const rawRows = Array.from(rawBuckets.values()).map((row) => ({
-      id: row.id,
-      source: row.source,
-      keyword: row.keyword,
-      competitorCount: row.competitorCount,
-      collectTime: row.collectTime,
-      status: row.status,
-      reportTitle: row.reportTitle,
-      priceRange: priceRangeText(row.priceMin, row.priceMax),
-    }))
+    const rawRows = Array.from(rawBuckets.values())
+      .filter((row) => {
+        const generatedCount = generatedKeywordCounts.get(row.keywordKey) || 0
+        return row.competitorCount > generatedCount
+      })
+      .map((row) => ({
+        id: row.id,
+        source: row.source,
+        keyword: row.keyword,
+        competitorCount: row.competitorCount,
+        collectTime: row.collectTime,
+        status: row.status,
+        reportTitle: row.reportTitle,
+        priceRange: priceRangeText(row.priceMin, row.priceMax),
+      }))
 
     let rows = [...generatedRows, ...rawRows].sort((a, b) => String(b.collectTime || '').localeCompare(String(a.collectTime || '')))
     if (cleanStatus) rows = rows.filter((row) => row.status === cleanStatus)
@@ -440,10 +482,8 @@ export async function listSuiteProducts(query = '') {
   let where = `
     WHERE keyword IS NOT NULL
       AND keyword <> ""
-      AND (
-        data_source = 'product_main_image_analysis'
-        OR JSON_UNQUOTE(JSON_EXTRACT(report_json, '$.summary.source')) = 'product_main_image_analysis'
-      )
+      AND report_json IS NOT NULL
+      AND report_json <> ""
   `
   if (search) {
     where += ' AND (keyword LIKE ? OR report_no LIKE ?)'
@@ -467,6 +507,8 @@ export async function listSuiteProducts(query = '') {
   for (const row of rows) {
     const key = String(row.keyword || '').trim()
     if (!key || seenKeywords.has(key)) continue
+    const reportJson = parseJson(row.report_json, {}) || {}
+    if (!safeArray(reportJson.price_band_report).length) continue
     seenKeywords.add(key)
     latestByKeyword.push(row)
     if (latestByKeyword.length >= 100) break
@@ -529,6 +571,7 @@ export async function listSuitePriceBands(keyword) {
       WHERE run_id = ?
       ORDER BY COALESCE(price_min, 0), id
     `, [run.id])
+
     return {
       ok: true,
       run: {
@@ -567,10 +610,12 @@ export async function getSuiteMainImageDescriptions({ keyword, priceBand, runId 
     const run = await findLatestAnalysisRun(connection, cleanKeyword, cleanRunId)
     if (!run) throw new Error(`没有找到对应的整体报告，请先在竞品报告页生成并入库。`)
     const reportJson = parseJson(run.report_json, {}) || {}
-    const runSource = reportJson.summary?.source || run.data_source || ''
-    if (runSource !== 'product_main_image_analysis') {
-      throw new Error('该记录不是已完成的整体报告，请先点击“AI生成整体报告”。')
-    }
+    if (!safeArray(reportJson.price_band_report).length) throw new Error('该记录没有完整的竞品价格段报告，请先点击“AI生成整体报告”。')
+    const reportView = transformReportForAnalysisView(run)
+    const runIds = [toInt(run.id)].filter((id) => id > 0)
+    const keywordMatrix = reportView ? await buildKeywordMatrixForReport(connection, { runIds, keyword: reportView.keyword, report: reportView }) : null
+    const recommendationActions = reportView ? await buildRecommendationActionsForReport(connection, { runIds, keyword: reportView.keyword, report: reportView, keywordMatrix }) : null
+    const listingSellingPoints = reportView ? buildListingSellingPointsForReport({ keyword: reportView.keyword, report: reportView, keywordMatrix, recommendationActions }) : null
 
     const [bandRows] = await connection.query(`
       SELECT *
@@ -652,6 +697,7 @@ export async function getSuiteMainImageDescriptions({ keyword, priceBand, runId 
         demands,
       }
     })
+    const suitePriceRange = priceRangeText(band.price_min, band.price_max)
 
     return {
       ok: true,
@@ -660,6 +706,14 @@ export async function getSuiteMainImageDescriptions({ keyword, priceBand, runId 
         keyword: run.keyword,
         createdAt: run.created_at,
       },
+      report: reportView ? {
+        id: run.id,
+        keyword: reportView.keyword,
+        title: reportView.title,
+        priceRange: suitePriceRange || reportView.priceRange,
+        competitorCount: reportView.competitorCount,
+        source: reportView.source,
+      } : null,
       band: {
         id: band.id || run.id,
         price_band: cleanBand ? band.price_band : '全量竞品集合',
@@ -674,6 +728,21 @@ export async function getSuiteMainImageDescriptions({ keyword, priceBand, runId 
         demands: parseJson(band.demands_json, []) || [],
       },
       descriptions,
+      keywordMatrix,
+      recommendationActions,
+      listingSellingPoints,
+      mainImagePromptSeed: buildMainImagePromptSeed({
+        keyword: reportView?.keyword || run.keyword,
+        report: reportView,
+        band: {
+          price_band: cleanBand ? band.price_band : '全量竞品集合',
+          price_min: money(band.price_min),
+          price_max: money(band.price_max),
+          competitor_count: toInt(band.competitor_count),
+          priceRange: suitePriceRange,
+        },
+        listingSellingPoints,
+      }),
     }
   })
 }
@@ -1079,6 +1148,14 @@ function reportOutputSchema() {
         compared_products: ['高销量/高销额代表商品及其卖点', '普通或低表现代表商品及其不足'],
         sales_evidence: '引用销量/销额/价格/评价数等证据',
         review_qa_evidence: '引用评价或问大家反馈；没有则明确样本不足',
+        opportunity_score: {
+          sales_validation_score: 5,
+          demand_strength_score: 5,
+          competitor_gap_score: 4,
+          visual_expression_score: 5,
+          overall_score: 19,
+          score_reason: '为什么值得作为差异化方向',
+        },
         market_meaning: '这个差异化为什么能影响转化',
         image_strategy: 'Listing 图片应该如何表达',
       }],
@@ -1349,6 +1426,9 @@ function collectVisualCandidates(report, maxImages = MAX_VISION_IMAGES) {
       for (const image of product.images || []) {
         const url = image.url
         if (!url || candidates.length >= maxImages) continue
+        // 只分析主图，跳过 SKU 图
+        const imageType = String(image.image_type || '').toLowerCase()
+        if (imageType.includes('sku')) continue
         candidates.push({
           image_index: candidates.length + 1,
           price_band: band.price_band,
@@ -1393,8 +1473,13 @@ function collectVisualBatchContent(batch, batchIndex) {
     type: 'input_text',
     text: [
       '你是电商图片分析助手。请只观察本批商品图片，输出精简 JSON。',
-      '重点看：画面主体、构图、文字卖点、颜色、场景、人群、规格/SKU表达、爆品图特征。',
+      '重点看：画面主体、构图、文字卖点、颜色、场景、人群、爆品图特征。',
       '不要做最终策略报告，只输出本批图片观察摘要。',
+      '',
+      '【卖点提取规则】卖点必须是用户利益或差异化价值，禁止填入：',
+      '纯数量规格（如"40包""5斤装"）、包装描述（如"整箱装""家庭装"）、SKU变体名、品类通用词、价格促销词、泛场景词（如"家庭分享"）。',
+      '合格卖点示例："0添加"、"柔软亲肤"、"一口就停不下来"、"进口原料"、"销量100万+"、"外皮暄软蓬松"、"现做现发锁鲜"。',
+      '',
       '返回 JSON 结构：',
       JSON.stringify({
         batch_index: batchIndex,
@@ -1403,12 +1488,12 @@ function collectVisualBatchContent(batch, batchIndex) {
           price_band: '价格带',
           product_id: '商品ID',
           visual_keywords: ['视觉关键词'],
-          selling_points: ['图片中出现或暗示的卖点'],
+          selling_points: ['图片中传达的用户利益点（禁止填入规格/数量/包装词）'],
           audience: '目标人群',
           scene: '使用场景',
           observation: '图片表达特点',
         }],
-        batch_selling_points: [{ term: '卖点词', count: 1, evidence: '图片证据' }],
+        batch_selling_points: [{ term: '用户利益卖点词', count: 1, evidence: '图片证据' }],
         batch_demands: [{ term: '需求痛点', count: 1, evidence: '图片证据' }],
         visual_summary: '本批图片共性',
       }, null, 2),
@@ -1578,7 +1663,7 @@ function fallbackAiJsonFromReport(report, visualBatchSummaries = []) {
   }
 }
 
-async function callArkResponses(content, { maxOutputTokens = 5000, timeoutMs = ARK_ANALYSIS_TIMEOUT_MS } = {}) {
+async function callArkResponsesRaw(content, { maxOutputTokens = 5000, timeoutMs = ARK_ANALYSIS_TIMEOUT_MS } = {}) {
   const apiKey = process.env.ARK_API_KEY || process.env.OPENAI_API_KEY
   if (!apiKey) {
     throw new Error('缺少 ARK_API_KEY。请先在报告页的豆包 Ark 配置中填写并保存 API Key。')
@@ -1594,7 +1679,6 @@ async function callArkResponses(content, { maxOutputTokens = 5000, timeoutMs = A
     body: JSON.stringify({
       model: currentModel(),
       input: [{ role: 'user', content }],
-      thinking: { type: 'disabled' },
       max_output_tokens: maxOutputTokens,
     }),
   })
@@ -1604,19 +1688,56 @@ async function callArkResponses(content, { maxOutputTokens = 5000, timeoutMs = A
     throw new Error(`豆包 Ark 视觉分析失败（HTTP ${response.status}）：${raw}`)
   }
   const data = JSON.parse(raw)
+  const text = extractResponseText(data)
   return {
     data,
-    json: parseJsonFromText(extractResponseText(data)),
+    text,
     responseId: data.id,
     model: data.model || currentModel(),
     usage: data.usage || null,
   }
 }
 
+async function callArkResponses(content, { maxOutputTokens = 5000, timeoutMs = ARK_ANALYSIS_TIMEOUT_MS } = {}) {
+  const result = await callArkResponsesRaw(content, { maxOutputTokens, timeoutMs })
+  return {
+    ...result,
+    json: parseJsonFromText(result.text),
+  }
+}
+
+export async function testArkResponsesConnection({ imageUrl = '', text = '' } = {}) {
+  loadLocalEnv()
+  const result = await callArkResponsesRaw([
+    {
+      type: 'input_image',
+      image_url: String(imageUrl || '').trim() || 'https://ark-project.tos-cn-beijing.volces.com/doc_image/ark_demo_img_1.png',
+    },
+    {
+      type: 'input_text',
+      text: String(text || '').trim() || '你看见了什么？',
+    },
+  ], {
+    maxOutputTokens: 800,
+    timeoutMs: 30000,
+  })
+
+  return {
+    ok: true,
+    configured: true,
+    provider: 'ark',
+    endpoint: ARK_RESPONSES_ENDPOINT,
+    model: result.model,
+    responseId: result.responseId,
+    text: result.text,
+    usage: result.usage,
+  }
+}
+
 async function analyzeVisualBatch(batch, batchIndex) {
   try {
     const result = await callArkResponses(collectVisualBatchContent(batch, batchIndex), {
-      maxOutputTokens: 1800,
+      maxOutputTokens: 8000,
       timeoutMs: ARK_ANALYSIS_TIMEOUT_MS,
     })
     return {
@@ -1699,7 +1820,7 @@ async function callArkVision(report, onProgress) {
       imageCount: candidates.length,
     })
     finalResult = await callArkResponses(collectFinalReportContent(report, visualBatchSummaries).content, {
-      maxOutputTokens: 6500,
+      maxOutputTokens: 16000,
       timeoutMs: ARK_ANALYSIS_TIMEOUT_MS * 2,
     })
     finalJson = finalResult.json
@@ -1717,7 +1838,7 @@ async function callArkVision(report, onProgress) {
     })
     try {
       finalResult = await callArkResponses(collectFinalReportContent(report, compactVisualSummaries(visualBatchSummaries, 30)).content, {
-        maxOutputTokens: 5000,
+        maxOutputTokens: 12000,
         timeoutMs: ARK_ANALYSIS_TIMEOUT_MS * 2,
       })
       finalJson = finalResult.json
@@ -1817,12 +1938,28 @@ function aggregateReportTerms(report, field, limit = 8) {
     for (const item of sources) {
       const term = String(item?.term || item?.keyword || item || '').trim()
       if (!term) continue
-      const current = counts.get(term) || { term, count: 0, evidence: item?.evidence || '来自竞品标题、SKU、问大家、评价或图片分析' }
+      const current = counts.get(term) || { term, count: 0, evidence: item?.evidence || '来自竞品标题、问大家、评价或图片分析' }
       current.count += toInt(item?.count, 1)
       counts.set(term, current)
     }
   }
   return Array.from(counts.values()).sort((a, b) => b.count - a.count).slice(0, limit)
+}
+
+function differentiationScore({ salesScore = 0, demandScore = 0, gapScore = 0, visualScore = 0, reason = '' } = {}) {
+  const clamp = (value) => Math.max(0, Math.min(5, toInt(value, 0)))
+  const sales = clamp(salesScore)
+  const demand = clamp(demandScore)
+  const gap = clamp(gapScore)
+  const visual = clamp(visualScore)
+  return {
+    sales_validation_score: sales,
+    demand_strength_score: demand,
+    competitor_gap_score: gap,
+    visual_expression_score: visual,
+    overall_score: sales + demand + gap + visual,
+    score_reason: reason,
+  }
 }
 
 function bestBandBy(report, field) {
@@ -1986,34 +2123,78 @@ function buildStrategyReportFallback(report) {
   const ordinaryProductText = ordinaryProducts.length
     ? ordinaryProducts.map(formatProductEvidence).join('；')
     : '普通或低表现商品样本不足'
-  const reviewQaText = demandTerms.length
+  const reviewExamples = products.flatMap((product) => product.review_examples || []).slice(0, 3)
+  const reviewQaCount = safeArray(report.price_band_report).reduce((sum, band) => (
+    sum + toInt(band.review_count_total, 0) + toInt(band.qa_count_total, 0)
+  ), 0)
+  const hasReviewQaEvidence = reviewExamples.length > 0 || reviewQaCount > 0
+  const reviewQaText = hasReviewQaEvidence && demandTerms.length
     ? demandTerms
       .slice(0, 3)
       .map((item) => `${item.term}${item.evidence ? `（${String(item.evidence).slice(0, 40)}）` : ''}`)
       .join('；')
-    : '评价/问大家样本不足，先以商品标题、SKU、主图识别和销量表现判断。'
+    : '评价/问大家样本不足，先以商品标题、主图识别和销量表现判断。'
+  const reviewEvidenceText = reviewExamples.length
+    ? reviewExamples.map((item) => `“${String(item.text || item).slice(0, 46)}”`).join('；')
+    : reviewQaText
+  const salesScore = highPerformanceProducts.length ? 5 : 2
+  const demandScore = hasReviewQaEvidence
+    ? (reviewExamples.length >= 3 || demandTerms.length >= 3 ? 5 : 3)
+    : 2
+  const gapScore = ordinaryProducts.length ? 4 : 2
+  const visualScore = sellingTerms.length ? 5 : 3
+  const primaryDemandTerm = hasReviewQaEvidence ? (demandTerms[0]?.term || '购买疑虑') : (mainstreamBand.price_band || report.summary?.price_range || '主流价格带')
   const differentiationDirections = [
     {
       direction_title: `方向 1：「${sellingTerms[0]?.term || keyword}」—— 对标高表现商品的明确利益表达`,
       compared_products: [`高表现：${highProductText}`, `对照：${ordinaryProductText}`],
       sales_evidence: `高表现商品优先按销额/销量排序；样本总销量 ${totalSold || '暂无'}，总销售额 ${totalSales ?? '暂无'}。`,
-      review_qa_evidence: reviewQaText,
+      review_qa_evidence: reviewEvidenceText,
+      opportunity_score: differentiationScore({
+        salesScore,
+        demandScore,
+        gapScore,
+        visualScore,
+        reason: '有高表现商品销售验证，且主图/标题卖点可被转化为直观图片证据。',
+      }),
       market_meaning: `同类商品中，能把${sellingTerms[0]?.term || '核心卖点'}讲清楚并转成用户收益的商品更容易获得点击和转化。`,
       image_strategy: `前 2-4 张图用场景、对比和局部细节证明${sellingTerms.slice(0, 3).map((item) => item.term).join('、')}，不要只堆文字。`,
     },
     {
-      direction_title: `方向 2：「${demandTerms[0]?.term || '购买疑虑'}」—— 用评价/问大家反推竞品缺口`,
+      direction_title: hasReviewQaEvidence
+        ? `方向 2：「${primaryDemandTerm}」—— 用评价/问大家反推竞品缺口`
+        : `方向 2：「${primaryDemandTerm}」—— 用高销价带校准主图承诺`,
       compared_products: [`高表现：${highProductText}`, `对照：${ordinaryProductText}`],
-      sales_evidence: `价格范围 ${report.summary?.price_range || mainstreamBand.price_band || '-'}，用销量/销额高的商品验证需求优先级。`,
-      review_qa_evidence: reviewQaText,
-      market_meaning: '用户在评价/问大家中反复确认的问题，往往就是同类商品最需要被图片提前回答的转化阻力。',
-      image_strategy: `把${demandTerms[0]?.term || '用户疑虑'}做成痛点解决图，画面直接给出使用场景、结果证明或细节对比。`,
+      sales_evidence: `价格范围 ${report.summary?.price_range || mainstreamBand.price_band || '-'}，用销量/销额高的商品验证主图卖点优先级。`,
+      review_qa_evidence: reviewEvidenceText,
+      opportunity_score: differentiationScore({
+        salesScore: Math.max(3, salesScore - 1),
+        demandScore,
+        gapScore,
+        visualScore,
+        reason: hasReviewQaEvidence
+          ? '真实评价/问大家中出现的疑虑适合提前用图片回答，可降低购买决策成本。'
+          : '当前没有真实评价/问大家样本，优先使用价格带、销量和主图标题信号做保守判断。',
+      }),
+      market_meaning: hasReviewQaEvidence
+        ? '用户在评价/问大家中反复确认的问题，往往就是同类商品最需要被图片提前回答的转化阻力。'
+        : '缺少真实评论和问大家时，不应输出消费者原话判断；先看用户实际成交在哪个价格带，以及高销商品标题和主图承诺了什么。',
+      image_strategy: hasReviewQaEvidence
+        ? `把${primaryDemandTerm}做成痛点解决图，画面直接给出使用场景、结果证明或细节对比。`
+        : `围绕${primaryDemandTerm}价带的购买理由组织主图，优先讲清${sellingTerms.slice(0, 3).map((item) => item.term).join('、')}，少放无法被数据验证的主观文案。`,
     },
     {
       direction_title: '方向 3：「少文字强证明」—— 用图片结构拉开同质竞品',
       compared_products: [`高表现：${highProductText}`, `对照：${ordinaryProductText}`],
       sales_evidence: '代表商品来自同一竞品集合，按销量、销额和价格综合排序。',
-      review_qa_evidence: reviewQaText,
+      review_qa_evidence: reviewEvidenceText,
+      opportunity_score: differentiationScore({
+        salesScore: Math.max(3, salesScore - 1),
+        demandScore: Math.max(2, demandScore - 1),
+        gapScore: Math.max(3, gapScore),
+        visualScore: 5,
+        reason: '同质卖点下图片结构本身就是差异化抓手，适合转成清晰图位分工。',
+      }),
       market_meaning: '当同类商品卖点相似时，真正差异来自图片是否能快速说明“适合谁、解决什么、凭什么可信”。',
       image_strategy: '白底图看清产品，场景图建立用途，卖点图给结果，细节图证明品质；每张图只讲一个主信息。',
     },
@@ -2030,7 +2211,7 @@ function buildStrategyReportFallback(report) {
       valid_product_count: totalProducts,
       review_sample_count: safeArray(report.price_band_report).reduce((sum, band) => sum + toInt(band.qa_and_review?.review_count_total, 0), 0),
       keyword_count: 1,
-      data_sources: ['商品数据', '销量数据', 'SKU', '问大家/评价', '主图/详情图/单品图片分析报告'],
+      data_sources: ['商品数据', '销量数据', '问大家/评价正文', '主图/详情图/单品图片分析报告', 'SKU价格/规格背景'],
       data_note: `本报告基于 ${totalProducts} 个同类商品，重点分析销售结构、卖点、需求和 Listing 图片生成策略。`,
     },
     market_core_conclusions: {
@@ -2729,7 +2910,7 @@ const MARKET_SCHEMA_STATEMENTS = [
     shop_name VARCHAR(255) NULL,
     price DECIMAL(18,2) NULL,
     sold_count BIGINT NULL,
-    main_image_url TEXT NULL,
+    main_image_url LONGTEXT NULL,
     main_image_path TEXT NULL,
     sku_json LONGTEXT NULL,
     qa_json LONGTEXT NULL,
@@ -3045,6 +3226,1331 @@ function uniqueText(items, limit = 5) {
   return result
 }
 
+const KEYWORD_MATRIX_STOP_WORDS = new Set([
+  '这个', '那个', '一种', '一起', '一直', '已经', '没有', '就是', '非常', '不错', '值得',
+  '购买', '收到', '宝贝', '商品', '产品', '主图', '图片', '展示', '适合', '专用', '专属',
+  '一个', '两个', '多个', '可以', '进行', '使用', '主要', '核心', '标题', '文字', '标注',
+  '左侧', '右侧', '顶部', '底部', '中部', '前方', '背景', '画面', '视觉', '风格',
+  '净含量', '标准', '推荐', '升级', '回购', '囤货', '混合', '口味', '规格', '选择',
+  '多多', '火腿', '香精', '诱食剂', '含量', '添加', '每天', '多次', '喜欢', '很喜欢', '很好', '好用', '挺好', '质量', '我家', '疯狂', '小狗', '0香', '0诱',
+  '本地', '本地提取', '本地兜底', '批次', '摘要', '批次摘要', '批次摘要本地', '评价', '提取',
+  '大家', '来自', '需求', '评论', '问大家', '卖点', '洞察', '数据', '样本', '用户', '商品关键词',
+  '商品标题', '报告', '分析', '来源', '入库', '可用', '已有', '信号', '覆盖',
+  '店长', '店长推荐', '不加', '共计', '合计', '详情', '详情页',
+  'ip', 'ip联名', '联名挂钩', 'ip联名挂钩',
+  'term', 'count', 'evidence', 'reason', 'score', 'label', 'value', 'name', 'type',
+  'the', 'and', 'for', 'with', 'from', 'this', 'that', 'over', 'under',
+  // 技术属性词 / SKU 系统字段
+  'id', 'image', 'info', 'price', 'qty', 'coupon', 'url', 'link', 'src', 'sku',
+  'http', 'https', 'com', 'jpg', 'png', 'gif', 'html', 'css', 'json', 'xml',
+  '快照', '商品快照', '链接', '商品链接', '店铺', '价格', '优惠券', '原价', '到手价',
+  '数量', '属性', '参数', '字段', '编号', '编码', '条码', '二维码', 'sku_id',
+  'color', 'size', 'weight', 'width', 'height', 'length', 'material', 'style',
+  'option', 'variant', 'stock', 'status', 'category', 'brand', 'model',
+  'item', 'product', 'goods', 'order', 'cart', 'shop', 'store',
+  'description', 'feature', 'specification', 'detail', 'information',
+  'default', 'custom', 'template', 'config', 'setting', 'option',
+  'image_url', 'img', 'pic', 'photo', 'banner', 'logo', 'icon',
+  // 常见虚词/连词/副词（不是有意义的关键词）
+  '还是', '但是', '而且', '或者', '如果', '因为', '所以', '虽然', '不过', '然后',
+  '之后', '之前', '以后', '以前', '现在', '刚才', '马上', '立刻', '终于', '竟然',
+  '居然', '果然', '当然', '自然', '显然', '明显', '确实', '真的', '确实', '实在',
+  '比较', '特别', '非常', '十分', '相当', '稍微', '略微', '大概', '大约', '左右',
+  '东西', '事情', '时候', '地方', '问题', '情况', '方面', '部分', '整体', '全部',
+  '整体来说', '总的来说', '总体来说', '综合来看', '综合来说',
+])
+
+const PURE_TECHNICAL_WORD = /^(?:id|image|info|price|qty|coupon|url|link|src|sku|http|https|com|jpg|png|gif|html|css|json|xml|color|size|weight|width|height|length|material|style|option|variant|stock|status|category|brand|model|item|product|goods|order|cart|shop|store|description|feature|specification|detail|information|default|custom|template|config|setting|img|pic|photo|banner|logo|icon|sku[_-]?id)$/i
+
+const zhSegmenter = typeof Intl !== 'undefined' && Intl.Segmenter
+  ? new Intl.Segmenter('zh-CN', { granularity: 'word' })
+  : null
+
+function normalizeKeywordTerm(value) {
+  return String(value || '')
+    .replace(/[，。；：！？、（）【】《》“”‘’"'`~!@#$%^&*_+=|\\/<>[\]{}(),.;:?]/g, ' ')
+    .replace(/™|®|★|#|【|】/g, ' ')
+    .replace(/[ＯOo](?=盐|香|诱)/g, '0')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase()
+}
+
+function isUsefulKeywordTerm(term) {
+  const text = String(term || '').trim()
+  if (!text) return false
+  if (KEYWORD_MATRIX_STOP_WORDS.has(text)) return false
+  if (PURE_TECHNICAL_WORD.test(text)) return false
+  if (/\b(?:term|count|evidence|reason|score|label|value|type|status|default|config|option|variant|specification|feature|description|information|material|category|brand|model)\b/i.test(text)) return false
+  if (/^(?:本地|来自|批次|摘要|评价|提取|大家|需求|评论|问大家|卖点|洞察|样本|数据|用户|标题|主图|sku|快照|链接|店铺|价格|优惠|编号|编码)$/i.test(text)) return false
+  // 纯英文单词且不含中文 → 大概率是系统字段名
+  if (/^[a-z0-9_-]+$/i.test(text) && !/[\u4e00-\u9fff]/.test(text) && text.length <= 12) return false
+  if (/^\d+(?:\.\d+)?(?:g|kg|克|斤|包|根|袋|元|个月|月龄|年|岁)?$/i.test(text)) return false
+  if (/^共?\d+(?:\.\d+)?(?:g|kg|克|斤|包|根|袋)$/i.test(text)) return false
+  if (/^\d+[张抽包提共·*xX]+\d*$/i.test(text)) return false
+  if (/^[0o][张抽提包]|[张抽提包]·?包$/i.test(text)) return false
+  if (/^共\d+(?:张|抽|包|提|卷|片)?$/i.test(text)) return false
+  if (/^\d+(?:张|抽|包|提|卷|片)(?:·|每|一)?(?:包|提)?$/i.test(text)) return false
+  if (/^\d+提共\d+$/i.test(text)) return false
+  if (/^(?:超韧)?抽纸\d+$/i.test(text)) return false
+  if (/[\u4e00-\u9fff]\d$/.test(text)) return false
+  if (/^[\d\s.gkg克斤包根袋元]+$/i.test(text)) return false
+  if (/^[\d\s.,，。:：;；\-]+$/.test(text)) return false
+  if (/^[一二三四五六七八九十]+$/.test(text)) return false
+  if (text.length < 2 && !/^0[\u4e00-\u9fff]/.test(text)) return false
+  if (text.length > 40) return false
+  return true
+}
+
+function splitKeywordTerms(value) {
+  const normalized = normalizeKeywordTerm(value)
+  if (!normalized) return []
+  const terms = []
+  const chunks = normalized
+    .replace(/([0０][\u4e00-\u9fff])/g, ' $1')
+    .split(/[\s|/／,，.。;；:：()[\]{}【】<>《》]+/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+
+  for (const phrase of normalized.match(/[a-z0-9]+(?:[- ][a-z0-9]+){1,8}/g) || []) {
+    if (isUsefulKeywordTerm(phrase)) terms.push(phrase)
+  }
+
+  for (const chunk of chunks) {
+    if (/^[a-z0-9-]{2,}$/i.test(chunk)) {
+      if (isUsefulKeywordTerm(chunk)) terms.push(chunk)
+      continue
+    }
+
+    const directMatches = chunk.match(/0盐|0香精|0诱食剂|无盐|无香精|无诱食剂|无添加剂|无添加|人食品级工厂|淀粉|肉多多|火腿肠|小型犬|宠物香肠|狗零食|狗粮|泰迪|鸡肉味|牛肉味|混合味/g) || []
+    for (const term of directMatches) {
+      if (isUsefulKeywordTerm(term)) terms.push(term)
+    }
+
+    const words = zhSegmenter
+      ? Array.from(zhSegmenter.segment(chunk))
+        .filter((part) => part.isWordLike)
+        .map((part) => String(part.segment || '').trim())
+        .filter((part) => isUsefulKeywordTerm(part))
+      : (chunk.match(/[\u4e00-\u9fff]{2,6}/g) || [])
+
+    for (const word of words) terms.push(word)
+    for (let start = 0; start < words.length; start += 1) {
+      let combined = ''
+      for (let end = start; end < Math.min(words.length, start + 4); end += 1) {
+        combined += words[end]
+        if (end > start && combined.length <= 12 && isUsefulKeywordTerm(combined)) terms.push(combined)
+      }
+    }
+
+    if (/[\u4e00-\u9fff]/.test(chunk) && chunk.length >= 2 && chunk.length <= 12 && isUsefulKeywordTerm(chunk)) {
+      terms.push(chunk)
+    }
+  }
+
+  return uniqueText(terms, 80)
+}
+
+function collectKeywordTextsFromJson(value, bucket, source, weight = 1) {
+  const json = typeof value === 'string' ? parseJson(value, null) : value
+  if (!json || typeof json !== 'object') return
+  const pushText = (text, nextSource = source, nextWeight = weight) => {
+    const clean = String(text || '').trim()
+    if (clean) bucket.push({ text: clean, source: nextSource, weight: nextWeight })
+  }
+  const visit = (node, key = '') => {
+    if (node == null) return
+    if (typeof node === 'string') {
+      pushText(node, key.includes('demand') || key.includes('need') ? '需求洞察' : source, weight)
+      return
+    }
+    if (Array.isArray(node)) {
+      for (const item of node.slice(0, 80)) visit(item, key)
+      return
+    }
+    if (typeof node !== 'object') return
+    for (const [childKey, childValue] of Object.entries(node)) {
+      if (['term', 'keyword', 'selling_point', 'need', 'pain_point', 'question', 'answer', 'review_text', 'sku_info', 'sku_title'].includes(childKey)) {
+        pushText(childValue, childKey.includes('need') || childKey.includes('pain') || childKey.includes('question') || childKey.includes('answer') ? '需求洞察' : source, weight)
+      } else if (['main_image_ocr_text', 'image_selling_points', 'title_selling_points', 'qa_user_needs', 'listing_suggestions'].includes(childKey)) {
+        visit(childValue, childKey)
+      }
+    }
+  }
+  visit(json)
+}
+
+function addKeywordSignal(stats, term, { source, productId = '', sold = 0, weight = 1 }) {
+  const keyword = normalizeKeywordTerm(term)
+  if (!isUsefulKeywordTerm(keyword)) return
+  const current = stats.get(keyword) || {
+    keyword,
+    frequency: 0,
+    weightedScore: 0,
+    salesSignal: 0,
+    productIds: new Set(),
+    sources: new Set(),
+    demandSignal: 0,
+    titleSignal: 0,
+    titleProductIds: new Set(),
+    evidence: [],
+  }
+  current.frequency += 1
+  current.weightedScore += weight
+  current.salesSignal += Math.max(0, toNumber(sold, 0)) * weight
+  if (productId) current.productIds.add(String(productId))
+  if (source) current.sources.add(source)
+  if (source && /需求|评论|问大家/.test(source)) current.demandSignal += weight
+  if (source === '商品标题') {
+    current.titleSignal += weight
+    if (productId) current.titleProductIds.add(String(productId))
+  }
+  if (source && current.evidence.length < 3) current.evidence.push(source)
+  stats.set(keyword, current)
+}
+
+function keywordMatrixSourceSummary(sources = []) {
+  const sourceSet = new Set(sources)
+  const parts = []
+  if (sourceSet.has('评论')) parts.push('评论')
+  if (sourceSet.has('问大家')) parts.push('问大家')
+  if (sourceSet.has('需求洞察')) parts.push('需求洞察')
+  if (sourceSet.has('卖点洞察')) parts.push('卖点洞察')
+  if (sourceSet.has('SKU')) parts.push('SKU')
+  if (sourceSet.has('主图分析')) parts.push('主图分析')
+  if (sourceSet.has('商品标题')) parts.push('标题')
+  return parts.length ? parts.slice(0, 3).join('、') : '数据库'
+}
+
+function keywordMatrixIntentHint(keyword) {
+  const text = String(keyword || '').toLowerCase()
+  if (/挂钩|悬挂|收纳/.test(text)) {
+    return '更像赠品、悬挂或收纳便利点，适合放在副图角标或场景图里，不建议单独当标题主词。'
+  }
+  if (/联名|新年|发财|卡通|图案|颜值|设计/.test(text)) {
+    return '偏款式/活动视觉卖点，适合做限定款或包装差异化表达，使用前要确认授权与品牌风险。'
+  }
+  if (/吸水|柔|韧|厚|纸张|纸质|纸感|不掉屑|亲肤|原木|无香|无荧光|母婴|加厚|三层|3层/.test(text)) {
+    return '属于可感知的使用体验或品质证明，适合用对比图、测试图和短标签强化信任。'
+  }
+  if (/整箱|大包|家庭装|量贩|组合|套装|囤|包|抽|张|提/.test(text)) {
+    return '属于规格和性价比信号，适合在主图/副图明确数量、包装组合和使用周期。'
+  }
+  if (/维达|清风|洁柔|心相印|植护|漫花|卡其猫/.test(text)) {
+    return '更像竞品品牌信号，不建议直接作为上架关键词，可用于观察竞品流量来源。'
+  }
+  return ''
+}
+
+function keywordOpportunityReason(row, { blueOcean = false } = {}) {
+  const sourceText = keywordMatrixSourceSummary(row.sources)
+  const evidence = []
+  if (row.productCoverage >= 60) {
+    evidence.push(`覆盖 ${row.productCoverage}% 商品`)
+  } else if (row.productCoverage > 0) {
+    evidence.push(`只覆盖 ${row.productCoverage}% 商品`)
+  }
+  evidence.push(row.titleCoverage <= 0 ? '标题暂未覆盖' : `标题覆盖 ${row.titleCoverage}%`)
+  if (row.demandSignals > 0) evidence.push(`需求信号 ${row.demandSignals}`)
+  if (row.salesSignal > 0) evidence.push(`销量权重 ${Number(row.salesSignal).toLocaleString('zh-CN')}`)
+
+  const sourceSet = new Set(row.sources || [])
+  const onlyFromSku = sourceSet.size <= 2 && sourceSet.has('SKU') && !sourceSet.has('评论') && !sourceSet.has('问大家') && !sourceSet.has('卖点洞察') && !sourceSet.has('需求洞察')
+  const hasDemandSource = sourceSet.has('评论') || sourceSet.has('问大家') || sourceSet.has('需求洞察')
+
+  const intentHint = keywordMatrixIntentHint(row.keyword)
+  if (intentHint) {
+    return `${sourceText}中多次出现"${row.keyword}"，${evidence.join('，')}。${intentHint}`
+  }
+
+  // 仅来自 SKU 且无需求信号 → 低价值词
+  if (onlyFromSku && row.demandSignals <= 0) {
+    return `"${row.keyword}"仅出现在 SKU 属性中，${evidence.join('，')}。属于系统字段/属性词，不建议作为标题或图片卖点。`
+  }
+
+  // 标题已普遍覆盖 → 红海词
+  if (row.titleCoverage >= 60) {
+    return `"${row.keyword}"在标题中已较普遍，${evidence.join('，')}。属于基础承接词，差异化价值有限。`
+  }
+
+  // 高潜力蓝海词：有需求信号 + 标题低覆盖 + 商品覆盖广
+  if (blueOcean && row.demandSignals > 0 && row.titleCoverage <= 20 && row.productCoverage >= 40) {
+    return `【高潜力】"${row.keyword}"在${sourceText}中有明确用户需求，覆盖 ${row.productCoverage}% 商品但标题仅覆盖 ${row.titleCoverage}%，销量权重 ${Number(row.salesSignal).toLocaleString('zh-CN')}。建议优先纳入主图或标题差异化表达。`
+  }
+
+  // 中潜力蓝海词：有需求信号但覆盖偏低
+  if (blueOcean && row.demandSignals > 0 && row.titleCoverage <= 30) {
+    return `【中潜力】"${row.keyword}"来自${sourceText}，有用户侧需求信号，${evidence.join('，')}。可作为长尾词或副图卖点补充测试。`
+  }
+
+  // 少数高销量商品带出
+  if (row.productCoverage <= 20 && row.salesSignal > 0) {
+    return `"${row.keyword}"主要由少数高销量商品带出，${evidence.join('，')}。可作为测试卖点，先不要直接放大为核心定位。`
+  }
+
+  // 标题覆盖偏高
+  if (row.titleCoverage >= 40) {
+    return `"${row.keyword}"在${sourceText}里出现，${evidence.join('，')}。标题已有一定覆盖，建议作为辅助表达词而非核心差异点。`
+  }
+
+  return `"${row.keyword}"在${sourceText}里出现，${evidence.join('，')}。可作为辅助表达词，结合商品图和价格带再判断优先级。`
+}
+
+function keywordRowsFromStats(stats, productTotal, { blueOcean = false, limit = 10 } = {}) {
+  const rows = Array.from(stats.values())
+    .map((item) => {
+      const titleCoverage = productTotal > 0 ? Math.round((item.titleProductIds.size || 0) / productTotal * 100) : 0
+      const productCoverage = productTotal > 0 ? Math.round(item.productIds.size / productTotal * 100) : 0
+      const opportunityScore = item.demandSignal * 2 + item.weightedScore - item.titleSignal * 1.5
+      const row = {
+        keyword: item.keyword,
+        frequency: item.frequency,
+        productCoverage,
+        titleCoverage,
+        demandSignals: Math.round(item.demandSignal),
+        salesSignal: Math.round(item.salesSignal),
+        sources: Array.from(item.sources).slice(0, 4),
+        sortScore: blueOcean ? opportunityScore : item.weightedScore * 2 + item.salesSignal / 1000 + item.productIds.size,
+      }
+      return {
+        ...row,
+        reason: keywordOpportunityReason(row, { blueOcean }),
+      }
+    })
+    .filter((item) => item.keyword)
+    .filter((item) => {
+      if (!blueOcean) return true
+      // 蓝海词门槛：必须有需求信号或来自评论/问大家/卖点洞察，且标题覆盖偏低
+      if (item.demandSignals <= 0 && !item.sources.some((s) => /评论|问大家|需求|卖点/.test(s))) return false
+      if (item.titleCoverage >= 60) return false
+      return true
+    })
+    .sort((a, b) => b.sortScore - a.sortScore || b.frequency - a.frequency || a.keyword.localeCompare(b.keyword, 'zh-CN'))
+    .slice(0, limit)
+
+  return rows.map(({ sortScore, ...row }) => row)
+}
+
+function topicDefinitionsForKeyword(keyword = '') {
+  const text = String(keyword || '').toLowerCase()
+  const isPaperCategory = /纸|抽纸|餐巾纸|卫生纸|面巾纸|厕纸/.test(text)
+  const isFoodCategory = /包子|馒头|饺子|烧麦|馅饼|手抓饼|发糕|花卷|汤圆|粽子|月饼|面包|蛋糕|饼干|零食|肉脯|肉干|坚果|水果|蔬菜|土豆|地瓜|玉米|大米|面粉|面条|方便面|速食|早餐|食品|小吃/.test(text)
+  const basePositive = [
+    { key: '功能效果', patterns: [/防晒|防紫外线|遮阳|upf|降噪|吸水|可湿水|防水|保暖|清洁|效果/], action: '把效果做成可视化证明图，例如参数、对比、场景前后差异。' },
+    { key: isFoodCategory ? '口感体验' : '舒适体验', patterns: isFoodCategory ? [/好吃|美味|香|软糯|酥脆|细腻|顺滑|新鲜|鲜嫩|入味|回甘|醇香/] : [/舒服|舒适|柔软|亲肤|不勒|不闷|轻薄|透气|冰丝|无痕|不痛|贴合/], action: isFoodCategory ? '用食物特写、切面/掰开瞬间和真实食用场景证明口感。' : '用材质细节、佩戴/使用场景和长时间体验文案降低顾虑。' },
+    { key: '品质材料', patterns: isFoodCategory ? [/质量|真材实料|配料|原料|食材|新鲜|纯正|无添加|0添加|健康|营养/] : [/质量|厚实|韧性|结实|做工|面料|材质|不掉屑|耐用|细腻/], action: isFoodCategory ? '用配料表、食材实拍和生产过程展示证明品质。' : '用细节放大、拉扯/湿水/材质对比证明品质。' },
+    { key: '性价比/囤货', patterns: [/便宜|划算|优惠|性价比|实惠|多买|囤|加量|不加价|整箱|量贩/], action: '主图或副图直接写清数量、到手价、使用周期和囤货场景。' },
+    { key: isPaperCategory ? '规格尺寸' : isFoodCategory ? '分量规格' : '尺寸/贴合', patterns: isFoodCategory ? [/分量|足量|大份|小份|克重|个数|只数|袋数/] : [/大小合适|合适|尺寸|贴合|包裹|立体|全脸|脸基尼|大号|中号/], action: isPaperCategory ? '增加单包尺寸、纸张大小和抽数参照，减少买家对规格的疑虑。' : isFoodCategory ? '明确单袋/单盒分量、个数和实物大小参照，减少买家对分量的疑虑。' : '增加真人/实物尺寸参照，减少买家对大小和贴合度的疑虑。' },
+    { key: '外观颜色', patterns: [/颜色|好看|显白|黑色|灰|粉|颜值|款式|设计|联名/], action: '把颜色、款式和上身/上手效果做成选择引导图。' },
+    { key: '物流包装', patterns: [/物流|包装|发货|完整|快|到货/], action: '这类卖点适合作为详情页信任背书，不建议占据首图核心位置。' },
+  ]
+  const basePain = [
+    { key: isPaperCategory ? '规格偏小/分量不足' : isFoodCategory ? '分量不足/个数少' : '尺寸偏小/不贴合', patterns: isFoodCategory ? [/太少|分量少|不够吃|个数少|太小|偏小|不值/] : [/太小|偏小|尺码小|不合适|压耳|勒|滑落|掉落|戴不住|包不住|小包/], reverse: isPaperCategory ? '明确单包尺寸、抽数/张数、整箱数量和实物参照，避免买家误判规格。' : isFoodCategory ? '明确单袋分量、个数和实物大小参照，用称重/实拍图证明分量充足。' : '加大覆盖面积、立体剪裁、弹力贴合；图片里放真人佩戴和尺寸参照。' },
+    { key: isFoodCategory ? '口感/食用体验差' : '佩戴/使用不舒适', patterns: isFoodCategory ? [/难吃|不好吃|口感差|硬|干|柴|腻|腥|异味|不新鲜|变质|坏了/] : [/闷|热|不透气|勒|痛|难受|不舒服|刺|压迫/], reverse: isFoodCategory ? '主打现做现发、锁鲜工艺，用食物特写和真实食用场景证明口感软糯/酥脆/新鲜。' : '主打轻薄透气、无痕不压脸/不压耳，用材质和长时间场景证明。' },
+    { key: isFoodCategory ? '加热/复热效果差' : '功能效果不足', patterns: isFoodCategory ? [/加热|复热|蒸|煮|煎|微波炉|回软|塌陷|不蓬松|粘牙/] : [/不防晒|晒|效果不好|防紫外线差|吸水差|掉屑|太薄|不结实|漏/], reverse: isFoodCategory ? '提供详细加热指南（蒸/煮/煎/微波时间），用加热前后对比图证明复热效果。' : '把核心功能做成明确参数和对比证据，避免只写形容词。' },
+    { key: '质量耐用问题', patterns: isFoodCategory ? [/破|坏|漏|变质|过期|发霉|有虫|异物/] : [/破|坏|脱线|掉色|变形|开裂|质量差|粗糙|异味/], reverse: isFoodCategory ? '用生产日期、保质期、质检报告和冷链运输证明食品安全。' : '用做工细节、材质认证、耐用测试和售后承诺反推信任。' },
+    { key: '价格/分量不满', patterns: [/贵|不划算|分量少|太少|缩水|小包|不值/], reverse: '明确到手规格、单件/单包成本和同价位优势。' },
+    { key: '颜色/实物差异', patterns: [/色差|颜色不对|不好看|图片不符|实物不符/], reverse: '增加自然光实拍、色卡对照和多角度展示。' },
+    { key: '包装/物流问题', patterns: [/包装破|物流慢|漏发|少发|压坏|破损|融化|化了/], reverse: isFoodCategory ? '用冷链运输、保温包装和坏单包赔承诺降低风险。' : '用包装保护、发货检查和售后补发承诺降低风险。' },
+  ]
+  if (/口罩|面罩|防晒|脸基尼/.test(text)) {
+    basePositive.unshift(
+      { key: '防晒防护', patterns: [/防晒|防紫外线|遮阳|upf|全脸|防护/], action: '首屏突出 UPF/防晒等级、全脸覆盖范围和开车/户外场景。' },
+      { key: '冰丝透气', patterns: [/冰丝|透气|轻薄|不闷|凉感|无痕/], action: '用材质微距和夏季佩戴场景证明不闷不压脸。' },
+    )
+  }
+  return { positive: basePositive, pain: basePain }
+}
+
+function compactEvidenceText(value, limit = 92) {
+  const text = String(value || '')
+    .replace(/\s+/g, ' ')
+    .replace(/[<>]/g, '')
+    .trim()
+  if (!text) return ''
+  return text.length > limit ? `${text.slice(0, limit)}...` : text
+}
+
+function addTopicMatch(topicMap, topic, { text = '', source = '', productId = '', productTitle = '', weight = 1 }) {
+  const cleanText = String(text || '').trim()
+  if (!cleanText) return false
+  const matched = topic.patterns.some((pattern) => pattern.test(cleanText))
+  if (!matched) return false
+  if (topic.reverse) {
+    const isSizePain = topic.key === '尺寸偏小/不贴合' || topic.key === '规格偏小/分量不足'
+    if (topic.key === '价格/分量不满' && /(便宜|划算|优惠|超值|性价比|值了|合适)/.test(cleanText) && !/(贵|不划算|分量少|太少|缩水|小包|不值)/.test(cleanText)) return false
+    if (isSizePain && /(不会太小|不太小|不是小包|非小包|大小合适|足够用|够用|合适不会太小|比.{0,8}小包.{0,8}强)/.test(cleanText)) return false
+    if (isSizePain && !/(太小|偏小|尺码小|不合适|压耳|勒|滑落|掉落|戴不住|包不住|小包)/.test(cleanText)) return false
+    if (topic.key === '功能效果不足' && /(不掉屑|不掉絮|不易破|不会破|没有[^，。；]*掉|可湿水|吸水性.{0,6}好)/.test(cleanText) && !/(吸水差|掉屑严重|太薄|不结实|效果不好|不防晒)/.test(cleanText)) return false
+    if (topic.key === '质量耐用问题' && /(不比.{0,12}质量差|质量不差|不掉|不易破|不会破|没有[^，。；]*掉|不粗糙|质量好|质量很好|厚实|结实|耐用)/.test(cleanText) && !/(容易破|破损|质量差得|坏了|脱线|掉色|变形|开裂|异味)/.test(cleanText)) return false
+  }
+  const current = topicMap.get(topic.key) || {
+    title: topic.key,
+    count: 0,
+    sources: new Set(),
+    productIds: new Set(),
+    evidence: [],
+    action: topic.action,
+    reverseSellingPoint: topic.reverse,
+  }
+  current.count += weight
+  if (source) current.sources.add(source)
+  if (productId) current.productIds.add(String(productId))
+  if (cleanText && current.evidence.length < 3) {
+    current.evidence.push({
+      text: compactEvidenceText(cleanText),
+      source,
+      productTitle: compactEvidenceText(productTitle, 42),
+    })
+  }
+  topicMap.set(topic.key, current)
+  return true
+}
+
+function rowsFromTopicMap(topicMap, limit = 3) {
+  return Array.from(topicMap.values())
+    .map((item) => ({
+      title: item.title,
+      count: Math.round(item.count),
+      productCoverage: item.productIds.size,
+      sources: Array.from(item.sources).slice(0, 4),
+      evidence: item.evidence,
+      action: item.action || '',
+      reverseSellingPoint: item.reverseSellingPoint || '',
+    }))
+    .sort((a, b) => b.count - a.count || b.productCoverage - a.productCoverage || a.title.localeCompare(b.title, 'zh-CN'))
+    .slice(0, limit)
+}
+
+function topTermRowsFromStats(stats, limit = 8) {
+  return Array.from(stats.values())
+    .sort((a, b) => b.weightedScore - a.weightedScore || b.frequency - a.frequency)
+    .slice(0, limit)
+    .map((item) => item.keyword)
+}
+
+function buildTitleSuggestion({ keyword, products, skuTerms, positiveRows, keywordMatrix }) {
+  const titleWords = uniqueText([
+    keyword,
+    ...topTermRowsFromStats(skuTerms, 6),
+    ...safeArray(keywordMatrix?.blueOceanKeywords).map((item) => item.keyword).slice(0, 4),
+    ...positiveRows.map((item) => item.title),
+  ], 10).filter((item) => !['价格', '包装', '纸巾'].includes(item))
+  const productTitle = products[0]?.title || ''
+  const suffix = /口罩|面罩|防晒|脸基尼/.test(`${keyword} ${productTitle}`)
+    ? ['防晒', '防紫外线', '冰丝轻薄', '全脸防护', '夏季开车户外']
+    : titleWords.slice(1, 6)
+  return uniqueText([keyword, ...suffix], 8).join(' / ')
+}
+
+function buildSearchTerms({ keyword, keywordMatrix, skuTerms, positiveRows, painRows }) {
+  return uniqueText([
+    keyword,
+    ...safeArray(keywordMatrix?.coreKeywords).map((item) => item.keyword),
+    ...safeArray(keywordMatrix?.blueOceanKeywords).map((item) => item.keyword),
+    ...topTermRowsFromStats(skuTerms, 12),
+    ...positiveRows.map((item) => item.title),
+    ...painRows.map((item) => item.title),
+  ], 18).join(' ')
+}
+
+function buildImageOrder({ keyword, positiveRows, painRows, keywordMatrix }) {
+  const blue = safeArray(keywordMatrix?.blueOceanKeywords).map((item) => item.keyword)
+  const p1 = positiveRows[0]?.title || blue[0] || '核心功能'
+  const p2 = positiveRows[1]?.title || blue[1] || '品质细节'
+  const p3 = painRows[0]?.title || blue[2] || '购买顾虑'
+  const p4 = positiveRows[2]?.title || blue[3] || '规格/颜色'
+  const p5 = painRows[1]?.title || '场景信任'
+  if (/口罩|面罩|防晒|脸基尼/.test(String(keyword || ''))) {
+    return [
+      `防晒防护：突出 UPF/防紫外线和全脸覆盖范围`,
+      `冰丝透气：证明夏季佩戴不闷、轻薄无痕`,
+      `贴合尺寸：真人佩戴展示脸部/耳部/颈部覆盖`,
+      `颜色款式：展示多色 SKU 和肤色/穿搭适配`,
+      `场景闭环：开车、骑行、户外通勤等真实用途`,
+    ]
+  }
+  return [
+    `${p1}：放在第一张主卖点图，先回答为什么买`,
+    `${p2}：用细节/对比证明品质，不只写形容词`,
+    `${p3}：把主要差评顾虑转成反推卖点`,
+    `${p4}：明确规格、款式、数量或组合选择`,
+    `${p5}：用场景、评价证据和售后承诺收口`,
+  ]
+}
+
+function listingPointEvidence(item = {}, fallback = '', { excludeSources = [] } = {}) {
+  const excluded = new Set(excludeSources)
+  const evidence = safeArray(item.evidence)
+    .filter((entry) => !excluded.has(String(entry?.source || '').trim()))
+    .map((entry) => compactEvidenceText(entry?.text || entry, 64))
+    .filter(Boolean)
+  return evidence[0] || fallback || ''
+}
+
+function displaySourcesForMainImage(sources = []) {
+  const filtered = safeArray(sources)
+    .map((source) => String(source || '').trim())
+    .filter((source) => source && source !== 'SKU')
+  return filtered.length ? uniqueText(filtered, 4) : ['数据库信号']
+}
+
+// ====== 语义归组规则：将同类卖点词归并为一个维度 ======
+const SEMANTIC_GROUPS = [
+  { group: '整箱量贩装', category: '性价比', patterns: /^\d+包$|^\d+提|^\d+卷$|^\d+抽$|^\d+张$|^\d+片$|量贩|囤货|整箱|实惠装|家用装|批发/, displayTitle: '整箱量贩超值装', priority: 2 },
+  { group: '够用时长', category: '性价比', patterns: /够用\S*|\d+天|\d+月|半年|一整年|全年/, displayTitle: '够用一整年', priority: 1 },
+  { group: '层数厚度', category: '品质原料', patterns: /^\d+层$|^\d+ply$|加厚|特厚|厚实/, displayTitle: '加厚多层面纸', priority: 1 },
+  { group: '柔软亲肤', category: '品质原料', patterns: /柔软|亲肤|温和|柔韧|细韧|绵柔|丝滑|婴儿级/, displayTitle: '柔软亲肤触感', priority: 1 },
+  { group: '吸水韧性', category: '功能健康', patterns: /吸水|湿水|韧性|不易破|不掉屑|不掉毛|强韧|耐拉扯/, displayTitle: '强韧吸水不易破', priority: 1 },
+  { group: '原生木浆', category: '功能健康', patterns: /原生木浆|原生浆|天然|纯木|木浆|无荧光|无漂白|食品级/, displayTitle: '原生木浆安全无忧', priority: 1 },
+  { group: '高蛋白营养', category: '功能健康', patterns: /高蛋白|高营养|蛋白质|低脂|0添加|无添加|非油炸/, displayTitle: '高蛋白轻负担', priority: 1 },
+  { group: '品质真材实料', category: '品质原料', patterns: /品质|优质|真材实料|特级|精选|严选|大块|整片|原切/, displayTitle: '真材实料好品质', priority: 1 },
+  { group: '产地正宗', category: '产地背书', patterns: /靖江|金华|潮汕|云南|新疆|进口|原产|老字号|非遗/, displayTitle: '正宗产地风味', priority: 1 },
+  { group: '口感美味', category: '口感体验', patterns: /口感|酥脆|嚼劲|香脆|软糯|鲜嫩|入味|好吃|美味|回味|手撕|Q弹|鲜香/, displayTitle: '口感一吃就停不下来', priority: 1 },
+  { group: '多口味选择', category: '口味选择', patterns: /口味|风味|蜜汁|香辣|原味|五香|麻辣|芝士|多味|多口味/, displayTitle: '多口味随心选', priority: 1 },
+  { group: '场景便利', category: '场景便利', patterns: /解馋|休闲|办公室|追剧|即食|便携|独立包装|小袋|旅行|充饥|代餐|下午茶/, displayTitle: '随时随地解馋好搭档', priority: 1 },
+  { group: '品牌信任', category: '信任保障', patterns: /联名|品牌|正品|保障|认证|质检|溯源|大厂|旗舰/, displayTitle: '品牌品质有保障', priority: 1 },
+]
+
+// 判断卖点词是否为纯数量词（如 "40包"、"20包"、"M码18包整箱"）
+function isPureQuantityTerm(term) {
+  const text = String(term || '').trim()
+  if (/^\d+[包提卷抽张片瓶袋盒箱罐个件套组]?$/.test(text)) return true
+  if (/^(M|L|S|XL|XS)?码?\d+[包提卷抽张片瓶袋盒箱罐个件套组]+/.test(text)) return true
+  return false
+}
+
+// 判断卖点词是否为季节性/营销噱头
+function isGimmickTerm(term) {
+  const text = String(term || '').trim()
+  if (/新年|圣诞|双11|双十一|618|年货|节日|马上|恭喜|发财|福到|龙年|蛇年|虎年/.test(text)) return true
+  if (/联名款|限定|限量版|IP款/.test(text) && text.length > 8) return true
+  return false
+}
+
+// 语义归组：返回该词属于哪个组，null 表示不归组
+function findSemanticGroup(term) {
+  const text = String(term || '').trim()
+  for (const rule of SEMANTIC_GROUPS) {
+    if (rule.patterns.test(text)) return rule
+  }
+  return null
+}
+
+// 判断卖点词是否为系统垃圾词（过长/含视觉描述/含关键词本身）
+function isGarbageSellingPoint(term, cleanKeyword) {
+  const text = String(term || '').trim()
+  if (!text || text.length > 20) return true
+  if (text === cleanKeyword || text.replace(/[铺脯纸]/g, '') === cleanKeyword.replace(/[铺脯纸]/g, '')) return true
+  if (/^(?:来自|商品|标题|快照|兜底|本地|提取|洞察|分析|数据|报告|信号|覆盖)/.test(text)) return true
+  if (/(?:背景|画面|视觉|展示|摆放|构图|色彩|配色|拍摄|角度|布局|风格|主体)/.test(text)) return true
+  if (/(?:突出|强调|呈现|标注|营造|搭配|组合|排列|堆叠|放置|位于)/.test(text) && text.length > 8) return true
+  if (/^[a-z0-9_-]+$/i.test(text)) return true
+  if (/\d{4,}/.test(text)) return true // 含4位以上数字（如 "200提共200000张"）
+  // 过滤泛场景词（如"家庭分享"、"家庭装"、"分享装"等不是具体卖点）
+  if (/^(?:家庭|家人|全家|亲子|朋友|同事|同学)(?:分享|共享|一起|共同)/.test(text)) return true
+  if (/^(?:分享|共享|一起|共同)(?:装|包|盒|袋)/.test(text)) return true
+  return false
+}
+
+// 卖点分类器（兼容旧逻辑，新逻辑用 SEMANTIC_GROUPS）
+const SELLING_POINT_CATEGORIES = [
+  { key: '功能健康', patterns: /高蛋白|低脂|0添加|无添加|非油炸|低糖|低卡|营养|健康|维生素|纤维|钙|铁|锌|益生菌|膳食纤维/ },
+  { key: '品质原料', patterns: /品质|优质|真材实料|特级|精选|原料|新鲜|纯正|地道|手工|匠心|严选|大块|整片/ },
+  { key: '产地背书', patterns: /靖江|金华|潮汕|云南|新疆|西藏|日本|韩国|进口|国产|原产|老字号|非遗|地理标/ },
+  { key: '口感体验', patterns: /口感|酥脆|嚼劲|香脆|软糯|鲜嫩|入味|好吃|美味|回味|醇香|浓郁|爽滑|Q弹|手撕|拉丝|弹牙|嫩滑|焦香|烟熏|蜜汁|鲜香/ },
+  { key: '口味选择', patterns: /口味|风味|蜜汁|香辣|原味|五香|麻辣|芝士|海苔|烧烤|咖喱|多味|组合/ },
+  { key: '场景便利', patterns: /解馋|休闲|办公室|追剧|即食|便携|独立包装|小袋|旅行|充饥|代餐|下午茶|夜宵/ },
+  { key: '信任保障', patterns: /联名|品牌|正品|保障|认证|检验|报告|质检|溯源|可查|大厂|工厂|旗舰/ },
+  { key: '性价比', patterns: /实惠|划算|性价比|大份|量贩|囤|加量|促销|满减|多规格|整箱|批发/ },
+]
+
+function classifySellingPoint(term) {
+  for (const cat of SELLING_POINT_CATEGORIES) {
+    if (cat.patterns.test(term)) return cat.key
+  }
+  return '其他'
+}
+
+function mainImageBenefitByCategory(category, term) {
+  const map = {
+    '功能健康': `让用户在主图第一秒就感知到"${term}"的健康价值，建立理性购买理由。`,
+    '品质原料': `通过实物细节证明"${term}"的品质感，让用户相信这不是普通货。`,
+    '产地背书': `用产地标签建立信任差异化，让用户觉得"${term}"更正宗可靠。`,
+    '口感体验': `用产品特写和质感表达让用户"看到就想吃/想用"，激活感官期待。`,
+    '口味选择': `展示多口味/多规格选择，降低用户"万一不好吃/不好用"的试错顾虑。`,
+    '场景便利': `代入真实使用场景（办公室/追剧/出行），让用户觉得"这就是为我准备的"。`,
+    '信任保障': `用品牌/认证/检测报告建立信任，降低用户"是不是杂牌"的犹豫。`,
+    '性价比': `用规格对比或到手价让用户觉得"这个价格买这个值了"。`,
+  }
+  return map[category] || `把"${term}"做成主图可感知的核心购买理由。`
+}
+
+function mainImageVisualByCategory(category, term, index) {
+  const map = {
+    '功能健康': `主图角标突出"${term}"参数（如蛋白质含量对比图），产品主体清晰，背景干净。`,
+    '品质原料': `产品微距特写展示质感/纹理/色泽，搭配"${term}"短文案角标，光线温暖有食欲。`,
+    '产地背书': `地图标注产地 + 产品实物组合，或产地实拍背景虚化，"${term}"作为信任标签。`,
+    '口感体验': `产品掰开/切面/拉丝等动态瞬间，展示"${term}"的质感，色彩饱和度高，激发食欲。`,
+    '口味选择': `多口味产品并排平铺或扇形展开，每种口味标注名称，色彩丰富有辨识度。`,
+    '场景便利': `产品放入真实生活场景（办公桌/沙发/背包旁），"${term}"作为场景标签，营造使用代入感。`,
+    '信任保障': `品牌Logo/联名标识/质检报告截图作为角标，产品主体居中，增强权威感。`,
+    '性价比': `规格对比图或"到手XX元/件"角标，产品堆叠展示分量感，突出量大实惠。`,
+  }
+  const defaultExpr = index === 0
+    ? `主图核心位置突出"${term}"，产品主体占画面 60% 以上，文案精简不超过 8 字。`
+    : `副图或角标呈现"${term}"，搭配实物细节或场景证明。`
+  return map[category] || defaultExpr
+}
+
+function buildListingSellingPointsForReport({ keyword = '', report = null, keywordMatrix = null, recommendationActions = null } = {}) {
+  const cleanKeyword = String(keyword || report?.keyword || '').trim()
+  const positiveRows = safeArray(recommendationActions?.positiveSellingPoints)
+  const painRows = safeArray(recommendationActions?.negativePainPoints)
+  const allProducts = safeArray(report?.priceBandProducts).flatMap((band) => safeArray(band.products))
+  const coreKeywords = safeArray(keywordMatrix?.coreKeywords)
+  const blueKeywords = safeArray(keywordMatrix?.blueOceanKeywords)
+  const productTitle = allProducts
+    .sort((a, b) => toNumber(b.totalSales, 0) - toNumber(a.totalSales, 0) || toInt(b.totalSold, 0) - toInt(a.totalSold, 0))[0]?.title || ''
+  const isSunMask = /口罩|面罩|防晒|脸基尼/.test(`${cleanKeyword} ${productTitle}`)
+
+  // ====== 第一数据源：评论好评主题（最贴近用户真实需求）======
+  const reviewSignals = []
+  for (const row of positiveRows) {
+    const text = String(row.title || '').trim()
+    if (!text || isGarbageSellingPoint(text, cleanKeyword) || isGimmickTerm(text)) continue
+    reviewSignals.push({
+      term: text,
+      source: 'review',
+      score: (toInt(row.count, 0) * 50) + (toInt(row.productCoverage, 0) * 30),
+      count: toInt(row.count, 0),
+      coverage: toInt(row.productCoverage, 0),
+      action: row.action || '',
+      sources: row.sources || [],
+    })
+  }
+
+  // ====== 第二数据源：关键词矩阵核心词 + 蓝海词（标题/评论/问大家聚合）======
+  const keywordSignals = []
+  for (const item of coreKeywords) {
+    const text = String(item.keyword || '').trim()
+    if (!text || isGarbageSellingPoint(text, cleanKeyword) || isGimmickTerm(text) || isPureQuantityTerm(text)) continue
+    if (/纸巾|抽纸|猪肉|肉铺|肉脯/.test(text)) continue // 品类词本身
+    const sourceText = safeArray(item.sources).filter(s => s !== 'SKU').join('、') || '关键词矩阵'
+    keywordSignals.push({
+      term: text,
+      source: 'keyword',
+      score: 80 + (item.productCoverage || 0) * 2,
+      sources: item.sources || [],
+      sourceText,
+    })
+  }
+  for (const item of blueKeywords) {
+    const text = String(item.keyword || '').trim()
+    if (!text || isGarbageSellingPoint(text, cleanKeyword) || isGimmickTerm(text) || isPureQuantityTerm(text)) continue
+    if (text.length < 2 || text.length > 6) continue
+    // 蓝海词：需求信号高但标题覆盖低 → 差异化机会
+    const demand = toInt(item.demandSignals, 0)
+    const titleCov = toInt(item.titleCoverage, 100)
+    if (demand < 10 || titleCov > 40) continue // 低需求或已被标题充分覆盖
+    keywordSignals.push({
+      term: text,
+      source: 'blueOcean',
+      score: 60 + demand * 2 - titleCov,
+      demand,
+      titleCoverage: titleCov,
+    })
+  }
+
+  // ====== 第三数据源：产品 sellingPoints 聚合（排除 SKU 属性词）======
+  const groupStats = new Map() // 语义组 → 聚合统计
+  const individualStats = new Map() // 未归组的独立卖点
+  for (const product of allProducts) {
+    const sold = toInt(product.totalSold, 0)
+    for (const term of safeArray(product.sellingPoints)) {
+      const text = String(term || '').trim()
+      if (!text || isGarbageSellingPoint(text, cleanKeyword) || isGimmickTerm(text)) continue
+      // 排除 SKU 属性词：纯数量词、规格参数、价格相关、包装描述、SKU变体名等
+      if (isPureQuantityTerm(text)) continue
+      if (/^\d+[包提卷抽张片瓶袋盒箱罐个件套组]$|^\d+层$|^\d+抽$|^\d+ml$|^\d+g$/i.test(text)) continue
+      if (/(?:实惠装|量贩|囤货装|家用装|批发|整箱|\d+包|大包装)/.test(text) && !/评论|好评|用户/.test(text)) continue
+      // 排除 SKU变体名（商品名+重量/规格组合，如"老面馒头5斤装""猪肉味200g"）
+      if (/\d+[斤公斤gml升L袋包盒瓶罐]+[装]?\s*$/.test(text)) continue
+      if (/^.{2,6}\d+[斤公斤g]+/.test(text) && !/[0添加|进口|有机|非转|手工|古法|纯手]/.test(text)) continue
+      // 排除纯价格促销词
+      if (/^(?:限时|特价|买一送一|领券|立减|秒杀|清仓|促销|折扣)/.test(text)) continue
+      // 排除纯口味/规格罗列（如"原味+黑胡椒""红豆+绿豆+花生"）
+      if (/^[\u4e00-\u9fff]{1,4}[+\+、，,][\u4e00-\u9fff]{1,4}([+\+、，,][\u4e00-\u9fff]{1,4})*$/.test(text) && text.length < 20) continue
+      const group = findSemanticGroup(text)
+      if (group) {
+        // 跳过纯 SKU 属性的语义组（如“整箱量贩装”组主要由数量词构成）
+        if (group.category === '性价比' && /^\d+/.test(text)) continue
+        if (!groupStats.has(group.group)) groupStats.set(group.group, { group, count: 0, totalSold: 0, products: new Set(), terms: new Set() })
+        const cur = groupStats.get(group.group)
+        cur.count += 1
+        cur.totalSold += sold
+        if (product.id) cur.products.add(String(product.id))
+        cur.terms.add(text)
+      } else {
+        if (!individualStats.has(text)) individualStats.set(text, { term: text, count: 0, totalSold: 0, products: new Set() })
+        const cur = individualStats.get(text)
+        cur.count += 1
+        cur.totalSold += sold
+        if (product.id) cur.products.add(String(product.id))
+      }
+    }
+  }
+
+  // ====== 综合评分：融合三个数据源，选出 4-5 个最佳主图卖点 ======
+  const candidates = []
+  // 评论信号（最高优先级）
+  for (const sig of reviewSignals) {
+    candidates.push({ ...sig, finalScore: sig.score * 3, sourceLabel: '评论/问大家' })
+  }
+  // 关键词矩阵信号
+  for (const sig of keywordSignals) {
+    candidates.push({ ...sig, finalScore: sig.score * 2, sourceLabel: sig.source === 'blueOcean' ? '蓝海需求词' : '核心关键词' })
+  }
+  // 语义组（归并后的卖点）
+  for (const [name, stat] of groupStats) {
+    candidates.push({
+      term: stat.group.displayTitle,
+      groupKey: name,
+      groupCategory: stat.group.category,
+      source: 'group',
+      count: stat.count,
+      totalSold: stat.totalSold,
+      productCount: stat.products.size,
+      termCount: stat.terms.size,
+      finalScore: stat.count * 80 + stat.totalSold / 50 + stat.products.size * 100,
+      sourceLabel: '竞品卖点聚合',
+    })
+  }
+  // 独立卖点（未归组）
+  for (const [text, stat] of individualStats) {
+    candidates.push({
+      term: text,
+      source: 'individual',
+      count: stat.count,
+      totalSold: stat.totalSold,
+      productCount: stat.products.size,
+      finalScore: stat.count * 100 + stat.totalSold / 80 + stat.products.size * 60,
+      sourceLabel: '竞品卖点聚合',
+    })
+  }
+
+  // 排序并分类去重
+  candidates.sort((a, b) => b.finalScore - a.finalScore)
+  const categoryUsed = new Map()
+  const selectedPoints = []
+  for (const point of candidates) {
+    // 确定分类：优先用语义组的标准 category，其次用分类器
+    let cat = '其他'
+    if (point.groupCategory) {
+      cat = point.groupCategory
+    } else if (point.groupKey) {
+      cat = point.groupKey
+    } else {
+      cat = classifySellingPoint(point.term)
+    }
+    const used = categoryUsed.get(cat) || 0
+    if (used >= 1) continue // 每个维度最多 1 个，确保差异化
+    categoryUsed.set(cat, used + 1)
+    selectedPoints.push(point)
+    if (selectedPoints.length >= 5) break
+  }
+
+  // ====== 生成综合总结话术 ======
+  const summaryParts = []
+  const reviewPoints = selectedPoints.filter((p) => p.source === 'review')
+  const groupPoints = selectedPoints.filter((p) => p.source === 'group')
+  const bluePoints = selectedPoints.filter((p) => p.source === 'blueOcean')
+  const keywordPoints = selectedPoints.filter((p) => p.source === 'keyword')
+
+  // 第一段：总体判断
+  const topTitles = selectedPoints.slice(0, 3).map((p) => `「${p.term}」`)
+  summaryParts.push(`基于 ${allProducts.length} 款竞品的主图、评论/问大家和关键词矩阵综合分析，「${cleanKeyword}」品类主图应重点突出 ${topTitles.join('、')} 等核心卖点。`)
+
+  // 第二段：各卖点的具体分析
+  const pointDetails = selectedPoints.slice(0, 4).map((point, i) => {
+    if (point.source === 'review') {
+      return `「${point.term}」在 ${point.count} 条真实好评中被反复提及，覆盖 ${point.coverage}% 竞品，是用户购买后最认可的价值点`
+    } else if (point.source === 'blueOcean') {
+      return `「${point.term}」在评论/问大家中出现了 ${point.demand} 次用户需求，但仅 ${point.titleCoverage}% 竞品标题覆盖，属于未被充分满足的蓝海需求`
+    } else if (point.source === 'group') {
+      return `「${point.term}」由 ${point.termCount} 个相关表述归并而来，覆盖 ${point.productCount} 个竞品，累计销量权重 ${Number(point.totalSold).toLocaleString('zh-CN')}`
+    } else {
+      return `「${point.term}」在 ${point.count} 个竞品中出现，累计销量 ${Number(point.totalSold).toLocaleString('zh-CN')}`
+    }
+  })
+  if (pointDetails.length) {
+    summaryParts.push(pointDetails.join('；') + '。')
+  }
+
+  // 第三段：主图生成建议
+  const visualHints = selectedPoints.slice(0, 3).map((p) => {
+    const cat = p.groupCategory || p.groupKey || classifySellingPoint(p.term)
+    const hintMap = {
+      '性价比': '用产品堆叠或规格对比突出量贩感',
+      '品质原料': '用产品微距特写展示质感',
+      '产地背书': '用产地标识建立信任',
+      '功能健康': '用参数角标传递功能价值',
+      '口感体验': '用产品动态瞬间激发感官',
+      '口味选择': '用多口味平铺展示选择丰富',
+      '场景便利': '用真实场景代入使用感',
+      '信任保障': '用品牌或认证标识增强权威',
+    }
+    return hintMap[cat] || `突出「${p.term}」`
+  })
+  summaryParts.push(`主图生成建议：${visualHints.join('，')}，文案精简不超过 8 字，产品主体占画面 60% 以上。`)
+
+  // 第四段：痛点反推（如果有）
+  if (painRows.length) {
+    const painTitles = painRows.slice(0, 2).map((p) => `「${p.title}」`).join('、')
+    summaryParts.push(`同时注意规避竞品高频痛点 ${painTitles}，主图可提前回应这些顾虑。`)
+  }
+
+  const summary = summaryParts.join('')
+  const mainImageSellingPoints = selectedPoints.map((point, index) => {
+    const positive = positiveRows.find((item) => item.title === point.term)
+    const cat = point.groupCategory || point.groupKey || classifySellingPoint(point.term)
+    // 构建数据依据文本
+    let dataBasis = ''
+    if (point.source === 'review') {
+      dataBasis = `${point.count} 条好评提及，覆盖 ${point.coverage}% 竞品，用户真实认可。`
+    } else if (point.source === 'blueOcean') {
+      dataBasis = `评论/问大家中出现 ${point.demand} 次用户需求，但仅 ${point.titleCoverage}% 竞品标题覆盖，存在差异化机会。`
+    } else if (point.source === 'keyword') {
+      dataBasis = `来源：${point.sourceText}，覆盖多个竞品标题和评论信号。`
+    } else if (point.source === 'group') {
+      dataBasis = `${point.productCount} 个竞品、共 ${point.termCount} 个相关表述归并，累计销量权重 ${Number(point.totalSold).toLocaleString('zh-CN')}。`
+    } else if (point.source === 'individual') {
+      dataBasis = `${point.count} 个竞品出现，累计销量权重 ${Number(point.totalSold).toLocaleString('zh-CN')}。`
+    }
+    return {
+      title: point.term,
+      priority: index + 1,
+      customerBenefit: point.action || mainImageBenefitByCategory(cat, point.term),
+      visualExpression: mainImageVisualByCategory(cat, point.term, index),
+      dataBasis: dataBasis || listingPointEvidence(positive, '', { excludeSources: ['SKU'] }) || '来自竞品卖点聚合、评论/问大家、商品洞察。',
+      source: displaySourcesForMainImage(positive?.sources || [point.sourceLabel]),
+      category: cat,
+    }
+  })
+
+  // 防晒类特殊兜底
+  const sunMaskFallback = isSunMask ? [
+    {
+      title: '全脸防晒防护',
+      customerBenefit: '让用户一眼知道它解决夏季开车、骑行、户外通勤的脸部防晒问题。',
+      visualExpression: '真人佩戴正侧面 + 遮挡范围标注 + UPF/防紫外线参数角标。',
+      dataBasis: '商品标题、SKU 和关键词矩阵均出现防晒、防紫外线、全脸、防护信号。',
+    },
+    {
+      title: '冰丝轻薄不闷',
+      customerBenefit: '降低夏季佩戴闷热、压脸、勒耳的购买顾虑。',
+      visualExpression: '材质微距、透气孔/轻薄布料展示，搭配夏季户外或车内场景。',
+      dataBasis: 'SKU/洞察中出现冰丝、轻薄、无痕、透气等卖点。',
+    },
+    {
+      title: '立体贴合不易滑',
+      customerBenefit: '让买家相信脸型适配和长时间佩戴稳定性。',
+      visualExpression: '真人佩戴细节、耳部/鼻梁/下颌贴合点放大，配尺寸参照。',
+      dataBasis: '从面罩类常见疑虑反推，结合无痕立体轻薄款 SKU 信号。',
+    },
+    {
+      title: '多色好搭配',
+      customerBenefit: '减少颜色选择犹豫，提高多 SKU 点击和加购。',
+      visualExpression: '多色平铺 + 上脸效果 + 肤色/穿搭建议标签。',
+      dataBasis: 'SKU 中存在深灰、黑色、浅灰、粉色等多色款。',
+    },
+  ] : []
+
+  const finalMainPoints = isSunMask
+    ? sunMaskFallback
+    : mainImageSellingPoints.length ? mainImageSellingPoints : sunMaskFallback
+  const normalizedMainPoints = finalMainPoints.slice(0, 5).map((item, index) => ({
+    priority: item.priority || index + 1,
+    title: item.title,
+    customerBenefit: item.customerBenefit,
+    visualExpression: item.visualExpression,
+    dataBasis: item.dataBasis || '来自竞品卖点聚合、评论/问大家、商品洞察。',
+    source: displaySourcesForMainImage(item.source || ['竞品卖点聚合']),
+  }))
+
+  const detailFromPositive = positiveRows.slice(0, 4).map((item, index) => ({
+    priority: index + 1,
+    title: `${item.title}证据页`,
+    contentFocus: item.action || `解释“${item.title}”为什么值得买。`,
+    proofPoints: uniqueText([
+      listingPointEvidence(item),
+      item.count ? `提及频次 ${item.count}` : '',
+      item.productCoverage ? `覆盖 ${item.productCoverage} 个竞品` : '',
+    ], 3),
+    recommendedModule: index === 0 ? '核心卖点解释' : index === 1 ? '材质/功能证明' : '场景与口碑证明',
+  }))
+  const detailFromPain = painRows.slice(0, 3).map((item, index) => ({
+    priority: detailFromPositive.length + index + 1,
+    title: `${item.title}反推页`,
+    contentFocus: item.reverseSellingPoint || `把“${item.title}”这个顾虑转成可验证承诺。`,
+    proofPoints: uniqueText([
+      listingPointEvidence(item),
+      item.count ? `痛点提及 ${item.count} 条` : '暂无真实差评样本，作为风险验证项',
+    ], 3),
+    recommendedModule: '痛点解决/FAQ',
+  }))
+
+  const detailFallback = isSunMask
+    ? [
+      {
+        title: '防晒参数与覆盖范围',
+        contentFocus: '解释 UPF/防紫外线、脸部/颈部覆盖范围和适用场景。',
+        proofPoints: ['标题与 SKU 明确出现防晒、防紫外线、全脸防护'],
+        recommendedModule: '功能证明',
+      },
+      {
+        title: '材质透气与佩戴舒适',
+        contentFocus: '解释冰丝、轻薄、无痕贴合，回答夏天会不会闷。',
+        proofPoints: ['SKU 出现轻薄、无痕、透气等信号'],
+        recommendedModule: '材质细节',
+      },
+      {
+        title: '颜色 SKU 与场景选择',
+        contentFocus: '展示多色 SKU、真人佩戴和开车/骑行/户外通勤场景。',
+        proofPoints: ['SKU 多色覆盖，适合做选择引导'],
+        recommendedModule: 'SKU 选择',
+      },
+    ]
+    : []
+
+  const detailPageSellingPoints = isSunMask
+    ? [
+      ...detailFallback.map((item, index) => ({ ...item, priority: index + 1 })),
+      ...detailFromPain.map((item, index) => ({ ...item, priority: detailFallback.length + index + 1 })),
+    ].slice(0, 8)
+    : [...detailFromPositive, ...detailFromPain].length
+      ? [...detailFromPositive, ...detailFromPain].slice(0, 8)
+      : detailFallback.map((item, index) => ({ ...item, priority: index + 1 }))
+
+  // ====== 生成主图文案建议（可直接放在图上的文字）======
+  const visualObservations = allProducts
+    .map((p) => String(p.visualObservation || '').trim())
+    .filter((v) => v && !v.startsWith('本地兜底'))
+  const hasRealVisual = visualObservations.length > 0
+
+  // 提取竞品主图上的文案布局模式
+  const layoutPatterns = []
+  if (hasRealVisual) {
+    for (const obs of visualObservations) {
+      if (/左上角|左上/.test(obs)) layoutPatterns.push('左上角卖点标注')
+      if (/右上角|右上/.test(obs)) layoutPatterns.push('右上角产品名')
+      if (/左侧.*标签|卖点标签/.test(obs)) layoutPatterns.push('左侧卖点标签')
+      if (/中心构图|中心摆放|中心放置/.test(obs)) layoutPatterns.push('中心构图突出主体')
+      if (/文字.*上方|宣传文字/.test(obs)) layoutPatterns.push('文字位于画面上方')
+    }
+  }
+  const uniqueLayouts = [...new Set(layoutPatterns)].slice(0, 3)
+
+  // 根据卖点分类生成具体文案
+  const textSuggestions = selectedPoints.slice(0, 4).map((point, index) => {
+    const cat = point.groupCategory || classifySellingPoint(point.term)
+    const term = point.term
+    // 根据分类生成主图文案（大字 + 副文案 + 位置建议）
+    const copyMap = {
+      '性价比': {
+        mainText: /量贩|超值|整箱/.test(term) ? '整箱超值装' : `${term}`,
+        subText: point.source === 'group' ? `${point.termCount}种规格可选` : '',
+        position: index === 0 ? '主图中心大字' : '右侧角标',
+      },
+      '品质原料': {
+        mainText: /柔软|亲肤|细韧|绵柔/.test(term) ? '柔软亲肤' : /品质|真材实料/.test(term) ? '真材实料' : term.replace(/[的]/g, '').substring(0, 6),
+        subText: /材料|品质/.test(term) ? '看得见的品质' : '',
+        position: index === 0 ? '主图中心大字' : '左侧标签',
+      },
+      '产地背书': {
+        mainText: /靖江|金华|潮汕|云南/.test(term) ? term.substring(0, 4) + '特产' : '正宗产地',
+        subText: '地道风味 传承工艺',
+        position: '左上角产地标识',
+      },
+      '功能健康': {
+        mainText: /高蛋白/.test(term) ? '高蛋白' : /吸水|韧性|不易破/.test(term) ? '强韧吸水' : /木浆|原生/.test(term) ? '原生木浆' : term.substring(0, 6),
+        subText: /高蛋白/.test(term) ? '健康轻负担' : /吸水/.test(term) ? '湿水不易破' : '安全放心用',
+        position: '左上方参数角标',
+      },
+      '口感体验': {
+        mainText: /酥脆|脆/.test(term) ? '一口咔嚓脆' : /嚼劲|Q弹/.test(term) ? '越嚼越香' : /手撕|拉丝/.test(term) ? '手撕才过瘾' : '一口就爱上',
+        subText: '好吃到停不下来',
+        position: '画面上方大字',
+      },
+      '口味选择': {
+        mainText: /多味|多口味/.test(term) ? '多味可选' : term.substring(0, 6),
+        subText: '总有一款适合你',
+        position: '下方口味展示条',
+      },
+      '场景便利': {
+        mainText: /解馋/.test(term) ? '解馋神器' : /办公/.test(term) ? '办公室必备' : /追剧/.test(term) ? '追剧好搭档' : '随时来一口',
+        subText: '独立小包装 随身带',
+        position: '场景标签 + 角标',
+      },
+      '信任保障': {
+        mainText: /品牌|联名/.test(term) ? '品牌品质' : term.substring(0, 6),
+        subText: '质量有保障',
+        position: '左上角品牌标识',
+      },
+    }
+    const fallback = { mainText: term.substring(0, 8), subText: '', position: index === 0 ? '主图中心大字' : '角标' }
+    return { ...fallback, ...(copyMap[cat] || {}) }
+  })
+
+  // 布局建议文本
+  const layoutSummary = hasRealVisual
+    ? `竞品主图普遍采用${uniqueLayouts.join('、') || '中心构图'}，产品主体占画面 60% 以上，文案精简且集中在画面上半部分。`
+    : `根据品类特征，建议采用中心构图，产品主体占画面 60% 以上，文案精简集中在画面上方或左上角。`
+
+  const imageTextCopy = `【布局建议】${layoutSummary}\n【推荐主图文案】\n${textSuggestions.map((s, i) => `${i + 1}. 大字：「${s.mainText}」| 副文案：${s.subText || '（无）'} | 位置：${s.position}`).join('\n')}`
+
+  return {
+    source: 'database',
+    generatedAt: new Date().toISOString(),
+    mainImageSellingPoints: normalizedMainPoints,
+    detailPageSellingPoints,
+    imageTextCopy,
+    summary: summary || `主图优先承接 ${normalizedMainPoints.slice(0, 3).map((item) => item.title).join('、') || '核心卖点'}；详情页负责补齐证据、场景、规格和痛点反推。`,
+  }
+}
+
+function buildMainImagePromptSeed({ keyword = '', report = null, band = null, listingSellingPoints = null } = {}) {
+  const cleanKeyword = String(keyword || report?.keyword || '').trim() || '当前商品'
+  const points = safeArray(listingSellingPoints?.mainImageSellingPoints).slice(0, 5)
+  if (!points.length) return ''
+  const priceText = band?.priceRange || priceRangeText(band?.price_min, band?.price_max) || report?.priceRange || ''
+  const pointLines = points.map((item, index) => {
+    const title = String(item.title || `卖点${index + 1}`).trim()
+    const benefit = String(item.customerBenefit || '').trim()
+    const visual = String(item.visualExpression || '').trim()
+    const basis = String(item.dataBasis || '').trim()
+    return `${index + 1}. ${title}：用户收益=${benefit || '突出购买理由'}；画面表达=${visual || '用主体商品、场景和少量清晰文字表达'}；数据依据=${basis || '竞品报告数据库聚合'}`
+  })
+  return uniqueText([
+    `请基于我上传的商品原图生成电商主图，关键词：${cleanKeyword}。`,
+    priceText && priceText !== '-' ? `参考竞品价格区间：${priceText}，主图要承接该价位用户最关心的购买理由。` : '',
+    listingSellingPoints?.summary || '',
+    '主图卖点优先级：',
+    ...pointLines,
+    '生成要求：必须以我上传的商品图为唯一商品主体，不使用竞品图片，不改变商品核心外观；主图文字少而清晰，优先表现前 1-3 个卖点；画面适合电商首图点击，不加入详情页长文、SKU 列表或无关促销信息。',
+  ], 12).join('\n')
+}
+
+async function buildRecommendationActionsForReport(connection, { runIds = [], keyword = '', report = null, keywordMatrix = null } = {}) {
+  const cleanKeyword = String(keyword || report?.keyword || '').trim()
+  const products = new Map()
+  const addProduct = (item = {}) => {
+    const productId = String(item.product_id || item.productId || item.id || '').trim()
+    if (!productId) return
+    const current = products.get(productId) || { productId, title: '', sold: 0, sales: 0, price: null }
+    current.title = firstNonEmpty(item.product_title, item.title, current.title)
+    current.sold = Math.max(current.sold || 0, toInt(item.sold_count ?? item.soldCount ?? item.totalSold, 0))
+    current.sales = Math.max(current.sales || 0, toNumber(item.sales_amount ?? item.totalSales, 0))
+    current.price = firstNumber(item.price, item.price_min, item.avgPrice, current.price)
+    products.set(productId, current)
+  }
+
+  for (const band of safeArray(report?.priceBandProducts)) {
+    for (const product of safeArray(band.products)) addProduct(product)
+  }
+
+  if (runIds.length) {
+    const [generatedProducts] = await connection.query(`
+      SELECT *
+      FROM market_price_band_product_analysis
+      WHERE run_id IN (?)
+      ORDER BY COALESCE(sales_amount, 0) DESC, COALESCE(sold_count, 0) DESC
+      LIMIT 200
+    `, [runIds])
+    for (const product of generatedProducts) addProduct(product)
+  }
+
+  const productIds = Array.from(products.keys())
+  if (!productIds.length) {
+    return {
+      source: 'database',
+      generatedAt: new Date().toISOString(),
+      productCount: 0,
+      reviewCount: 0,
+      qaCount: 0,
+      skuCount: 0,
+      actionPlan: null,
+      positiveSellingPoints: [],
+      negativePainPoints: [],
+      dataNote: '当前报告没有可关联的商品 ID，暂无法从数据库生成建议动作。',
+    }
+  }
+
+  const [reviewRows] = await connection.query(`
+    SELECT product_id, review_text, follow_review
+    FROM product_review_snapshot
+    WHERE product_id IN (?)
+    ORDER BY id DESC
+    LIMIT 1200
+  `, [productIds])
+  const [qaRows] = await connection.query(`
+    SELECT product_id, question, answer
+    FROM product_qa_snapshot
+    WHERE product_id IN (?)
+    ORDER BY id DESC
+    LIMIT 600
+  `, [productIds])
+  const [skuRows] = await connection.query(`
+    SELECT product_id, sku_title, sku_info, package_type, price, coupon_price
+    FROM product_sku_snapshot
+    WHERE product_id IN (?)
+    ORDER BY id DESC
+    LIMIT 1200
+  `, [productIds])
+  const [insightRows] = runIds.length
+    ? await connection.query(`
+      SELECT product_id, insight_type, term, occurrence_count
+      FROM market_product_insight
+      WHERE run_id IN (?)
+      ORDER BY occurrence_count DESC, id DESC
+      LIMIT 800
+    `, [runIds])
+    : [[]]
+
+  const { positive: positiveTopics, pain: painTopics } = topicDefinitionsForKeyword(cleanKeyword)
+  const positiveMap = new Map()
+  const painMap = new Map()
+  const skuTerms = new Map()
+
+  const addSkuTerm = (text, row = {}, weight = 1) => {
+    for (const term of splitKeywordTerms(text)) {
+      addKeywordSignal(skuTerms, term, {
+        source: 'SKU',
+        productId: row.product_id,
+        sold: products.get(String(row.product_id || ''))?.sold || 0,
+        weight,
+      })
+    }
+  }
+
+  for (const row of skuRows) {
+    const text = `${row.sku_title || ''} ${row.sku_info || ''} ${row.package_type || ''}`
+    addSkuTerm(text, row, 1.2)
+  }
+
+  for (const row of insightRows) {
+    const text = row.term || ''
+    const weight = Math.max(1, toInt(row.occurrence_count, 1))
+    addSkuTerm(text, row, weight)
+  }
+
+  for (const row of reviewRows) {
+    const product = products.get(String(row.product_id || '')) || {}
+    const reviewText = `${row.review_text || ''} ${row.follow_review || ''}`.trim()
+    if (!reviewText) continue
+    for (const topic of positiveTopics) addTopicMatch(positiveMap, topic, { text: reviewText, source: '评论', productId: row.product_id, productTitle: product.title, weight: 1 })
+    for (const topic of painTopics) addTopicMatch(painMap, topic, { text: reviewText, source: '评论', productId: row.product_id, productTitle: product.title, weight: 1 })
+  }
+
+  let positiveRows = rowsFromTopicMap(positiveMap, 3)
+  let painRows = rowsFromTopicMap(painMap, 3)
+
+  const productList = Array.from(products.values()).sort((a, b) => (b.sales || 0) - (a.sales || 0) || (b.sold || 0) - (a.sold || 0))
+  const priceValues = [
+    ...productList.map((item) => item.price).filter((value) => value != null && value > 0),
+    ...skuRows.map((item) => firstNumber(item.coupon_price, item.price)).filter((value) => value != null && value > 0),
+  ]
+  const minPrice = priceValues.length ? Math.min(...priceValues) : null
+  const maxPrice = priceValues.length ? Math.max(...priceValues) : null
+  const mainPrice = minPrice != null && maxPrice != null
+    ? minPrice === maxPrice ? `¥${money(minPrice)}` : `¥${money(minPrice)}-¥${money(maxPrice)}`
+    : report?.priceRange || '暂无'
+
+  return {
+    source: 'database',
+    generatedAt: new Date().toISOString(),
+    productCount: productList.length,
+    reviewCount: reviewRows.length,
+    qaCount: qaRows.length,
+    skuCount: skuRows.length,
+    actionPlan: {
+      titleStructure: buildTitleSuggestion({ keyword: cleanKeyword, products: productList, skuTerms, positiveRows, keywordMatrix }),
+      priceAnchor: `当前样本价格锚点 ${mainPrice}；建议用主流成交价承接流量，高配 SKU 用功能/材质差异支撑溢价。`,
+      searchTerms: buildSearchTerms({ keyword: cleanKeyword, keywordMatrix, skuTerms, positiveRows, painRows }),
+      imageOrder: buildImageOrder({ keyword: cleanKeyword, positiveRows, painRows, keywordMatrix }),
+    },
+    positiveSellingPoints: positiveRows,
+    negativePainPoints: painRows,
+    dataNote: reviewRows.length
+      ? `好评/差评仅基于 ${reviewRows.length} 条评价正文和追评；SKU 仅用于价格、规格分类和搜索词辅助，不参与好评/差评分析。`
+      : `当前商品暂无评价正文/追评样本，因此不生成好评/差评分析；SKU 仅用于价格、规格分类和搜索词辅助。`,
+  }
+}
+
+async function buildKeywordMatrixForReport(connection, { runIds = [], keyword = '', report = null } = {}) {
+  const cleanKeyword = String(keyword || report?.keyword || '').trim()
+  const stats = new Map()
+  const products = new Map()
+  const textRows = []
+  const addProduct = (item = {}) => {
+    const productId = String(item.product_id || item.productId || item.id || '').trim()
+    if (!productId) return
+    const current = products.get(productId) || { productId, title: '', sold: 0 }
+    current.title = firstNonEmpty(item.product_title, item.title, current.title)
+    current.sold = Math.max(current.sold || 0, toInt(item.sold_count ?? item.soldCount ?? item.totalSold ?? item.monthly_received ?? item.payer_count, 0))
+    products.set(productId, current)
+  }
+
+  for (const band of safeArray(report?.priceBandProducts)) {
+    for (const product of safeArray(band.products)) addProduct(product)
+  }
+
+  if (runIds.length) {
+    const [generatedProducts] = await connection.query(`
+      SELECT *
+      FROM market_price_band_product_analysis
+      WHERE run_id IN (?)
+      ORDER BY COALESCE(sales_amount, 0) DESC, COALESCE(sold_count, 0) DESC
+      LIMIT 200
+    `, [runIds])
+    for (const product of generatedProducts) {
+      addProduct(product)
+      textRows.push({ productId: product.product_id, sold: product.sold_count, source: '商品标题', weight: 1.8, text: product.product_title })
+      textRows.push({ productId: product.product_id, sold: product.sold_count, source: '需求洞察', weight: 2, text: product.demands_json })
+      textRows.push({ productId: product.product_id, sold: product.sold_count, source: '卖点洞察', weight: 2.2, text: product.selling_points_json })
+      textRows.push({ productId: product.product_id, sold: product.sold_count, source: '问大家', weight: 1.8, text: product.qa_examples_json })
+    }
+
+    const [insights] = await connection.query(`
+      SELECT product_id, insight_type, term, occurrence_count
+      FROM market_product_insight
+      WHERE run_id IN (?)
+      ORDER BY occurrence_count DESC, id DESC
+      LIMIT 500
+    `, [runIds])
+    for (const insight of insights) {
+      addKeywordSignal(stats, insight.term, {
+        source: insight.insight_type === 'demand' ? '需求洞察' : '卖点洞察',
+        productId: insight.product_id,
+        sold: products.get(String(insight.product_id || ''))?.sold || 0,
+        weight: Math.max(1, toInt(insight.occurrence_count, 1)) * 2,
+      })
+    }
+  }
+
+  const knownProductIds = Array.from(products.keys())
+  let rawProducts = []
+  if (knownProductIds.length) {
+    const [rows] = await connection.query(`
+      SELECT p.*
+      FROM product_snapshot p
+      JOIN (
+        SELECT MAX(id) AS id
+        FROM product_snapshot
+        WHERE product_id IN (?)
+        GROUP BY product_id
+      ) latest ON latest.id = p.id
+      ORDER BY COALESCE(p.monthly_received, p.sold_count, p.payer_count, 0) DESC, p.id DESC
+      LIMIT 200
+    `, [knownProductIds])
+    rawProducts = rows
+  } else if (cleanKeyword) {
+    const like = `%${cleanKeyword}%`
+    const [rows] = await connection.query(`
+      SELECT p.*
+      FROM product_snapshot p
+      JOIN (
+        SELECT MAX(id) AS id
+        FROM product_snapshot
+        WHERE product_title LIKE ? OR category_name LIKE ?
+        GROUP BY COALESCE(NULLIF(product_id, ''), CAST(id AS CHAR))
+      ) latest ON latest.id = p.id
+      ORDER BY COALESCE(p.monthly_received, p.sold_count, p.payer_count, 0) DESC, p.id DESC
+      LIMIT 120
+    `, [like, like])
+    rawProducts = rows
+  }
+
+  for (const product of rawProducts) {
+    addProduct(product)
+    textRows.push({ productId: product.product_id, sold: product.monthly_received ?? product.sold_count ?? product.payer_count, source: '商品标题', weight: 1.8, text: product.product_title })
+    textRows.push({ productId: product.product_id, sold: product.monthly_received ?? product.sold_count ?? product.payer_count, source: '类目', weight: 1, text: product.category_name })
+  }
+
+  const productIds = Array.from(products.keys())
+  if (productIds.length) {
+    const [qaRows] = await connection.query(`
+      SELECT product_id, question, answer
+      FROM product_qa_snapshot
+      WHERE product_id IN (?)
+      ORDER BY id DESC
+      LIMIT 500
+    `, [productIds])
+    for (const qa of qaRows) {
+      const product = products.get(String(qa.product_id || '')) || {}
+      textRows.push({ productId: qa.product_id, sold: product.sold, source: '问大家', weight: 1.8, text: `${qa.question || ''} ${qa.answer || ''}` })
+    }
+
+    const [reviewRows] = await connection.query(`
+      SELECT product_id, review_text, follow_review
+      FROM product_review_snapshot
+      WHERE product_id IN (?)
+      ORDER BY id DESC
+      LIMIT 800
+    `, [productIds])
+    for (const review of reviewRows) {
+      const product = products.get(String(review.product_id || '')) || {}
+      const reviewText = `${review.review_text || ''} ${review.follow_review || ''}`.trim()
+      if (reviewText) textRows.push({ productId: review.product_id, sold: product.sold, source: '评论', weight: 1.6, text: reviewText })
+    }
+
+    const [imageReports] = await connection.query(`
+      SELECT product_id, product_title, sold_count, report_json
+      FROM product_main_image_analysis
+      WHERE product_id IN (?) ${cleanKeyword ? 'OR collection_keyword = ?' : ''}
+      ORDER BY id DESC
+      LIMIT 200
+    `, cleanKeyword ? [productIds, cleanKeyword] : [productIds])
+    for (const imageReport of imageReports) {
+      addProduct(imageReport)
+      textRows.push({ productId: imageReport.product_id, sold: imageReport.sold_count, source: '商品标题', weight: 1.8, text: imageReport.product_title })
+      collectKeywordTextsFromJson(imageReport.report_json, textRows, '主图分析', 2)
+    }
+  }
+
+  if (cleanKeyword) {
+    addKeywordSignal(stats, cleanKeyword, { source: '报告关键词', productId: productIds[0] || '', sold: 0, weight: 3 })
+  }
+
+  for (const row of textRows) {
+    const sold = row.sold ?? products.get(String(row.productId || ''))?.sold ?? 0
+    for (const term of splitKeywordTerms(row.text)) {
+      addKeywordSignal(stats, term, { source: row.source, productId: row.productId, sold, weight: row.weight })
+    }
+  }
+
+  const productTotal = Math.max(1, products.size || toInt(report?.competitorCount, 0) || 1)
+  const coreKeywords = keywordRowsFromStats(stats, productTotal, { limit: 10 })
+  const blueOceanCandidates = keywordRowsFromStats(stats, productTotal, { blueOcean: true, limit: 24 })
+  let blueOceanKeywords = blueOceanCandidates
+    .filter((item) => !coreKeywords.some((core) => core.keyword === item.keyword))
+    .slice(0, 10)
+  if (!blueOceanKeywords.length) {
+    blueOceanKeywords = blueOceanCandidates
+      .filter((item) => !coreKeywords.slice(0, 5).some((core) => core.keyword === item.keyword))
+      .slice(0, 10)
+  }
+
+  return {
+    source: 'database',
+    generatedAt: new Date().toISOString(),
+    productCount: products.size,
+    textSampleCount: textRows.length,
+    coreKeywords,
+    blueOceanKeywords,
+  }
+}
+
 function imageFeatureTerms(images, fallbackTerms = []) {
   const counts = new Map()
   for (const image of images || []) {
@@ -3355,6 +4861,8 @@ function transformReportForAnalysisView(row) {
         avgPrice: money(product.price ?? product.price_avg) || 0,
         totalSold: toInt(product.sold_count, 0),
         totalSales: money(product.sales_amount) || 0,
+        sellingPoints: metricTerms(product.selling_points || product.extracted_selling_points || [], 5).map((item) => item.term),
+        visualObservation: product.visual_observation || '',
         skus: (product.skus || []).slice(0, 20).map((sku) => ({
           name: sku.sku_title || sku.sku_info || sku.name || 'SKU',
           price: money(sku.coupon_price ?? sku.price) || 0,
@@ -3432,6 +4940,25 @@ export async function getAnalysisReportView({ id = '', keyword = '' } = {}) {
         reportJson: merged.reportJson,
       })
       : transformReportForAnalysisView(rows[0])
+    if (report) {
+      report.keywordMatrix = await buildKeywordMatrixForReport(connection, {
+        runIds: rows.map((row) => toInt(row.id, null)).filter((value) => value != null),
+        keyword: report.keyword || cleanKeyword,
+        report,
+      })
+      report.recommendationActions = await buildRecommendationActionsForReport(connection, {
+        runIds: rows.map((row) => toInt(row.id, null)).filter((value) => value != null),
+        keyword: report.keyword || cleanKeyword,
+        report,
+        keywordMatrix: report.keywordMatrix,
+      })
+      report.listingSellingPoints = buildListingSellingPointsForReport({
+        keyword: report.keyword || cleanKeyword,
+        report,
+        keywordMatrix: report.keywordMatrix,
+        recommendationActions: report.recommendationActions,
+      })
+    }
     return { ok: true, hasReport: Boolean(report), report }
   })
 }
@@ -3439,6 +4966,7 @@ export async function getAnalysisReportView({ id = '', keyword = '' } = {}) {
 export async function getAnalysisProductsView({ id = '', keyword = '' } = {}) {
   const cleanId = String(id || '').trim()
   const cleanKeyword = String(keyword || '').trim()
+  const rawRequested = cleanId.startsWith('raw-')
 
   return withConnection(async (connection) => {
     await ensureMarketSchema(connection)
@@ -3465,7 +4993,7 @@ export async function getAnalysisProductsView({ id = '', keyword = '' } = {}) {
       collectTime = rows[0]?.run_created_at || ''
     }
 
-    if (!products.length && (cleanId.startsWith('run-group-') || cleanKeyword)) {
+    if (!rawRequested && !products.length && (cleanId.startsWith('run-group-') || cleanKeyword)) {
       const [runRows] = await connection.query(`
         SELECT id, created_at
         FROM market_analysis_run
@@ -3494,7 +5022,7 @@ export async function getAnalysisProductsView({ id = '', keyword = '' } = {}) {
     }
 
     if (!products.length) {
-      const rawCollectionKey = cleanId.startsWith('raw-') ? decodeBase64Url(cleanId.slice(4)) : ''
+      const rawCollectionKey = rawRequested ? decodeBase64Url(cleanId.slice(4)) : ''
       const where = []
       const params = []
       if (rawCollectionKey) {
@@ -3596,18 +5124,18 @@ function productMainImageReportSchema() {
       color_style: '配色与风格',
       trust_elements: ['品牌、认证、规格、利益点等信任元素'],
     },
-    image_selling_points: [{ term: '图片表达的卖点', evidence: '图片证据' }],
-    title_selling_points: [{ term: '标题/SKU表达的卖点', evidence: '标题或SKU证据' }],
-    qa_user_needs: [{ term: '问大家反映的需求/顾虑', evidence: '问大家证据' }],
+    image_selling_points: [{ term: '主图中传达的用户利益点（如"柔软亲肤""一口就停不下来"），禁止填入纯规格词', evidence: '图片中对应的视觉证据' }],
+    title_selling_points: [{ term: '标题中传达的差异化卖点（如"0添加防腐剂""靖江特产"），禁止填入纯数量/规格/包装词', evidence: '标题或SKU中的原文依据' }],
+    qa_user_needs: [{ term: '问大家反映的用户真实需求或顾虑', evidence: '问大家原文证据' }],
     audience_and_scene: {
       audience: '适用人群',
       scene: '使用/消费场景',
-      pain_points: ['痛点'],
+      pain_points: ['用户痛点'],
     },
     listing_suggestions: {
-      keep_points: ['后续整体分析可沿用的表达'],
-      differentiation_points: ['可差异化补强的点'],
-      main_image_prompt_seed: '后续生成主图可复用的提示词种子',
+      keep_points: ['值得沿用的差异化表达'],
+      differentiation_points: ['可差异化补强的方向'],
+      main_image_prompt_seed: '后续主图生成可复用的提示词种子',
     },
     confidence: 'high/medium/low',
     data_gaps: ['缺失或不确定的信息'],
@@ -3619,7 +5147,26 @@ function collectProductMainImageAnalysisContent(product) {
     type: 'input_text',
     text: [
       '你是资深电商商品图和用户需求分析师。请分析单个商品主图，并结合标题、SKU、问大家数据，生成可入库复用的中文 JSON 报告。',
-      '重点：1）识别主图文字和画面结构；2）提炼图片中表达的卖点；3）结合问大家提炼用户真实需求/顾虑；4）输出后续整体竞品报告可复用的商品级结论。',
+      '重点：1）识别主图文字和画面结构；2）提炼图片中表达的用户利益点；3）结合问大家提炼用户真实需求/顾虑；4）输出后续整体竞品报告可复用的商品级结论。',
+      '',
+      '【卖点定义 — 严格遵守】',
+      '卖点 = 能让用户产生购买欲望的「用户利益」或「差异化价值」，而不是产品属性描述。',
+      '',
+      '✅ 合格卖点示例（应该提取）：',
+      '- 品质类："0添加防腐剂"、"进口原料"、"纯手工制作"、"A类安全标准"',
+      '- 体验类："柔软亲肤不刺激"、"一口就停不下来"、"3秒速溶不结块"',
+      '- 信任类："老字号传承"、"明星同款"、"销量100万+"',
+      '- 场景类："出差旅行必备"、"办公室下午茶"、"宝宝辅食首选"',
+      '- 食品口感类："外皮暄软蓬松"、"馅料饱满多汁"、"现做现发锁鲜"、"加热后依然酥脆"',
+      '',
+      '❌ 禁止提取为卖点（必须排除）：',
+      '- 纯数量规格："40包"、"20包"、"5斤装"、"100抽"、"3层"',
+      '- 包装描述："实惠装"、"整箱装"、"家庭装"、"量贩装"、"礼盒装"',
+      '- SKU变体名："老面馒头5斤装"、"猪肉味200g"、"原味+黑胡椒"',
+      '- 品类通用词："抽纸"、"纸巾"、"肉脯"、"包子"（品类名本身不是卖点）',
+      '- 价格促销词："限时特价"、"买一送一"、"领券立减"',
+      '- 泛场景词："家庭分享"、"全家共享"、"朋友聚会"（不是具体卖点）',
+      '',
       '只输出 JSON，不要 Markdown，不要解释。字段缺失时用空数组或空字符串，不要编造具体事实。',
       '',
       '返回 JSON 结构：',
@@ -3685,11 +5232,21 @@ async function loadProductMainImageDataset(connection, { productId, keyword = ''
     LIMIT 80
   `, [cleanProductId])
 
+  const [sourceRows] = product.job_id
+    ? await connection.query(`
+      SELECT local_path
+      FROM source_file_record
+      WHERE job_id = ? AND local_path IS NOT NULL AND local_path <> ''
+      ORDER BY id ASC
+    `, [product.job_id])
+    : [[]]
+  const imageRoots = sourceRootsFromRows(sourceRows)
+
   const mediaImages = mediaRows
     .map((asset) => ({
       image_type: asset.image_type,
-      url: imageUrlFrom(asset),
-      path: asset.storage_path,
+      url: imageUrlFrom(asset, imageRoots),
+      path: localImagePathFrom(asset, imageRoots) || asset.storage_path,
       file_name: asset.file_name,
     }))
     .filter((image) => image.url)
@@ -3730,7 +5287,7 @@ export async function analyzeProductMainImageAndSave({ productId, keyword = '', 
     if (!product.main_image_url) throw new Error('该商品没有可读取的主图，无法进行主图分析')
 
     const aiResult = await callArkResponses(collectProductMainImageAnalysisContent(product), {
-      maxOutputTokens: 3500,
+      maxOutputTokens: 16000,
       timeoutMs: ARK_ANALYSIS_TIMEOUT_MS,
     })
     const reportJson = {
@@ -3765,7 +5322,7 @@ export async function analyzeProductMainImageAndSave({ productId, keyword = '', 
       product.shop_name,
       money(product.price),
       toInt(product.sold_count, null),
-      product.main_image_url,
+      product.main_image_url && !product.main_image_url.startsWith('data:') ? product.main_image_url : (product.main_image_path || ''),
       product.main_image_path,
       jsonText(product.skus),
       jsonText(product.qa_examples),
@@ -3849,6 +5406,48 @@ function metricFromTerms(terms = [], evidence = '来自单品主图分析报告'
     .slice(0, 12)
 }
 
+function compactReviewExample(row = {}) {
+  const text = `${row.review_text || ''} ${row.follow_review || ''}`.replace(/\s+/g, ' ').trim()
+  if (!text) return null
+  return {
+    text: text.length > 120 ? `${text.slice(0, 120)}...` : text,
+    review_time: row.review_time || row.created_at || '',
+  }
+}
+
+async function loadReviewExamplesForProducts(productIds = [], perProductLimit = 8) {
+  const cleanIds = uniqueText(productIds.map((id) => String(id || '').trim()).filter(Boolean), 300)
+  if (!cleanIds.length) return new Map()
+  try {
+    return await withConnection(async (connection) => {
+      const [rows] = await connection.query(`
+        SELECT product_id, review_text, follow_review, review_time, created_at
+        FROM product_review_snapshot
+        WHERE product_id IN (?)
+          AND (
+            (review_text IS NOT NULL AND review_text <> '')
+            OR (follow_review IS NOT NULL AND follow_review <> '')
+          )
+        ORDER BY id DESC
+        LIMIT 3000
+      `, [cleanIds])
+      const grouped = new Map()
+      for (const row of rows) {
+        const productId = String(row.product_id || '').trim()
+        const current = grouped.get(productId) || []
+        if (current.length >= perProductLimit) continue
+        const example = compactReviewExample(row)
+        if (!example) continue
+        current.push(example)
+        grouped.set(productId, current)
+      }
+      return grouped
+    })
+  } catch {
+    return new Map()
+  }
+}
+
 function compactMainImageReport(row) {
   const report = parseJson(row.report_json, {}) || {}
   const skus = parseJson(row.sku_json, []) || []
@@ -3899,7 +5498,8 @@ function compactMainImageReport(row) {
       file_name: '',
     }] : [],
     qa_examples: qa.slice(0, 12),
-    selling_points: metricFromTerms(sellingPointTerms, '来自主图/标题/SKU分析'),
+    review_examples: [],
+    selling_points: metricFromTerms(sellingPointTerms, '来自主图/标题分析'),
     demands: metricFromTerms(demandTerms, '来自问大家/痛点分析'),
     image_prompts: {
       title_direction: suggestions.main_image_prompt_seed || '',
@@ -3924,6 +5524,73 @@ function compactMainImageReport(row) {
       audience_and_scene: audience,
       listing_suggestions: suggestions,
       data_gaps: report.data_gaps || [],
+    },
+  }
+}
+
+function compactSnapshotFallbackReport(product = {}, keyword = '') {
+  const skuRows = normalizeSkuRows(product.skus || []).slice(0, 20)
+  const priceValues = String(product.priceRange || '')
+    .split('-')
+    .map((item) => money(item))
+    .filter((value) => value != null)
+  const price = money(product.price ?? priceValues[0])
+  const priceMin = priceValues.length ? Math.min(...priceValues) : price
+  const priceMax = priceValues.length ? Math.max(...priceValues) : price
+  const soldCount = toInt(product.soldCount, 0)
+  const salesAmount = money(product.salesAmount) ?? (price != null && soldCount ? money(price * soldCount) : null)
+  const title = String(product.title || '').trim()
+  const fallbackTerms = uniqueText([
+    keyword,
+    ...['高蛋白', '靖江', '原切', '厚切', '手撕', '独立包装', '大片', '蜜汁', '黑椒', '休闲零食', '解馋', '办公室']
+      .filter((term) => title.includes(term)),
+  ], 6).map((term) => ({ term, evidence: '来自商品标题/商品快照兜底' }))
+
+  return {
+    job_id: null,
+    product_id: product.productId,
+    product_title: product.title || product.productId || '',
+    category_name: '',
+    product_link: product.productUrl || (product.productId ? `https://item.taobao.com/item.htm?id=${product.productId}` : ''),
+    price,
+    price_min: priceMin,
+    price_max: priceMax,
+    sold_count: soldCount,
+    sales_amount: salesAmount,
+    review_count: 0,
+    favorite_count: 0,
+    question_count: 0,
+    skus: skuRows.map((sku) => ({
+      sku_id: sku.skuId || sku.sku_id || '',
+      sku_title: sku.title || sku.sku_title || '',
+      sku_info: sku.info || sku.sku_info || '',
+      price: money(sku.price),
+      coupon_price: money(sku.coupon_price ?? sku.price),
+      stock_qty: toInt(sku.stockQty ?? sku.stock_qty, null),
+      sku_image_url: normalizeUrl(sku.imageUrl || sku.sku_image_url),
+    })),
+    images: product.imageUrl ? [{
+      image_type: 'snapshot',
+      product_id: product.productId,
+      sku_id: '',
+      url: product.imageUrl,
+      path: '',
+      file_name: '',
+    }] : [],
+    qa_examples: [],
+    review_examples: [],
+    selling_points: metricFromTerms(fallbackTerms, '来自商品标题/商品快照兜底'),
+    demands: [],
+    image_prompts: {
+      title_direction: '',
+      main_image_prompt: '',
+      detail_image_prompt: '',
+      buyer_show_prompt: '',
+    },
+    visual_observation: product.imageUrl ? '商品快照有可用图片，但未完成单品主图视觉分析。' : '商品缺少可用主图，未完成单品主图视觉分析。',
+    source_report: {
+      type: 'product_snapshot_fallback',
+      data_gaps: ['未完成单品主图分析入库，仅用于价格、销量、标题、SKU 和竞品覆盖统计。'],
     },
   }
 }
@@ -4013,7 +5680,7 @@ async function generateAiPriceBands(products, { keyword = '', desiredCount = 3 }
       JSON.stringify(productList, null, 2),
     ].join('\n'),
   }], {
-    maxOutputTokens: 1400,
+    maxOutputTokens: 8000,
     timeoutMs: ARK_ANALYSIS_TIMEOUT_MS,
   })
   const bands = normalizePriceBandInput(result.json?.bands || result.json?.price_bands || [])
@@ -4060,6 +5727,7 @@ function buildReportFromProductMainImageReports(keyword, products, costModel, op
     const salesTotal = items.reduce((sum, item) => sum + toNumber(item.sales_amount, 0), 0)
     const avg = prices.length ? money(prices.reduce((sum, price) => sum + price, 0) / prices.length) : null
     const qaExamples = items.flatMap((item) => item.qa_examples || []).slice(0, 12)
+    const reviewExamples = items.flatMap((item) => item.review_examples || []).slice(0, 24)
     const sellingPoints = metricFromTerms(items.flatMap((item) => item.selling_points || []), '来自单品主图分析报告')
     const demands = metricFromTerms(items.flatMap((item) => item.demands || []), '来自单品主图分析报告')
     return {
@@ -4084,9 +5752,10 @@ function buildReportFromProductMainImageReports(keyword, products, costModel, op
       },
       extracted_selling_points: sellingPoints,
       qa_and_review: {
-        review_count_total: 0,
+        review_count_total: items.reduce((sum, item) => sum + (item.review_examples || []).length, 0),
         qa_count_total: items.reduce((sum, item) => sum + (item.qa_examples || []).length, 0),
         qa_examples: qaExamples,
+        review_examples: reviewExamples,
       },
       extracted_demands: demands,
       profit_simulation: calculateProfit(avg, costModel),
@@ -4100,7 +5769,12 @@ function buildReportFromProductMainImageReports(keyword, products, costModel, op
       product_analysis: items.map((item) => ({
         ...item,
         sku_count: item.skus.length,
+        sku_price_range: (() => {
+          const skuPrices = (item.skus || []).map((sku) => money(sku.coupon_price ?? sku.price)).filter((price) => price != null)
+          return skuPrices.length ? priceRangeText(Math.min(...skuPrices), Math.max(...skuPrices)) : ''
+        })(),
         qa_count: item.qa_examples.length,
+        review_count: item.review_examples.length,
         image_count: item.images.length,
         profit_simulation: calculateProfit(item.price, costModel),
       })),
@@ -4147,13 +5821,10 @@ function collectOverallReportFromProductReportsContent(report) {
         price: product.price,
         sold_count: product.sold_count,
         sales_amount: product.sales_amount,
-        skus: (product.skus || []).slice(0, 8).map((sku) => ({
-          sku_title: sku.sku_title,
-          sku_info: sku.sku_info,
-          price: sku.price,
-          coupon_price: sku.coupon_price,
-        })),
+        sku_count: product.sku_count,
+        sku_price_range: product.sku_price_range,
         qa_examples: (product.qa_examples || []).slice(0, 8),
+        review_examples: (product.review_examples || []).slice(0, 8),
         single_report: product.source_report,
       })),
     })),
@@ -4162,7 +5833,7 @@ function collectOverallReportFromProductReportsContent(report) {
   return [{
     type: 'input_text',
     text: [
-      '你是资深电商竞品策略分析师。下面输入不是原始图片，而是每个商品已经完成的“单品主图分析报告”、商品数据、SKU、问大家/评价和销售数据。',
+      '你是资深电商竞品策略分析师。下面输入不是原始图片，而是每个商品已经完成的“单品主图分析报告”、商品数据、问大家、真实评价正文和销售数据。',
       `请生成《${report.summary?.keyword || '产品'}竞品市场分析与 Listing 图片生成策略报告》。`,
       '这份报告的真实目标是：从几十到上百个竞品数据中，找出哪些产品卖得好、为什么卖得好、消费者真正需要什么，最后把结论转化成一套可直接生成 Listing 图片的视觉方案。',
       '整体分析链路必须围绕：销售数据 → 市场需求 → 有效卖点 → 差异化定位 → 图片内容规划 → 生图提示词。',
@@ -4173,7 +5844,9 @@ function collectOverallReportFromProductReportsContent(report) {
       '必须生成 market_core_conclusions.differentiation_directions，且它不是单个卖点总结，而是同一种类下不同竞品商品之间的横向差异化。',
       '差异化方向必须比较：高销量/高销额代表商品 vs 普通/低表现/同质化商品，并回答“相对谁差异化、差异在哪里、证据是什么、图片如何表现”。',
       '每条差异化方向必须同时引用销量/销额/价格等销售证据，并结合评价或问大家反馈；如果评价/问大家样本不足，要明确写“样本不足”，不能编造。',
-      '差异化分析优先使用商品标题、SKU、单品主图识别报告、问大家/评价和销量表现交叉验证，结论必须服务 Listing 图片生成。',
+      '差异化分析优先使用销售表现、商品标题、单品主图识别报告、真实评价正文、问大家和图片表达交叉验证，结论必须服务 Listing 图片生成。',
+      '重要限制：SKU 只允许作为价格区间、规格数量和 SKU 数量的背景信息，不得把 sku_title、sku_info、sku_text 当作卖点、用户需求、评论证据或差异化方向。',
+      '每条 differentiation_directions 必须输出 opportunity_score，评分包括 sales_validation_score、demand_strength_score、competitor_gap_score、visual_expression_score、overall_score 和 score_reason。',
       '必须输出这些结构化内容：分析范围、市场核心结论、销售额与销量结构、高销量商品卖点分析、消费者市场需求分析、卖点机会矩阵、产品定位与视觉策略、Listing 图片整体规划、单张图片生成方案、最终生图决策卡。',
       '每个卖点要给三个评分：市场需求分、卖点机会分、图片优先级分。只有图片优先级 4-5 分的卖点才建议进入前四张图片。',
       'Listing 图片规划必须包含 1-8 张：白底主图、核心定位图、痛点解决图、核心功能图、使用场景图、细节品质图、参数对比图、多场景/包装/售后图。',
@@ -4274,7 +5947,28 @@ export async function generateOverallReportFromProductMainImageReports({
     targetMargin: toNumber(targetMargin, 0.3),
   }
 
-  const products = rows.map(compactMainImageReport)
+  const reviewExamplesByProduct = await loadReviewExamplesForProducts(selectedProductIds, 8)
+  const analyzedProductIds = new Set(rows.map((row) => String(row.product_id || '').trim()).filter(Boolean))
+  const productOverviewById = new Map((view.products || []).map((product) => [String(product.productId || '').trim(), product]))
+  const analyzedProducts = rows.map((row) => {
+    const product = compactMainImageReport(row)
+    return {
+      ...product,
+      review_examples: reviewExamplesByProduct.get(String(product.product_id || '')) || [],
+    }
+  })
+  const fallbackProducts = selectedProductIds
+    .filter((productId) => !analyzedProductIds.has(String(productId)))
+    .map((productId) => productOverviewById.get(String(productId)))
+    .filter(Boolean)
+    .map((product) => {
+      const fallbackProduct = compactSnapshotFallbackReport(product, cleanKeyword || view.collection?.keyword || '')
+      return {
+        ...fallbackProduct,
+        review_examples: reviewExamplesByProduct.get(String(fallbackProduct.product_id || '')) || [],
+      }
+    })
+  const products = [...analyzedProducts, ...fallbackProducts]
   let selectedPriceBands = normalizePriceBandInput(manualPriceBands)
   let priceBandAiResult = null
   const cleanGroupingMode = priceGroupingMode === 'ai' ? 'ai' : 'manual'
@@ -4315,7 +6009,11 @@ export async function generateOverallReportFromProductMainImageReports({
     baseReport.summary.price_grouping_usage = priceBandAiResult.usage || null
     if (priceBandAiResult.error) baseReport.data_gaps.push(`AI 价格区间划分失败，已使用本地价格分位兜底：${priceBandAiResult.error}`)
   }
-  baseReport.data_gaps.push(`本报告由 ${rows.length}/${selectedProductIds.length} 个已入库单品主图分析报告汇总生成。未入库单品不会进入本次整体分析。`)
+  baseReport.data_gaps.push(
+    fallbackProducts.length
+      ? `本报告覆盖 ${products.length}/${selectedProductIds.length} 个商品，其中 ${rows.length} 个来自单品主图分析报告，${fallbackProducts.length} 个缺失主图分析的商品已用商品快照/SKU/销量兜底进入统计。`
+      : `本报告由 ${rows.length}/${selectedProductIds.length} 个已入库单品主图分析报告汇总生成。`,
+  )
   const normalizedSkippedProducts = safeArray(skippedProducts)
     .map((item) => ({
       product_id: String(item?.productId || item?.product_id || '').trim(),
@@ -4336,7 +6034,7 @@ export async function generateOverallReportFromProductMainImageReports({
   let reportJson
   try {
     const aiResult = await callArkResponses(collectOverallReportFromProductReportsContent(baseReport), {
-      maxOutputTokens: 6500,
+      maxOutputTokens: 16000,
       timeoutMs: ARK_ANALYSIS_TIMEOUT_MS * 2,
     })
     reportJson = mergeOverallProductReport(baseReport, aiResult)
@@ -4383,6 +6081,7 @@ export async function generateOverallReportFromProductMainImageReports({
       model: reportJson.summary.analysis_model,
       persistStats,
       sourceProductReportCount: rows.length,
+      fallbackProductCount: fallbackProducts.length,
       sourceProductCount: selectedProductIds.length,
       priceGroupingMode: reportJson.summary.price_grouping_mode,
       priceBandCount: reportJson.summary.price_band_count,

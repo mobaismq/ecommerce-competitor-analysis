@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { AlertCircle, CheckCircle2, ChevronDown, ChevronUp, Loader2, X } from "lucide-react";
 
@@ -78,6 +78,7 @@ export function ReportJobBanner() {
   const [job, setJob] = useState<GenerateJob | null>(null);
   const [expanded, setExpanded] = useState(true);
   const [dismissedKey, setDismissedKey] = useState(() => sessionStorage.getItem("reportJobBannerDismissed") || "");
+  const emittedTerminalKeyRef = useRef("");
 
   const loadJob = useCallback(async () => {
     try {
@@ -105,6 +106,14 @@ export function ReportJobBanner() {
       setExpanded(true);
     }
   }, [job?.status]);
+
+  useEffect(() => {
+    if (job?.status !== "completed" && job?.status !== "failed") return;
+    const key = jobKey(job);
+    if (!key || emittedTerminalKeyRef.current === key) return;
+    emittedTerminalKeyRef.current = key;
+    window.dispatchEvent(new CustomEvent("report-job-finished", { detail: { job } }));
+  }, [job]);
 
   const visible = job && jobKey(job) !== dismissedKey;
   const percent = progressPercent(job);
