@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState, type Dispatch, type DragEvent, type SetStateAction } from "react";
+import { useLocation } from "react-router";
 import {
   AlignCenter,
   AlignJustify,
   AlignLeft,
   AlignRight,
   AlertTriangle,
+  Check,
   ChevronDown,
   Code2,
   Eye,
@@ -23,10 +25,17 @@ import {
 } from "lucide-react";
 import { PageHeader } from "@/app/components/PageHeader";
 
-const PLATFORMS = ["淘宝", "天猫", "京东", "拼多多", "抖店", "小红书", "亚马逊", "Shopee", "Lazada"];
+const PLATFORMS = ["淘宝", "天猫", "京东", "拼多多", "抖店", "小红书"];
 const PLATFORMS_WITH_MANUAL_TEMPLATE = ["淘宝", "京东", "拼多多", "抖店", "小红书"];
-const TABS = ["基础信息", "图文信息", "价格库存", "服务与资质"] as const;
-type TabName = (typeof TABS)[number];
+const TABS: Record<string, readonly string[]> = {
+  "淘宝": ["基础信息", "图文信息", "销售信息", "物流服务"] as const,
+  "天猫": ["基础信息", "图文信息", "销售信息", "物流服务"] as const,
+  "京东": ["基础信息", "图文信息", "价格库存", "服务与资质"] as const,
+  "拼多多": ["基础信息", "图文信息", "价格库存", "服务与资质"] as const,
+  "抖店": ["基础信息", "图文信息", "价格库存", "服务与资质"] as const,
+  "小红书": ["基础信息", "图文信息", "价格库存", "服务与资质"] as const,
+};
+type TabName = string;
 type UploadPreview = {
   url: string;
   name: string;
@@ -192,6 +201,82 @@ const PRODUCT_CATEGORY_TREE: CategoryNode[] = [
     children: [
       { label: "图书", children: [{ label: "文学小说" }, { label: "教材教辅" }, { label: "童书" }] },
       { label: "文具", children: [{ label: "书写工具" }, { label: "本册纸品" }, { label: "办公文具" }] },
+    ],
+  },
+];
+
+// ── Mock Taobao stores (authorized, enabled) ──
+const MOCK_TAOBAO_STORES = ["优品旗舰店", "淘宝优选店", "德力西旗舰店", "小米旗舰店", "九阳旗舰店", "飞利浦旗舰店", "JBL旗舰店"];
+
+// ── Mock product master data (enabled products) ──
+const MOCK_PRODUCT_MASTER = [
+  { name: "激光水平仪", code: "SP2026001", status: "启用" },
+  { name: "智能手表", code: "SP2026002", status: "启用" },
+  { name: "蓝牙耳机", code: "SP2026003", status: "启用" },
+  { name: "便携榨汁机", code: "SP2026008", status: "启用" },
+  { name: "LED台灯", code: "SP2026009", status: "启用" },
+  { name: "蓝牙音箱", code: "SP2026010", status: "启用" },
+  { name: "无线鼠标", code: "SP2026011", status: "启用" },
+  { name: "机械键盘", code: "SP2026012", status: "停用" },
+  { name: "电动牙刷", code: "SP2026013", status: "启用" },
+  { name: "空气净化器", code: "SP2026014", status: "启用" },
+];
+
+// ── Mock gallery data for picker ──
+const MOCK_GALLERY_GROUPS = [
+  {
+    id: "g1",
+    name: "激光水平仪主图组",
+    type: "主图",
+    product: "激光水平仪",
+    platforms: ["淘宝", "天猫"],
+    images: [
+      { url: "https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=laser+level+tool+product+photo+white+background&image_size=square", name: "主图1" },
+      { url: "https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=laser+level+tool+side+view&image_size=square", name: "主图2" },
+      { url: "https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=laser+level+tool+detail&image_size=square", name: "主图3" },
+    ],
+  },
+  {
+    id: "g2",
+    name: "激光水平仪详情图组",
+    type: "详情图",
+    product: "激光水平仪",
+    platforms: ["淘宝", "天猫"],
+    images: [
+      { url: "https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=laser+level+tool+detail+description&image_size=landscape_16_9", name: "详情图1" },
+      { url: "https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=laser+level+tool+usage+scene&image_size=landscape_16_9", name: "详情图2" },
+    ],
+  },
+  {
+    id: "g3",
+    name: "智能手表主图组",
+    type: "主图",
+    product: "智能手表",
+    platforms: ["淘宝", "京东"],
+    images: [
+      { url: "https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=smart+watch+wristband+product+photo+white+background&image_size=square", name: "主图1" },
+      { url: "https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=smart+watch+side+view&image_size=square", name: "主图2" },
+    ],
+  },
+  {
+    id: "g4",
+    name: "智能手表详情图组",
+    type: "详情图",
+    product: "智能手表",
+    platforms: ["淘宝", "京东"],
+    images: [
+      { url: "https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=smart+watch+detail+description&image_size=landscape_16_9", name: "详情图1" },
+    ],
+  },
+  {
+    id: "g5",
+    name: "蓝牙耳机主图组",
+    type: "主图",
+    product: "蓝牙耳机",
+    platforms: ["淘宝", "拼多多"],
+    images: [
+      { url: "https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=bluetooth+earbuds+headphones+product+photo+white+background&image_size=square", name: "主图1" },
+      { url: "https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=bluetooth+earbuds+case+view&image_size=square", name: "主图2" },
     ],
   },
 ];
@@ -436,6 +521,450 @@ function ProductCategoryCascader({
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Searchable Select Component ──
+function SearchableSelect({
+  value,
+  options,
+  onChange,
+  onClear,
+  placeholder = "请选择",
+  error,
+}: {
+  value: string;
+  options: string[];
+  onChange: (value: string) => void;
+  onClear?: () => void;
+  placeholder?: string;
+  error?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [keyword, setKeyword] = useState("");
+  const selectRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      if (event.target instanceof Node && selectRef.current?.contains(event.target)) return;
+      setOpen(false);
+      setKeyword("");
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [open]);
+
+  const filteredOptions = keyword
+    ? options.filter((opt) => opt.includes(keyword))
+    : options;
+
+  const isPlaceholder = !value || value === placeholder;
+
+  return (
+    <div ref={selectRef} className="group relative">
+      <button
+        type="button"
+        className={`${SELECT_TRIGGER_CLASS} ${error ? "border-[#ff4d4f]" : ""}`}
+        onClick={() => setOpen((current) => !current)}
+      >
+        <span className={isPlaceholder ? "font-normal text-[#98A2B3]" : ""}>
+          {isPlaceholder ? placeholder : value}
+        </span>
+        <ChevronDown className={`h-4 w-4 text-[#86909C] transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {!isPlaceholder && (
+        <button
+          type="button"
+          className="absolute right-9 top-1/2 hidden h-5 w-5 -translate-y-1/2 items-center justify-center rounded-full text-[#86909C] transition-colors hover:bg-[#eef1f5] hover:text-[#0A1B39] group-hover:flex"
+          onClick={(e) => {
+            e.stopPropagation();
+            onChange("");
+            onClear?.();
+          }}
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      )}
+      {open && (
+        <div className="absolute left-0 right-0 top-[calc(100%+6px)] z-40 overflow-hidden rounded-xl border border-[#e1e6ee] bg-white shadow-[0_12px_28px_rgba(15,23,41,.14)]">
+          <div className="p-2 border-b border-[#eef1f5]">
+            <input
+              type="text"
+              value={keyword}
+              onChange={(e) => setKeyword(e.target.value)}
+              placeholder="搜索"
+              className="h-8 w-full rounded-lg border border-[#dce3ee] bg-white px-3 text-[12px] outline-none placeholder:text-[#98A2B3] focus:border-[#3388ff]"
+              autoFocus
+            />
+          </div>
+          <div className="max-h-[200px] overflow-y-auto py-1.5">
+            {filteredOptions.length > 0 ? (
+              filteredOptions.map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  className={`block h-9 w-full px-3 text-left text-[13px] font-bold transition-colors ${
+                    option === value
+                      ? "bg-[#e4f3ff] text-[#3388ff]"
+                      : "text-[#0A1B39] hover:bg-[#f5f8fc]"
+                  }`}
+                  onClick={() => {
+                    onChange(option);
+                    setOpen(false);
+                    setKeyword("");
+                  }}
+                >
+                  {option}
+                </button>
+              ))
+            ) : (
+              <div className="px-3 py-4 text-center text-[12px] text-[#86909C]">暂无匹配选项</div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Category Picker Modal ─
+function CategoryPickerModal({
+  open,
+  value,
+  onClose,
+  onConfirm,
+}: {
+  open: boolean;
+  value: string[];
+  onClose: () => void;
+  onConfirm: (value: string[]) => void;
+}) {
+  const [selectedPath, setSelectedPath] = useState<string[]>(value);
+  const [keyword, setKeyword] = useState("");
+
+  if (!open) return null;
+
+  const filterCategoryTree = (nodes: CategoryNode[], keywordValue: string): CategoryNode[] => (
+    nodes.reduce<CategoryNode[]>((result, node) => {
+      const children = node.children ? filterCategoryTree(node.children, keywordValue) : [];
+      const nodeMatched = node.label.includes(keywordValue);
+      if (nodeMatched) {
+        result.push(node);
+        return result;
+      }
+      if (children.length > 0) {
+        result.push({ ...node, children });
+      }
+      return result;
+    }, [])
+  );
+
+  const hasKeyword = keyword.trim().length > 0;
+  const tree = hasKeyword
+    ? filterCategoryTree(PRODUCT_CATEGORY_TREE, keyword.trim())
+    : PRODUCT_CATEGORY_TREE;
+
+  const renderColumn = (nodes: CategoryNode[], level: number, parentPath: string[] = []) => (
+    <div className="flex-1 min-w-[180px] max-h-[300px] overflow-y-auto border-r border-[#eef1f5] last:border-r-0">
+      {nodes.map((node) => {
+        const currentPath = [...parentPath, node.label];
+        const isSelected = selectedPath.join("/") === currentPath.join("/");
+        const hasChildren = node.children && node.children.length > 0;
+
+        return (
+          <button
+            key={node.label}
+            type="button"
+            className={`flex h-10 w-full items-center justify-between px-4 text-left text-[13px] transition-colors ${
+              isSelected
+                ? "bg-[#e4f3ff] font-bold text-[#3388ff]"
+                : "font-normal text-[#0A1B39] hover:bg-[#f5f8fc]"
+            }`}
+            onClick={() => {
+              if (hasChildren) {
+                setSelectedPath(currentPath);
+              } else {
+                setSelectedPath(currentPath);
+              }
+            }}
+          >
+            <span>{node.label}</span>
+            {hasChildren && <ChevronDown className="-rotate-90 h-4 w-4 text-[#86909C]" />}
+          </button>
+        );
+      })}
+    </div>
+  );
+
+  const getColumns = () => {
+    const columns: { nodes: CategoryNode[]; level: number; parentPath: string[] }[] = [];
+    columns.push({ nodes: tree, level: 0, parentPath: [] });
+
+    if (selectedPath.length > 0) {
+      let currentNodes = tree;
+      for (let i = 0; i < selectedPath.length; i++) {
+        const node = currentNodes.find((n) => n.label === selectedPath[i]);
+        if (node?.children) {
+          columns.push({ nodes: node.children, level: i + 1, parentPath: selectedPath.slice(0, i + 1) });
+          currentNodes = node.children;
+        } else {
+          break;
+        }
+      }
+    }
+
+    return columns;
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={onClose}>
+      <div className="bg-white rounded-xl w-[800px] shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-6 pt-5 pb-3">
+          <h2 className="text-[16px] font-bold text-[#0A1B39]">选择类目</h2>
+          <button onClick={onClose} className="text-[#86909C] hover:text-[#0A1B39]">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        {value.length > 0 && (
+          <div className="px-6 pb-3">
+            <div className="text-[13px] text-[#3388ff]">
+              已选类目：{value.join(" > ")}
+            </div>
+          </div>
+        )}
+
+        <div className="px-6 pb-4">
+          <div className="flex items-center gap-2 mb-4">
+            <input
+              type="text"
+              value={keyword}
+              onChange={(e) => setKeyword(e.target.value)}
+              placeholder="类目搜索"
+              className="flex-1 h-9 rounded-lg border border-[#e6e9ef] bg-white px-3 text-[13px] outline-none focus:border-[#3388ff]"
+            />
+            <button className="h-9 px-4 rounded-lg bg-[#f5f6f8] text-[13px] text-[#0A1B39] hover:bg-[#e6e9ef]">
+              搜索
+            </button>
+          </div>
+
+          <div className="flex border border-[#eef1f5] rounded-lg overflow-hidden">
+            {getColumns().map((col, idx) => (
+              <div key={idx} className="flex-1 min-w-[180px] max-h-[300px] overflow-y-auto border-r border-[#eef1f5] last:border-r-0">
+                {col.nodes.map((node) => {
+                  const currentPath = [...col.parentPath, node.label];
+                  const isSelected = selectedPath.join("/") === currentPath.join("/");
+                  const hasChildren = node.children && node.children.length > 0;
+
+                  return (
+                    <button
+                      key={node.label}
+                      type="button"
+                      className={`flex h-10 w-full items-center justify-between px-4 text-left text-[13px] transition-colors ${
+                        isSelected
+                          ? "bg-[#e4f3ff] font-bold text-[#3388ff]"
+                          : "font-normal text-[#0A1B39] hover:bg-[#f5f8fc]"
+                      }`}
+                      onClick={() => {
+                        if (hasChildren) {
+                          setSelectedPath(currentPath);
+                        } else {
+                          setSelectedPath(currentPath);
+                        }
+                      }}
+                    >
+                      <span>{node.label}</span>
+                      {hasChildren && <ChevronDown className="-rotate-90 h-4 w-4 text-[#86909C]" />}
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex justify-center pb-6">
+          <button
+            onClick={() => {
+              onConfirm(selectedPath);
+              onClose();
+            }}
+            className="h-9 px-6 rounded-lg bg-[#3388ff] text-[14px] font-bold text-white hover:bg-[#1a6fe8]"
+          >
+            确定
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Gallery Picker Modal ──
+function GalleryPickerModal({
+  open,
+  platform,
+  productMaster,
+  onClose,
+  onConfirm,
+}: {
+  open: boolean;
+  platform: string;
+  productMaster: string;
+  onClose: () => void;
+  onConfirm: (mainImages: string[], detailImages: string[]) => void;
+}) {
+  const [selectedMainId, setSelectedMainId] = useState("");
+  const [selectedDetailId, setSelectedDetailId] = useState("");
+
+  useEffect(() => {
+    if (!open) return;
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", handleEsc);
+    return () => document.removeEventListener("keydown", handleEsc);
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  // Filter groups by platform and product master
+  const filteredGroups = MOCK_GALLERY_GROUPS.filter((g) => {
+    const platformMatch = g.platforms.includes(platform);
+    const productMatch = !productMaster || g.product === productMaster;
+    return platformMatch && productMatch;
+  });
+
+  const mainGroups = filteredGroups.filter((g) => g.type === "主图");
+  const detailGroups = filteredGroups.filter((g) => g.type === "详情图");
+
+  const handleConfirm = () => {
+    const mainImages = selectedMainId
+      ? (MOCK_GALLERY_GROUPS.find((g) => g.id === selectedMainId)?.images.map((img) => img.url) ?? [])
+      : [];
+    const detailImages = selectedDetailId
+      ? (MOCK_GALLERY_GROUPS.find((g) => g.id === selectedDetailId)?.images.map((img) => img.url) ?? [])
+      : [];
+    onConfirm(mainImages, detailImages);
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={onClose}>
+      <div className="bg-white rounded-xl w-[720px] shadow-xl max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-6 pt-5 pb-3 shrink-0">
+          <h2 className="text-[16px] font-bold text-[#0A1B39]">从图库选择</h2>
+          <button onClick={onClose} className="text-[#86909C] hover:text-[#0A1B39]">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="px-6 pb-4 overflow-y-auto flex-1">
+          {/* 主图组 */}
+          <div className="mb-6">
+            <h3 className="text-[14px] font-bold text-[#0A1B39] mb-3">主图组（可选择一个）</h3>
+            {mainGroups.length > 0 ? (
+              <div className="grid grid-cols-2 gap-3">
+                {mainGroups.map((group) => {
+                  const isSelected = selectedMainId === group.id;
+                  return (
+                    <div
+                      key={group.id}
+                      onClick={() => setSelectedMainId(isSelected ? "" : group.id)}
+                      className={`border rounded-lg p-3 cursor-pointer transition-colors ${
+                        isSelected ? "border-[#3388ff] bg-[#f0f7ff]" : "border-[#e6e9ef] hover:border-[#3388ff]"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 mb-2">
+                        <div className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${
+                          isSelected ? "bg-[#3388ff] border-[#3388ff]" : "border-[#dcdfe6]"
+                        }`}>
+                          {isSelected && <Check className="w-3 h-3 text-white" />}
+                        </div>
+                        <span className="text-[13px] font-medium text-[#0A1B39]">{group.name}</span>
+                      </div>
+                      <div className="flex gap-1.5">
+                        {group.images.slice(0, 3).map((img, idx) => (
+                          <div key={idx} className="w-12 h-12 rounded overflow-hidden bg-[#f5f6f8]">
+                            <img src={img.url} alt={img.name} className="w-full h-full object-cover" />
+                          </div>
+                        ))}
+                        {group.images.length > 3 && (
+                          <div className="w-12 h-12 rounded bg-[#f5f6f8] flex items-center justify-center text-[12px] text-[#86909C]">
+                            +{group.images.length - 3}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="text-[13px] text-[#86909C] py-4 text-center">暂无匹配的主图组</div>
+            )}
+          </div>
+
+          {/* 详情图组 */}
+          <div>
+            <h3 className="text-[14px] font-bold text-[#0A1B39] mb-3">详情图组（可选择一个）</h3>
+            {detailGroups.length > 0 ? (
+              <div className="grid grid-cols-2 gap-3">
+                {detailGroups.map((group) => {
+                  const isSelected = selectedDetailId === group.id;
+                  return (
+                    <div
+                      key={group.id}
+                      onClick={() => setSelectedDetailId(isSelected ? "" : group.id)}
+                      className={`border rounded-lg p-3 cursor-pointer transition-colors ${
+                        isSelected ? "border-[#3388ff] bg-[#f0f7ff]" : "border-[#e6e9ef] hover:border-[#3388ff]"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 mb-2">
+                        <div className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${
+                          isSelected ? "bg-[#3388ff] border-[#3388ff]" : "border-[#dcdfe6]"
+                        }`}>
+                          {isSelected && <Check className="w-3 h-3 text-white" />}
+                        </div>
+                        <span className="text-[13px] font-medium text-[#0A1B39]">{group.name}</span>
+                      </div>
+                      <div className="flex gap-1.5">
+                        {group.images.slice(0, 3).map((img, idx) => (
+                          <div key={idx} className="w-12 h-12 rounded overflow-hidden bg-[#f5f6f8]">
+                            <img src={img.url} alt={img.name} className="w-full h-full object-cover" />
+                          </div>
+                        ))}
+                        {group.images.length > 3 && (
+                          <div className="w-12 h-12 rounded bg-[#f5f6f8] flex items-center justify-center text-[12px] text-[#86909C]">
+                            +{group.images.length - 3}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="text-[13px] text-[#86909C] py-4 text-center">暂无匹配的详情图组</div>
+            )}
+          </div>
+        </div>
+
+        <div className="flex justify-center gap-3 px-6 py-4 border-t border-[#e6e9ef] shrink-0">
+          <button
+            onClick={onClose}
+            className="h-9 px-6 rounded-lg border border-[#e6e9ef] bg-white text-[14px] text-[#0A1B39] hover:bg-[#f5f6f8]"
+          >
+            取消
+          </button>
+          <button
+            onClick={handleConfirm}
+            className="h-9 px-6 rounded-lg bg-[#3388ff] text-[14px] font-bold text-white hover:bg-[#1a6fe8]"
+          >
+            确定
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -778,10 +1307,12 @@ export function ManualListing({
   breadcrumbs = [
     { label: "商品" },
     { label: "平台商品", to: "/product/management" },
-    { label: "手动上架" },
+    { label: "发布商品" },
   ],
 }: ManualListingProps = {}) {
-  const [activePlatform, setActivePlatform] = useState("抖店");
+  const location = useLocation();
+  const initialPlatform = (location.state as { platform?: string })?.platform ?? "抖店";
+  const [activePlatform, setActivePlatform] = useState(initialPlatform);
   const [activeTab, setActiveTab] = useState<TabName>("基础信息");
 
   const [storeName, setStoreName] = useState("抖音旗舰店");
@@ -845,6 +1376,14 @@ export function ManualListing({
   const [taobaoMainImages, setTaobaoMainImages] = useState<Array<UploadPreview | null>>(Array(5).fill(null));
   const [taobaoProductTitle, setTaobaoProductTitle] = useState("");
   const [taobaoGuideTitle, setTaobaoGuideTitle] = useState("");
+  const [taobaoStore, setTaobaoStore] = useState("");
+  const [taobaoCategory, setTaobaoCategory] = useState<string[]>([]);
+  const [taobaoProductMaster, setTaobaoProductMaster] = useState("");
+  const [taobaoMerchantCode, setTaobaoMerchantCode] = useState("");
+  const [showCategoryModal, setShowCategoryModal] = useState(false);
+  const [showGalleryModal, setShowGalleryModal] = useState(false);
+  const [selectedMainGroup, setSelectedMainGroup] = useState<string[]>([]);
+  const [selectedDetailGroup, setSelectedDetailGroup] = useState<string[]>([]);
   const [taobaoPearlCategory, setTaobaoPearlCategory] = useState("请选择");
   const [taobaoStyle, setTaobaoStyle] = useState("请选择");
   const [taobaoCustom, setTaobaoCustom] = useState("否");
@@ -857,7 +1396,6 @@ export function ManualListing({
   const [taobaoPrice, setTaobaoPrice] = useState("");
   const [taobaoStock, setTaobaoStock] = useState("1");
   const [taobaoPurchaseNote, setTaobaoPurchaseNote] = useState("");
-  const [taobaoMerchantCode, setTaobaoMerchantCode] = useState("");
   const [taobaoListingTime, setTaobaoListingTime] = useState("立刻上架");
   const [taobaoShippingSetting, setTaobaoShippingSetting] = useState("按商品统一设置");
   const [taobaoDeliveryTime, setTaobaoDeliveryTime] = useState("48小时内发货");
@@ -1021,7 +1559,7 @@ export function ManualListing({
 
         <div className="flex gap-6 pt-6">
           {/* Left Platform Sidebar */}
-	          <div className="w-[140px] shrink-0 space-y-2 py-3">
+	          <div className="w-[110px] shrink-0 space-y-2 py-3">
 	            {PLATFORMS.map((platform) => (
 	              <button
 	                key={platform}
@@ -1045,7 +1583,7 @@ export function ManualListing({
                 <>
               {/* Tab Bar */}
               <div className="flex items-center justify-center gap-0 pt-3 pb-6">
-                {TABS.map((tab, index) => (
+                {TABS[activePlatform]?.map((tab, index) => (
                   <div key={tab} className="flex items-center">
                     <button
                       onClick={() => setActiveTab(tab)}
@@ -1057,7 +1595,7 @@ export function ManualListing({
                     >
                       {tab}
                     </button>
-                    {index < TABS.length - 1 && (
+                    {index < (TABS[activePlatform]?.length ?? 0) - 1 && (
                       <span className="text-[#d0d5dd] text-[14px] px-1">/</span>
                     )}
                   </div>
@@ -1068,10 +1606,86 @@ export function ManualListing({
               <div className="px-8 pb-8">
 	                {activeTab === "基础信息" && (
 	                  activePlatform === "淘宝" ? (
-	                    <div className="mx-auto max-w-[720px] space-y-6">
+	                    <div className="mx-auto max-w-[960px] space-y-6">
 	                      <div>
 	                        <label className={FIELD_LABEL_CLASS}>
-	                          宝贝标题<span className="text-[#ff4d4f] ml-1">*</span>
+	                          商家店铺<span className="text-[#ff4d4f] ml-1">*</span>
+	                        </label>
+	                        <SearchableSelect
+	                          value={taobaoStore}
+	                          options={MOCK_TAOBAO_STORES}
+	                          onChange={setTaobaoStore}
+	                          placeholder="请选择"
+	                        />
+	                      </div>
+
+	                      <div>
+	                        <label className={FIELD_LABEL_CLASS}>
+	                          商品类目<span className="text-[#ff4d4f] ml-1">*</span>
+	                        </label>
+	                        {taobaoCategory.length > 0 ? (
+	                          <div className="flex items-center gap-3">
+	                            <span className="text-[13px] text-[#0A1B39]">{taobaoCategory.join(" > ")}</span>
+	                            <button
+	                              type="button"
+	                              onClick={() => setShowCategoryModal(true)}
+	                              className="text-[13px] text-[#3388ff] hover:underline"
+	                            >
+	                              切换类目
+	                            </button>
+	                          </div>
+	                        ) : (
+	                          <button
+	                            type="button"
+	                            onClick={() => setShowCategoryModal(true)}
+	                            className="text-[13px] text-[#3388ff] hover:underline"
+	                          >
+	                            选择类目
+	                          </button>
+	                        )}
+	                      </div>
+
+	                      <div>
+	                        <label className={FIELD_LABEL_CLASS}>
+	                          商品主档
+	                        </label>
+	                        <SearchableSelect
+	                          value={taobaoProductMaster}
+	                          options={MOCK_PRODUCT_MASTER.filter(p => p.status === "启用").map(p => p.name)}
+	                          onChange={(val) => {
+	                            setTaobaoProductMaster(val);
+	                            const product = MOCK_PRODUCT_MASTER.find(p => p.name === val);
+	                            if (product?.code) {
+	                              setTaobaoMerchantCode(product.code);
+	                            } else {
+	                              setTaobaoMerchantCode("");
+	                            }
+	                          }}
+	                          onClear={() => setTaobaoMerchantCode("")}
+	                          placeholder="请选择"
+	                        />
+	                      </div>
+
+	                      <div>
+	                        <label className={FIELD_LABEL_CLASS}>
+	                          商家编码
+	                        </label>
+	                        <input
+	                          type="text"
+	                          value={taobaoMerchantCode}
+	                          onChange={(e) => setTaobaoMerchantCode(e.target.value.slice(0, 64))}
+	                          placeholder="请输入"
+	                          className={`${INPUT_CLASS} pr-24`}
+	                          readOnly={!!MOCK_PRODUCT_MASTER.find(p => p.name === taobaoProductMaster)?.code}
+	                        />
+	                        <div className="absolute right-3 top-1/2 flex -translate-y-1/2 items-center gap-3 text-[12px]">
+	                          <span className="text-[#86909C]">{taobaoMerchantCode.length}/64</span>
+	                        </div>
+	                      </div>
+
+	                      <div>
+	                        <label className={FIELD_LABEL_CLASS}>
+	                          商品标题<span className="text-[#ff4d4f] ml-1">*</span>
 	                        </label>
 	                        <div className="relative">
 	                          <input
@@ -1109,74 +1723,9 @@ export function ManualListing({
 	                        </div>
 	                      </div>
 
-	                      <div>
-	                        <label className={FIELD_LABEL_CLASS}>
-	                          类目属性<span className="text-[#ff4d4f] ml-1">*</span>
-	                        </label>
-	                        <div className="rounded-xl bg-[#f5f7fa] p-4">
-	                          <div className="grid grid-cols-2 gap-6">
-	                            <div>
-	                              <label className={FIELD_LABEL_CLASS}>
-	                                <span className="text-[#ff4d4f] mr-1">*</span>珍珠分类
-	                              </label>
-	                              <CustomSelect
-	                                value={taobaoPearlCategory}
-	                                options={["请选择", "淡水珍珠", "海水珍珠"]}
-	                                onChange={setTaobaoPearlCategory}
-	                              />
-	                            </div>
-	                            <div>
-	                              <label className={FIELD_LABEL_CLASS}>
-	                                <span className="text-[#ff4d4f] mr-1">*</span>款式
-	                              </label>
-	                              <CustomSelect
-	                                value={taobaoStyle}
-	                                options={["请选择", "项链", "耳饰", "戒指"]}
-	                                onChange={setTaobaoStyle}
-	                              />
-	                            </div>
-	                          </div>
-	                          <button className="mx-auto mt-4 flex items-center gap-1 text-[13px] font-bold text-[#86909C] hover:text-[#3388ff]">
-	                            展开补充更多信息
-	                            <ChevronDown className="h-4 w-4" />
-	                          </button>
-	                        </div>
-	                      </div>
-
-	                      <div className="flex items-center gap-6">
-	                        <label className="block shrink-0 text-[14px] font-bold text-[#0A1B39]">是否定制</label>
-	                        <p className="text-[12px] text-[#86909C]">
-	                          如需开启定制，请先至少创建一个销售属性，
-	                          <button className="text-[#3388ff] hover:underline">前往创建</button>
-	                        </p>
-	                        <div className="flex items-center gap-6">
-	                          {["是", "否"].map((type) => (
-	                            <label key={type} className="flex cursor-pointer items-center gap-2 text-[14px] text-[#0A1B39]">
-	                              <div
-	                                className={`flex h-4 w-4 items-center justify-center rounded-full border-2 transition-colors ${
-	                                  taobaoCustom === type ? "border-[#3388ff] bg-[#3388ff]" : "border-[#d0d5dd] bg-white"
-	                                }`}
-	                                onClick={() => setTaobaoCustom(type)}
-	                              >
-	                                {taobaoCustom === type && <div className="h-1.5 w-1.5 rounded-full bg-white" />}
-	                              </div>
-	                              <span>{type}</span>
-	                            </label>
-	                          ))}
-	                        </div>
-	                      </div>
-
-	                      <div className="flex items-center gap-3 text-[13px]">
-	                        <button className="flex items-center gap-1 text-[#0A1B39]">
-	                          展开
-	                          <ChevronDown className="h-4 w-4 text-[#86909C]" />
-	                        </button>
-	                        <span className="rounded-md bg-[#eef5ff] px-2 py-1 font-bold text-[#3388ff]">宝贝类型：全新</span>
-	                        <span className="rounded-md bg-[#eef5ff] px-2 py-1 font-bold text-[#3388ff]">采购地</span>
-	                      </div>
 	                    </div>
 	                  ) : activePlatform === "京东" ? (
-	                    <div className="mx-auto max-w-[720px] space-y-5">
+	                    <div className="mx-auto max-w-[960px] space-y-5">
 	                      <div>
 	                        <label className={FIELD_LABEL_CLASS}>
 	                          <span className="text-[#ff4d4f] mr-1">*</span>店铺名称
@@ -1404,7 +1953,7 @@ export function ManualListing({
 	                      </div>
 	                    </div>
 	                  ) : activePlatform === "拼多多" ? (
-	                    <div className="mx-auto max-w-[720px] space-y-5">
+	                    <div className="mx-auto max-w-[960px] space-y-5">
 	                      <div>
 	                        <label className={FIELD_LABEL_CLASS}>
 	                          <span className="text-[#ff4d4f] mr-1">*</span>店铺名称
@@ -1512,7 +2061,7 @@ export function ManualListing({
 	                      </div>
 	                    </div>
 	                  ) : activePlatform === "小红书" ? (
-	                    <div className="mx-auto max-w-[720px] space-y-5">
+	                    <div className="mx-auto max-w-[960px] space-y-5">
 	                      <div>
 	                        <label className={FIELD_LABEL_CLASS}>
 	                          <span className="text-[#ff4d4f] mr-1">*</span>店铺名称
@@ -1670,7 +2219,7 @@ export function ManualListing({
 	                      </div>
 	                    </div>
 	                  ) : (
-	                    <div className="max-w-[720px] mx-auto space-y-5">
+	                    <div className="max-w-[960px] mx-auto space-y-5">
 	                    {/* 店铺名称 */}
 	                    <div>
 	                      <label className={FIELD_LABEL_CLASS}>
@@ -1749,7 +2298,16 @@ export function ManualListing({
 
               {activeTab === "图文信息" && (
                 activePlatform === "淘宝" ? (
-	                <div className="max-w-[720px] mx-auto space-y-8">
+	                <div className="max-w-[960px] mx-auto space-y-8">
+	                  <div className="flex justify-end mb-2">
+	                    <button
+	                      type="button"
+	                      onClick={() => setShowGalleryModal(true)}
+	                      className="text-[13px] text-[#3388ff] hover:underline"
+	                    >
+	                      从图库选择
+	                    </button>
+	                  </div>
 	                  <div>
 	                    <div className="mb-2 flex items-center justify-between">
 	                      <label className={FIELD_LABEL_CLASS}>
@@ -1758,9 +2316,7 @@ export function ManualListing({
 	                      <span className="text-[13px] text-[#86909C]">{taobaoMainImages.filter(Boolean).length}/5</span>
 	                    </div>
 	                    <p className="mb-4 text-[13px] leading-relaxed text-[#86909C]">
-	                      <span className="mr-2 rounded-md bg-[#fff3e8] px-2 py-1 text-[#ff7a00]">已设置商品详情页优先展示1:1主图</span>
-	                      图片要求：比例为1:1，<span className="text-[#ff7a00]">推荐尺寸1440x1440及以上</span>，至多可上传5张，拖拽可调整顺序，
-	                      <button className="text-[#3388ff] hover:underline">从3:4主图裁剪</button>
+	                      图片要求：比例为1:1，<span className="text-[#ff7a00]">推荐尺寸1440x1440及以上</span>，至多可上传5张，拖拽可调整顺序
 	                    </p>
 	                    <div className="grid grid-cols-5 gap-4">
 	                      {Array.from({ length: 5 }).map((_, i) => (
@@ -1800,7 +2356,6 @@ export function ManualListing({
 	                      图片要求：宽高比为3:4，
 	                      <span className="text-[#ff7a00]">推荐尺寸1440x1920及以上；</span>
 	                      至多可上传5张，拖拽可调整顺序
-	                      <button type="button" className="ml-3 text-[#3388ff] hover:underline">从1:1主图裁剪</button>
 	                    </p>
 	                    <div className="grid grid-cols-5 gap-4">
 	                      {Array.from({ length: taobaoRatioVisibleCount }).map((_, i) => (
@@ -1840,8 +2395,6 @@ export function ManualListing({
 	                      视频要求：时长5秒-5分钟；宽高比支持1:1、3:4、9:16
 	                      <span className="text-[#ff7a00]">（9:16视频商品详情页不展示，可在首页推荐、微详情等展示）</span>
 	                      最多可上传5个
-	                      <button type="button" className="ml-3 text-[#3388ff] hover:underline">智能模板视频</button>
-	                      <button type="button" className="ml-3 text-[#3388ff] hover:underline">视频一键剪辑</button>
 	                    </p>
 	                    <UploadTile
 	                      accept="video/mp4"
@@ -1860,7 +2413,6 @@ export function ManualListing({
 	                    </div>
 	                    <p className="mb-4 text-[13px] leading-relaxed text-[#86909C]">
 	                      图片要求：要求尺寸800x800，纯白背景、商品主体清晰完整。审核通过图片将用于频道、活动等场景，可获得更多场域曝光机会。
-	                      <button type="button" className="ml-3 text-[#3388ff] hover:underline">从主图生成</button>
 	                    </p>
 	                    <UploadTile
 	                      accept="image/jpeg,image/jpg,image/png"
@@ -1868,17 +2420,6 @@ export function ManualListing({
 	                      preview={taobaoWhiteImage}
 	                      onChange={(files) => updateSingleUpload(setTaobaoWhiteImage, files, "image")}
 	                      onRemove={() => removeSingleUpload(setTaobaoWhiteImage)}
-	                    />
-	                  </div>
-
-	                  <div>
-	                    <label className={FIELD_LABEL_CLASS}>卖点图</label>
-	                    <UploadTile
-	                      accept="image/jpeg,image/jpg,image/png"
-	                      className="aspect-square w-[140px]"
-	                      preview={taobaoSellingPointImage}
-	                      onChange={(files) => updateSingleUpload(setTaobaoSellingPointImage, files, "image")}
-	                      onRemove={() => removeSingleUpload(setTaobaoSellingPointImage)}
 	                    />
 	                  </div>
 
@@ -1941,7 +2482,7 @@ export function ManualListing({
 	                  )}
 	                </div>
                 ) : activePlatform === "京东" ? (
-	                <div className="max-w-[720px] mx-auto space-y-8">
+	                <div className="max-w-[960px] mx-auto space-y-8">
 	                  <div>
 	                    <div className="mb-2 flex items-center justify-between">
 	                      <label className={FIELD_LABEL_CLASS}>
@@ -2033,7 +2574,7 @@ export function ManualListing({
 	                  </div>
 	                </div>
                 ) : activePlatform === "拼多多" ? (
-	                <div className="max-w-[720px] mx-auto space-y-8">
+	                <div className="max-w-[960px] mx-auto space-y-8">
 	                  {/* 商品轮播图 */}
 	                  <div>
 	                    <div className="mb-2 flex items-center justify-between">
@@ -2218,7 +2759,7 @@ export function ManualListing({
 	                  </div>
 	                </div>
                 ) : activePlatform === "小红书" ? (
-	                <div className="max-w-[720px] mx-auto space-y-8">
+	                <div className="max-w-[960px] mx-auto space-y-8">
 	                  <div>
 	                    <div className="mb-2 flex items-center justify-between">
 	                      <label className={FIELD_LABEL_CLASS}>
@@ -2325,7 +2866,7 @@ export function ManualListing({
 	                  </div>
 	                </div>
                 ) : (
-                <div className="max-w-[720px] mx-auto space-y-8">
+                <div className="max-w-[960px] mx-auto space-y-8">
                   {/* 主图1:1 */}
                   <div>
                     <div className="mb-2 flex items-center justify-between">
@@ -2512,15 +3053,12 @@ export function ManualListing({
                 )
               )}
 
-              {activeTab === "价格库存" && (
+              {(activeTab === "价格库存" || activeTab === "销售信息") && (
                 activePlatform === "淘宝" ? (
-	                <div className="max-w-[720px] mx-auto space-y-7">
+	                <div className="max-w-[960px] mx-auto space-y-7">
 	                  <div>
 	                    <div className="mb-5 flex items-center gap-3">
 	                      <span className="text-[18px] font-bold text-[#0A1B39]">销售规格</span>
-	                      <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-[#d0d5dd] text-[11px] text-[#86909C]">?</span>
-	                      <span className="text-[13px] text-[#86909C]">近期已升级SKU面板，优化SKU创建流程提升操作体验。</span>
-	                      <button type="button" className="text-[13px] font-bold text-[#3388ff] hover:underline">查看详情</button>
 	                    </div>
 	                    <button
 	                      type="button"
@@ -2614,20 +3152,9 @@ export function ManualListing({
 	                      ))}
 	                    </div>
 	                  </div>
-
-	                  <div className="flex flex-wrap items-center gap-3 pt-1">
-	                    <button type="button" className="flex items-center gap-1 text-[14px] font-bold text-[#4a5568]">
-	                      展开 <ChevronDown className="h-4 w-4" />
-	                    </button>
-	                    {["库存扣减方式：是", "自定义宝贝规格", "商品条形码"].map((item) => (
-	                      <span key={item} className="rounded-lg bg-[#f1f5ff] px-3 py-1 text-[13px] font-bold text-[#3388ff]">
-	                        {item}
-	                      </span>
-	                    ))}
-	                  </div>
 	                </div>
                 ) : activePlatform === "京东" ? (
-	                <div className="max-w-[720px] mx-auto space-y-6">
+	                <div className="max-w-[960px] mx-auto space-y-6">
 	                  <div>
 	                    <label className={FIELD_LABEL_CLASS}>
 	                      <span className="text-[#ff4d4f] mr-1">*</span>商品规格
@@ -2680,7 +3207,7 @@ export function ManualListing({
 	                  </div>
 	                </div>
                 ) : activePlatform === "小红书" ? (
-                  <div className="max-w-[720px] mx-auto space-y-6">
+                  <div className="max-w-[960px] mx-auto space-y-6">
                     <div className="flex items-center gap-3">
                       <label className="block shrink-0 text-[14px] font-bold text-[#0A1B39]">
                         <span className="text-[#ff4d4f] mr-1">*</span>商品规格
@@ -2695,7 +3222,7 @@ export function ManualListing({
                     </div>
                   </div>
                 ) : usesDouyinTemplate ? (
-                  <div className="max-w-[720px] mx-auto space-y-6">
+                  <div className="max-w-[960px] mx-auto space-y-6">
                     <div>
                       <label className={FIELD_LABEL_CLASS}>
                         <span className="text-[#ff4d4f] mr-1">*</span>商品规格
@@ -2830,7 +3357,7 @@ export function ManualListing({
                     </div>
                   </div>
                 ) : (
-                <div className="max-w-[720px] mx-auto space-y-6">
+                <div className="max-w-[960px] mx-auto space-y-6">
 	                  {/* 是否预售 */}
 	                  <div className="flex items-center gap-6">
 	                    <label className="block shrink-0 text-[14px] font-bold text-[#0A1B39]">
@@ -2923,7 +3450,7 @@ export function ManualListing({
 
               {activeTab === "服务与资质" && (
                 activePlatform === "淘宝" ? (
-	                <div className="max-w-[720px] mx-auto space-y-7">
+	                <div className="max-w-[960px] mx-auto space-y-7">
 	                  <div className="grid grid-cols-[92px_1fr] gap-x-5 gap-y-4">
 	                    <label className="block shrink-0 text-[14px] font-bold text-[#0A1B39]">
 	                      发货时间 <span className="text-[#ff4d4f]">*</span>
@@ -3080,7 +3607,7 @@ export function ManualListing({
 	                  </label>
 	                </div>
                 ) : activePlatform === "京东" ? (
-	                <div className="max-w-[720px] mx-auto space-y-6">
+	                <div className="max-w-[960px] mx-auto space-y-6">
 	                  <div>
 	                    <label className={FIELD_LABEL_CLASS}>
 	                      <span className="text-[#ff4d4f] mr-1">*</span>运费模板
@@ -3184,7 +3711,7 @@ export function ManualListing({
 	                  </div>
 	                </div>
                 ) : activePlatform === "小红书" ? (
-                  <div className="max-w-[720px] mx-auto space-y-6">
+                  <div className="max-w-[960px] mx-auto space-y-6">
                     <div>
                       <label className={FIELD_LABEL_CLASS}>
                         <span className="text-[#ff4d4f] mr-1">*</span>运费模板
@@ -3264,7 +3791,7 @@ export function ManualListing({
                     </div>
                   </div>
                 ) : usesDouyinTemplate ? (
-                  <div className="max-w-[720px] mx-auto space-y-6">
+                  <div className="max-w-[960px] mx-auto space-y-6">
                     <div className="grid grid-cols-2 gap-6">
                       <div>
                         <label className={FIELD_LABEL_CLASS}>
@@ -3350,7 +3877,7 @@ export function ManualListing({
                     </div>
                   </div>
                 ) : (
-                <div className="max-w-[720px] mx-auto space-y-6">
+                <div className="max-w-[960px] mx-auto space-y-6">
                   {/* 拼单人数 */}
                   <div>
                     <label className="mb-2 block text-[14px] font-bold text-[#0A1B39]">拼单人数</label>
@@ -3424,6 +3951,37 @@ export function ManualListing({
           </div>
         </div>
       </div>
+
+      {/* Category Picker Modal */}
+      <CategoryPickerModal
+        open={showCategoryModal}
+        value={taobaoCategory}
+        onClose={() => setShowCategoryModal(false)}
+        onConfirm={setTaobaoCategory}
+      />
+
+      {/* Gallery Picker Modal */}
+      <GalleryPickerModal
+        open={showGalleryModal}
+        platform={activePlatform}
+        productMaster={taobaoProductMaster}
+        onClose={() => setShowGalleryModal(false)}
+        onConfirm={(mainImages, detailImages) => {
+          // Fill main images
+          const newMainImages = Array(5).fill(null);
+          mainImages.slice(0, 5).forEach((url, idx) => {
+            newMainImages[idx] = { url, name: `主图${idx + 1}`, type: "image" as const };
+          });
+          setTaobaoMainImages(newMainImages);
+
+          // Fill detail images
+          const newDetailImages = Array(50).fill(null);
+          detailImages.slice(0, 50).forEach((url, idx) => {
+            newDetailImages[idx] = { url, name: `详情图${idx + 1}`, type: "image" as const };
+          });
+          setTaobaoDetailImages(newDetailImages);
+        }}
+      />
     </div>
   );
 }
