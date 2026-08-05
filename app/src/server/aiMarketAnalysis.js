@@ -619,6 +619,7 @@ export async function getSuiteMainImageDescriptions({ keyword, priceBand, runId 
       ? await loadMainImageSellingPointsByProduct(connection, safeArray(reportView.priceBandProducts).flatMap((band) => safeArray(band.products).map((p) => p.id)))
       : null
     const listingSellingPoints = reportView ? buildListingSellingPointsForReport({ keyword: reportView.keyword, report: reportView, keywordMatrix, recommendationActions, mainImagePointsByProduct }) : null
+    const cachedMainImageAiReport = await loadCachedMainImageAiReport(connection, run.id)
 
     const [bandRows] = await connection.query(`
       SELECT *
@@ -734,6 +735,7 @@ export async function getSuiteMainImageDescriptions({ keyword, priceBand, runId 
       keywordMatrix,
       recommendationActions,
       listingSellingPoints,
+      mainImageAiReport: cachedMainImageAiReport,
       mainImagePromptSeed: buildMainImagePromptSeed({
         keyword: reportView?.keyword || run.keyword,
         report: reportView,
@@ -745,6 +747,7 @@ export async function getSuiteMainImageDescriptions({ keyword, priceBand, runId 
           priceRange: suitePriceRange,
         },
         listingSellingPoints,
+        aiReport: cachedMainImageAiReport,
       }),
     }
   })
@@ -2936,6 +2939,23 @@ const MARKET_SCHEMA_STATEMENTS = [
     UNIQUE KEY uniq_main_image_ai_cache (cache_key),
     KEY idx_main_image_ai_run (run_id)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+  `CREATE TABLE IF NOT EXISTS generated_main_image (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    image_name VARCHAR(255) NOT NULL,
+    image_url LONGTEXT NOT NULL,
+    image_type VARCHAR(64) NULL,
+    image_count INT NOT NULL DEFAULT 1,
+    product_name VARCHAR(255) NULL,
+    product_id VARCHAR(64) NULL,
+    size_ratio VARCHAR(32) NULL,
+    platform VARCHAR(64) NULL,
+    run_id BIGINT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_generated_main_image_product (product_name),
+    KEY idx_generated_main_image_platform (platform),
+    KEY idx_generated_main_image_created (created_at)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 ]
 
 async function ensureMarketSchema(connection) {
@@ -3875,6 +3895,36 @@ async function loadMainImageSellingPointsByProduct(connection, productIds = []) 
   return map
 }
 
+// 把 AI 全主图分析结果拼成可直接用于生图的完整提示词文本（与报告页展示内容一致）
+function buildMainImageAiPromptText({ summary = '', mainImageSellingPoints = [], imageTextCopy = '' } = {}) {
+  const lines = [String(summary || '').trim()]
+  const points = safeArray(mainImageSellingPoints)
+  if (points.length) {
+    lines.push('', '核心卖点（按优先级）：')
+    for (const p of points) {
+      const benefit = String(p.customerBenefit || '').trim()
+      const visual = String(p.visualExpression || '').trim()
+      lines.push(`${p.priority || ''} ${String(p.title || '').trim()}${benefit ? `——用户利益：${benefit}` : ''}${visual ? `；画面表达：${visual}` : ''}`.trim())
+    }
+  }
+  if (String(imageTextCopy || '').trim()) {
+    lines.push('', String(imageTextCopy).trim())
+  }
+  return lines.join('\n').trim()
+}
+
+// 读取某份报告已缓存的 AI 全主图分析报告（老缓存没有 promptText 时现场补齐）
+async function loadCachedMainImageAiReport(connection, runId) {
+  const id = toInt(runId, 0)
+  if (!id) return null
+  const [rows] = await connection.query('SELECT result_json FROM market_main_image_ai_report WHERE run_id = ? ORDER BY id DESC LIMIT 1', [id])
+  if (!rows.length) return null
+  const parsed = parseJson(rows[0].result_json, null)
+  if (!parsed?.summary) return null
+  if (!parsed.promptText) parsed.promptText = buildMainImageAiPromptText(parsed)
+  return parsed
+}
+
 // 把 AI 全主图分析结果归一化为前端 SELL 区块可直接渲染的结构
 function normalizeMainImageAiReport(aiJson = {}, analyzedCount = 0) {
   const points = safeArray(aiJson.selling_points).slice(0, 6).map((item, index) => ({
@@ -3894,12 +3944,14 @@ function normalizeMainImageAiReport(aiJson = {}, analyzedCount = 0) {
   const imageTextCopy = (layoutAdvice || copySuggestions.length)
     ? `【布局建议】${layoutAdvice || '中心构图，产品主体占画面 60% 以上，文案精简集中在画面上方或左上角。'}\n【推荐主图文案】\n${copySuggestions.map((s, i) => `${i + 1}. 大字：「${s.mainText}」| 副文案：${s.subText || '（无）'} | 位置：${s.position || '角标'}`).join('\n')}`
     : ''
-  return {
+  const normalized = {
     summary: String(aiJson.summary || '').trim(),
     mainImageSellingPoints: points,
     imageTextCopy,
     analyzedCount,
   }
+  normalized.promptText = buildMainImageAiPromptText(normalized)
+  return normalized
 }
 
 // AI 视觉分析全部竞品主图，输出一份可直接用于生图的报告（带 DB 缓存）
@@ -4033,6 +4085,70 @@ async function runMainImageAiReport(runId) {
       ON DUPLICATE KEY UPDATE result_json = VALUES(result_json)
     `, [runId, cacheKey, JSON.stringify(normalized)])
     return { ok: true, source: 'ai', cached: false, ...normalized }
+  })
+}
+
+// 生成的主图入库（资产沉淀）：图片名称/链接/类型/张数/关联商品/尺寸/关联平台/生成日期
+export async function saveGeneratedMainImages({ images = [], productName = '', productId = '', sizeRatio = '', platform = '', runId = null } = {}) {
+  const rows = safeArray(images).filter((item) => item && String(item.url || '').trim())
+  if (!rows.length) return { ok: true, saved: 0 }
+  return withConnection(async (connection) => {
+    await ensureMarketSchema(connection)
+    for (const item of rows) {
+      await connection.query(`
+        INSERT INTO generated_main_image (
+          image_name, image_url, image_type, image_count,
+          product_name, product_id, size_ratio, platform, run_id
+        ) VALUES (?,?,?,?,?,?,?,?,?)
+      `, [
+        String(item.name || '').trim() || '生成主图',
+        String(item.url).trim(),
+        String(item.type || '').trim() || null,
+        rows.length,
+        String(productName || '').trim() || null,
+        String(productId || '').trim() || null,
+        String(sizeRatio || '').trim() || null,
+        String(platform || '').trim() || null,
+        toInt(runId, null),
+      ])
+    }
+    return { ok: true, saved: rows.length }
+  })
+}
+
+export async function listGeneratedMainImages({ productName = '' } = {}) {
+  return withConnection(async (connection) => {
+    await ensureMarketSchema(connection)
+    const clean = String(productName || '').trim()
+    const [rows] = clean
+      ? await connection.query('SELECT * FROM generated_main_image WHERE product_name LIKE ? ORDER BY id DESC LIMIT 500', [`%${clean}%`])
+      : await connection.query('SELECT * FROM generated_main_image ORDER BY id DESC LIMIT 200')
+    return {
+      ok: true,
+      images: rows.map((row) => ({
+        id: row.id,
+        imageName: row.image_name,
+        imageUrl: row.image_url,
+        imageType: row.image_type,
+        imageCount: row.image_count,
+        productName: row.product_name,
+        productId: row.product_id,
+        sizeRatio: row.size_ratio,
+        platform: row.platform,
+        runId: row.run_id,
+        createdAt: row.created_at,
+      })),
+    }
+  })
+}
+
+export async function deleteGeneratedMainImages({ ids = [] } = {}) {
+  const list = safeArray(ids).map((v) => toInt(v, 0)).filter(Boolean)
+  if (!list.length) return { ok: true, deleted: 0 }
+  return withConnection(async (connection) => {
+    await ensureMarketSchema(connection)
+    const [result] = await connection.query(`DELETE FROM generated_main_image WHERE id IN (${list.map(() => '?').join(',')})`, list)
+    return { ok: true, deleted: result.affectedRows }
   })
 }
 
@@ -4380,8 +4496,9 @@ function buildListingSellingPointsForReport({ keyword = '', report = null, keywo
   }
 }
 
-function buildMainImagePromptSeed({ listingSellingPoints = null } = {}) {
-  // “商品卖点&要求”文本框只注入主图卖点分析总结，用于生图
+function buildMainImagePromptSeed({ listingSellingPoints = null, aiReport = null } = {}) {
+  // “商品卖点&要求”文本框优先注入 AI 全主图分析报告全文（与报告页一致），无缓存时回退规则聚合总结
+  if (aiReport?.promptText) return String(aiReport.promptText).trim()
   return String(listingSellingPoints?.summary || '').trim()
 }
 

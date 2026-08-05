@@ -4,7 +4,7 @@ import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import fs from 'fs'
 import { spawn } from 'child_process'
-import { analyzeProductMainImageAndSave, generateAiMarketReport, generateOverallReportFromProductMainImageReports, getAnalysisProductsView, getAnalysisReportView, getMainImageAiReport, getOpenAiSettings, getProductMainImageAnalysis, getSuiteMainImageDescriptions, listAnalysisReportRows, listProductOptions, listSuitePriceBands, listSuiteProducts, previewMarketPriceBands, readLatestMarketReport, saveOpenAiSettings, testArkResponsesConnection } from './src/server/aiMarketAnalysis.js'
+import { analyzeProductMainImageAndSave, deleteGeneratedMainImages, generateAiMarketReport, generateOverallReportFromProductMainImageReports, getAnalysisProductsView, getAnalysisReportView, getMainImageAiReport, getOpenAiSettings, getProductMainImageAnalysis, getSuiteMainImageDescriptions, listAnalysisReportRows, listGeneratedMainImages, listProductOptions, listSuitePriceBands, listSuiteProducts, previewMarketPriceBands, readLatestMarketReport, saveGeneratedMainImages, saveOpenAiSettings, testArkResponsesConnection } from './src/server/aiMarketAnalysis.js'
 import { generateProductSetImage } from './src/server/arkImageGeneration.js'
 import { expandProductSetPrompts } from './src/server/mainImagePromptExpansion.js'
 
@@ -672,6 +672,26 @@ function localRpaApi() {
               size: body.size || '2K',
               watermark: body.watermark === true,
             })
+            return sendJson(res, 200, payload)
+          }
+
+          if (req.method === 'POST' && req.url.startsWith('/api/product-sets/generated-images')) {
+            const body = await readBody(req)
+            const payload = await saveGeneratedMainImages(body || {})
+            return sendJson(res, 200, payload)
+          }
+
+          if (req.method === 'GET' && req.url.startsWith('/api/product-sets/generated-images')) {
+            const requestUrl = new URL(req.url, 'http://localhost')
+            const payload = await listGeneratedMainImages({
+              productName: (requestUrl.searchParams.get('productName') || '').trim(),
+            })
+            return sendJson(res, 200, payload)
+          }
+
+          if (req.method === 'POST' && req.url.startsWith('/api/product-sets/generated-images/delete')) {
+            const body = await readBody(req)
+            const payload = await deleteGeneratedMainImages({ ids: Array.isArray(body?.ids) ? body.ids : [] })
             return sendJson(res, 200, payload)
           }
 

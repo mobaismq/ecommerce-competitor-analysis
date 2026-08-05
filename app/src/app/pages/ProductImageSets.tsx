@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { AlertCircle, Check, ChevronDown, CircleHelp, FileText, Lightbulb, Loader2, Search, Upload } from "lucide-react";
+import { AlertCircle, Check, ChevronDown, CircleHelp, Download, FileText, Lightbulb, Loader2, Search, Upload, X, ZoomIn } from "lucide-react";
 import mainHeadphone from "@/imports/image-9.png";
 import sceneDisplay from "@/imports/image-10.png";
 import modelScene from "@/imports/image-11.png";
@@ -184,6 +184,25 @@ function imageUrl(raw?: string) {
   if (text.startsWith("//")) return `https:${text}`;
   return text;
 }
+
+async function downloadImageToLocal(src: string, filename: string) {
+  const safeName = filename.replace(/[\\/:*?"<>|\s]+/g, "_").slice(0, 60) || "image";
+  try {
+    const response = await fetch(src);
+    const blob = await response.blob();
+    const ext = blob.type.includes("png") ? ".png" : blob.type.includes("webp") ? ".webp" : ".jpg";
+    const objectUrl = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = objectUrl;
+    a.download = `${safeName}${ext}`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 5000);
+  } catch {
+    window.open(src, "_blank");
+  }
+}
  
 const DEFAULT_PROMPT_PREVIEWS: ExpandedPrompt[] = [
   { id: "image-1", name: "图1｜白底图", type: "白底图", prompt: "" },
@@ -227,6 +246,16 @@ export function ProductImageSets() {
   const [selectedPromptIds, setSelectedPromptIds] = useState<string[]>([]);
   const [generatedImages, setGeneratedImages] = useState<Record<string, GeneratedImageResult>>({});
   const [aiMainPrompt, setAiMainPrompt] = useState("");
+  const [lightbox, setLightbox] = useState<{ src: string; title: string } | null>(null);
+
+  useEffect(() => {
+    if (!lightbox) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setLightbox(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [lightbox]);
 
   const descriptions = descriptionPayload?.descriptions || [];
   const bandSummary = descriptionPayload?.band;
@@ -277,12 +306,12 @@ export function ProductImageSets() {
       setSelectedPromptId("");
       setSelectedPromptIds([]);
       setGeneratedImages({});
-      // 异步拉取 AI 全主图分析报告（首次可能较慢），成功后优先用它的总结做生图提示词
+      // 异步拉取 AI 全主图分析报告（首次可能较慢），成功后优先用它的全文做生图提示词（与报告页一致）
       fetch(`/api/report/main-image-ai-report?id=${encodeURIComponent(reportValue)}`)
         .then((res) => res.json())
         .then((aiData) => {
-          const aiSummary = String(aiData?.summary || "").trim();
-          if (aiData?.ok && aiData?.source === "ai" && aiSummary) setAiMainPrompt(aiSummary);
+          const aiPrompt = String(aiData?.promptText || aiData?.summary || "").trim();
+          if (aiData?.ok && aiData?.source === "ai" && aiPrompt) setAiMainPrompt(aiPrompt);
         })
         .catch(() => undefined);
     } catch (err) {
@@ -336,6 +365,10 @@ export function ProductImageSets() {
     setGeneratingImage(true);
     setError("");
     let failedCount = 0;
+    const batchSaved: Array<{ name: string; url: string; type: string }> = [];
+    const batchStamp = new Date();
+    const stampText = `${batchStamp.getFullYear()}${String(batchStamp.getMonth() + 1).padStart(2, "0")}${String(batchStamp.getDate()).padStart(2, "0")}-${String(batchStamp.getHours()).padStart(2, "0")}${String(batchStamp.getMinutes()).padStart(2, "0")}${String(batchStamp.getSeconds()).padStart(2, "0")}`;
+    const productLabel = selectedReport?.keyword || selectedReport?.label || "商品";
     try {
       for (const item of queue) {
         setGeneratedImages((current) => ({
@@ -361,6 +394,11 @@ export function ProductImageSets() {
             ...current,
             [item.id]: { status: "done", url: imageUrl, fileUrl: data.images?.[0]?.url },
           }));
+          batchSaved.push({
+            name: `${productLabel}-${item.type || "主图"}-${stampText}`,
+            url: data.images?.[0]?.url || imageUrl,
+            type: item.type || "主图",
+          });
         } catch (err) {
           failedCount += 1;
           setGeneratedImages((current) => ({
@@ -370,6 +408,20 @@ export function ProductImageSets() {
         }
       }
       if (failedCount) setError(`${failedCount} 张图片生成失败，其余图片已保留在右侧。`);
+      if (batchSaved.length) {
+        // 生成成功的主图自动入库沉淀（generated_main_image 表）
+        fetch("/api/product-sets/generated-images", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            images: batchSaved,
+            productName: productLabel,
+            sizeRatio: settings.ratio,
+            platform: settings.platform,
+            runId: selectedReport?.reportId ?? selectedReport?.latestRunId ?? "",
+          }),
+        }).catch(() => undefined);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -739,17 +791,25 @@ export function ProductImageSets() {
 
                 return (
                   <PreviewCard key={item.id} n={n} title={item.type || item.name} className="aspect-square min-h-[260px]">
-                    <FitImage
-                      src={src}
-                      alt={item.name}
-                      className="pt-12"
-                      onError={result?.status === "done" ? () => {
-                        setGeneratedImages((current) => ({
-                          ...current,
-                          [item.id]: { ...current[item.id], status: "failed", error: "图片文件已生成，但浏览器加载失败，请重新生成" },
-                        }));
-                      } : undefined}
-                    />
+                    <div
+                      className="group/zoom h-full w-full cursor-zoom-in"
+                      onClick={() => setLightbox({ src, title: `${n} ${item.type || item.name}` })}
+                    >
+                      <FitImage
+                        src={src}
+                        alt={item.name}
+                        className="pt-12"
+                        onError={result?.status === "done" ? () => {
+                          setGeneratedImages((current) => ({
+                            ...current,
+                            [item.id]: { ...current[item.id], status: "failed", error: "图片文件已生成，但浏览器加载失败，请重新生成" },
+                          }));
+                        } : undefined}
+                      />
+                      <span className="pointer-events-none absolute right-3 top-3 z-10 flex items-center gap-1 rounded-full bg-white/95 px-2.5 py-1 text-[11px] font-bold text-[#667085] opacity-0 shadow-sm transition-opacity group-hover/zoom:opacity-100">
+                        <ZoomIn className="h-3.5 w-3.5" /> 放大查看
+                      </span>
+                    </div>
                     <button
                       type="button"
                       onClick={() => {
@@ -789,6 +849,33 @@ export function ProductImageSets() {
         </div>
       </div>
       <button className="absolute bottom-6 right-8 h-14 w-14 rounded-full bg-white text-xl shadow-md">?</button>
+
+      {lightbox && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-6" onClick={() => setLightbox(null)}>
+          <div className="relative flex max-h-full max-w-full flex-col items-center" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-3 flex w-full items-center justify-between gap-4">
+              <span className="text-[14px] font-bold text-white">{lightbox.title}</span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => downloadImageToLocal(lightbox.src, lightbox.title)}
+                  className="flex items-center gap-1.5 rounded-full bg-white px-4 py-2 text-[12px] font-bold text-[#0A1B39] transition-colors hover:bg-[#f0f3f8]"
+                >
+                  <Download className="h-4 w-4" /> 保存到本地
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLightbox(null)}
+                  className="grid h-9 w-9 place-items-center rounded-full bg-white/15 text-white transition-colors hover:bg-white/25"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+            <img src={lightbox.src} alt={lightbox.title} className="max-h-[80vh] max-w-[90vw] rounded-xl bg-white object-contain" />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
