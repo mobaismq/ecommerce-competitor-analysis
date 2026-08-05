@@ -1,0 +1,28 @@
+[
+  {
+    "source_file": "商品数据ID_1053949060370_2026-08-03.xlsx",
+    "product_id": "1053949060370",
+    "shop_name": "天猫超市",
+    "shop_type": "天猫超市",
+    "product_title": "大希地薄皮蔬菜卷营养早餐半成品低脂代餐加热速食蒸煎包子速冻",
+    "category_name": "粮油调味/速食/干货/烘焙>面点/西式速食>面点类速食>包点",
+    "listed_at_raw": null,
+    "listed_at": null,
+    "is_listed": null,
+    "sku_count": 6,
+    "sold_count_raw": null,
+    "sold_count": null,
+    "sales_amount_raw": "0.0",
+    "sales_amount": 0.0,
+    "review_count_raw": "300+",
+    "review_count": 300,
+    "favorite_count_raw": "307",
+    "favorite_count": 307,
+    "question_count_raw": "4",
+    "question_count": 4,
+    "payer_count_raw": "4000+",
+    "payer_count": 4000,
+    "monthly_received_raw": "2000+",
+    "monthly_received": 2000
+  }
+]

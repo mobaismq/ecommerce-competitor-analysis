@@ -230,6 +230,55 @@ function generateGroups(count: number): ImageGroup[] {
 
 const MOCK_IMAGE_GROUPS: ImageGroup[] = generateGroups(80);
 
+type DbGeneratedImage = {
+  id?: number;
+  imageName?: string;
+  imageUrl?: string;
+  imageType?: string | null;
+  imageCount?: number;
+  productName?: string | null;
+  sizeRatio?: string | null;
+  platform?: string | null;
+  runId?: number | null;
+  createdAt?: string;
+};
+
+// 数据库 generated_main_image 行 → 图库分组（同一批次：相同 runId + 同一分钟内入库）
+function buildGroupsFromDbRows(rows: DbGeneratedImage[]): ImageGroup[] {
+  const batches = new Map<string, DbGeneratedImage[]>();
+  for (const row of rows) {
+    const key = `${row.runId ?? "none"}|${String(row.createdAt || "").replace(/[-: ]/g, "").slice(0, 12)}`;
+    const list = batches.get(key) || [];
+    list.push(row);
+    batches.set(key, list);
+  }
+  const groups: ImageGroup[] = [];
+  for (const [key, list] of batches) {
+    const first = list[0];
+    const productName = String(first.productName || "");
+    groups.push({
+      id: `db-${key}`,
+      coverUrl: String(first.imageUrl || ""),
+      name: `${productName || "商品"}生成主图`,
+      groupCode: `db-${key}`,
+      type: "主图",
+      ratio: String(first.sizeRatio || "1:1"),
+      count: list.length,
+      product: productName,
+      platforms: first.platform ? [String(first.platform)] : [],
+      createTime: String(first.createdAt || "").slice(0, 10),
+      images: list.map((row) => ({
+        id: `db-${row.id}`,
+        url: String(row.imageUrl || ""),
+        name: String(row.imageName || ""),
+        sceneTag: String(row.imageType || "主图"),
+        size: "",
+      })),
+    });
+  }
+  return groups;
+}
+
 export function ImageGallery() {
   const navigate = useNavigate();
   const [searchName, setSearchName] = useState("");
@@ -259,6 +308,22 @@ export function ImageGallery() {
     setShowDateRange(!showDateRange);
   };
   const [groups, setGroups] = useState<ImageGroup[]>(MOCK_IMAGE_GROUPS);
+
+  // 加载数据库沉淀的生成主图，合并到图库展示（DB 在前）
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/product-sets/generated-images")
+      .then((res) => res.json())
+      .then((data) => {
+        if (cancelled || !data?.ok) return;
+        const dbGroups = buildGroupsFromDbRows(data.images || []);
+        setGroups((current) => [...dbGroups, ...current.filter((g) => !g.id.startsWith("db-"))]);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const [showViewModal, setShowViewModal] = useState(false);
   const [viewingGroup, setViewingGroup] = useState<ImageGroup | null>(null);
   const [currentImageIndex, setCurrentImageIndex] = useState(-1);
@@ -309,7 +374,7 @@ export function ImageGallery() {
   };
 
   const filteredGroups = groups.filter((g) => {
-    if (filterName && !g.name.toLowerCase().includes(filterName.toLowerCase())) return false;
+    if (filterName && !g.name.toLowerCase().includes(filterName.toLowerCase()) && !g.images.some((img) => img.name.toLowerCase().includes(filterName.toLowerCase()))) return false;
     if (filterType.length > 0 && !filterType.includes(g.type)) return false;
     if (filterProduct.length > 0) {
       const includeEmpty = filterProduct.includes("--");
@@ -439,10 +504,21 @@ export function ImageGallery() {
 
   const confirmDeleteImage = () => {
     if (!deletingImage) return;
+    const target = deletingImage;
+    if (target.imageId.startsWith("db-")) {
+      const rowId = Number(target.imageId.slice(3));
+      if (rowId) {
+        fetch("/api/product-sets/generated-images/delete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ids: [rowId] }),
+        }).catch(() => undefined);
+      }
+    }
     setGroups(
       groups.map((g) =>
-        g.id === deletingImage.groupId
-          ? { ...g, images: g.images.filter((img) => img.id !== deletingImage.imageId), count: g.count - 1 }
+        g.id === target.groupId
+          ? { ...g, images: g.images.filter((img) => img.id !== target.imageId), count: g.count - 1 }
           : g
       )
     );
@@ -457,7 +533,21 @@ export function ImageGallery() {
 
   const confirmDeleteGroup = () => {
     if (!deletingGroupId) return;
-    setGroups(groups.filter((g) => g.id !== deletingGroupId));
+    const targetId = deletingGroupId;
+    if (targetId.startsWith("db-")) {
+      const target = groups.find((g) => g.id === targetId);
+      const ids = (target?.images || [])
+        .map((img) => Number(img.id.replace(/^db-/, "")))
+        .filter((v) => v > 0);
+      if (ids.length) {
+        fetch("/api/product-sets/generated-images/delete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ids }),
+        }).catch(() => undefined);
+      }
+    }
+    setGroups(groups.filter((g) => g.id !== targetId));
     setShowDeleteGroupConfirm(false);
     setDeletingGroupId(null);
     setShowViewModal(false);
@@ -465,6 +555,7 @@ export function ImageGallery() {
   };
 
   const productNames = [...new Set(groups.map((g) => g.product).filter(Boolean))];
+  const platformOptions = [...new Set([...MOCK_PLATFORMS, ...groups.flatMap((g) => g.platforms)])];
 
   return (
     <>
@@ -518,7 +609,7 @@ export function ImageGallery() {
                   className={`h-8 w-full appearance-none rounded-lg border border-[#e6e9ef] bg-white px-2.5 pr-7 text-[13px] outline-none focus:border-[#409eff] ${!searchPlatform ? "text-[#c0c4cc]" : "text-[#0A1B39]"}`}
                 >
                   <option value="">请选择</option>
-                  {MOCK_PLATFORMS.map((p) => (
+                  {platformOptions.map((p) => (
                     <option key={p} value={p}>{p}</option>
                   ))}
                 </select>

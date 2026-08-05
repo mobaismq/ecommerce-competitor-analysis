@@ -1,0 +1,22 @@
+{
+  "generated_at": "2026-08-03 17:05:46",
+  "source_files": {
+    "product": "/Users/shuishoukeke/Documents/Codex/2026-07-27/export-anthropic-base-url-https-api/work/ecommerce-competitor-analysis/rpa_runs/店透视批量导出-包子-min10-max30-Top10-20260803-132310/010-1053949060370-大希地薄皮蔬菜卷营养早餐半成品低脂代餐加热速食蒸煎包子速冻 袋装 360/商品数据ID_1053949060370_2026-08-03.xlsx",
+    "sku": "/Users/shuishoukeke/Documents/Codex/2026-07-27/export-anthropic-base-url-https-api/work/ecommerce-competitor-analysis/rpa_runs/店透视批量导出-包子-min10-max30-Top10-20260803-132310/010-1053949060370-大希地薄皮蔬菜卷营养早餐半成品低脂代餐加热速食蒸煎包子速冻 袋装 360/店透-SKU预览-表格-1053949060370-2026-08-03.xlsx",
+    "qa": null,
+    "review_comments": "/Users/shuishoukeke/Documents/Codex/2026-07-27/export-anthropic-base-url-https-api/work/ecommerce-competitor-analysis/rpa_runs/店透视批量导出-包子-min10-max30-Top10-20260803-132310/010-1053949060370-大希地薄皮蔬菜卷营养早餐半成品低脂代餐加热速食蒸煎包子速冻 袋装 360/review_comments.json"
+  },
+  "source_status": {
+    "qa_missing_allowed": true,
+    "qa_status": "missing_allowed"
+  },
+  "counts": {
+    "product": 1,
+    "sku": 6,
+    "qa": 0,
+    "review_comment": 50,
+    "media_asset": 16,
+    "product_page_image_asset": 16,
+    "exported_images": 0
+  }
+}
