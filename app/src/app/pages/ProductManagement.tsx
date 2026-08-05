@@ -452,7 +452,7 @@ export function ProductManagement() {
     setShowPublishDropdown(false);
 
     if (type === "manual") {
-      navigate("/product/management/manual");
+      navigate("/product/management/manual", { state: { platform: activePlatform } });
       return;
     }
 
@@ -697,35 +697,14 @@ export function ProductManagement() {
 
       {/* Action Buttons */}
       <div className="mb-4 flex gap-3">
-        <div ref={publishBtnRef} className="relative">
-          <button
-            type="button"
-            onClick={() => setShowPublishDropdown((open) => !open)}
-            className="flex h-9 items-center gap-1.5 rounded-lg bg-[#409eff] px-4 text-[14px] font-bold text-white transition-colors hover:bg-[#66b1ff]"
-          >
-            <Plus className="h-4 w-4" />
-            发布商品
-            <ChevronDown className={`h-4 w-4 transition-transform ${showPublishDropdown ? "rotate-180" : ""}`} />
-          </button>
-          {showPublishDropdown && (
-            <div className="absolute left-0 top-full z-50 mt-1 w-40 overflow-hidden rounded-xl border border-[#e1e6ee] bg-white py-1 shadow-[0_8px_24px_rgba(29,38,52,.12)]">
-              <button
-                type="button"
-                onClick={() => handlePublishSelect("manual")}
-                className="block w-full px-4 py-3 text-left text-[14px] font-bold text-[#0A1B39] transition-colors hover:bg-[#f4f7fb] hover:text-[#3388ff]"
-              >
-                手动上架
-              </button>
-              <button
-                type="button"
-                onClick={() => handlePublishSelect("select")}
-                className="block w-full px-4 py-3 text-left text-[14px] font-bold text-[#0A1B39] transition-colors hover:bg-[#f4f7fb] hover:text-[#3388ff]"
-              >
-                从商品列表选取
-              </button>
-            </div>
-          )}
-        </div>
+        <button
+          type="button"
+          onClick={() => navigate("/product/management/manual", { state: { platform: activePlatform } })}
+          className="flex h-9 items-center gap-1.5 rounded-lg bg-[#409eff] px-4 text-[14px] font-bold text-white transition-colors hover:bg-[#66b1ff]"
+        >
+          <Plus className="h-4 w-4" />
+          发布商品
+        </button>
         <button
           onClick={handleSync}
           className="flex items-center gap-1.5 h-9 rounded-lg border border-[#e6e9ef] bg-white px-4 text-[14px] font-bold text-[#0A1B39] hover:bg-[#f5f6f8]"

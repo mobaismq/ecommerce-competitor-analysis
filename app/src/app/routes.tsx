@@ -29,7 +29,7 @@ function ProductManagementManualListing() {
       breadcrumbs={[
         { label: "商品" },
         { label: "平台商品", to: "/product/management" },
-        { label: "手动上架" },
+        { label: "发布商品" },
       ]}
     />
   );
