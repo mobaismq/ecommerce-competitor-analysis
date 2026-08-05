@@ -226,6 +226,7 @@ export function ProductImageSets() {
   const [selectedPromptId, setSelectedPromptId] = useState("");
   const [selectedPromptIds, setSelectedPromptIds] = useState<string[]>([]);
   const [generatedImages, setGeneratedImages] = useState<Record<string, GeneratedImageResult>>({});
+  const [aiMainPrompt, setAiMainPrompt] = useState("");
 
   const descriptions = descriptionPayload?.descriptions || [];
   const bandSummary = descriptionPayload?.band;
@@ -236,22 +237,13 @@ export function ProductImageSets() {
   const selectedReport = selectedReportOption || suiteProducts.find((item) => item.value === selectedProduct) || null;
   const reportMainPoints = descriptionPayload?.listingSellingPoints?.mainImageSellingPoints || [];
   const reportMainPrompt = useMemo(() => {
+    if (aiMainPrompt) return aiMainPrompt;
     const serverPrompt = String(descriptionPayload?.mainImagePromptSeed || "").trim();
     if (serverPrompt) return serverPrompt;
-    if (reportMainPoints.length) {
-      const lines = reportMainPoints.slice(0, 5).map((item, index) => {
-        return `${index + 1}. ${item.title || `卖点${index + 1}`}：用户收益=${item.customerBenefit || "突出购买理由"}；画面表达=${item.visualExpression || "商品主体清晰，少量文字表达核心卖点"}；依据=${item.dataBasis || "竞品报告数据库聚合"}`;
-      });
-      return [
-        `请基于我上传的商品原图生成电商主图，关键词：${descriptionPayload?.report?.keyword || selectedReport?.keyword || "当前商品"}。`,
-        descriptionPayload?.report?.priceRange ? `参考竞品价格区间：${descriptionPayload.report.priceRange}。` : "",
-        "主图卖点优先级：",
-        ...lines,
-        "生成要求：必须以我上传的商品图为唯一商品主体，不使用竞品图片，不改变商品核心外观；主图文字少而清晰，优先表现前 1-3 个卖点。",
-      ].filter(Boolean).join("\n");
-    }
+    const summaryPrompt = String(descriptionPayload?.listingSellingPoints?.summary || "").trim();
+    if (summaryPrompt) return summaryPrompt;
     return overallMainDescription;
-  }, [descriptionPayload?.mainImagePromptSeed, descriptionPayload?.report?.keyword, descriptionPayload?.report?.priceRange, overallMainDescription, reportMainPoints, selectedReport?.keyword]);
+  }, [aiMainPrompt, descriptionPayload?.mainImagePromptSeed, descriptionPayload?.listingSellingPoints?.summary, overallMainDescription]);
   const hasSelectedExpandedPrompt = expandedPrompts.length ? expandedPrompts.some((item) => selectedPromptIds.includes(item.id) && item.prompt.trim()) : false;
   const canGenerateImage = Boolean(uploadedImage && (expandedPrompts.length ? hasSelectedExpandedPrompt : generationText.trim() && !selectedPromptIds.length));
 
@@ -275,6 +267,7 @@ export function ProductImageSets() {
     if (!reportValue) return;
     setLoadingDescriptions(true);
     setError("");
+    setAiMainPrompt("");
     try {
       const response = await fetch(`/api/product-sets/main-image-descriptions?runId=${encodeURIComponent(reportValue)}`);
       const data = await response.json();
@@ -284,6 +277,14 @@ export function ProductImageSets() {
       setSelectedPromptId("");
       setSelectedPromptIds([]);
       setGeneratedImages({});
+      // 异步拉取 AI 全主图分析报告（首次可能较慢），成功后优先用它的总结做生图提示词
+      fetch(`/api/report/main-image-ai-report?id=${encodeURIComponent(reportValue)}`)
+        .then((res) => res.json())
+        .then((aiData) => {
+          const aiSummary = String(aiData?.summary || "").trim();
+          if (aiData?.ok && aiData?.source === "ai" && aiSummary) setAiMainPrompt(aiSummary);
+        })
+        .catch(() => undefined);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {

@@ -929,24 +929,66 @@ function PriceBandStrategySection({
   );
 }
 
-function ListingSellingPointsSection({ points }: { points?: AnyRecord | null }) {
-  const mainPoints = asArray<AnyRecord>(points?.mainImageSellingPoints);
+function ListingSellingPointsSection({ points, reportId }: { points?: AnyRecord | null; reportId?: string }) {
+  // AI 视觉分析全部竞品主图的报告（异步加载，失败时回退到规则聚合结果）
+  const [aiReport, setAiReport] = useState<AnyRecord | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState("");
+
+  useEffect(() => {
+    if (!reportId) return;
+    let cancelled = false;
+    setAiLoading(true);
+    setAiError("");
+    fetch(`/api/report/main-image-ai-report?id=${encodeURIComponent(reportId)}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (cancelled) return;
+        if (data?.ok && data?.source === "ai" && data?.summary) {
+          setAiReport(data);
+        } else if (data?.error) {
+          setAiError(String(data.error));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setAiError("AI 全主图分析请求失败，已回退到本地聚合结果。");
+      })
+      .finally(() => {
+        if (!cancelled) setAiLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [reportId]);
+
+  const mainPoints = asArray<AnyRecord>(aiReport?.mainImageSellingPoints?.length ? aiReport.mainImageSellingPoints : points?.mainImageSellingPoints);
   const detailPoints = asArray<AnyRecord>(points?.detailPageSellingPoints);
-  if (!mainPoints.length && !detailPoints.length) return null;
+  const imageTextCopy = textValue(aiReport?.imageTextCopy, "") || textValue(points?.imageTextCopy, "");
+  if (!mainPoints.length && !detailPoints.length && !aiLoading) return null;
 
   return (
-    <SectionCard no="SELL" title="主图卖点与详情页卖点" subtitle="基于竞品主图、评论/问大家、关键词矩阵和痛点反推生成。" tone="purple">
+    <SectionCard no="SELL" title="主图卖点与详情页卖点" subtitle={aiReport ? "主图卖点由 AI 视觉分析全部竞品主图生成，用于生图；详情页卖点基于评论/痛点反推。" : "主图卖点仅基于竞品主图识别分析提炼，用于生图；详情页卖点基于评论/痛点反推。"} tone="purple">
       {/* 综合总结话术 */}
       <div className="mb-6 rounded-xl border border-[#e0e7ff] bg-[#f5f7ff] p-5 text-[14px] font-bold leading-7 text-[#1e293b]">
-        <p className="mb-2 text-[12px] font-extrabold uppercase tracking-wider text-[#7c3aed]">主图卖点分析总结</p>
-        {textValue(points?.summary, "主图负责第一眼转化，详情页负责证据解释、规格说明和痛点消除。")}
+        <div className="mb-2 flex items-center gap-2">
+          <p className="text-[12px] font-extrabold uppercase tracking-wider text-[#7c3aed]">主图卖点分析总结{aiReport ? "（AI 分析全部竞品主图）" : ""}</p>
+          {aiReport?.analyzedCount > 0 && (
+            <span className="rounded-full bg-[#ede9fe] px-2 py-0.5 text-[10px] font-extrabold text-[#7c3aed]">已分析 {textValue(aiReport.analyzedCount)} 张主图</span>
+          )}
+        </div>
+        {aiLoading ? (
+          <p className="text-[#6366f1]">AI 正在综合分析全部竞品主图，首次分析约需 2~5 分钟，完成后自动缓存…</p>
+        ) : (
+          textValue(aiReport?.summary, "") || textValue(points?.summary, "主图负责第一眼转化，详情页负责证据解释、规格说明和痛点消除。")
+        )}
+        {!aiLoading && aiError && <p className="mt-2 text-[12px] font-medium text-[#b45309]">{aiError}</p>}
       </div>
 
       {/* 推荐主图文案 */}
-      {textValue(points?.imageTextCopy, "") && (
+      {imageTextCopy && (
         <div className="mb-6 rounded-xl border border-[#d1fae5] bg-[#ecfdf5] p-5">
           <p className="mb-3 text-[13px] font-extrabold text-[#059669]">推荐主图文案</p>
-          {textValue(points?.imageTextCopy, "").split("\n").map((line, i) => {
+          {imageTextCopy.split("\n").map((line, i) => {
             const trimmed = line.trim();
             if (!trimmed) return null;
             if (trimmed.startsWith("【布局建议】")) {
@@ -988,6 +1030,11 @@ function ListingSellingPointsSection({ points }: { points?: AnyRecord | null }) 
                     <span className="text-[14px] font-extrabold text-[#0A1B39]">{textValue(item.title)}</span>
                     <span className="text-[11px] font-bold text-[#86909C]">{asArray<string>(item.source).join(" / ") || "数据库"}</span>
                   </div>
+                  {(textValue(item.customerBenefit, "") || textValue(item.visualExpression, "")) && (
+                    <p className="mt-1 text-[12px] font-bold leading-5 text-[#4f46e5]">
+                      {textValue(item.customerBenefit, "")}{textValue(item.customerBenefit, "") && textValue(item.visualExpression, "") ? "；" : ""}{textValue(item.visualExpression, "")}
+                    </p>
+                  )}
                   <p className="mt-1 text-[12px] font-medium leading-5 text-[#667085]">
                     {textValue(item.dataBasis)}
                   </p>
@@ -1038,9 +1085,11 @@ function ListingSellingPointsSection({ points }: { points?: AnyRecord | null }) 
 function StrategyReportBody({
   report,
   onOpenProducts,
+  reportId,
 }: {
   report: any;
   onOpenProducts: (band: string) => void;
+  reportId?: string;
 }) {
   const scope = report.analysis_scope || {};
   const conclusions = report.market_core_conclusions || {};
@@ -1612,7 +1661,7 @@ function StrategyReportBody({
 
       <RecommendationActionsSection actions={report.recommendationActions} />
 
-      <ListingSellingPointsSection points={report.listingSellingPoints} />
+      <ListingSellingPointsSection points={report.listingSellingPoints} reportId={reportId} />
 
       {false && (
         <>
@@ -2118,6 +2167,7 @@ export function AnalysisReportView() {
 
       <StrategyReportBody
         report={report}
+        reportId={reportId}
         onOpenProducts={(band) => {
           const bands = asArray<PriceBandProducts>(report.priceBandProducts);
           const matchedBand = bands.find((item) => item.band === band) || bands[0];

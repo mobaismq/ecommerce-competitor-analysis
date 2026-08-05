@@ -615,7 +615,10 @@ export async function getSuiteMainImageDescriptions({ keyword, priceBand, runId 
     const runIds = [toInt(run.id)].filter((id) => id > 0)
     const keywordMatrix = reportView ? await buildKeywordMatrixForReport(connection, { runIds, keyword: reportView.keyword, report: reportView }) : null
     const recommendationActions = reportView ? await buildRecommendationActionsForReport(connection, { runIds, keyword: reportView.keyword, report: reportView, keywordMatrix }) : null
-    const listingSellingPoints = reportView ? buildListingSellingPointsForReport({ keyword: reportView.keyword, report: reportView, keywordMatrix, recommendationActions }) : null
+    const mainImagePointsByProduct = reportView
+      ? await loadMainImageSellingPointsByProduct(connection, safeArray(reportView.priceBandProducts).flatMap((band) => safeArray(band.products).map((p) => p.id)))
+      : null
+    const listingSellingPoints = reportView ? buildListingSellingPointsForReport({ keyword: reportView.keyword, report: reportView, keywordMatrix, recommendationActions, mainImagePointsByProduct }) : null
 
     const [bandRows] = await connection.query(`
       SELECT *
@@ -2923,6 +2926,16 @@ const MARKET_SCHEMA_STATEMENTS = [
     KEY idx_product_main_image_analysis_keyword (collection_keyword),
     KEY idx_product_main_image_analysis_created (created_at)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+  `CREATE TABLE IF NOT EXISTS market_main_image_ai_report (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    run_id BIGINT NOT NULL,
+    cache_key VARCHAR(64) NOT NULL,
+    result_json LONGTEXT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uniq_main_image_ai_cache (cache_key),
+    KEY idx_main_image_ai_run (run_id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 ]
 
 async function ensureMarketSchema(connection) {
@@ -3712,6 +3725,35 @@ const SEMANTIC_GROUPS = [
   { group: '品牌信任', category: '信任保障', patterns: /联名|品牌|正品|保障|认证|质检|溯源|大厂|旗舰/, displayTitle: '品牌品质有保障', priority: 1 },
 ]
 
+// 根据关键词/标题判断类目族：纸品 / 食品 / 通用
+function categoryFamilyForKeyword(text) {
+  const raw = String(text || '')
+  if (/纸|抽纸|餐巾纸|卫生纸|面巾纸|厕纸/.test(raw)) return 'paper'
+  if (/包子|馒头|饺子|烧麦|馅饼|手抓饼|发糕|花卷|汤圆|粽子|月饼|面包|蛋糕|饼干|零食|肉脯|肉干|坚果|水果|蔬菜|土豆|地瓜|玉米|大米|面粉|面条|方便面|速食|早餐|食品|小吃/.test(raw)) return 'food'
+  return 'general'
+}
+
+// 语义组展示名随类目自适应，避免纸品/零食话术串到其他类目（如水杯出现“加厚多层面纸”）
+function groupDisplayTitle(rule, family = 'general') {
+  const titles = {
+    '整箱量贩装': { paper: '整箱量贩超值装', food: '整箱量贩超值装', general: '量贩实惠装' },
+    '够用时长': { paper: '够用一整年', general: '持久耐用省心' },
+    '层数厚度': { paper: '加厚多层面纸', general: '加厚耐用材质' },
+    '柔软亲肤': { paper: '柔软亲肤触感', general: '柔软舒适触感' },
+    '吸水韧性': { paper: '强韧吸水不易破', general: '强韧耐用不易破' },
+    '原生木浆': { paper: '原生木浆安全无忧', general: '安全材质放心用' },
+    '高蛋白营养': { food: '高蛋白轻负担', general: '健康轻负担' },
+    '品质真材实料': { general: '真材实料好品质' },
+    '产地正宗': { food: '正宗产地风味', general: '正宗产地出品' },
+    '口感美味': { food: '口感一吃就停不下来', general: '体验出色好用' },
+    '多口味选择': { food: '多口味随心选', general: '多款规格可选' },
+    '场景便利': { food: '随时随地解馋好搭档', paper: '居家日用好帮手', general: '便携随行好搭档' },
+    '品牌信任': { general: '品牌品质有保障' },
+  }
+  const map = titles[rule.group] || {}
+  return map[family] || map.general || rule.displayTitle
+}
+
 // 判断卖点词是否为纯数量词（如 "40包"、"20包"、"M码18包整箱"）
 function isPureQuantityTerm(term) {
   const text = String(term || '').trim()
@@ -3803,71 +3845,220 @@ function mainImageVisualByCategory(category, term, index) {
   return map[category] || defaultExpr
 }
 
-function buildListingSellingPointsForReport({ keyword = '', report = null, keywordMatrix = null, recommendationActions = null } = {}) {
+// 实时读取每个竞品最新一份单品主图分析报告的卖点（主图识别 + 标题提炼 + 保留建议），
+// 保证主图卖点总结只基于主图分析，且覆盖所有已入库主图分析的竞品
+async function loadMainImageSellingPointsByProduct(connection, productIds = []) {
+  const ids = [...new Set((productIds || []).map((id) => String(id || '').trim()).filter(Boolean))]
+  if (!ids.length) return new Map()
+  const [rows] = await connection.query(`
+    SELECT a.*
+    FROM product_main_image_analysis a
+    JOIN (
+      SELECT product_id, MAX(id) AS id
+      FROM product_main_image_analysis
+      WHERE product_id IN (?)
+      GROUP BY product_id
+    ) latest ON latest.id = a.id
+  `, [ids])
+  const map = new Map()
+  for (const row of rows) {
+    const report = parseJson(row.report_json, {}) || {}
+    const terms = [
+      ...safeArray(report.image_selling_points),
+      ...safeArray(report.title_selling_points),
+      ...safeArray(report.listing_suggestions?.keep_points),
+    ]
+      .map((item) => String(item?.term || item?.keyword || item || '').trim())
+      .filter(Boolean)
+    if (terms.length) map.set(String(row.product_id), terms)
+  }
+  return map
+}
+
+// 把 AI 全主图分析结果归一化为前端 SELL 区块可直接渲染的结构
+function normalizeMainImageAiReport(aiJson = {}, analyzedCount = 0) {
+  const points = safeArray(aiJson.selling_points).slice(0, 6).map((item, index) => ({
+    priority: index + 1,
+    title: String(item?.title || item?.term || '').trim() || `卖点${index + 1}`,
+    customerBenefit: String(item?.customer_benefit || item?.benefit || '').trim(),
+    visualExpression: String(item?.visual_expression || '').trim(),
+    dataBasis: String(item?.data_basis || '').trim() || '来自 AI 对全部竞品主图的视觉分析。',
+    source: ['主图AI分析'],
+  })).filter((item) => item.title)
+  const copySuggestions = safeArray(aiJson.copy_suggestions).slice(0, 4).map((item) => ({
+    mainText: String(item?.main_text || '').trim(),
+    subText: String(item?.sub_text || '').trim(),
+    position: String(item?.position || '').trim(),
+  })).filter((item) => item.mainText)
+  const layoutAdvice = String(aiJson.layout_advice || '').trim()
+  const imageTextCopy = (layoutAdvice || copySuggestions.length)
+    ? `【布局建议】${layoutAdvice || '中心构图，产品主体占画面 60% 以上，文案精简集中在画面上方或左上角。'}\n【推荐主图文案】\n${copySuggestions.map((s, i) => `${i + 1}. 大字：「${s.mainText}」| 副文案：${s.subText || '（无）'} | 位置：${s.position || '角标'}`).join('\n')}`
+    : ''
+  return {
+    summary: String(aiJson.summary || '').trim(),
+    mainImageSellingPoints: points,
+    imageTextCopy,
+    analyzedCount,
+  }
+}
+
+// AI 视觉分析全部竞品主图，输出一份可直接用于生图的报告（带 DB 缓存）
+export async function getMainImageAiReport({ id = '' } = {}) {
+  const runId = toInt(id, 0)
+  if (!runId) throw new Error('缺少报告ID')
+  const pending = mainImageAiReportInflight.get(runId)
+  if (pending) return pending
+  const promise = runMainImageAiReport(runId).finally(() => mainImageAiReportInflight.delete(runId))
+  mainImageAiReportInflight.set(runId, promise)
+  return promise
+}
+
+const mainImageAiReportInflight = new Map()
+
+async function runMainImageAiReport(runId) {
+  return withConnection(async (connection) => {
+    await ensureMarketSchema(connection)
+    const [runRows] = await connection.query('SELECT * FROM market_analysis_run WHERE id = ? LIMIT 1', [runId])
+    if (!runRows.length) throw new Error('没有找到对应的整体报告')
+    const reportView = transformReportForAnalysisView(runRows[0])
+    const keyword = reportView?.keyword || runRows[0].keyword || ''
+    const productIds = safeArray(reportView?.priceBandProducts)
+      .flatMap((band) => safeArray(band.products).map((p) => String(p.id || '').trim()))
+      .filter(Boolean)
+    if (!productIds.length) throw new Error('该报告没有竞品商品')
+    const [rows] = await connection.query(`
+      SELECT a.*
+      FROM product_main_image_analysis a
+      JOIN (
+        SELECT product_id, MAX(id) AS id
+        FROM product_main_image_analysis
+        WHERE product_id IN (?)
+        GROUP BY product_id
+      ) latest ON latest.id = a.id
+    `, [productIds])
+    // 每个竞品在 RPA 目录里通常有多张主图（product_page_images/main/001~00N.jpg），
+    // 数据库只存了第一张，这里从本地目录展开全部主图一起送给 AI
+    const MAX_TOTAL_IMAGES = 20
+    const perProductCap = Math.min(5, Math.max(1, Math.floor(MAX_TOTAL_IMAGES / Math.max(1, rows.length))))
+    const analyzed = []
+    let totalImages = 0
+    for (const row of rows) {
+      const report = parseJson(row.report_json, {}) || {}
+      const known = [
+        ...safeArray(report.image_selling_points),
+        ...safeArray(report.title_selling_points),
+      ].map((item) => String(item?.term || '').trim()).filter(Boolean)
+      let urls = []
+      const mainDir = row.main_image_path
+        ? path.join(path.dirname(path.dirname(String(row.main_image_path))), 'main')
+        : ''
+      if (mainDir && fs.existsSync(mainDir)) {
+        urls = fs.readdirSync(mainDir)
+          .filter((f) => /\.(jpe?g|png|webp)$/i.test(f))
+          .sort()
+          .slice(0, perProductCap)
+          .map((f) => maybeLocalImageAsDataUrl(path.join(mainDir, f)))
+          .filter(Boolean)
+      }
+      if (!urls.length) {
+        const single = normalizeUrl(row.main_image_url)
+          || maybeLocalImageAsDataUrl(row.main_image_url)
+          || maybeLocalImageAsDataUrl(row.main_image_path)
+          || ''
+        if (single) urls = [single]
+      }
+      if (!urls.length) continue
+      totalImages += urls.length
+      analyzed.push({ ...row, known, urls })
+    }
+    if (!analyzed.length) throw new Error('竞品还没有可读取的主图，请先完成单品主图分析入库')
+
+    const cacheKey = crypto.createHash('sha256').update(`${runId}:${analyzed.map((row) => row.id).join(',')}:${totalImages}`).digest('hex')
+    const [cached] = await connection.query('SELECT result_json FROM market_main_image_ai_report WHERE cache_key = ? LIMIT 1', [cacheKey])
+    if (cached.length) {
+      const parsed = parseJson(cached[0].result_json, null)
+      if (parsed?.summary) return { ok: true, source: 'ai', cached: true, ...parsed }
+    }
+
+    const content = [{
+      type: 'input_text',
+      text: [
+        `你是资深电商视觉分析师。下面给你「${keyword || '当前'}」品类 ${analyzed.length} 个竞品共 ${totalImages} 张商品主图（每个竞品的图组前标注了编号、标题和已识别卖点，图按主图顺序排列）。`,
+        '请综合看全部主图，输出一份可直接用于该品类主图生图的中文 JSON 报告：',
+        '1）提炼该品类主图应突出的核心卖点（必须来自主图真实表达，不要臆造）；',
+        '2）每个卖点给出用户利益、画面表达方式、以及来自哪几个竞品主图（编号）；',
+        '3）给出主图布局建议和可上图文案（大字+副文案+位置）；',
+        '4）summary 写一段连贯的分析结论，点明核心卖点和主图生成建议。',
+        '',
+        '【卖点定义 — 严格遵守】',
+        '卖点 = 能让用户产生购买欲望的「用户利益」或「差异化价值」，而不是产品属性描述。',
+        '❌ 禁止：纯数量规格（"40包""5斤装"）、包装描述（"实惠装""整箱装"）、SKU变体名、品类通用词、价格促销词、泛场景词（"家庭分享"）。',
+        '',
+        '只输出 JSON，不要 Markdown。返回结构：',
+        JSON.stringify({
+          summary: '主图卖点分析总结（连贯一段话，含核心卖点与主图生成建议）',
+          selling_points: [{ title: '卖点', customer_benefit: '用户利益', visual_expression: '画面如何表达', data_basis: '来自哪几个竞品（编号）主图的什么表达' }],
+          layout_advice: '主图布局建议',
+          copy_suggestions: [{ main_text: '上图大字', sub_text: '副文案', position: '画面位置' }],
+        }, null, 2),
+      ].join('\n'),
+    }]
+    analyzed.forEach((row, index) => {
+      content.push({
+        type: 'input_text',
+        text: `竞品${index + 1}：product_id=${row.product_id}，标题=${row.product_title}，共 ${row.urls.length} 张主图（按顺序），已识别卖点：${row.known.join('、') || '无'}`,
+      })
+      for (const url of row.urls) {
+        content.push({ type: 'input_image', image_url: url })
+      }
+    })
+    content.push({ type: 'input_text', text: `以上是全部 ${analyzed.length} 个竞品共 ${totalImages} 张主图，请综合分析后只输出 JSON。` })
+
+    const aiResult = await callArkResponsesRaw(content, { maxOutputTokens: 16000, timeoutMs: 480000 })
+    let aiJson = null
+    try {
+      aiJson = parseJsonFromText(aiResult.text)
+    } catch (error) {
+      const status = aiResult.data?.status ? `，status=${aiResult.data.status}` : ''
+      const reason = aiResult.data?.incomplete_details?.reason ? `，reason=${aiResult.data.incomplete_details.reason}` : ''
+      const errorInfo = safeArray(aiResult.data?.error).length ? `，error=${JSON.stringify(aiResult.data.error)}` : (aiResult.data?.error ? `，error=${JSON.stringify(aiResult.data.error)}` : '')
+      const snippet = String(aiResult.text || '').slice(0, 200)
+      throw new Error(`AI 全主图分析返回内容不可用${status}${reason}${errorInfo}：${error instanceof Error ? error.message : String(error)}${snippet ? `，原文开头：${snippet}` : '，模型返回了空内容'}`)
+    }
+    const normalized = normalizeMainImageAiReport(aiJson || {}, totalImages)
+    if (!normalized.summary) throw new Error('AI 没有返回可用的主图分析报告')
+    await connection.query(`
+      INSERT INTO market_main_image_ai_report (run_id, cache_key, result_json)
+      VALUES (?,?,?)
+      ON DUPLICATE KEY UPDATE result_json = VALUES(result_json)
+    `, [runId, cacheKey, JSON.stringify(normalized)])
+    return { ok: true, source: 'ai', cached: false, ...normalized }
+  })
+}
+
+function buildListingSellingPointsForReport({ keyword = '', report = null, keywordMatrix = null, recommendationActions = null, mainImagePointsByProduct = null } = {}) {
   const cleanKeyword = String(keyword || report?.keyword || '').trim()
   const positiveRows = safeArray(recommendationActions?.positiveSellingPoints)
   const painRows = safeArray(recommendationActions?.negativePainPoints)
   const allProducts = safeArray(report?.priceBandProducts).flatMap((band) => safeArray(band.products))
-  const coreKeywords = safeArray(keywordMatrix?.coreKeywords)
-  const blueKeywords = safeArray(keywordMatrix?.blueOceanKeywords)
   const productTitle = allProducts
     .sort((a, b) => toNumber(b.totalSales, 0) - toNumber(a.totalSales, 0) || toInt(b.totalSold, 0) - toInt(a.totalSold, 0))[0]?.title || ''
   const isSunMask = /口罩|面罩|防晒|脸基尼/.test(`${cleanKeyword} ${productTitle}`)
+  // 优先实时读取 product_main_image_analysis 表（每个竞品最新一份主图分析报告）
+  const useDbPoints = Boolean(mainImagePointsByProduct && mainImagePointsByProduct.size > 0)
+  const family = categoryFamilyForKeyword(`${cleanKeyword} ${productTitle}`)
 
-  // ====== 第一数据源：评论好评主题（最贴近用户真实需求）======
-  const reviewSignals = []
-  for (const row of positiveRows) {
-    const text = String(row.title || '').trim()
-    if (!text || isGarbageSellingPoint(text, cleanKeyword) || isGimmickTerm(text)) continue
-    reviewSignals.push({
-      term: text,
-      source: 'review',
-      score: (toInt(row.count, 0) * 50) + (toInt(row.productCoverage, 0) * 30),
-      count: toInt(row.count, 0),
-      coverage: toInt(row.productCoverage, 0),
-      action: row.action || '',
-      sources: row.sources || [],
-    })
-  }
-
-  // ====== 第二数据源：关键词矩阵核心词 + 蓝海词（标题/评论/问大家聚合）======
-  const keywordSignals = []
-  for (const item of coreKeywords) {
-    const text = String(item.keyword || '').trim()
-    if (!text || isGarbageSellingPoint(text, cleanKeyword) || isGimmickTerm(text) || isPureQuantityTerm(text)) continue
-    if (/纸巾|抽纸|猪肉|肉铺|肉脯/.test(text)) continue // 品类词本身
-    const sourceText = safeArray(item.sources).filter(s => s !== 'SKU').join('、') || '关键词矩阵'
-    keywordSignals.push({
-      term: text,
-      source: 'keyword',
-      score: 80 + (item.productCoverage || 0) * 2,
-      sources: item.sources || [],
-      sourceText,
-    })
-  }
-  for (const item of blueKeywords) {
-    const text = String(item.keyword || '').trim()
-    if (!text || isGarbageSellingPoint(text, cleanKeyword) || isGimmickTerm(text) || isPureQuantityTerm(text)) continue
-    if (text.length < 2 || text.length > 6) continue
-    // 蓝海词：需求信号高但标题覆盖低 → 差异化机会
-    const demand = toInt(item.demandSignals, 0)
-    const titleCov = toInt(item.titleCoverage, 100)
-    if (demand < 10 || titleCov > 40) continue // 低需求或已被标题充分覆盖
-    keywordSignals.push({
-      term: text,
-      source: 'blueOcean',
-      score: 60 + demand * 2 - titleCov,
-      demand,
-      titleCoverage: titleCov,
-    })
-  }
-
-  // ====== 第三数据源：产品 sellingPoints 聚合（排除 SKU 属性词）======
+  // ====== 主图卖点唯一数据源：竞品主图识别分析（用于生图） ======
   const groupStats = new Map() // 语义组 → 聚合统计
   const individualStats = new Map() // 未归组的独立卖点
+  let analyzedProductCount = 0
   for (const product of allProducts) {
     const sold = toInt(product.totalSold, 0)
-    for (const term of safeArray(product.sellingPoints)) {
+    const dbTerms = useDbPoints ? (mainImagePointsByProduct.get(String(product.id || '')) || null) : null
+    if (useDbPoints && !dbTerms) continue // 该竞品没有主图分析报告，不参与主图卖点聚合
+    analyzedProductCount += 1
+    const terms = useDbPoints ? dbTerms : safeArray(product.sellingPoints)
+    for (const term of terms) {
       const text = String(term || '').trim()
       if (!text || isGarbageSellingPoint(text, cleanKeyword) || isGimmickTerm(text)) continue
       // 排除 SKU 属性词：纯数量词、规格参数、价格相关、包装描述、SKU变体名等
@@ -3901,20 +4092,12 @@ function buildListingSellingPointsForReport({ keyword = '', report = null, keywo
     }
   }
 
-  // ====== 综合评分：融合三个数据源，选出 4-5 个最佳主图卖点 ======
+  // ====== 综合评分：基于主图识别分析选出 4-5 个最佳主图卖点 ======
   const candidates = []
-  // 评论信号（最高优先级）
-  for (const sig of reviewSignals) {
-    candidates.push({ ...sig, finalScore: sig.score * 3, sourceLabel: '评论/问大家' })
-  }
-  // 关键词矩阵信号
-  for (const sig of keywordSignals) {
-    candidates.push({ ...sig, finalScore: sig.score * 2, sourceLabel: sig.source === 'blueOcean' ? '蓝海需求词' : '核心关键词' })
-  }
-  // 语义组（归并后的卖点）
+  // 语义组（归并后的主图卖点）
   for (const [name, stat] of groupStats) {
     candidates.push({
-      term: stat.group.displayTitle,
+      term: groupDisplayTitle(stat.group, family),
       groupKey: name,
       groupCategory: stat.group.category,
       source: 'group',
@@ -3923,7 +4106,7 @@ function buildListingSellingPointsForReport({ keyword = '', report = null, keywo
       productCount: stat.products.size,
       termCount: stat.terms.size,
       finalScore: stat.count * 80 + stat.totalSold / 50 + stat.products.size * 100,
-      sourceLabel: '竞品卖点聚合',
+      sourceLabel: '主图分析',
     })
   }
   // 独立卖点（未归组）
@@ -3935,7 +4118,7 @@ function buildListingSellingPointsForReport({ keyword = '', report = null, keywo
       totalSold: stat.totalSold,
       productCount: stat.products.size,
       finalScore: stat.count * 100 + stat.totalSold / 80 + stat.products.size * 60,
-      sourceLabel: '竞品卖点聚合',
+      sourceLabel: '主图分析',
     })
   }
 
@@ -3960,28 +4143,19 @@ function buildListingSellingPointsForReport({ keyword = '', report = null, keywo
     if (selectedPoints.length >= 5) break
   }
 
-  // ====== 生成综合总结话术 ======
+  // ====== 生成综合总结话术（仅基于主图识别分析） ======
   const summaryParts = []
-  const reviewPoints = selectedPoints.filter((p) => p.source === 'review')
-  const groupPoints = selectedPoints.filter((p) => p.source === 'group')
-  const bluePoints = selectedPoints.filter((p) => p.source === 'blueOcean')
-  const keywordPoints = selectedPoints.filter((p) => p.source === 'keyword')
 
   // 第一段：总体判断
   const topTitles = selectedPoints.slice(0, 3).map((p) => `「${p.term}」`)
-  summaryParts.push(`基于 ${allProducts.length} 款竞品的主图、评论/问大家和关键词矩阵综合分析，「${cleanKeyword}」品类主图应重点突出 ${topTitles.join('、')} 等核心卖点。`)
+  summaryParts.push(`基于 ${useDbPoints ? analyzedProductCount : allProducts.length} 款竞品的主图识别分析，「${cleanKeyword}」品类主图应重点突出 ${topTitles.join('、') || '核心卖点'} 等核心卖点。`)
 
-  // 第二段：各卖点的具体分析
-  const pointDetails = selectedPoints.slice(0, 4).map((point, i) => {
-    if (point.source === 'review') {
-      return `「${point.term}」在 ${point.count} 条真实好评中被反复提及，覆盖 ${point.coverage}% 竞品，是用户购买后最认可的价值点`
-    } else if (point.source === 'blueOcean') {
-      return `「${point.term}」在评论/问大家中出现了 ${point.demand} 次用户需求，但仅 ${point.titleCoverage}% 竞品标题覆盖，属于未被充分满足的蓝海需求`
-    } else if (point.source === 'group') {
-      return `「${point.term}」由 ${point.termCount} 个相关表述归并而来，覆盖 ${point.productCount} 个竞品，累计销量权重 ${Number(point.totalSold).toLocaleString('zh-CN')}`
-    } else {
-      return `「${point.term}」在 ${point.count} 个竞品中出现，累计销量 ${Number(point.totalSold).toLocaleString('zh-CN')}`
+  // 第二段：各卖点的主图分析依据
+  const pointDetails = selectedPoints.slice(0, 4).map((point) => {
+    if (point.source === 'group') {
+      return `「${point.term}」由 ${point.termCount} 个主图相关表述归并而来，覆盖 ${point.productCount} 个竞品，累计销量权重 ${Number(point.totalSold || 0).toLocaleString('zh-CN')}`
     }
+    return `「${point.term}」在 ${point.count} 个竞品主图中出现，累计销量 ${Number(point.totalSold || 0).toLocaleString('zh-CN')}`
   })
   if (pointDetails.length) {
     summaryParts.push(pointDetails.join('；') + '。')
@@ -4004,36 +4178,23 @@ function buildListingSellingPointsForReport({ keyword = '', report = null, keywo
   })
   summaryParts.push(`主图生成建议：${visualHints.join('，')}，文案精简不超过 8 字，产品主体占画面 60% 以上。`)
 
-  // 第四段：痛点反推（如果有）
-  if (painRows.length) {
-    const painTitles = painRows.slice(0, 2).map((p) => `「${p.title}」`).join('、')
-    summaryParts.push(`同时注意规避竞品高频痛点 ${painTitles}，主图可提前回应这些顾虑。`)
-  }
-
   const summary = summaryParts.join('')
   const mainImageSellingPoints = selectedPoints.map((point, index) => {
-    const positive = positiveRows.find((item) => item.title === point.term)
     const cat = point.groupCategory || point.groupKey || classifySellingPoint(point.term)
-    // 构建数据依据文本
+    // 构建数据依据文本（仅来自主图识别分析）
     let dataBasis = ''
-    if (point.source === 'review') {
-      dataBasis = `${point.count} 条好评提及，覆盖 ${point.coverage}% 竞品，用户真实认可。`
-    } else if (point.source === 'blueOcean') {
-      dataBasis = `评论/问大家中出现 ${point.demand} 次用户需求，但仅 ${point.titleCoverage}% 竞品标题覆盖，存在差异化机会。`
-    } else if (point.source === 'keyword') {
-      dataBasis = `来源：${point.sourceText}，覆盖多个竞品标题和评论信号。`
-    } else if (point.source === 'group') {
-      dataBasis = `${point.productCount} 个竞品、共 ${point.termCount} 个相关表述归并，累计销量权重 ${Number(point.totalSold).toLocaleString('zh-CN')}。`
-    } else if (point.source === 'individual') {
-      dataBasis = `${point.count} 个竞品出现，累计销量权重 ${Number(point.totalSold).toLocaleString('zh-CN')}。`
+    if (point.source === 'group') {
+      dataBasis = `${point.productCount} 个竞品主图共 ${point.termCount} 个相关表述归并，累计销量权重 ${Number(point.totalSold || 0).toLocaleString('zh-CN')}。`
+    } else {
+      dataBasis = `${point.count} 个竞品主图出现，累计销量权重 ${Number(point.totalSold || 0).toLocaleString('zh-CN')}。`
     }
     return {
       title: point.term,
       priority: index + 1,
-      customerBenefit: point.action || mainImageBenefitByCategory(cat, point.term),
+      customerBenefit: mainImageBenefitByCategory(cat, point.term),
       visualExpression: mainImageVisualByCategory(cat, point.term, index),
-      dataBasis: dataBasis || listingPointEvidence(positive, '', { excludeSources: ['SKU'] }) || '来自竞品卖点聚合、评论/问大家、商品洞察。',
-      source: displaySourcesForMainImage(positive?.sources || [point.sourceLabel]),
+      dataBasis: dataBasis || '来自竞品主图识别分析。',
+      source: displaySourcesForMainImage(['主图分析']),
       category: cat,
     }
   })
@@ -4074,8 +4235,8 @@ function buildListingSellingPointsForReport({ keyword = '', report = null, keywo
     title: item.title,
     customerBenefit: item.customerBenefit,
     visualExpression: item.visualExpression,
-    dataBasis: item.dataBasis || '来自竞品卖点聚合、评论/问大家、商品洞察。',
-    source: displaySourcesForMainImage(item.source || ['竞品卖点聚合']),
+    dataBasis: item.dataBasis || '来自竞品主图识别分析。',
+    source: displaySourcesForMainImage(item.source || ['主图分析']),
   }))
 
   const detailFromPositive = positiveRows.slice(0, 4).map((item, index) => ({
@@ -4219,26 +4380,9 @@ function buildListingSellingPointsForReport({ keyword = '', report = null, keywo
   }
 }
 
-function buildMainImagePromptSeed({ keyword = '', report = null, band = null, listingSellingPoints = null } = {}) {
-  const cleanKeyword = String(keyword || report?.keyword || '').trim() || '当前商品'
-  const points = safeArray(listingSellingPoints?.mainImageSellingPoints).slice(0, 5)
-  if (!points.length) return ''
-  const priceText = band?.priceRange || priceRangeText(band?.price_min, band?.price_max) || report?.priceRange || ''
-  const pointLines = points.map((item, index) => {
-    const title = String(item.title || `卖点${index + 1}`).trim()
-    const benefit = String(item.customerBenefit || '').trim()
-    const visual = String(item.visualExpression || '').trim()
-    const basis = String(item.dataBasis || '').trim()
-    return `${index + 1}. ${title}：用户收益=${benefit || '突出购买理由'}；画面表达=${visual || '用主体商品、场景和少量清晰文字表达'}；数据依据=${basis || '竞品报告数据库聚合'}`
-  })
-  return uniqueText([
-    `请基于我上传的商品原图生成电商主图，关键词：${cleanKeyword}。`,
-    priceText && priceText !== '-' ? `参考竞品价格区间：${priceText}，主图要承接该价位用户最关心的购买理由。` : '',
-    listingSellingPoints?.summary || '',
-    '主图卖点优先级：',
-    ...pointLines,
-    '生成要求：必须以我上传的商品图为唯一商品主体，不使用竞品图片，不改变商品核心外观；主图文字少而清晰，优先表现前 1-3 个卖点；画面适合电商首图点击，不加入详情页长文、SKU 列表或无关促销信息。',
-  ], 12).join('\n')
+function buildMainImagePromptSeed({ listingSellingPoints = null } = {}) {
+  // “商品卖点&要求”文本框只注入主图卖点分析总结，用于生图
+  return String(listingSellingPoints?.summary || '').trim()
 }
 
 async function buildRecommendationActionsForReport(connection, { runIds = [], keyword = '', report = null, keywordMatrix = null } = {}) {
@@ -4957,6 +5101,7 @@ export async function getAnalysisReportView({ id = '', keyword = '' } = {}) {
         report,
         keywordMatrix: report.keywordMatrix,
         recommendationActions: report.recommendationActions,
+        mainImagePointsByProduct: await loadMainImageSellingPointsByProduct(connection, safeArray(report.priceBandProducts).flatMap((band) => safeArray(band.products).map((p) => p.id))),
       })
     }
     return { ok: true, hasReport: Boolean(report), report }

@@ -4,7 +4,7 @@ import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import fs from 'fs'
 import { spawn } from 'child_process'
-import { analyzeProductMainImageAndSave, generateAiMarketReport, generateOverallReportFromProductMainImageReports, getAnalysisProductsView, getAnalysisReportView, getOpenAiSettings, getProductMainImageAnalysis, getSuiteMainImageDescriptions, listAnalysisReportRows, listProductOptions, listSuitePriceBands, listSuiteProducts, previewMarketPriceBands, readLatestMarketReport, saveOpenAiSettings, testArkResponsesConnection } from './src/server/aiMarketAnalysis.js'
+import { analyzeProductMainImageAndSave, generateAiMarketReport, generateOverallReportFromProductMainImageReports, getAnalysisProductsView, getAnalysisReportView, getMainImageAiReport, getOpenAiSettings, getProductMainImageAnalysis, getSuiteMainImageDescriptions, listAnalysisReportRows, listProductOptions, listSuitePriceBands, listSuiteProducts, previewMarketPriceBands, readLatestMarketReport, saveOpenAiSettings, testArkResponsesConnection } from './src/server/aiMarketAnalysis.js'
 import { generateProductSetImage } from './src/server/arkImageGeneration.js'
 import { expandProductSetPrompts } from './src/server/mainImagePromptExpansion.js'
 
@@ -574,6 +574,13 @@ function localRpaApi() {
           })
         }
         writeReportState({ ...payload.report, reportJson: payload.reportJson, markdown: payload.markdown })
+        // 报告生成完成后，后台自动跑 AI 全主图分析并缓存，之后打开报告页总结卖点直接可用
+        const newRunId = payload?.report?.persistStats?.run_id
+        if (newRunId) {
+          getMainImageAiReport({ id: String(newRunId) }).catch((err) => {
+            console.error('[main-image-ai-report] 自动生成失败：', err instanceof Error ? err.message : err)
+          })
+        }
         currentReportJob = {
           ...currentReportJob,
           status: 'completed',
@@ -721,6 +728,22 @@ function localRpaApi() {
               keyword: (requestUrl.searchParams.get('keyword') || '').trim(),
             })
             return sendJson(res, 200, payload)
+          }
+
+          if (req.method === 'GET' && req.url.startsWith('/api/report/main-image-ai-report')) {
+            const requestUrl = new URL(req.url, 'http://localhost')
+            try {
+              const payload = await getMainImageAiReport({
+                id: (requestUrl.searchParams.get('id') || '').trim(),
+              })
+              return sendJson(res, 200, payload)
+            } catch (error) {
+              return sendJson(res, 200, {
+                ok: false,
+                source: 'fallback',
+                error: error instanceof Error ? error.message : String(error),
+              })
+            }
           }
 
           if (req.method === 'GET' && req.url.startsWith('/api/report/products-view')) {
