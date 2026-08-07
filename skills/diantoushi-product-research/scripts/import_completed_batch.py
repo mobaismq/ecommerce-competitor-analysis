@@ -13,7 +13,12 @@ from pathlib import Path
 from typing import Any
 
 
-MYSQL_IMPORT_RUNNER = Path("/Users/shuishoukeke/.codex/skills/mysql-import/bin/run_mysql_import.py")
+_WORKSPACE_MYSQL_IMPORT_RUNNER = Path(__file__).resolve().parents[2] / "mysql-import" / "bin" / "run_mysql_import.py"
+MYSQL_IMPORT_RUNNER = (
+    _WORKSPACE_MYSQL_IMPORT_RUNNER
+    if _WORKSPACE_MYSQL_IMPORT_RUNNER.exists()
+    else Path("/Users/shuishoukeke/.codex/skills/mysql-import/bin/run_mysql_import.py")
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -36,13 +41,15 @@ def first_file(folder: Path, pattern: str) -> Path | None:
     return matches[0] if matches else None
 
 
-def complete_dirs(root: Path) -> list[tuple[Path, Path, Path, Path]]:
-    rows: list[tuple[Path, Path, Path, Path]] = []
+def complete_dirs(root: Path) -> list[tuple[Path, Path, Path | None, Path | None]]:
+    rows: list[tuple[Path, Path, Path | None, Path | None]] = []
     for folder in sorted(p for p in root.iterdir() if p.is_dir()):
         product = first_file(folder, "商品数据ID_*.xlsx")
         sku = first_file(folder, "店透-SKU预览-表格-*.xlsx")
         qa = first_file(folder, "店透视-问大家分析-*.xlsx")
-        if product and sku and qa:
+        # 只要有商品数据就算就绪；SKU/QA 缺失走 --allow-missing-* 容错
+        ready = bool(product) and ((folder / "product_summary.json").exists() or (sku is not None and qa is not None))
+        if ready:
             rows.append((folder, product, sku, qa))
     return rows
 
@@ -72,16 +79,11 @@ def extract_json_objects(text: str) -> list[Any]:
 
 
 def mysql_env() -> dict[str, str]:
-    env = os.environ.copy()
-    env.setdefault("MYSQL_HOST", "127.0.0.1")
-    env.setdefault("MYSQL_PORT", "3306")
-    env.setdefault("MYSQL_USER", "root")
-    env.setdefault("MYSQL_PASSWORD", "")
-    env.setdefault("MYSQL_DATABASE", "sys")
-    return env
+    # 不注入 localhost 默认值，让 mysql-import skill 的 .env 决定目标库
+    return os.environ.copy()
 
 
-def import_one(folder: Path, product: Path, sku: Path, qa: Path, env: dict[str, str]) -> dict[str, Any]:
+def import_one(folder: Path, product: Path, sku: Path | None, qa: Path | None, env: dict[str, str]) -> dict[str, Any]:
     output_dir = folder / "cleaned_output"
     command = [
         sys.executable,
@@ -89,13 +91,17 @@ def import_one(folder: Path, product: Path, sku: Path, qa: Path, env: dict[str, 
         "clean-and-load",
         "--product-file",
         str(product),
-        "--sku-file",
-        str(sku),
-        "--qa-file",
-        str(qa),
         "--output-dir",
         str(output_dir),
     ]
+    if sku:
+        command += ["--sku-file", str(sku)]
+    else:
+        command.append("--allow-missing-sku")
+    if qa:
+        command += ["--qa-file", str(qa)]
+    else:
+        command.append("--allow-missing-qa")
 
     log(f"DRY_RUN {folder.name}")
     dry_run = subprocess.run(command + ["--dry-run"], env=env, text=True, capture_output=True)

@@ -548,6 +548,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--sku-file", default=str(DEFAULT_SKU_FILE), help="SKU Excel file path")
     parser.add_argument("--qa-file", default=str(DEFAULT_QA_FILE), help="QA Excel file path")
     parser.add_argument("--allow-missing-qa", action="store_true", help="Allow missing QA export and generate an empty QA dataset.")
+    parser.add_argument("--allow-missing-sku", action="store_true", help="Allow missing SKU export and generate an empty SKU dataset.")
     parser.add_argument("--output-dir", default=str(DEFAULT_OUTPUT_DIR), help="Output directory for cleaned files")
     return parser.parse_args()
 
@@ -565,12 +566,15 @@ def main() -> None:
     media_dir.mkdir(parents=True, exist_ok=True)
 
     product_rows = read_first_sheet(product_file)
-    sku_rows = read_first_sheet(sku_file)
+    sku_missing = not sku_file.exists()
+    if sku_missing and not args.allow_missing_sku:
+        raise FileNotFoundError(f"SKU Excel file not found: {sku_file}")
+    sku_rows = [] if sku_missing else read_first_sheet(sku_file)
     qa_missing = qa_file is None or not qa_file.exists()
     if qa_missing and not args.allow_missing_qa:
         raise FileNotFoundError(f"QA Excel file not found: {qa_file}")
     qa_rows = [] if qa_missing else read_first_sheet(qa_file)
-    embedded_images = extract_embedded_images(sku_file, media_dir)
+    embedded_images = [] if sku_missing else extract_embedded_images(sku_file, media_dir)
 
     cleaned_product = clean_product_rows(product_rows, product_file)
     cleaned_sku, media_assets = clean_sku_rows(sku_rows, sku_file, embedded_images)
@@ -583,13 +587,15 @@ def main() -> None:
         "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "source_files": {
             "product": str(product_file),
-            "sku": str(sku_file),
+            "sku": str(sku_file) if sku_file.exists() else None,
             "qa": str(qa_file) if qa_file and qa_file.exists() else None,
             "review_comments": str(product_file.parent / "review_comments.json") if (product_file.parent / "review_comments.json").exists() else None,
         },
         "source_status": {
             "qa_missing_allowed": bool(qa_missing and args.allow_missing_qa),
             "qa_status": "missing_allowed" if qa_missing and args.allow_missing_qa else "available",
+            "sku_missing_allowed": bool(sku_missing and args.allow_missing_sku),
+            "sku_status": "missing_allowed" if sku_missing and args.allow_missing_sku else "available",
         },
         "counts": {
             "product": len(cleaned_product),
