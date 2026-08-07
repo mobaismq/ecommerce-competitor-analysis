@@ -1182,10 +1182,257 @@ function UploadTile({
   type?: "image" | "video";
 }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const replaceInputRef = useRef<HTMLInputElement | null>(null);
   const Icon = type === "video" ? Video : ImageIcon;
+  const [showCrop, setShowCrop] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [cropRatio, setCropRatio] = useState("1:1");
+  const [flipX, setFlipX] = useState(false);
+  const [flipY, setFlipY] = useState(false);
+  const [rotation, setRotation] = useState(0);
+  const [cropArea, setCropArea] = useState({ x: 10, y: 10, w: 80, h: 80 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [cropPreviewUrl, setCropPreviewUrl] = useState("");
+  const [zoom, setZoom] = useState(1);
+  const [isPanning, setIsPanning] = useState(false);
+  const [imgOffset, setImgOffset] = useState({ x: 0, y: 0 });
+  const [isDraggingCrop, setIsDraggingCrop] = useState(false);
+  const [resizeHandle, setResizeHandle] = useState("");
+  const cropContainerRef = useRef<HTMLDivElement>(null);
+  const panStartRef = useRef({ x: 0, y: 0 });
+  const resizeStartRef = useRef({ x: 0, y: 0, cx: 0, cy: 0, cw: 0, ch: 0 });
+  const cropDragStartRef = useRef({ x: 0, y: 0 });
 
   const openPicker = () => {
     inputRef.current?.click();
+  };
+
+  const openReplacePicker = () => {
+    replaceInputRef.current?.click();
+  };
+
+  const handleReplace = (files: File[]) => {
+    if (files.length > 0) onChange(files);
+  };
+
+  const getRatioDimensions = (ratio: string) => {
+    switch (ratio) {
+      case "3:4": return { w: 300, h: 400 };
+      case "1:1": return { w: 380, h: 380 };
+      case "4:3": return { w: 400, h: 300 };
+      case "9:16": return { w: 270, h: 480 };
+      default: return { w: 380, h: 380 };
+    }
+  };
+
+  const handleCropConfirm = (e: React.MouseEvent) => {
+    e.stopPropagation();
+
+    const url = preview.url;
+    const name = preview.name || "cropped.png";
+    const r = rotation;
+    const fx = flipX;
+    const fy = flipY;
+    const ca = { ...cropArea };
+    const change = onChange;
+
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const isRotated90 = r % 180 !== 0;
+        const srcW = isRotated90 ? img.height : img.width;
+        const srcH = isRotated90 ? img.width : img.height;
+
+        const canvas = document.createElement("canvas");
+        canvas.width = srcW;
+        canvas.height = srcH;
+        const ctx = canvas.getContext("2d")!;
+
+        ctx.save();
+        ctx.translate(srcW / 2, srcH / 2);
+        ctx.rotate((r * Math.PI) / 180);
+        ctx.scale(fx ? -1 : 1, fy ? -1 : 1);
+        ctx.drawImage(img, -img.width / 2, -img.height / 2);
+        ctx.restore();
+
+        const cropW = Math.max(1, Math.round(srcW * (ca.w / 100)));
+        const cropH = Math.max(1, Math.round(srcH * (ca.h / 100)));
+        const cropX = Math.max(0, Math.round(srcW * (ca.x / 100)));
+        const cropY = Math.max(0, Math.round(srcH * (ca.y / 100)));
+
+        const finalCanvas = document.createElement("canvas");
+        finalCanvas.width = cropW;
+        finalCanvas.height = cropH;
+        const finalCtx = finalCanvas.getContext("2d")!;
+        finalCtx.drawImage(canvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+
+        const dataUrl = finalCanvas.toDataURL("image/png");
+
+        // Convert data URL to File
+        const arr = dataUrl.split(",");
+        const mime = arr[0].match(/:(.*?);/)![1];
+        const bstr = atob(arr[1]);
+        let n = bstr.length;
+        const u8arr = new Uint8Array(n);
+        while (n--) {
+          u8arr[n] = bstr.charCodeAt(n);
+        }
+        const file = new File([u8arr], name, { type: mime });
+
+        // Call onChange first to update the image
+        change([file]);
+
+        // Defer closing modal to next frame so React processes onChange first
+        requestAnimationFrame(() => {
+          setShowCrop(false);
+          resetCropState();
+        });
+      } catch (err) {
+        console.error("[Crop] Error during processing:", err);
+        setShowCrop(false);
+        resetCropState();
+      }
+    };
+    img.onerror = () => {
+      console.error("[Crop] Image load failed:", url);
+      setShowCrop(false);
+      resetCropState();
+    };
+    img.src = url;
+  };
+
+  const resetCropState = () => {
+    setCropPreviewUrl("");
+    setCropRatio("1:1");
+    setFlipX(false);
+    setFlipY(false);
+    setRotation(0);
+    setCropArea({ x: 10, y: 10, w: 80, h: 80 });
+    setZoom(1);
+    setImgOffset({ x: 0, y: 0 });
+    setIsDraggingCrop(false);
+    setResizeHandle("");
+  };
+
+  const handleResizeMouseDown = (handle: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const container = cropContainerRef.current;
+    if (!container) return;
+    const rect = container.getBoundingClientRect();
+    setResizeHandle(handle);
+    resizeStartRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      cx: cropArea.x,
+      cy: cropArea.y,
+      cw: cropArea.w,
+      ch: cropArea.h,
+    };
+
+    const onMove = (ev: MouseEvent) => {
+      ev.preventDefault();
+      const dx = ((ev.clientX - resizeStartRef.current.x) / rect.width) * 100;
+      const dy = ((ev.clientY - resizeStartRef.current.y) / rect.height) * 100;
+
+      const isFree = cropRatio === "自由裁剪";
+      const dims = getRatioDimensions(cropRatio);
+      const aspectRatio = dims.w / dims.h;
+
+      let newX = resizeStartRef.current.cx;
+      let newY = resizeStartRef.current.cy;
+      let newW = resizeStartRef.current.cw;
+      let newH = resizeStartRef.current.ch;
+
+      if (handle.includes("e")) newW = Math.max(5, resizeStartRef.current.cw + dx);
+      if (handle.includes("w")) {
+        const dw = -dx;
+        newW = Math.max(5, resizeStartRef.current.cw + dw);
+        newX = resizeStartRef.current.cx - (newW - resizeStartRef.current.cw);
+      }
+      if (handle.includes("s")) newH = Math.max(5, resizeStartRef.current.ch + dy);
+      if (handle.includes("n")) {
+        const dh = -dy;
+        newH = Math.max(5, resizeStartRef.current.ch + dh);
+        newY = resizeStartRef.current.cy - (newH - resizeStartRef.current.ch);
+      }
+
+      if (!isFree) {
+        if (handle.includes("e") || handle.includes("w")) {
+          newH = newW / aspectRatio;
+          if (handle.includes("n")) newY = resizeStartRef.current.cy + resizeStartRef.current.ch - newH;
+        } else if (handle.includes("n") || handle.includes("s")) {
+          newW = newH * aspectRatio;
+          if (handle.includes("w")) newX = resizeStartRef.current.cx + resizeStartRef.current.cw - newW;
+        }
+      }
+
+      newX = Math.max(0, Math.min(100 - newW, newX));
+      newY = Math.max(0, Math.min(100 - newH, newY));
+      newW = Math.min(100 - newX, newW);
+      newH = Math.min(100 - newY, newH);
+
+      setCropArea({ x: newX, y: newY, w: newW, h: newH });
+    };
+
+    const onUp = () => {
+      setResizeHandle("");
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    };
+
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  };
+
+  const handleCropCancel = () => {
+    setShowCrop(false);
+    resetCropState();
+  };
+
+  const handleRatioChange = (ratio: string) => {
+    setCropRatio(ratio);
+    const dims = getRatioDimensions(ratio);
+    const maxDim = 80;
+    const aspectRatio = dims.w / dims.h;
+    let w = maxDim;
+    let h = maxDim / aspectRatio;
+    if (h > maxDim) {
+      h = maxDim;
+      w = maxDim * aspectRatio;
+    }
+    setCropArea({ x: (100 - w) / 2, y: (100 - h) / 2, w, h });
+  };
+
+  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * 100;
+    const y = ((e.clientY - rect.top) / rect.height) * 100;
+    setIsDragging(true);
+    setDragStart({ x: x - cropArea.x, y: y - cropArea.y });
+  };
+
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!isDragging) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * 100;
+    const y = ((e.clientY - rect.top) / rect.height) * 100;
+    const dims = getRatioDimensions(cropRatio);
+    const aspectRatio = dims.w / dims.h;
+    let newW = cropArea.w;
+    let newH = newW / aspectRatio;
+    if (cropRatio === "自由裁剪") {
+      newH = cropArea.h;
+    }
+    let newX = Math.max(0, Math.min(100 - newW, x - dragStart.x));
+    let newY = Math.max(0, Math.min(100 - newH, y - dragStart.y));
+    setCropArea({ x: newX, y: newY, w: newW, h: newH });
+  };
+
+  const handleMouseUp = () => {
+    setIsDragging(false);
   };
 
   return (
@@ -1208,6 +1455,18 @@ function UploadTile({
           event.currentTarget.value = "";
         }}
       />
+      <input
+        ref={replaceInputRef}
+        type="file"
+        accept={accept}
+        multiple={false}
+        className="sr-only"
+        onChange={(event) => {
+          const files = Array.from(event.currentTarget.files ?? []);
+          if (files.length > 0) handleReplace(files);
+          event.currentTarget.value = "";
+        }}
+      />
       {preview ? (
         <>
           <div className="h-full w-full overflow-hidden rounded-xl">
@@ -1219,12 +1478,16 @@ function UploadTile({
           </div>
           <div className="absolute left-1/2 top-full z-30 hidden w-[96px] -translate-x-1/2 pt-2 group-hover:block">
             <div className="overflow-hidden rounded-xl border border-[#eef1f5] bg-white py-1.5 shadow-[0_12px_28px_rgba(15,23,41,.16)]">
-              <button type="button" className="block h-8 w-full text-center text-[13px] font-bold text-[#0A1B39] transition-colors hover:bg-[#f5f6f8]">
+              <button
+                type="button"
+                onClick={() => setShowCrop(true)}
+                className="block h-8 w-full text-center text-[13px] font-bold text-[#0A1B39] transition-colors hover:bg-[#f5f6f8]"
+              >
                 裁剪
               </button>
               <button
                 type="button"
-                onClick={openPicker}
+                onClick={openReplacePicker}
                 className="block h-8 w-full text-center text-[13px] font-bold text-[#0A1B39] transition-colors hover:bg-[#f5f6f8]"
               >
                 替换
@@ -1232,17 +1495,304 @@ function UploadTile({
               {onRemove && (
                 <button
                   type="button"
-                  onClick={onRemove}
+                  onClick={() => setShowDeleteConfirm(true)}
                   className="block h-8 w-full text-center text-[13px] font-bold text-[#ff4d4f] transition-colors hover:bg-[#fff1f0]"
                 >
                   删除
                 </button>
               )}
-              <button type="button" className="block h-8 w-full text-center text-[13px] font-bold text-[#0A1B39] transition-colors hover:bg-[#f5f6f8]">
-                AI 作图
-              </button>
             </div>
           </div>
+          {/* Crop Modal */}
+          {showCrop && (
+            <div
+              className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 select-none"
+              onClick={(e) => {
+                if (e.target === e.currentTarget) handleCropCancel();
+              }}
+            >
+              <div
+                className="bg-white rounded-xl w-[860px] shadow-xl"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between px-6 pt-5 pb-3">
+                  <h2 className="text-[16px] font-bold text-[#0A1B39]">图片裁剪</h2>
+                  <button onClick={handleCropCancel} className="text-[#86909C] hover:text-[#0A1B39]">
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+                <div className="px-6 pb-6 flex gap-6">
+                  {/* Left: Image with crop overlay and zoom/pan */}
+                  <div className="flex-1 bg-[#f5f6f8] rounded-lg flex items-center justify-center min-h-[420px] relative overflow-hidden select-none">
+                    <div
+                      ref={cropContainerRef}
+                      className="crop-container relative w-full h-full flex items-center justify-center overflow-hidden"
+                      style={{ cursor: isPanning ? "grabbing" : isDraggingCrop ? "move" : resizeHandle ? "default" : "grab" }}
+                      onMouseDown={(e) => {
+                        if (resizeHandle || isDraggingCrop) return;
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setIsPanning(true);
+                        panStartRef.current = { x: e.clientX - imgOffset.x, y: e.clientY - imgOffset.y };
+
+                        const onMove = (ev: MouseEvent) => {
+                          ev.preventDefault();
+                          setImgOffset({ x: ev.clientX - panStartRef.current.x, y: ev.clientY - panStartRef.current.y });
+                        };
+                        const onUp = () => {
+                          setIsPanning(false);
+                          document.removeEventListener("mousemove", onMove);
+                          document.removeEventListener("mouseup", onUp);
+                        };
+                        document.addEventListener("mousemove", onMove);
+                        document.addEventListener("mouseup", onUp);
+                      }}
+                      onWheel={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const delta = e.deltaY > 0 ? -0.1 : 0.1;
+                        setZoom((prev) => Math.max(0.5, Math.min(3, prev + delta)));
+                      }}
+                    >
+                      <div
+                        className="relative inline-block"
+                        style={{
+                          transform: `translate(${imgOffset.x}px, ${imgOffset.y}px) scale(${zoom}) rotate(${rotation}deg) scaleX(${flipX ? -1 : 1}) scaleY(${flipY ? -1 : 1})`,
+                          transition: isPanning ? "none" : "transform 0.2s",
+                        }}
+                      >
+                        <img
+                          src={preview.url}
+                          alt={preview.name}
+                          className="max-h-[400px] max-w-full object-contain pointer-events-none"
+                        />
+                        {/* Crop overlay */}
+                        <div
+                          className="absolute border-2 border-white cursor-move"
+                          style={{
+                            left: `${cropArea.x}%`,
+                            top: `${cropArea.y}%`,
+                            width: `${cropArea.w}%`,
+                            height: `${cropArea.h}%`,
+                            boxShadow: "0 0 0 9999px rgba(0,0,0,0.4)",
+                          }}
+                          onMouseDown={(e) => {
+                            if (resizeHandle) return;
+                            e.stopPropagation();
+                            e.preventDefault();
+                            setIsDraggingCrop(true);
+                            const rect = e.currentTarget.parentElement?.getBoundingClientRect();
+                            if (!rect) return;
+                            const startX = e.clientX - rect.left - (cropArea.x / 100) * rect.width;
+                            const startY = e.clientY - rect.top - (cropArea.y / 100) * rect.height;
+
+                            const onMove = (ev: MouseEvent) => {
+                              ev.preventDefault();
+                              const newX = ((ev.clientX - rect.left - startX) / rect.width) * 100;
+                              const newY = ((ev.clientY - rect.top - startY) / rect.height) * 100;
+                              setCropArea((prev) => ({
+                                ...prev,
+                                x: Math.max(0, Math.min(100 - prev.w, newX)),
+                                y: Math.max(0, Math.min(100 - prev.h, newY)),
+                              }));
+                            };
+                            const onUp = () => {
+                              setIsDraggingCrop(false);
+                              document.removeEventListener("mousemove", onMove);
+                              document.removeEventListener("mouseup", onUp);
+                            };
+                            document.addEventListener("mousemove", onMove);
+                            document.addEventListener("mouseup", onUp);
+                          }}
+                        >
+                          {/* Grid lines */}
+                          <div className="absolute inset-0 pointer-events-none">
+                            <div className="absolute top-1/3 left-0 right-0 h-px bg-white/50" />
+                            <div className="absolute top-2/3 left-0 right-0 h-px bg-white/50" />
+                            <div className="absolute left-1/3 top-0 bottom-0 w-px bg-white/50" />
+                            <div className="absolute left-2/3 top-0 bottom-0 w-px bg-white/50" />
+                          </div>
+                          {/* Resize handles - corners */}
+                          <div
+                            className="absolute -top-1.5 -left-1.5 w-3 h-3 bg-white border border-[#3388ff] rounded-sm cursor-nw-resize z-10"
+                            onMouseDown={(e) => handleResizeMouseDown("nw", e)}
+                          />
+                          <div
+                            className="absolute -top-1.5 -right-1.5 w-3 h-3 bg-white border border-[#3388ff] rounded-sm cursor-ne-resize z-10"
+                            onMouseDown={(e) => handleResizeMouseDown("ne", e)}
+                          />
+                          <div
+                            className="absolute -bottom-1.5 -left-1.5 w-3 h-3 bg-white border border-[#3388ff] rounded-sm cursor-sw-resize z-10"
+                            onMouseDown={(e) => handleResizeMouseDown("sw", e)}
+                          />
+                          <div
+                            className="absolute -bottom-1.5 -right-1.5 w-3 h-3 bg-white border border-[#3388ff] rounded-sm cursor-se-resize z-10"
+                            onMouseDown={(e) => handleResizeMouseDown("se", e)}
+                          />
+                          {/* Resize handles - edges */}
+                          <div
+                            className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-white border border-[#3388ff] rounded-sm cursor-n-resize z-10"
+                            onMouseDown={(e) => handleResizeMouseDown("n", e)}
+                          />
+                          <div
+                            className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-white border border-[#3388ff] rounded-sm cursor-s-resize z-10"
+                            onMouseDown={(e) => handleResizeMouseDown("s", e)}
+                          />
+                          <div
+                            className="absolute top-1/2 -translate-y-1/2 -left-1.5 w-3 h-3 bg-white border border-[#3388ff] rounded-sm cursor-w-resize z-10"
+                            onMouseDown={(e) => handleResizeMouseDown("w", e)}
+                          />
+                          <div
+                            className="absolute top-1/2 -translate-y-1/2 -right-1.5 w-3 h-3 bg-white border border-[#3388ff] rounded-sm cursor-e-resize z-10"
+                            onMouseDown={(e) => handleResizeMouseDown("e", e)}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                    {/* Zoom controls */}
+                    <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-white/90 rounded-lg px-3 py-1.5 shadow-sm">
+                      <button
+                        onClick={() => setZoom((prev) => Math.max(0.5, prev - 0.1))}
+                        className="w-6 h-6 flex items-center justify-center text-[#0A1B39] hover:text-[#3388ff]"
+                      >
+                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14"/></svg>
+                      </button>
+                      <span className="text-[12px] text-[#0A1B39] font-medium min-w-[40px] text-center">{Math.round(zoom * 100)}%</span>
+                      <button
+                        onClick={() => setZoom((prev) => Math.min(3, prev + 0.1))}
+                        className="w-6 h-6 flex items-center justify-center text-[#0A1B39] hover:text-[#3388ff]"
+                      >
+                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg>
+                      </button>
+                      <button
+                        onClick={() => { setZoom(1); setImgOffset({ x: 0, y: 0 }); }}
+                        className="text-[12px] text-[#3388ff] hover:underline ml-1"
+                      >
+                        重置
+                      </button>
+                    </div>
+                  </div>
+                  {/* Right: Controls */}
+                  <div className="w-[260px] space-y-5">
+                    <div>
+                      <h3 className="text-[14px] font-bold text-[#0A1B39] mb-3">裁剪尺寸</h3>
+                      <div className="flex flex-wrap gap-2 mb-3">
+                        {["3:4", "1:1", "4:3", "9:16"].map((ratio) => (
+                          <button
+                            key={ratio}
+                            onClick={() => handleRatioChange(ratio)}
+                            className={`px-3 py-1.5 rounded-lg text-[13px] border transition-colors ${
+                              cropRatio === ratio ? "bg-[#f0f7ff] border-[#3388ff] text-[#3388ff]" : "border-[#e6e9ef] text-[#0A1B39] hover:bg-[#f5f6f8]"
+                            }`}
+                          >
+                            {ratio}
+                          </button>
+                        ))}
+                        <button
+                          onClick={() => handleRatioChange("自由裁剪")}
+                          className={`px-3 py-1.5 rounded-lg text-[13px] border transition-colors ${
+                            cropRatio === "自由裁剪" ? "bg-[#f0f7ff] border-[#3388ff] text-[#3388ff]" : "border-[#e6e9ef] text-[#0A1B39] hover:bg-[#f5f6f8]"
+                          }`}
+                        >
+                          自由裁剪
+                        </button>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1 h-9 rounded-lg border border-[#e6e9ef] bg-white px-3 flex items-center text-[13px]">
+                          <span className="text-[#86909C] mr-1">宽</span>
+                          <span className="text-[#0A1B39] font-medium">{Math.round(cropArea.w * 9.21)}</span>
+                        </div>
+                        <div className="text-[#3388ff]">
+                          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                        </div>
+                        <div className="flex-1 h-9 rounded-lg border border-[#e6e9ef] bg-white px-3 flex items-center text-[13px]">
+                          <span className="text-[#86909C] mr-1">高</span>
+                          <span className="text-[#0A1B39] font-medium">{Math.round(cropArea.h * 9.21)}</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div>
+                      <h3 className="text-[14px] font-bold text-[#0A1B39] mb-3">基础编辑</h3>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => setFlipX(!flipX)}
+                          className={`h-9 w-9 rounded-lg border flex items-center justify-center transition-colors ${flipX ? "bg-[#f0f7ff] border-[#3388ff]" : "border-[#e6e9ef] bg-white hover:bg-[#f5f6f8]"}`}
+                          title="左右翻转"
+                        >
+                          <svg className="w-5 h-5 text-[#0A1B39]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M8 3H5a2 2 0 0 0-2 2v14c0 1.1.9 2 2 2h3"/><path d="M16 3h3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-3"/><path d="M12 20v2"/><path d="M12 14v2"/><path d="M12 8v2"/><path d="M12 2v2"/></svg>
+                        </button>
+                        <button
+                          onClick={() => setFlipY(!flipY)}
+                          className={`h-9 w-9 rounded-lg border flex items-center justify-center transition-colors ${flipY ? "bg-[#f0f7ff] border-[#3388ff]" : "border-[#e6e9ef] bg-white hover:bg-[#f5f6f8]"}`}
+                          title="上下翻转"
+                        >
+                          <svg className="w-5 h-5 text-[#0A1B39]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3v18"/><path d="M3 8l9-5 9 5"/><path d="M3 16l9 5 9-5"/></svg>
+                        </button>
+                        <button
+                          onClick={() => setRotation((prev) => (prev - 90) % 360)}
+                          className="h-9 w-9 rounded-lg border border-[#e6e9ef] bg-white flex items-center justify-center hover:bg-[#f5f6f8]"
+                          title="向左旋转90度"
+                        >
+                          <svg className="w-5 h-5 text-[#0A1B39]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+                        </button>
+                        <button
+                          onClick={() => setRotation((prev) => (prev + 90) % 360)}
+                          className="h-9 w-9 rounded-lg border border-[#e6e9ef] bg-white flex items-center justify-center hover:bg-[#f5f6f8]"
+                          title="向右旋转90度"
+                        >
+                          <svg className="w-5 h-5 text-[#0A1B39]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex justify-end gap-3 px-6 py-4 border-t border-[#e6e9ef]">
+                  <button
+                    onClick={handleCropCancel}
+                    className="h-9 px-6 rounded-lg border border-[#e6e9ef] bg-white text-[14px] text-[#0A1B39] hover:bg-[#f5f6f8]"
+                  >
+                    取消
+                  </button>
+                  <button
+                    onClick={handleCropConfirm}
+                    className="h-9 px-6 rounded-lg bg-[#3388ff] text-[14px] font-bold text-white hover:bg-[#1a6fe8]"
+                  >
+                    确认
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+          {/* Delete Confirmation */}
+          {showDeleteConfirm && (
+            <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={() => setShowDeleteConfirm(false)}>
+              <div className="bg-white rounded-xl w-[400px] shadow-xl" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-center justify-between px-6 pt-5 pb-3">
+                  <h2 className="text-[16px] font-bold text-[#0A1B39]">提示</h2>
+                  <button onClick={() => setShowDeleteConfirm(false)} className="text-[#86909C] hover:text-[#0A1B39]">
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+                <div className="px-6 py-4 text-[14px] text-[#0A1B39]">
+                  确认删除该图片？
+                </div>
+                <div className="flex justify-center gap-3 px-6 py-4 border-t border-[#e6e9ef]">
+                  <button
+                    onClick={() => setShowDeleteConfirm(false)}
+                    className="h-9 px-6 rounded-lg border border-[#e6e9ef] bg-white text-[14px] text-[#0A1B39] hover:bg-[#f5f6f8]"
+                  >
+                    取消
+                  </button>
+                  <button
+                    onClick={() => { onRemove?.(); setShowDeleteConfirm(false); }}
+                    className="h-9 px-6 rounded-lg bg-[#ff4d4f] text-[14px] font-bold text-white hover:bg-[#ff7875]"
+                  >
+                    确认删除
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </>
       ) : (
         <button type="button" onClick={openPicker} className="flex h-full w-full flex-col items-center justify-center">
@@ -1314,6 +1864,100 @@ export function ManualListing({
   const initialPlatform = (location.state as { platform?: string })?.platform ?? "抖店";
   const [activePlatform, setActivePlatform] = useState(initialPlatform);
   const [activeTab, setActiveTab] = useState<TabName>("基础信息");
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const sectionRefs = useRef({
+    "基础信息": null as HTMLDivElement | null,
+    "图文信息": null as HTMLDivElement | null,
+    "销售信息": null as HTMLDivElement | null,
+    "物流服务": null as HTMLDivElement | null,
+    "价格库存": null as HTMLDivElement | null,
+    "服务与资质": null as HTMLDivElement | null,
+  });
+
+  const setSectionRef = (key: string) => (el: HTMLDivElement | null) => {
+    sectionRefs.current[key as keyof typeof sectionRefs.current] = el;
+  };
+
+  const scrollToSection = (tab: string) => {
+    const ref = sectionRefs.current[tab as keyof typeof sectionRefs.current];
+    if (ref) {
+      const scrollContainer = scrollContainerRef.current;
+      if (scrollContainer) {
+        const containerTop = scrollContainer.getBoundingClientRect().top;
+        const elementTop = ref.getBoundingClientRect().top;
+        const yOffset = elementTop - containerTop - 10;
+        scrollContainer.scrollTo({ top: scrollContainer.scrollTop + yOffset, behavior: "smooth" });
+      }
+    }
+  };
+
+  // 滚动监听，更新当前激活的 tab
+  const handleScrollRef = useRef<() => void>(() => {});
+
+  useEffect(() => {
+    const tabs = ["基础信息", "图文信息", "销售信息", "物流服务"];
+
+    handleScrollRef.current = () => {
+      let activeTabName = tabs[0];
+      let maxTop = -Infinity;
+
+      for (const tab of tabs) {
+        const ref = sectionRefs.current[tab as keyof typeof sectionRefs.current];
+        if (ref) {
+          const rect = ref.getBoundingClientRect();
+          if (rect.top <= 200 && rect.top > maxTop) {
+            maxTop = rect.top;
+            activeTabName = tab;
+          }
+        }
+      }
+
+      if (maxTop === -Infinity) {
+        let minTop = Infinity;
+        for (const tab of tabs) {
+          const ref = sectionRefs.current[tab as keyof typeof sectionRefs.current];
+          if (ref) {
+            const rect = ref.getBoundingClientRect();
+            if (rect.top < minTop) {
+              minTop = rect.top;
+              activeTabName = tab;
+            }
+          }
+        }
+      }
+
+      setActiveTab(activeTabName as TabName);
+    };
+  });
+
+  useEffect(() => {
+    const setup = () => {
+      const tabs = ["基础信息", "图文信息", "销售信息", "物流服务"];
+      const hasRefs = tabs.some(
+        (tab) => sectionRefs.current[tab as keyof typeof sectionRefs.current]
+      );
+      if (!hasRefs) {
+        requestAnimationFrame(setup);
+        return;
+      }
+
+      const onScroll = () => handleScrollRef.current();
+      const container = scrollContainerRef.current;
+      if (container) {
+        container.addEventListener("scroll", onScroll, { passive: true });
+      }
+      window.addEventListener("scroll", onScroll, { passive: true });
+      onScroll();
+
+      return () => {
+        if (container) container.removeEventListener("scroll", onScroll);
+        window.removeEventListener("scroll", onScroll);
+      };
+    };
+
+    const cleanup = setup();
+    return () => { if (cleanup) cleanup(); };
+  }, [activePlatform]);
 
   const [storeName, setStoreName] = useState("抖音旗舰店");
   const [productTitle, setProductTitle] = useState("");
@@ -1394,12 +2038,15 @@ export function ManualListing({
   const [taobaoDetailImages, setTaobaoDetailImages] = useState<Array<UploadPreview | null>>(Array(50).fill(null));
   const [taobaoDetailPreviewOpen, setTaobaoDetailPreviewOpen] = useState(false);
   const [taobaoPrice, setTaobaoPrice] = useState("");
-  const [taobaoStock, setTaobaoStock] = useState("1");
+  const [taobaoStock, setTaobaoStock] = useState("0");
   const [taobaoPurchaseNote, setTaobaoPurchaseNote] = useState("");
   const [taobaoListingTime, setTaobaoListingTime] = useState("立刻上架");
+  const [taobaoScheduledTime, setTaobaoScheduledTime] = useState("");
+  const [taobaoStockDeduction, setTaobaoStockDeduction] = useState("拍下减库存");
   const [taobaoShippingSetting, setTaobaoShippingSetting] = useState("按商品统一设置");
   const [taobaoDeliveryTime, setTaobaoDeliveryTime] = useState("48小时内发货");
-  const [taobaoLogisticsDelivery, setTaobaoLogisticsDelivery] = useState(false);
+  const [taobaoLogisticsDelivery, setTaobaoLogisticsDelivery] = useState(true);
+  const [taobaoFreightTemplate, setTaobaoFreightTemplate] = useState("请选择运费模板");
   const [taobaoElectronicVoucher, setTaobaoElectronicVoucher] = useState(false);
   const [taobaoRegionalSaleMode, setTaobaoRegionalSaleMode] = useState("选择商品维度区域限售模板");
   const [taobaoRegionalTemplate, setTaobaoRegionalTemplate] = useState("请选择");
@@ -1541,7 +2188,30 @@ export function ManualListing({
   const pddDetailPreviewImages = pddDetailImages.filter((item): item is UploadPreview => Boolean(item));
 
   return (
-    <div className="h-full overflow-y-auto bg-[#f4f7fb] p-6">
+    <div ref={scrollContainerRef} className="h-full overflow-y-auto bg-[#f4f7fb]">
+      {/* Sticky Tab Bar - outside padding */}
+      <div className="sticky top-0 z-10 bg-[#f4f7fb] flex items-center justify-center gap-0 pt-4 pb-3 px-6">
+        {TABS[activePlatform]?.map((tab, index) => (
+          <div key={tab} className="flex items-center">
+            <button
+              onClick={() => scrollToSection(tab)}
+              className={`px-4 py-2 text-[17px] font-bold transition-colors ${
+                activeTab === tab
+                  ? "text-[#3388ff]"
+                  : "text-[#86909C] hover:text-[#0A1B39]"
+              }`}
+            >
+              {tab}
+            </button>
+            {index < (TABS[activePlatform]?.length ?? 0) - 1 && (
+              <span className="text-[#d0d5dd] text-[14px] px-1">/</span>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Content with padding */}
+      <div className="p-6">
       {/* Single White Container */}
       <div className="rounded-2xl bg-white p-6">
         {/* Top Bar */}
@@ -1577,36 +2247,20 @@ export function ManualListing({
 
           {/* Right Content */}
           <div className="flex-1">
-            {/* Tab Bar + Form in Gray Container */}
+            {/* Form in Gray Container */}
             <div className="rounded-xl border border-[#eef1f5] bg-[#fafbfd] p-6">
+
               {PLATFORMS_WITH_MANUAL_TEMPLATE.includes(activePlatform) ? (
                 <>
-              {/* Tab Bar */}
-              <div className="flex items-center justify-center gap-0 pt-3 pb-6">
-                {TABS[activePlatform]?.map((tab, index) => (
-                  <div key={tab} className="flex items-center">
-                    <button
-                      onClick={() => setActiveTab(tab)}
-                      className={`px-4 py-2 text-[17px] font-bold transition-colors ${
-                        activeTab === tab
-                          ? "text-[#3388ff]"
-                          : "text-[#86909C] hover:text-[#0A1B39]"
-                      }`}
-                    >
-                      {tab}
-                    </button>
-                    {index < (TABS[activePlatform]?.length ?? 0) - 1 && (
-                      <span className="text-[#d0d5dd] text-[14px] px-1">/</span>
-                    )}
-                  </div>
-                ))}
-              </div>
 
               {/* Form Content */}
               <div className="px-8 pb-8">
-	                {activeTab === "基础信息" && (
-	                  activePlatform === "淘宝" ? (
-	                    <div className="mx-auto max-w-[960px] space-y-6">
+                <div ref={setSectionRef("基础信息")} id="基础信息">
+                  <div className="mb-6 border-b border-[#eef1f5] pb-3">
+                    <h2 className="text-[18px] font-bold text-[#0A1B39]">基础信息</h2>
+                  </div>
+                  {activePlatform === "淘宝" ? (
+                    <div className="mx-auto max-w-[960px] space-y-6">
 	                      <div>
 	                        <label className={FIELD_LABEL_CLASS}>
 	                          商家店铺<span className="text-[#ff4d4f] ml-1">*</span>
@@ -2293,11 +2947,14 @@ export function ManualListing({
 	                      </div>
 	                    </div>
 	                  </div>
-	                  )
-              )}
+                  )}
+                </div>
 
-              {activeTab === "图文信息" && (
-                activePlatform === "淘宝" ? (
+                <div ref={setSectionRef("图文信息")} id="图文信息">
+                  <div className="mb-6 border-b border-[#eef1f5] pb-3">
+                    <h2 className="text-[18px] font-bold text-[#0A1B39]">图文信息</h2>
+                  </div>
+                {activePlatform === "淘宝" ? (
 	                <div className="max-w-[960px] mx-auto space-y-8">
 	                  <div className="flex justify-end mb-2">
 	                    <button
@@ -3050,15 +3707,18 @@ export function ManualListing({
                     />
                   )}
                 </div>
-                )
-              )}
+                )}
+                </div>
 
-              {(activeTab === "价格库存" || activeTab === "销售信息") && (
-                activePlatform === "淘宝" ? (
+                <div ref={setSectionRef("销售信息")} id="销售信息">
+                  <div className="mb-6 border-b border-[#eef1f5] pb-3">
+                    <h2 className="text-[18px] font-bold text-[#0A1B39]">销售信息</h2>
+                  </div>
+                {activePlatform === "淘宝" ? (
 	                <div className="max-w-[960px] mx-auto space-y-7">
 	                  <div>
 	                    <div className="mb-5 flex items-center gap-3">
-	                      <span className="text-[18px] font-bold text-[#0A1B39]">销售规格</span>
+	                      <span className="text-[14px] font-bold text-[#0A1B39]">销售规格 <span className="text-[#ff4d4f]">*</span></span>
 	                    </div>
 	                    <button
 	                      type="button"
@@ -3080,9 +3740,8 @@ export function ManualListing({
 	                        className={INPUT_CLASS}
 	                      />
 	                      <span className="shrink-0 text-[14px] font-bold text-[#0A1B39]">元</span>
-	                    </div>
-	                    <p className="mt-2 text-[12px] leading-5 text-[#86909C]">本类目常规价格值范围是1.00元-99999999.00元之间，请规范标价行为</p>
-	                  </div>
+                    </div>
+                  </div>
 
 	                  <div>
 	                    <label className={FIELD_LABEL_CLASS}>
@@ -3090,16 +3749,16 @@ export function ManualListing({
 	                    </label>
 	                    <div className="flex items-center gap-3">
 	                      <input
-	                        type="text"
-	                        value={taobaoStock}
-	                        onChange={(event) => setTaobaoStock(event.target.value)}
-	                        className={INPUT_CLASS}
-	                      />
+                        type="text"
+                        value={taobaoStock}
+                        onChange={(event) => setTaobaoStock(event.target.value)}
+                        className={`${INPUT_CLASS} bg-[#f2f4f7] text-[#86909C] cursor-not-allowed`}
+                        disabled
+                      />
 	                      <span className="shrink-0 text-[14px] font-bold text-[#0A1B39]">件</span>
 	                    </div>
 	                    <p className="mt-2 text-[12px] leading-5 text-[#86909C]">
-	                      总库存不包含新增批次库存
-	                      <button type="button" className="ml-2 text-[#3388ff] hover:underline">设置批次库存发货时效</button>
+	                      此处是商品所有销售规格总库存数量，若需修改请在销售规格表格内修改对应库存
 	                    </p>
 	                  </div>
 
@@ -3117,25 +3776,34 @@ export function ManualListing({
 	                  </div>
 
 	                  <div>
-	                    <div className="mb-2 flex items-center justify-between">
-	                      <label className={FIELD_LABEL_CLASS}>商家编码</label>
-	                      <span className="text-[13px] text-[#86909C]">{taobaoMerchantCode.length}/64</span>
+	                    <div className="mb-3 flex items-center gap-3">
+	                      <label className="block shrink-0 text-[14px] font-bold text-[#0A1B39]">
+	                        库存扣减方式 <span className="text-[#ff4d4f]">*</span>
+	                      </label>
 	                    </div>
-	                    <input
-	                      type="text"
-	                      value={taobaoMerchantCode}
-	                      onChange={(event) => setTaobaoMerchantCode(event.target.value.slice(0, 64))}
-	                      className={INPUT_CLASS}
-	                    />
+	                    <div className="flex items-center gap-8">
+	                      {["拍下减库存", "付款减库存"].map((type) => (
+	                        <label key={type} className="flex cursor-pointer items-center gap-2">
+	                          <div
+	                            className={`flex h-4 w-4 items-center justify-center rounded-full border-2 transition-colors ${
+	                              taobaoStockDeduction === type ? "border-[#3388ff] bg-[#3388ff]" : "border-[#d0d5dd] bg-white"
+	                            }`}
+	                            onClick={() => setTaobaoStockDeduction(type)}
+	                          >
+	                            {taobaoStockDeduction === type && <div className="h-1.5 w-1.5 rounded-full bg-white" />}
+	                          </div>
+	                          <span className="text-[14px] font-bold text-[#0A1B39]">{type}</span>
+                        </label>
+	                      ))}
+	                    </div>
 	                  </div>
 
 	                  <div>
 	                    <div className="mb-3 flex items-center gap-3">
 	                      <label className="block shrink-0 text-[14px] font-bold text-[#0A1B39]">
-	                        上架时间 <span className="text-[#ff4d4f]">*</span>
-	                      </label>
-	                      <span className="text-[12px] text-[#86909C]">定时上架的商品在上架前请到“仓库中的宝贝”里编辑商品。</span>
-	                    </div>
+                        上架时间 <span className="text-[#ff4d4f]">*</span>
+                      </label>
+                    </div>
 	                    <div className="flex items-center gap-8">
 	                      {["立刻上架", "定时上架", "放入仓库"].map((type) => (
 	                        <label key={type} className="flex cursor-pointer items-center gap-2">
@@ -3151,6 +3819,21 @@ export function ManualListing({
 	                        </label>
 	                      ))}
 	                    </div>
+	                    {taobaoListingTime === "定时上架" && (
+	                      <div className="mt-3 flex items-center gap-3">
+	                        <label className="shrink-0 text-[14px] font-bold text-[#0A1B39]">
+	                          设定至 <span className="text-[#ff4d4f]">*</span>
+	                        </label>
+	                        <input
+	                          type="datetime-local"
+	                          value={taobaoScheduledTime}
+	                          onChange={(e) => setTaobaoScheduledTime(e.target.value)}
+	                          min={new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16)}
+	                          step="1"
+	                          className="h-10 rounded-lg border border-[#dce3ee] bg-white px-3 text-[13px] font-bold text-[#0A1B39] outline-none transition-colors placeholder:font-normal placeholder:text-[#98A2B3] focus:border-[#3388ff] focus:ring-2 focus:ring-[#d8ebff]"
+	                        />
+	                      </div>
+	                    )}
 	                  </div>
 	                </div>
                 ) : activePlatform === "京东" ? (
@@ -3445,166 +4128,86 @@ export function ManualListing({
                     </div>
                   </div>
                 </div>
-                )
-              )}
+                )}
+                </div>
 
-              {activeTab === "服务与资质" && (
-                activePlatform === "淘宝" ? (
+                <div ref={sectionRefs["物流服务"]} id="物流服务">
+                  <div className="mb-6 border-b border-[#eef1f5] pb-3">
+                    <h2 className="text-[18px] font-bold text-[#0A1B39]">物流服务</h2>
+                  </div>
+                {activePlatform === "淘宝" ? (
 	                <div className="max-w-[960px] mx-auto space-y-7">
-	                  <div className="grid grid-cols-[92px_1fr] gap-x-5 gap-y-4">
+	                  {/* 发货时间 */}
+	                  <div className="grid grid-cols-[92px_1fr] gap-x-5 gap-y-4 items-center">
 	                    <label className="block shrink-0 text-[14px] font-bold text-[#0A1B39]">
 	                      发货时间 <span className="text-[#ff4d4f]">*</span>
 	                    </label>
 	                    <div className="flex flex-wrap items-center gap-8">
-	                      {["按商品统一设置", "按规格单独设置"].map((type) => (
+	                      {["今日发", "24小时内发货", "48小时内发货", "大于48小时发货"].map((type) => (
 	                        <label key={type} className="flex cursor-pointer items-center gap-2">
 	                          <div
 	                            className={`flex h-4 w-4 items-center justify-center rounded-full border-2 transition-colors ${
-	                              taobaoShippingSetting === type ? "border-[#3388ff] bg-[#3388ff]" : "border-[#d0d5dd] bg-white"
+	                              taobaoDeliveryTime === type ? "border-[#3388ff] bg-[#3388ff]" : "border-[#d0d5dd] bg-white"
 	                            }`}
-	                            onClick={() => setTaobaoShippingSetting(type)}
+	                            onClick={() => setTaobaoDeliveryTime(type)}
 	                          >
-	                            {taobaoShippingSetting === type && <div className="h-1.5 w-1.5 rounded-full bg-white" />}
+	                            {taobaoDeliveryTime === type && <div className="h-1.5 w-1.5 rounded-full bg-white" />}
 	                          </div>
 	                          <span className="text-[14px] font-bold text-[#0A1B39]">{type}</span>
-	                          {type === "按规格单独设置" && taobaoShippingSetting === type && (
-	                            <button type="button" className="text-[12px] font-bold text-[#3388ff] hover:underline">
-	                              去设置
-	                            </button>
-	                          )}
 	                        </label>
 	                      ))}
 	                    </div>
-	                    {taobaoShippingSetting === "按商品统一设置" && (
-	                      <div className="col-start-2 rounded-xl bg-[#f5f7fa] px-5 py-4">
-	                        <div className="flex flex-wrap items-center gap-8">
-	                          {["24小时内发货", "48小时内发货", "大于48小时发货"].map((type) => (
-	                            <label key={type} className="flex cursor-pointer items-center gap-2">
-	                              <div
-	                                className={`flex h-4 w-4 items-center justify-center rounded-full border-2 transition-colors ${
-	                                  taobaoDeliveryTime === type ? "border-[#3388ff] bg-[#3388ff]" : "border-[#d0d5dd] bg-white"
-	                                }`}
-	                                onClick={() => setTaobaoDeliveryTime(type)}
-	                              >
-	                                {taobaoDeliveryTime === type && <div className="h-1.5 w-1.5 rounded-full bg-white" />}
-	                              </div>
-	                              <span className="text-[14px] font-bold text-[#0A1B39]">{type}</span>
-	                              {type === "24小时内发货" && (
-	                                <span className="rounded-md border border-[#ffcf8a] bg-[#fff7e8] px-2 py-0.5 text-[12px] font-bold text-[#ff7a00]">提升转化</span>
-	                              )}
-	                              {type === "24小时内发货" && (
-	                                <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-[#d0d5dd] text-[11px] text-[#86909C]">?</span>
-	                              )}
-	                            </label>
-	                          ))}
-	                        </div>
-	                      </div>
-	                    )}
 	                  </div>
 
-	                  <div>
-	                    <div className="mb-3 flex items-center gap-5">
-	                      <label className="block shrink-0 text-[14px] font-bold text-[#0A1B39]">
-	                        提取方式 <span className="text-[#ff4d4f]">*</span>
-	                      </label>
-	                      <label className="flex cursor-pointer items-center gap-2">
+	                  {/* 运费模板 */}
+	                  <div className="grid grid-cols-[92px_1fr] gap-x-5 gap-y-4 items-start">
+	                    <label className="block shrink-0 text-[14px] font-bold text-[#0A1B39] pt-2">
+	                      运费模板 <span className="text-[#ff4d4f]">*</span>
+	                    </label>
+	                    <div className="flex items-center gap-3">
+	                      <div className="flex-1 max-w-[300px]">
+	                        <CustomSelect
+	                          value={taobaoFreightTemplate}
+	                          options={["请选择运费模板", "默认运费模板", "包邮模板"]}
+	                          onChange={setTaobaoFreightTemplate}
+	                        />
+	                      </div>
+	                      <button type="button" className="flex items-center gap-1 text-[14px] font-bold text-[#0A1B39] hover:text-[#3388ff]">
+	                        <RefreshCw className="h-3.5 w-3.5" />
+	                        刷新
+	                      </button>
+	                    </div>
+	                  </div>
+
+	                  {/* 售后服务 */}
+	                  <div className="grid grid-cols-[92px_1fr] gap-x-5 gap-y-4 items-start">
+	                    <label className="block shrink-0 text-[14px] font-bold text-[#0A1B39] pt-2">
+	                      售后服务
+	                    </label>
+	                    <div>
+	                      <label className="flex cursor-pointer items-center gap-2 mb-3">
 	                        <div
 	                          className={`flex h-4 w-4 items-center justify-center rounded border-2 transition-colors ${
-	                            taobaoLogisticsDelivery ? "border-[#3388ff] bg-[#3388ff]" : "border-[#d0d5dd] bg-white"
+	                            taobaoWarrantyService ? "border-[#3388ff] bg-[#3388ff]" : "border-[#d0d5dd] bg-white"
 	                          }`}
-	                          onClick={() => setTaobaoLogisticsDelivery(!taobaoLogisticsDelivery)}
+	                          onClick={() => setTaobaoWarrantyService(!taobaoWarrantyService)}
 	                        >
-	                          {taobaoLogisticsDelivery && <span className="text-[12px] leading-none text-white">✓</span>}
+	                          {taobaoWarrantyService && <span className="text-[12px] leading-none text-white">✓</span>}
 	                        </div>
-	                        <span className="text-[14px] font-bold text-[#0A1B39]">使用物流配送</span>
+	                        <span className="text-[14px] font-bold text-[#0A1B39]">保修服务</span>
 	                      </label>
-	                      <span className="text-[12px] text-[#86909C]">
-	                        为了提升消费者购物体验，淘宝要求全网商品设置运费模板，如何
-	                        <button type="button" className="text-[#3388ff] hover:underline">使用模板</button>
-	                        ，查看
-	                        <button type="button" className="text-[#3388ff] hover:underline">视频教程</button>
-	                      </span>
+	                      <label className="flex items-center gap-2">
+	                        <div
+	                          className="flex h-4 w-4 shrink-0 items-center justify-center rounded border-2 border-[#c0c4cc] bg-[#f5f7fa]"
+	                        >
+	                          <span className="text-[12px] leading-none text-[#c0c4cc]">✓</span>
+	                        </div>
+	                        <span className="text-[14px] font-bold text-[#0A1B39]">
+	                          服务承诺：该类商品，必须支持【七天退货】服务
+	                        </span>
+	                      </label>
 	                    </div>
-	                    <p className="ml-[86px] text-[12px] leading-6 text-[#86909C]">
-	                      使用官方寄件，集合多家运力，一键发货更便捷、全程保障价更低。
-	                      <button type="button" className="ml-2 text-[#3388ff] hover:underline">点击体验</button>
-	                    </p>
-	                    <label className="ml-[86px] mt-3 flex cursor-pointer items-center gap-2">
-	                      <div
-	                        className={`flex h-4 w-4 items-center justify-center rounded border-2 transition-colors ${
-	                          taobaoElectronicVoucher ? "border-[#3388ff] bg-[#3388ff]" : "border-[#d0d5dd] bg-white"
-	                        }`}
-	                        onClick={() => setTaobaoElectronicVoucher(!taobaoElectronicVoucher)}
-	                      >
-	                        {taobaoElectronicVoucher && <span className="text-[12px] leading-none text-white">✓</span>}
-	                      </div>
-	                      <span className="text-[14px] font-bold text-[#c0c4cc]">电子交易凭证</span>
-	                      <span className="text-[12px] text-[#86909C]">
-	                        您未开通电子凭证，
-	                        <button type="button" className="text-[#3388ff] hover:underline">申请开通</button>
-	                      </span>
-	                    </label>
 	                  </div>
-
-	                  <div>
-	                    <label className={FIELD_LABEL_CLASS}>区域限售</label>
-	                    <div className="mb-3 flex flex-wrap items-center gap-8">
-	                      {["不设置商品维度区域限售模板", "选择商品维度区域限售模板"].map((type) => (
-	                        <label key={type} className="flex cursor-pointer items-center gap-2">
-	                          <div
-	                            className={`flex h-4 w-4 items-center justify-center rounded-full border-2 transition-colors ${
-	                              taobaoRegionalSaleMode === type ? "border-[#3388ff] bg-[#3388ff]" : "border-[#d0d5dd] bg-white"
-	                            }`}
-	                            onClick={() => setTaobaoRegionalSaleMode(type)}
-	                          >
-	                            {taobaoRegionalSaleMode === type && <div className="h-1.5 w-1.5 rounded-full bg-white" />}
-	                          </div>
-	                          <span className="text-[14px] font-bold text-[#0A1B39]">{type}</span>
-	                        </label>
-	                      ))}
-	                    </div>
-	                    <div className="w-[180px]">
-	                      <CustomSelect
-	                        value={taobaoRegionalTemplate}
-	                        options={["请选择", "华东区域限售模板", "偏远地区限售模板"]}
-	                        onChange={setTaobaoRegionalTemplate}
-	                      />
-	                    </div>
-	                    <p className="mt-2 text-[12px] leading-5 text-[#86909C]">
-	                      可以前往区域限售页面，给整个店铺维度设置限售模板，或者批量给一批商品设置限售模板，
-	                      <button type="button" className="text-[#3388ff] hover:underline">去设置</button>
-	                    </p>
-	                  </div>
-
-	                  <div>
-	                    <label className={FIELD_LABEL_CLASS}>售后服务</label>
-	                    <label className="flex cursor-pointer items-center gap-2">
-	                      <div
-	                        className={`flex h-4 w-4 items-center justify-center rounded border-2 transition-colors ${
-	                          taobaoWarrantyService ? "border-[#3388ff] bg-[#3388ff]" : "border-[#d0d5dd] bg-white"
-	                        }`}
-	                        onClick={() => setTaobaoWarrantyService(!taobaoWarrantyService)}
-	                      >
-	                        {taobaoWarrantyService && <span className="text-[12px] leading-none text-white">✓</span>}
-	                      </div>
-	                      <span className="text-[14px] font-bold text-[#0A1B39]">保修服务</span>
-	                    </label>
-	                  </div>
-
-	                  <label className="flex cursor-pointer items-center gap-3">
-	                    <div
-	                      className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border-2 transition-colors ${
-	                        taobaoSevenDayReturn ? "border-[#3388ff] bg-[#3388ff]" : "border-[#d0d5dd] bg-white"
-	                      }`}
-	                      onClick={() => setTaobaoSevenDayReturn(!taobaoSevenDayReturn)}
-	                    >
-	                      {taobaoSevenDayReturn && <span className="text-[12px] leading-none text-white">✓</span>}
-	                    </div>
-	                    <span className="text-[14px] font-bold text-[#0A1B39]">
-	                      服务承诺：该类商品，可支持【七天退货】服务；设置了定制的SKU除外，
-	                      <button type="button" className="text-[#3388ff] hover:underline">详见</button>
-	                    </span>
-	                  </label>
 	                </div>
                 ) : activePlatform === "京东" ? (
 	                <div className="max-w-[960px] mx-auto space-y-6">
@@ -3940,8 +4543,8 @@ export function ManualListing({
                     />
                   </div>
                 </div>
-                )
-	              )}
+                )}
+                </div>
 	            </div>
                 </>
               ) : (
@@ -3982,6 +4585,7 @@ export function ManualListing({
           setTaobaoDetailImages(newDetailImages);
         }}
       />
+      </div>
     </div>
   );
 }
