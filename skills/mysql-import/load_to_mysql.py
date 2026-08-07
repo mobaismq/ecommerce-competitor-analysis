@@ -259,8 +259,8 @@ def file_size(path: Path) -> Optional[int]:
 def load_cleaned_data(input_dir: Path) -> dict[str, Any]:
     manifest = read_json(input_dir / "manifest.json")
     product_rows = read_json(input_dir / "product_snapshot.clean.json")
-    sku_rows = read_json(input_dir / "product_sku_snapshot.clean.json")
-    qa_rows = read_json(input_dir / "product_qa_snapshot.clean.json")
+    sku_rows = read_json(input_dir / "product_sku_snapshot.clean.json") if (input_dir / "product_sku_snapshot.clean.json").exists() else []
+    qa_rows = read_json(input_dir / "product_qa_snapshot.clean.json") if (input_dir / "product_qa_snapshot.clean.json").exists() else []
     review_rows = read_json(input_dir / "product_review_snapshot.clean.json") if (input_dir / "product_review_snapshot.clean.json").exists() else []
     media_rows = read_json(input_dir / "media_asset.clean.json")
     product_page_image_rows = read_json(input_dir / "product_page_image_asset.clean.json") if (input_dir / "product_page_image_asset.clean.json").exists() else []

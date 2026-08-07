@@ -19,7 +19,9 @@ from urllib.request import Request, urlopen
 SKILL_DIR = Path(__file__).resolve().parents[1]
 CHECK_GUARD = SKILL_DIR / "scripts" / "check_taobao_guard.py"
 COLLECT_EXPORTS = SKILL_DIR / "scripts" / "collect_exports.py"
-MYSQL_IMPORT = Path("/Users/shuishoukeke/.codex/skills/mysql-import/bin/run_mysql_import.py")
+# 优先使用 workspace 内的 mysql-import skill，保持单一可信来源
+_WORKSPACE_MYSQL_IMPORT = SKILL_DIR.parent / "mysql-import" / "bin" / "run_mysql_import.py"
+MYSQL_IMPORT = _WORKSPACE_MYSQL_IMPORT if _WORKSPACE_MYSQL_IMPORT.exists() else Path("/Users/shuishoukeke/.codex/skills/mysql-import/bin/run_mysql_import.py")
 COMPETITOR_ANALYSIS = Path("/Users/shuishoukeke/.codex/skills/competitor-analysis/bin/run_competitor_analysis.py")
 CHROME_WINDOW_ID: Optional[int] = None
 
@@ -4276,13 +4278,8 @@ def collect_exports(logger: Logger, product_name: str, item_id: str, since_epoch
 
 
 def mysql_import_env() -> dict[str, str]:
-    env = os.environ.copy()
-    env.setdefault("MYSQL_HOST", "127.0.0.1")
-    env.setdefault("MYSQL_PORT", "3306")
-    env.setdefault("MYSQL_USER", "root")
-    env.setdefault("MYSQL_PASSWORD", "")
-    env.setdefault("MYSQL_DATABASE", "sys")
-    return env
+    # 不注入 localhost 默认值，让 mysql-import skill 的 .env 决定目标库
+    return os.environ.copy()
 
 
 def maybe_import_mysql(logger: Logger, target_dir: Path) -> Optional[dict[str, Any]]:
@@ -4290,23 +4287,19 @@ def maybe_import_mysql(logger: Logger, target_dir: Path) -> Optional[dict[str, A
     product_files = sorted(target_dir.glob("商品数据ID_*.xlsx"))
     sku_files = sorted(target_dir.glob("店透-SKU预览-表格-*.xlsx"))
     qa_files = sorted(target_dir.glob("店透视-问大家分析-*.xlsx"))
-    missing = []
+    # 只要有商品数据就入库：SKU/QA 缺失走 --allow-missing-* 容错
     if not product_files:
-        missing.append("product_file")
-    if not sku_files:
-        missing.append("sku_file")
-    if missing:
         result = {
             "ok": False,
             "status": "skipped_missing_files",
-            "missing": missing,
+            "missing": ["product_file"],
             "target_dir": str(target_dir),
             "time": now_stamp(),
         }
         logger.log(json.dumps(result, ensure_ascii=False, indent=2))
         return result
     product_file = product_files[0]
-    sku_file = sku_files[0]
+    sku_file = sku_files[0] if sku_files else None
     qa_file = qa_files[0] if qa_files else None
     output_dir = target_dir / "cleaned_output"
     command = [
@@ -4315,11 +4308,13 @@ def maybe_import_mysql(logger: Logger, target_dir: Path) -> Optional[dict[str, A
         "clean-and-load",
         "--product-file",
         str(product_file),
-        "--sku-file",
-        str(sku_file),
         "--output-dir",
         str(output_dir),
     ]
+    if sku_file:
+        command += ["--sku-file", str(sku_file)]
+    else:
+        command.append("--allow-missing-sku")
     if qa_file:
         command += ["--qa-file", str(qa_file)]
     else:
@@ -4328,7 +4323,13 @@ def maybe_import_mysql(logger: Logger, target_dir: Path) -> Optional[dict[str, A
     objects = extract_json_objects(result.stdout)
     import_result = objects[-1] if objects else None
     if isinstance(import_result, dict):
-        import_result = {"ok": True, "status": "imported", "qa_file_present": bool(qa_file), **import_result}
+        import_result = {
+            "ok": True,
+            "status": "imported",
+            "qa_file_present": bool(qa_file),
+            "sku_file_present": bool(sku_file),
+            **import_result,
+        }
     return import_result
 
 
@@ -4438,7 +4439,7 @@ def move_export_files_to_item_dir(
     logger: Logger,
     item_dir: Path,
     product_file: Path,
-    sku_file: Path,
+    sku_file: Optional[Path],
     ask_file: Optional[Path],
     summary: dict[str, Any],
 ) -> Path:
@@ -4543,7 +4544,20 @@ def export_current_product(
         logger.log(json.dumps({"product_page_images_error": product_page_images}, ensure_ascii=False, indent=2))
     product_file = export_product_data(logger, args, item_id)
     human_wait(logger, export_cooldown_seconds(args), "cooldown between product export and sku export")
-    sku_file, sku_variant, sku_has_links = export_sku(logger, args, item_id)
+    sku_file: Optional[Path] = None
+    sku_variant = "missing"
+    sku_has_links = False
+    sku_status: dict[str, Any] = {"ok": True}
+    try:
+        sku_file, sku_variant, sku_has_links = export_sku(logger, args, item_id)
+    except Exception as exc:
+        sku_status = {
+            "ok": False,
+            "error": str(exc),
+            "reason": "sku_export_unavailable_or_timed_out",
+            "time": now_stamp(),
+        }
+        logger.log(json.dumps({"sku_status": sku_status}, ensure_ascii=False, indent=2))
     ask_file: Optional[Path] = None
     ask_status: dict[str, Any] = {"ok": True}
     try:
@@ -4584,9 +4598,10 @@ def export_current_product(
         "item_id": item_id,
         "selected": selected,
         "product_file": str(product_file),
-        "sku_file": str(sku_file),
+        "sku_file": str(sku_file) if sku_file else None,
         "ask_file": str(ask_file) if ask_file else None,
         "ask_status": ask_status,
+        "sku_status": sku_status,
         "review_comments": {
             "ok": review_comments.get("ok"),
             "raw_file_count": review_comments.get("raw_file_count", 0),
@@ -4768,7 +4783,20 @@ def run_pipeline(args: argparse.Namespace, logger: Logger) -> dict[str, Any]:
         logger.log(json.dumps({"product_page_images_error": product_page_images}, ensure_ascii=False, indent=2))
     product_file = export_product_data(logger, args, item_id)
     human_wait(logger, export_cooldown_seconds(args), "cooldown between product export and sku export")
-    sku_file, sku_variant, sku_has_links = export_sku(logger, args, item_id)
+    sku_file: Optional[Path] = None
+    sku_variant = "missing"
+    sku_has_links = False
+    sku_status: dict[str, Any] = {"ok": True}
+    try:
+        sku_file, sku_variant, sku_has_links = export_sku(logger, args, item_id)
+    except Exception as exc:
+        sku_status = {
+            "ok": False,
+            "error": str(exc),
+            "reason": "sku_export_unavailable_or_timed_out",
+            "time": now_stamp(),
+        }
+        logger.log(json.dumps({"sku_status": sku_status}, ensure_ascii=False, indent=2))
     ask_file: Optional[Path] = None
     ask_status: dict[str, Any] = {"ok": True}
     try:
@@ -4817,9 +4845,10 @@ def run_pipeline(args: argparse.Namespace, logger: Logger) -> dict[str, Any]:
         "selected": selected,
         "target_dir": str(target_dir),
         "product_file": str(product_file),
-        "sku_file": str(sku_file),
+        "sku_file": str(sku_file) if sku_file else None,
         "ask_file": str(ask_file) if ask_file else None,
         "ask_status": ask_status,
+        "sku_status": sku_status,
         "review_comments": {
             "ok": review_comments.get("ok"),
             "raw_file_count": review_comments.get("raw_file_count", 0),
