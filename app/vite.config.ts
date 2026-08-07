@@ -675,6 +675,12 @@ function localRpaApi() {
             return sendJson(res, 200, payload)
           }
 
+          if (req.method === 'POST' && req.url.startsWith('/api/product-sets/generated-images/delete')) {
+            const body = await readBody(req)
+            const payload = await deleteGeneratedMainImages({ ids: Array.isArray(body?.ids) ? body.ids : [] })
+            return sendJson(res, 200, payload)
+          }
+
           if (req.method === 'POST' && req.url.startsWith('/api/product-sets/generated-images')) {
             const body = await readBody(req)
             const payload = await saveGeneratedMainImages(body || {})
@@ -686,12 +692,6 @@ function localRpaApi() {
             const payload = await listGeneratedMainImages({
               productName: (requestUrl.searchParams.get('productName') || '').trim(),
             })
-            return sendJson(res, 200, payload)
-          }
-
-          if (req.method === 'POST' && req.url.startsWith('/api/product-sets/generated-images/delete')) {
-            const body = await readBody(req)
-            const payload = await deleteGeneratedMainImages({ ids: Array.isArray(body?.ids) ? body.ids : [] })
             return sendJson(res, 200, payload)
           }
 
