@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { AlertCircle, Check, ChevronDown, CircleHelp, Download, FileText, Lightbulb, Loader2, Search, Upload, X, ZoomIn } from "lucide-react";
+import { AlertCircle, Check, ChevronDown, CircleHelp, Download, Lightbulb, Loader2, Minus, Plus, Upload, X, ZoomIn } from "lucide-react";
 import mainHeadphone from "@/imports/image-9.png";
 import sceneDisplay from "@/imports/image-10.png";
 import modelScene from "@/imports/image-11.png";
 import detailExplain from "@/imports/image-12.png";
 import sellingPoint from "@/imports/image-13.png";
+import suiteArrow from "@/imports/箭头.svg";
 import { useSidebar } from "@/app/components/SidebarContext";
-import { PageHeader } from "@/app/components/PageHeader";
 
 function SelectBox({ value, options, open, onToggle, onSelect }: { value: string; options: string[]; open: boolean; onToggle: () => void; onSelect: (value: string) => void }) {
   return (
@@ -14,19 +14,19 @@ function SelectBox({ value, options, open, onToggle, onSelect }: { value: string
       <button
         type="button"
         onClick={onToggle}
-        className={`h-[42px] w-full rounded-[9px] bg-[#f2f4f7] px-3.5 flex items-center justify-between text-[14px] font-normal text-[#0A1B39] transition-colors ${open ? "ring-1 ring-[#3388ff] bg-white" : "hover:bg-[#eceff4]"}`}
+        className={`h-[30px] w-full rounded-[8px] bg-[#f2f3f5] px-3 flex items-center justify-between text-[13px] font-normal text-[#171A1D] transition-colors ${open ? "ring-1 ring-[#3388ff] bg-white" : "hover:bg-[#eceff4]"}`}
       >
         <span>{value}</span>
         <ChevronDown className={`h-5 w-5 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
       {open && (
-        <div className="absolute left-0 right-0 top-[46px] z-30 max-h-60 overflow-y-auto rounded-xl border border-[#e5eaf2] bg-white p-1.5 shadow-[0_12px_28px_rgba(15,23,41,.12)] custom-scrollbar">
+        <div className="absolute left-0 right-0 top-[34px] z-30 max-h-60 overflow-y-auto rounded-[8px] border border-[#e5eaf2] bg-white p-1.5 shadow-[0_12px_28px_rgba(15,23,41,.12)] custom-scrollbar">
           {options.map((option) => (
             <button
               key={option}
               type="button"
               onClick={() => onSelect(option)}
-              className={`flex h-9 w-full items-center rounded-lg px-3 text-left text-[14px] font-normal transition-colors ${option === value ? "bg-[#eef5ff] text-[#3388ff]" : "text-[#485066] hover:bg-[#f5f6f8]"}`}
+              className={`flex h-9 w-full items-center rounded-[8px] px-3 text-left text-[14px] font-normal transition-colors ${option === value ? "bg-[#eef5ff] text-[#3388ff]" : "text-[#485066] hover:bg-[#f5f6f8]"}`}
             >
               {option}
             </button>
@@ -38,26 +38,11 @@ function SelectBox({ value, options, open, onToggle, onSelect }: { value: string
 }
 
 function SectionTitle({ children, help = false }: { children: ReactNode; help?: boolean }) {
-  return <h2 className="mb-4 flex items-center gap-1 text-[14px] font-semibold tracking-[-0.01em] text-[#0A1B39]">{children}{help && <CircleHelp className="h-4 w-4 text-[#86909C]" />}</h2>;
-}
-
-function PreviewCard({ n, title, className = "", children }: { n: string; title: string; className?: string; children?: ReactNode }) {
-  return <div className={`relative overflow-hidden rounded-2xl border border-[#eef1f5] bg-white shadow-[0_10px_24px_rgba(31,37,45,.08)] ${className}`}>
-    <div className="absolute left-3 top-3 z-10 rounded-full bg-white/95 px-3 py-1.5 text-[12px] font-semibold text-[#667085] shadow-sm">{n} {title}</div>
-    {children}
-  </div>;
-}
-
-function FitImage({ src, alt, className = "", onError }: { src: string; alt: string; className?: string; onError?: () => void }) {
-  return (
-    <div className={`flex h-full w-full items-center justify-center bg-[#f8fafc] p-4 ${className}`}>
-      <img src={src} alt={alt} onError={onError} className="max-h-full max-w-full object-contain" />
-    </div>
-  );
+  return <h2 className="mb-4 flex items-center gap-1 text-[14px] font-semibold text-[#171A1D]">{children}{help && <CircleHelp className="h-3.5 w-3.5 text-[#8B949E]" />}</h2>;
 }
 
 const GENERATION_OPTIONS = {
-  platform: ["淘宝", "天猫", "抖音", "京东", "拼多多", "亚马逊", "TikTok", "速卖通", "Temu", "Shein", "Shopee", "Lazada", "eBay", "Walmart", "Shopify", "独立站"],
+  platform: ["淘宝天猫1688", "淘宝", "天猫", "抖音", "京东", "拼多多", "亚马逊", "TikTok", "速卖通", "Temu", "Shein", "Shopee", "Lazada", "eBay", "Walmart", "Shopify", "独立站"],
   country: ["中国", "美国", "英国", "德国", "法国", "意大利", "西班牙", "日本", "韩国", "加拿大", "澳大利亚", "新加坡", "马来西亚", "泰国", "越南", "巴西", "墨西哥"],
   language: ["英文", "中文", "日文", "韩文", "德文", "法文", "意大利文", "西班牙文", "葡萄牙文", "荷兰文", "波兰文", "泰文", "越南文", "印尼文"],
   ratio: ["1:1", "3:4", "4:3", "9:16", "16:9"],
@@ -169,6 +154,12 @@ type GeneratedImageResult = {
   error?: string;
 };
 
+type UploadedProductImage = {
+  id: string;
+  name: string;
+  url: string;
+};
+
 function formatMoney(value?: number | null) {
   if (value == null || Number.isNaN(Number(value))) return "无数据";
   return `¥${Number(value).toLocaleString("zh-CN", { maximumFractionDigits: 2 })}`;
@@ -205,12 +196,14 @@ async function downloadImageToLocal(src: string, filename: string) {
 }
  
 const DEFAULT_PROMPT_PREVIEWS: ExpandedPrompt[] = [
-  { id: "image-1", name: "图1｜白底图", type: "白底图", prompt: "" },
-  { id: "image-2", name: "图2｜场景图", type: "场景图", prompt: "" },
-  { id: "image-3", name: "图3｜卖点图", type: "卖点图", prompt: "" },
-  { id: "image-4", name: "图4｜功能说明图", type: "功能说明图", prompt: "" },
-  { id: "image-5", name: "图5｜细节特写图", type: "细节特写图", prompt: "" },
+  { id: "image-1", name: "图1｜主图（白底/合规）", type: "主图（白底/合规）", prompt: "" },
+  { id: "image-2", name: "图2｜场景展示", type: "场景展示", prompt: "" },
+  { id: "image-3", name: "图3｜模特场景图", type: "模特场景图", prompt: "" },
+  { id: "image-4", name: "图4｜细节说明", type: "细节说明", prompt: "" },
+  { id: "image-5", name: "图5｜卖点详解", type: "卖点详解", prompt: "" },
 ];
+
+const DEFAULT_SLOT_IDS = DEFAULT_PROMPT_PREVIEWS.map((item) => item.id);
 
 const DEFAULT_PREVIEW_IMAGES: Record<string, string> = {
   "image-1": mainHeadphone,
@@ -220,13 +213,33 @@ const DEFAULT_PREVIEW_IMAGES: Record<string, string> = {
   "image-5": modelScene,
 };
 
+const CUSTOM_SUITE_TYPES = [
+  { key: "white", label: "白底图", desc: "白底主图，多角度呈现商品细节" },
+  { key: "scene", label: "场景图", desc: "展示商品的生活使用场景和人物搭配" },
+  { key: "selling", label: "卖点图", desc: "展示商品的核心卖点及细节特写" },
+  { key: "function", label: "功能说明图", desc: "展示功能结构、使用方式和参数信息" },
+  { key: "detail", label: "细节特写图", desc: "放大商品材质、工艺和关键细节" },
+] as const;
+
+type CustomSuiteTypeKey = typeof CUSTOM_SUITE_TYPES[number]["key"];
+
+const DEFAULT_CUSTOM_SUITE_COUNTS: Record<CustomSuiteTypeKey, number> = {
+  white: 1,
+  scene: 1,
+  selling: 1,
+  function: 1,
+  detail: 1,
+};
+
 export function ProductImageSets() {
   const { expanded } = useSidebar();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [mode, setMode] = useState("智能匹配");
+  const [customSuiteCounts, setCustomSuiteCounts] = useState<Record<CustomSuiteTypeKey, number>>(DEFAULT_CUSTOM_SUITE_COUNTS);
   const [copy, setCopy] = useState(false);
+  const [listingCopy, setListingCopy] = useState(true);
   const [openSetting, setOpenSetting] = useState<string | null>(null);
-  const [settings, setSettings] = useState({ platform: "淘宝", country: "中国", language: "中文", ratio: "1:1" });
+  const [settings, setSettings] = useState({ platform: "淘宝天猫1688", country: "中国", language: "中文", ratio: "1:1" });
   const [productSearch, setProductSearch] = useState("");
   const [productDropdownOpen, setProductDropdownOpen] = useState(false);
   const [suiteProducts, setSuiteProducts] = useState<SuiteProduct[]>([]);
@@ -238,12 +251,11 @@ export function ProductImageSets() {
   const [generatingImage, setGeneratingImage] = useState(false);
   const [error, setError] = useState("");
   const [generationText, setGenerationText] = useState("");
-  const [uploadedImage, setUploadedImage] = useState("");
-  const [uploadedFileName, setUploadedFileName] = useState("");
+  const [uploadedImages, setUploadedImages] = useState<UploadedProductImage[]>([]);
   const [expandingPrompts, setExpandingPrompts] = useState(false);
   const [promptExpansion, setPromptExpansion] = useState<PromptExpansionPayload | null>(null);
   const [selectedPromptId, setSelectedPromptId] = useState("");
-  const [selectedPromptIds, setSelectedPromptIds] = useState<string[]>([]);
+  const [selectedPromptIds, setSelectedPromptIds] = useState<string[]>(DEFAULT_SLOT_IDS);
   const [generatedImages, setGeneratedImages] = useState<Record<string, GeneratedImageResult>>({});
   const [aiMainPrompt, setAiMainPrompt] = useState("");
   const [lightbox, setLightbox] = useState<{ src: string; title: string } | null>(null);
@@ -262,9 +274,11 @@ export function ProductImageSets() {
   const overallMainDescription = bandSummary?.image_prompts?.main_image_prompt || "";
   const expandedPrompts = promptExpansion?.prompts || [];
   const previewPrompts = expandedPrompts.length ? expandedPrompts : DEFAULT_PROMPT_PREVIEWS;
-  const selectedPromptCount = expandedPrompts.length ? selectedPromptIds.length : 1;
+  const selectedPromptCount = expandedPrompts.length ? selectedPromptIds.length : DEFAULT_PROMPT_PREVIEWS.length;
   const selectedReport = selectedReportOption || suiteProducts.find((item) => item.value === selectedProduct) || null;
   const reportMainPoints = descriptionPayload?.listingSellingPoints?.mainImageSellingPoints || [];
+  const customImageTotal = CUSTOM_SUITE_TYPES.reduce((sum, item) => sum + customSuiteCounts[item.key], 0);
+  const suiteImageCount = mode === "自定义配置" ? customImageTotal : selectedPromptCount;
   const reportMainPrompt = useMemo(() => {
     if (aiMainPrompt) return aiMainPrompt;
     const serverPrompt = String(descriptionPayload?.mainImagePromptSeed || "").trim();
@@ -273,8 +287,9 @@ export function ProductImageSets() {
     if (summaryPrompt) return summaryPrompt;
     return overallMainDescription;
   }, [aiMainPrompt, descriptionPayload?.mainImagePromptSeed, descriptionPayload?.listingSellingPoints?.summary, overallMainDescription]);
+  const uploadedImage = uploadedImages[0]?.url || "";
   const hasSelectedExpandedPrompt = expandedPrompts.length ? expandedPrompts.some((item) => selectedPromptIds.includes(item.id) && item.prompt.trim()) : false;
-  const canGenerateImage = Boolean(uploadedImage && (expandedPrompts.length ? hasSelectedExpandedPrompt : generationText.trim() && !selectedPromptIds.length));
+  const canGenerateImage = Boolean(uploadedImage && (expandedPrompts.length ? hasSelectedExpandedPrompt : generationText.trim()));
 
   async function loadProducts(search = productSearch) {
     setLoadingProducts(true);
@@ -304,7 +319,7 @@ export function ProductImageSets() {
       setDescriptionPayload(data);
       setPromptExpansion(null);
       setSelectedPromptId("");
-      setSelectedPromptIds([]);
+      setSelectedPromptIds(DEFAULT_SLOT_IDS);
       setGeneratedImages({});
       // 异步拉取 AI 全主图分析报告（首次可能较慢），成功后优先用它的全文做生图提示词（与报告页一致）
       fetch(`/api/report/main-image-ai-report?id=${encodeURIComponent(reportValue)}`)
@@ -321,25 +336,54 @@ export function ProductImageSets() {
     }
   }
 
-  function handleUpload(file?: File) {
-    if (!file) return;
-    if (!file.type.startsWith("image/")) {
+  function readImageFile(file: File) {
+    return new Promise<UploadedProductImage>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        resolve({
+          id: `${file.name}-${file.size}-${file.lastModified}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          name: file.name,
+          url: String(reader.result || ""),
+        });
+      };
+      reader.onerror = () => reject(new Error("图片读取失败，请重新上传"));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function handleUpload(files?: FileList | null) {
+    const selectedFiles = Array.from(files || []);
+    if (!selectedFiles.length) return;
+    const availableSlots = 3 - uploadedImages.length;
+    if (availableSlots <= 0) {
+      setError("同一产品最多上传 3 张图片");
+      return;
+    }
+    const filesToRead = selectedFiles.slice(0, availableSlots);
+    const invalidFile = filesToRead.find((file) => !file.type.startsWith("image/"));
+    if (invalidFile) {
       setError("请上传图片文件");
       return;
     }
-    if (file.size > 12 * 1024 * 1024) {
+    const oversizedFile = filesToRead.find((file) => file.size > 12 * 1024 * 1024);
+    if (oversizedFile) {
       setError("图片太大，请上传 12MB 以内的图片");
       return;
     }
-    const reader = new FileReader();
-    reader.onload = () => {
-      setUploadedImage(String(reader.result || ""));
-      setUploadedFileName(file.name);
+    try {
+      const nextImages = await Promise.all(filesToRead.map(readImageFile));
+      setUploadedImages((current) => [...current, ...nextImages].slice(0, 3));
       setGeneratedImages({});
-      setError("");
-    };
-    reader.onerror = () => setError("图片读取失败，请重新上传");
-    reader.readAsDataURL(file);
+      setError(selectedFiles.length > availableSlots ? "同一产品最多上传 3 张图片，已保留前 3 张。" : "");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  function removeUploadedImage(id: string) {
+    setUploadedImages((current) => current.filter((item) => item.id !== id));
+    setGeneratedImages({});
+    setError("");
   }
 
   async function generateMainImage() {
@@ -353,7 +397,7 @@ export function ProductImageSets() {
     }
     const queue = expandedPrompts.length
       ? expandedPrompts.filter((item) => selectedPromptIds.includes(item.id))
-      : [{ id: "image-1", name: "图1｜白底图", type: "白底图", prompt: generationText }];
+      : DEFAULT_PROMPT_PREVIEWS.map((item) => ({ ...item, prompt: generationText }));
     if (!queue.length) {
       setError("请至少选择一张要生成的图片");
       return;
@@ -498,16 +542,17 @@ export function ProductImageSets() {
     });
   }
 
-  useEffect(() => {
-    loadProducts("").catch(() => undefined);
-  }, []);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      loadProducts(productSearch).catch(() => undefined);
-    }, 220);
-    return () => window.clearTimeout(timer);
-  }, [productSearch]);
+  function updateCustomSuiteCount(key: CustomSuiteTypeKey, step: number) {
+    setCustomSuiteCounts((current) => {
+      const currentValue = current[key];
+      const currentTotal = CUSTOM_SUITE_TYPES.reduce((sum, item) => sum + current[item.key], 0);
+      if (step < 0 && (currentValue <= 0 || currentTotal <= 5)) return current;
+      return {
+        ...current,
+        [key]: Math.max(0, currentValue + step),
+      };
+    });
+  }
 
   useEffect(() => {
     if (!selectedProduct) return;
@@ -518,206 +563,165 @@ export function ProductImageSets() {
     if (reportMainPrompt) setGenerationText(reportMainPrompt);
   }, [reportMainPrompt]);
 
-  function renderPromptSlotConfig() {
-    const generatedById = new Map((promptExpansion?.prompts || []).map((item) => [item.id, item]));
-    const slots = DEFAULT_PROMPT_PREVIEWS.map((item) => generatedById.get(item.id) || item);
+  function renderPreviewTile(item: ExpandedPrompt, index: number, compact = false) {
+    const result = generatedImages[item.id];
+    const src = result?.url || DEFAULT_PREVIEW_IMAGES[item.id] || mainHeadphone;
+    const canInspect = result?.status === "done" && Boolean(result.url);
+    const n = String(index + 1).padStart(2, "0");
+    const title = item.type || item.name;
+    const tileSize = compact ? "h-[162px] w-[162px]" : "h-[336px] w-[336px]";
     return (
-      <div className="mb-4 rounded-xl border border-[#e4ebf5] bg-white p-3">
-        <div className="mb-2 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-1.5 text-[12px] font-bold text-[#344054]">
-            <FileText className="h-4 w-4 text-[#3388ff]" />
-            生成图位配置
+      <div
+        key={item.id}
+        onClick={canInspect ? () => setLightbox({ src, title: `${n} ${title}` }) : undefined}
+        className={`group/zoom relative shrink-0 overflow-hidden rounded-[12px] bg-transparent text-left ${tileSize} ${canInspect ? "cursor-zoom-in" : "cursor-default"}`}
+      >
+        <span className="absolute left-3 top-3 z-10 rounded-full bg-[#F2F3F5] px-3 py-1.5 text-[12px] font-semibold text-[#22324D]">
+          {n} {title}
+        </span>
+        <img
+          src={src}
+          alt={item.name}
+          className={`block h-full w-full rounded-[12px] ${compact ? "object-cover" : "object-contain"}`}
+          onError={result?.status === "done" ? () => {
+            setGeneratedImages((current) => ({
+              ...current,
+              [item.id]: { ...current[item.id], status: "failed", error: "图片文件已生成，但浏览器加载失败，请重新生成" },
+            }));
+          } : undefined}
+        />
+        {canInspect && (
+          <span className="pointer-events-none absolute right-3 top-3 z-10 flex items-center gap-1 rounded-full bg-white/95 px-2.5 py-1 text-[11px] font-bold text-[#667085] opacity-0 shadow-sm transition-opacity group-hover/zoom:opacity-100">
+            <ZoomIn className="h-3.5 w-3.5" /> 放大查看
+          </span>
+        )}
+        {result?.status === "generating" && (
+          <div className="absolute inset-0 grid place-items-center bg-white/70 text-[13px] font-bold text-[#3388ff]">
+            <span className="rounded-full bg-white px-3 py-1.5 shadow-sm">生成中</span>
           </div>
-          <div className="flex items-center gap-2">
-            {promptExpansion?.usage?.total_tokens ? (
-              <span className="text-[11px] font-semibold text-[#98A2B3]">tokens {formatCount(promptExpansion.usage.total_tokens)}</span>
-            ) : null}
-            <button
-              type="button"
-              onClick={() => setSelectedPromptIds(DEFAULT_PROMPT_PREVIEWS.map((item) => item.id))}
-              className="text-[11px] font-bold text-[#3388ff]"
-            >
-              全选
-            </button>
-            <button
-              type="button"
-              onClick={() => setSelectedPromptIds([])}
-              className="text-[11px] font-bold text-[#98A2B3]"
-            >
-              清空
-            </button>
+        )}
+        {result?.status === "failed" && (
+          <div className="absolute inset-0 grid place-items-center bg-white/85 p-3 text-center text-[12px] font-bold text-[#c03535]">
+            {result.error || "生成失败"}
           </div>
+        )}
+      </div>
+    );
+  }
+
+  function renderSuitePreview() {
+    const slots = previewPrompts.slice(0, 5);
+    return (
+      <div className="mx-auto flex h-[384px] w-[792px] items-center gap-4 rounded-[20px] bg-white p-6 shadow-[0_18px_40px_rgba(31,37,45,.06)]">
+        <div className="h-[336px] w-[336px] shrink-0">
+          {renderPreviewTile(slots[0] || DEFAULT_PROMPT_PREVIEWS[0], 0)}
         </div>
-        <div className="space-y-2">
-          {slots.map((item) => (
-            <div
-              key={item.id}
-              className={`rounded-lg border p-2.5 text-left transition-colors ${
-                selectedPromptIds.includes(item.id) ? "border-[#3388ff] bg-[#eef6ff] text-[#3388ff]" : "border-[#eef1f5] bg-[#f8fafc] text-[#667085] hover:border-[#b8d7ff]"
-              }`}
-            >
-              <div className="mb-2 flex items-center justify-between gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    togglePromptSelection(item.id);
-                    setSelectedPromptId(item.id);
-                  }}
-                  className="flex min-w-0 items-start gap-2 text-left"
-                >
-                  <span className={`mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded border ${selectedPromptIds.includes(item.id) ? "border-[#3388ff] bg-[#3388ff] text-white" : "border-[#d7deea] bg-white text-transparent"}`}>
-                    <Check className="h-3 w-3" />
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block truncate text-[12px] font-bold">{item.name}</span>
-                    <span className="mt-0.5 block text-[11px] font-semibold opacity-70">
-                      {selectedPromptIds.includes(item.id) ? (item.prompt ? "已选择，会生成" : "已勾选，待 AI 生成提示词") : "未勾选，不生成提示词"}
-                    </span>
-                  </span>
-                </button>
-                <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-[#98A2B3] shadow-sm">{item.type}</span>
-              </div>
-              {item.prompt ? (
-                <textarea
-                  value={item.prompt}
-                  onChange={(event) => updatePromptText(item.id, event.target.value)}
-                  className="h-[104px] w-full resize-none rounded-lg border border-[#e1e6ee] bg-white p-2 text-[11px] font-semibold leading-5 text-[#667085] outline-none focus:border-[#3388ff]"
-                  placeholder={`${item.name} 的生图提示词`}
-                />
-              ) : (
-                <div className="rounded-lg border border-dashed border-[#d7deea] bg-white px-2.5 py-2 text-[11px] font-semibold leading-5 text-[#98A2B3]">
-                  勾选后点击 AI 帮写，才会生成该图位提示词。
-                </div>
-              )}
-            </div>
-          ))}
+        <div className="flex h-[336px] w-10 shrink-0 items-center justify-center">
+          <img src={suiteArrow} alt="" className="block w-[40px] shrink-0" />
         </div>
-        <div className="mt-2 text-[11px] font-semibold text-[#98A2B3]">已勾选 {formatCount(selectedPromptIds.length)} 张；AI 帮写只生成勾选图位的提示词，未勾选不会生成。</div>
+        <div className="grid h-[336px] w-[336px] shrink-0 grid-cols-2 gap-3">
+          {slots.slice(1, 5).map((item, index) => renderPreviewTile(item, index + 1, true))}
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="relative flex h-full bg-[#f4f7fb]">
-      <div className="w-[360px] shrink-0 overflow-y-auto bg-white px-4 sm:px-6 pb-28 pt-7 custom-scrollbar">
+      <div className="relative flex h-full bg-[#f2f4f7]">
+      <div className="w-[360px] shrink-0 overflow-y-auto border-r border-[#E5E8EF] bg-white px-5 pb-28 pt-5 custom-scrollbar">
         <SectionTitle help>商品原图</SectionTitle>
-        <div className="mb-5 flex h-[132px] flex-col items-center justify-center rounded-2xl border-2 border-dashed border-[#e4e9f1] bg-white">
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={(event) => handleUpload(event.target.files?.[0])}
-          />
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="mb-4 flex items-center gap-2 rounded-xl bg-[#f2f4f7] px-4 py-2 text-[14px] font-semibold"
-          >
-            <Upload className="h-5 w-5" />
-            上传图片
-          </button>
-          <p className="max-w-[260px] truncate text-[12px] font-normal text-[#86909C]">{uploadedFileName || "同一产品，最多三张"}</p>
-        </div>
-
-        <SectionTitle help>选择AI报告</SectionTitle>
-        <div className="relative mb-5">
-          <button
-            type="button"
-            onClick={() => setProductDropdownOpen((open) => !open)}
-            className={`flex h-[42px] w-full items-center justify-between rounded-[9px] bg-[#f2f4f7] px-3.5 text-[14px] font-semibold text-[#0A1B39] transition-colors ${productDropdownOpen ? "bg-white ring-1 ring-[#3388ff]" : "hover:bg-[#eceff4]"}`}
-          >
-            <span className={selectedReport ? "truncate" : "truncate text-[#86909C]"}>{selectedReport?.label || "选择已完成的商品报告"}</span>
-            <ChevronDown className={`h-5 w-5 transition-transform ${productDropdownOpen ? "rotate-180" : ""}`} />
-          </button>
-
-          {productDropdownOpen && (
-            <div className="absolute left-0 right-0 top-[48px] z-40 rounded-xl border border-[#e5eaf2] bg-white p-2 shadow-[0_12px_28px_rgba(15,23,41,.12)]">
-              <div className="relative mb-2">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#98A2B3]" />
-                <input
-                  value={productSearch}
-                  onChange={(event) => setProductSearch(event.target.value)}
-                  className="h-10 w-full rounded-lg border border-[#dce3ee] bg-white pl-9 pr-3 text-[13px] font-semibold text-[#0A1B39] outline-none focus:border-[#3388ff]"
-                  placeholder="搜索已完成整体报告"
-                  autoFocus
-                />
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          multiple
+          className="hidden"
+          onChange={(event) => {
+            handleUpload(event.target.files).catch(() => undefined);
+            event.currentTarget.value = "";
+          }}
+        />
+        {uploadedImages.length ? (
+          <div className="mb-4 grid grid-cols-3 gap-3">
+            {uploadedImages.map((image) => (
+              <div key={image.id} className="relative h-[82px] overflow-hidden rounded-[8px] bg-[#F2F3F5] shadow-sm">
+                <img src={image.url} alt={image.name} className="h-full w-full object-cover" />
+                <button
+                  type="button"
+                  onClick={() => removeUploadedImage(image.id)}
+                  className="absolute right-1.5 top-1.5 grid h-5 w-5 place-items-center rounded-full bg-black/55 text-white transition-colors hover:bg-black/70"
+                  aria-label={`删除 ${image.name}`}
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
               </div>
-              <div className="max-h-[220px] space-y-1 overflow-y-auto custom-scrollbar">
-                {loadingProducts && <div className="flex items-center gap-2 rounded-lg p-3 text-[13px] font-semibold text-[#667085]"><Loader2 className="h-4 w-4 animate-spin" />读取报告...</div>}
-                {!loadingProducts && suiteProducts.length === 0 && <div className="rounded-lg p-3 text-[13px] font-semibold text-[#98A2B3]">暂无已完成整体报告，请先在竞品报告页完成“AI生成整体报告”。</div>}
-                {!loadingProducts && suiteProducts.map((product) => (
-                  <button
-                    key={product.value}
-                    onClick={() => {
-                      setSelectedProduct(product.value);
-                      setSelectedReportOption(product);
-                      setProductDropdownOpen(false);
-                    }}
-                    className={`flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-[13px] transition-colors ${selectedProduct === product.value ? "bg-[#eef5ff] text-[#3388ff]" : "text-[#485066] hover:bg-[#f5f6f8]"}`}
-                  >
-                    <span className="min-w-0">
-                      <span className="block truncate font-semibold">{product.label}</span>
-                      <span className="mt-0.5 block truncate text-[11px] font-semibold opacity-70">
-                        {product.keyword} · {product.priceRange || "-"} · {formatCount(product.count)} 个竞品
-                      </span>
-                    </span>
-                    <span className="shrink-0 rounded-full bg-[#e8f5e9] px-2 py-0.5 text-[11px] font-bold text-[#2e7d32]">已完成</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-          {selectedReport && (
-            <div className="mt-2 rounded-xl bg-[#f8fafc] p-3 text-[12px] font-semibold leading-5 text-[#667085]">
-              <div className="truncate text-[#0A1B39]">{selectedReport.keyword}</div>
-              <div>采集范围 {selectedReport.priceRange || "-"} · 竞品 {formatCount(selectedReport.count)}</div>
-              <div>报告时间 {selectedReport.latestAt || "-"}</div>
-            </div>
-          )}
-        </div>
+            ))}
+            {uploadedImages.length < 3 && (
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="grid h-[82px] place-items-center rounded-[8px] bg-[#F2F3F5] text-[#171A1D] transition-colors hover:bg-[#ECEFF4]"
+                aria-label="继续上传商品图"
+              >
+                <Plus className="h-6 w-6" />
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="mb-4 flex h-[94px] flex-col items-center justify-center rounded-[8px] border border-dashed border-[#E3E7EF] bg-white">
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="mb-3 flex h-8 items-center gap-1.5 rounded-[8px] bg-[#F2F3F5] px-4 text-[13px] font-medium text-[#171A1D]"
+            >
+              <Upload className="h-4 w-4" />
+              上传图片
+            </button>
+            <p className="max-w-[260px] truncate text-[12px] font-normal text-[#8B949E]">同一产品，最多3张。</p>
+          </div>
+        )}
 
         {error && (
-          <div className="mb-5 flex gap-2 rounded-xl border border-[#ffd7d7] bg-[#fff5f5] p-3 text-[13px] font-semibold text-[#c03535]">
+          <div className="mb-5 flex gap-2 rounded-[8px] border border-[#ffd7d7] bg-[#fff5f5] p-3 text-[13px] font-semibold text-[#c03535]">
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
             <span>{error}</span>
           </div>
         )}
 
         <SectionTitle>生成设置</SectionTitle>
-        <div className="mb-6 grid grid-cols-2 gap-3.5">
+        <div className="mb-4 grid grid-cols-2 gap-3">
           <SelectBox value={settings.platform} options={GENERATION_OPTIONS.platform} open={openSetting === "platform"} onToggle={() => setOpenSetting(openSetting === "platform" ? null : "platform")} onSelect={(value) => updateSetting("platform", value)} />
           <SelectBox value={settings.country} options={GENERATION_OPTIONS.country} open={openSetting === "country"} onToggle={() => setOpenSetting(openSetting === "country" ? null : "country")} onSelect={(value) => updateSetting("country", value)} />
           <SelectBox value={settings.language} options={GENERATION_OPTIONS.language} open={openSetting === "language"} onToggle={() => setOpenSetting(openSetting === "language" ? null : "language")} onSelect={(value) => updateSetting("language", value)} />
           <SelectBox value={settings.ratio} options={GENERATION_OPTIONS.ratio} open={openSetting === "ratio"} onToggle={() => setOpenSetting(openSetting === "ratio" ? null : "ratio")} onSelect={(value) => updateSetting("ratio", value)} />
         </div>
 
-        <div className="mb-5 flex items-center justify-between">
+        <div className="flex items-center justify-between">
           <SectionTitle help>商品卖点&要求</SectionTitle>
           <button
             onClick={expandPrompts}
-            disabled={expandingPrompts || !uploadedImage || !selectedPromptIds.length}
-            className="mb-4 flex items-center gap-1.5 rounded-full border border-[#e8edf4] bg-white px-3 py-1.5 text-[14px] font-semibold text-[#3587ff] shadow-sm disabled:cursor-not-allowed disabled:text-[#98A2B3]"
+            disabled={expandingPrompts}
+            className="mb-4 flex h-7 items-center gap-1 rounded-full border border-[#D9E8FF] bg-white px-2.5 text-[12px] font-medium text-[#1683FF] shadow-sm"
           >
-            {expandingPrompts ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lightbulb className="h-4 w-4" />}
+            {expandingPrompts ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Lightbulb className="h-3.5 w-3.5" />}
             {expandingPrompts ? "扩写中" : "AI 帮写"}
           </button>
         </div>
         <textarea
-          className="mb-3 h-[164px] w-full resize-none rounded-xl border border-[#e1e6ee] bg-white p-3 text-[14px] font-normal leading-7 text-[#667085] outline-none focus:border-[#4690ff]"
+          className="mb-4 h-[114px] w-full resize-none rounded-[8px] border border-[#DDE3EC] bg-white p-3 text-[12px] font-normal leading-[20px] text-[#5F6B7A] outline-none focus:border-[#4690ff]"
           value={generationText}
           onChange={(event) => setGenerationText(event.target.value)}
-          placeholder="选择已完成报告后会自动回传主图卖点提示词；也可以手动填写你的主图生成要求。"
+          placeholder={`建议包含以下信息生成更精准：\n1.产品名称\n2.核心卖点\n3.适用人群\n4.期望场景\n5.具体参数`}
         />
-        {renderPromptSlotConfig()}
         {reportMainPoints.length ? (
-          <div className="mb-4 rounded-xl border border-[#e4ebf5] bg-white p-3">
+          <div className="mb-4 rounded-[8px] border border-[#e4ebf5] bg-white p-3">
             <div className="mb-2 flex items-center justify-between gap-2">
               <div className="text-[12px] font-bold text-[#344054]">已回传主图卖点</div>
               <span className="rounded-full bg-[#eef6ff] px-2 py-0.5 text-[11px] font-bold text-[#3388ff]">{reportMainPoints.length} 条</span>
             </div>
             <div className="space-y-2">
               {reportMainPoints.slice(0, 4).map((item, index) => (
-                <div key={`${item.title || "point"}-${index}`} className="rounded-lg bg-[#f8fafc] p-2.5 text-[12px] leading-5 text-[#667085]">
+                <div key={`${item.title || "point"}-${index}`} className="rounded-[8px] bg-[#f8fafc] p-2.5 text-[12px] leading-5 text-[#667085]">
                   <div className="font-bold text-[#0A1B39]">{index + 1}. {item.title || "主图卖点"}</div>
                   <div className="mt-0.5">画面表达：{item.visualExpression || "商品主体清晰，少量文字表达核心卖点"}</div>
                   <div className="mt-0.5 truncate text-[#98A2B3]">依据：{item.dataBasis || "竞品报告数据库聚合"}</div>
@@ -726,124 +730,96 @@ export function ProductImageSets() {
             </div>
           </div>
         ) : null}
-        {loadingDescriptions ? (
-          <div className="mb-6 flex items-center gap-2 rounded-xl bg-[#f8fafc] px-3 py-2 text-[12px] font-semibold text-[#667085]">
+        {loadingDescriptions && selectedReport ? (
+          <div className="mb-6 flex items-center gap-2 rounded-[8px] bg-[#f8fafc] px-3 py-2 text-[12px] font-semibold text-[#667085]">
             <Loader2 className="h-4 w-4 animate-spin" />
             正在导入主图生图文本
           </div>
-        ) : (
-          <div className="mb-6 rounded-xl bg-[#f8fafc] px-3 py-2 text-[12px] font-semibold text-[#86909C]">
-            AI 帮写和生图只使用上方主图提示词，不会带入价格段、详情图或买家秀文本。
-          </div>
-        )}
+        ) : null}
 
         <SectionTitle>套图结构配置</SectionTitle>
-        <div className="space-y-3">
-          <button onClick={() => setMode("智能匹配")} className="w-full rounded-2xl bg-[#f5f6f8] p-5 text-left">
-            <div className="flex items-center gap-3 text-[14px] font-normal"><span className="grid h-5 w-5 place-items-center rounded bg-[#3388ff] text-white"><Check className="h-4 w-4" /></span>智能匹配</div>
-            <p className="mt-2 text-[12px] font-normal text-[#86909C]">AI智能分析商品图，匹配最佳Listing套图</p>
+        <div className="mb-4 rounded-[8px] bg-[#F2F3F5] p-3">
+          <button onClick={() => setMode("智能匹配")} className="w-full rounded-[8px] bg-[#F2F3F5] p-3 text-left transition-colors hover:bg-[#ECEFF4]">
+            <div className="flex items-center gap-2 text-[13px] font-semibold text-[#171A1D]">
+              <span className={`grid h-4 w-4 place-items-center rounded-[4px] ${mode === "智能匹配" ? "bg-[#1683FF] text-white" : "border border-[#D7DCE3] bg-white text-transparent"}`}>
+                <Check className="h-3 w-3" />
+              </span>
+              智能匹配
+            </div>
+            <p className="mt-1 text-[12px] font-normal text-[#8B949E]">AI智能分析商品图，匹配最佳Listing套图。</p>
           </button>
-          <button onClick={() => setMode("自定义配置")} className="w-full rounded-2xl bg-[#f5f6f8] p-5 text-left">
-            <div className="flex items-center gap-3 text-[14px] font-normal"><span className={`h-5 w-5 rounded border ${mode === "自定义配置" ? "bg-[#3388ff] border-[#3388ff]" : "border-[#d8dde5] bg-white"}`} />自定义配置</div>
-            <p className="mt-2 text-[12px] font-normal text-[#86909C]">可自由调整各类型图片数量，至少选择7张</p>
+          <button onClick={() => setMode("自定义配置")} className="mt-2 w-full rounded-[8px] bg-[#F2F3F5] p-3 text-left transition-colors hover:bg-[#ECEFF4]">
+            <div className="flex items-center gap-2 text-[13px] font-semibold text-[#171A1D]">
+              <span className={`grid h-4 w-4 place-items-center rounded-[4px] ${mode === "自定义配置" ? "bg-[#1683FF] text-white" : "border border-[#D7DCE3] bg-white text-transparent"}`}>
+                <Check className="h-3 w-3" />
+              </span>
+              自定义配置
+            </div>
+            <p className="mt-1 text-[12px] font-normal text-[#8B949E]">可自由调整各类型图片数量，至少选择5张。</p>
           </button>
+          {mode === "自定义配置" && (
+            <div className="mt-3 space-y-2">
+              {CUSTOM_SUITE_TYPES.map((item) => {
+                const count = customSuiteCounts[item.key];
+                const cannotDecrease = count <= 0 || customImageTotal <= 5;
+                return (
+                  <div key={item.key} className="flex min-h-[70px] items-center justify-between rounded-[8px] bg-white px-3 py-3">
+                    <div className="min-w-0 pr-3">
+                      <div className="text-[13px] font-semibold text-[#171A1D]">{item.label}</div>
+                      <p className="mt-1 text-[12px] font-normal leading-5 text-[#8B949E]">{item.desc}</p>
+                    </div>
+                    <div className="flex h-7 shrink-0 items-center overflow-hidden rounded-[8px] bg-[#F5F6F8]">
+                      <button
+                        type="button"
+                        onClick={() => updateCustomSuiteCount(item.key, -1)}
+                        disabled={cannotDecrease}
+                        className="grid h-7 w-7 place-items-center text-[#171A1D] transition-colors hover:bg-[#ECEFF4] disabled:cursor-not-allowed disabled:text-[#C4C6CA]"
+                        aria-label={`${item.label}减少一张`}
+                      >
+                        <Minus className="h-3.5 w-3.5" />
+                      </button>
+                      <span className="grid h-7 w-7 place-items-center text-[13px] font-semibold text-[#171A1D]">{count}</span>
+                      <button
+                        type="button"
+                        onClick={() => updateCustomSuiteCount(item.key, 1)}
+                        className="grid h-7 w-7 place-items-center text-[#171A1D] transition-colors hover:bg-[#ECEFF4]"
+                        aria-label={`${item.label}增加一张`}
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
         <SectionTitle>附加功能</SectionTitle>
-        <div className="rounded-xl bg-[#f5f6f8] p-4 flex items-center justify-between text-[14px] font-normal"><span>爆款风格分析</span><span onClick={() => setCopy(!copy)} className={`h-6 w-11 rounded-full p-0.5 ${copy ? "bg-[#3388ff]" : "bg-[#C9CDD4]"}`}><i className={`block h-5 w-5 rounded-full bg-white transition-transform ${copy ? "translate-x-5" : ""}`} /></span></div>
+        <div className="space-y-3">
+          <div className="flex h-12 items-center justify-between rounded-[8px] bg-[#F2F3F5] px-3 text-[13px] font-normal text-[#171A1D]"><span>爆款风格分析</span><span onClick={() => setCopy(!copy)} className={`h-5 w-9 rounded-full p-0.5 ${copy ? "bg-[#1683FF]" : "bg-[#B8BDC5]"}`}><i className={`block h-4 w-4 rounded-full bg-white transition-transform ${copy ? "translate-x-4" : ""}`} /></span></div>
+          <div className="flex h-12 items-center justify-between rounded-[8px] bg-[#F2F3F5] px-3 text-[13px] font-normal text-[#171A1D]"><span className="flex items-center gap-1.5">商品上架文案生成 <span className="rounded-full bg-[#FFE8D8] px-1.5 py-0.5 text-[10px] font-semibold text-[#C35A22]">限免</span></span><span onClick={() => setListingCopy(!listingCopy)} className={`h-5 w-9 rounded-full p-0.5 ${listingCopy ? "bg-[#5F666F]" : "bg-[#B8BDC5]"}`}><i className={`block h-4 w-4 rounded-full bg-white transition-transform ${listingCopy ? "translate-x-4" : ""}`} /></span></div>
+        </div>
       </div>
 
       <div className={`fixed bottom-0 z-20 w-[360px] border-t border-[#eef1f5] bg-white p-3 sm:p-4 transition-all duration-300 ${expanded ? "left-[240px]" : "left-[72px]"}`}>
         <button
           onClick={generateMainImage}
           disabled={generatingImage || !canGenerateImage}
-          className={`h-12 sm:h-14 w-full rounded-lg text-[14px] font-semibold text-white ${generatingImage || !canGenerateImage ? "bg-[#C9CDD4]" : "bg-[#3388ff] hover:bg-[#1f78f2]"}`}
+          className={`h-10 w-full rounded-[8px] text-[13px] font-semibold text-white ${generatingImage || !canGenerateImage ? "bg-[#C4C6CA]" : "bg-[#171A1D] hover:bg-[#2A2F36]"}`}
         >
-          {generatingImage ? "正在生成..." : expandedPrompts.length ? `生成已选 ${selectedPromptCount} 张` : "生成主图"}
+          {generatingImage ? "正在生成..." : `一键生成套图与商品上架文案（${suiteImageCount}张）`}
         </button>
       </div>
 
       <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
-        <div className="mx-auto w-full max-w-[1480px]">
-          <PageHeader breadcrumbs={[{ label: "AIGC" }, { label: "商品主图" }]} className="mb-1" />
-          <p className="text-[14px] font-normal text-[#86909C]">选择已完成整体报告后，可多选图位批量生成，右侧会展示每张生成结果。</p>
-
-          <div className="mt-6 sm:mt-8 rounded-[20px] sm:rounded-[24px] lg:rounded-[28px] bg-white p-4 sm:p-5 lg:p-6 shadow-[0_18px_50px_rgba(29,38,52,.06)]">
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-3 text-left">
-              <div>
-                <div className="text-[16px] font-bold text-[#0A1B39]">套图预览</div>
-                <div className="mt-1 text-[12px] font-semibold text-[#98A2B3]">等尺寸展示每个图位，生成后会替换对应图片。</div>
-              </div>
-              <div className="rounded-full bg-[#f5f8ff] px-3 py-1.5 text-[12px] font-bold text-[#3388ff]">
-                {previewPrompts.length} 张图位
-              </div>
-            </div>
-
-            <div className="grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-4">
-              {previewPrompts.slice(0, 5).map((item, index) => {
-                const result = generatedImages[item.id];
-                const isSelected = selectedPromptIds.includes(item.id);
-                const canSelectSlot = true;
-                const src = result?.url || (index === 0 && uploadedImage ? uploadedImage : DEFAULT_PREVIEW_IMAGES[item.id]) || mainHeadphone;
-                const n = String(index + 1).padStart(2, "0");
-                const slotLabel = result?.status === "done"
-                  ? (isSelected ? "已生成/已选" : "已生成")
-                  : isSelected ? "已选择" : "未选择";
-
-                return (
-                  <PreviewCard key={item.id} n={n} title={item.type || item.name} className="aspect-square min-h-[260px]">
-                    <div
-                      className="group/zoom h-full w-full cursor-zoom-in"
-                      onClick={() => setLightbox({ src, title: `${n} ${item.type || item.name}` })}
-                    >
-                      <FitImage
-                        src={src}
-                        alt={item.name}
-                        className="pt-12"
-                        onError={result?.status === "done" ? () => {
-                          setGeneratedImages((current) => ({
-                            ...current,
-                            [item.id]: { ...current[item.id], status: "failed", error: "图片文件已生成，但浏览器加载失败，请重新生成" },
-                          }));
-                        } : undefined}
-                      />
-                      <span className="pointer-events-none absolute right-3 top-3 z-10 flex items-center gap-1 rounded-full bg-white/95 px-2.5 py-1 text-[11px] font-bold text-[#667085] opacity-0 shadow-sm transition-opacity group-hover/zoom:opacity-100">
-                        <ZoomIn className="h-3.5 w-3.5" /> 放大查看
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (!canSelectSlot) return;
-                        togglePromptSelection(item.id);
-                        setSelectedPromptId(item.id);
-                      }}
-                      disabled={!canSelectSlot}
-                      className={`absolute bottom-3 left-3 flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-bold shadow-sm transition-colors disabled:cursor-default ${
-                        result?.status === "done"
-                          ? "bg-[#ECFDF3] text-[#079455]"
-                          : isSelected
-                            ? "bg-[#EFF6FF] text-[#3388ff]"
-                            : "bg-white/95 text-[#98A2B3]"
-                      }`}
-                    >
-                      <span className={`grid h-3.5 w-3.5 place-items-center rounded border ${isSelected ? "border-[#3388ff] bg-[#3388ff] text-white" : "border-[#d7deea] bg-white text-transparent"}`}>
-                        <Check className="h-2.5 w-2.5" />
-                      </span>
-                      {slotLabel}
-                    </button>
-                    {result?.status === "generating" && (
-                      <div className="absolute inset-0 grid place-items-center bg-white/70 text-[13px] font-bold text-[#3388ff]">
-                        <span className="rounded-full bg-white px-3 py-1.5 shadow-sm">生成中</span>
-                      </div>
-                    )}
-                    {result?.status === "failed" && (
-                      <div className="absolute inset-0 grid place-items-center bg-white/85 p-3 text-center text-[12px] font-bold text-[#c03535]">
-                        {result.error || "生成失败"}
-                      </div>
-                    )}
-                  </PreviewCard>
-                );
-              })}
+        <div className="flex min-h-full items-center justify-center">
+          <div className="w-full max-w-[980px] pb-10 text-center">
+            <h1 className="text-[32px] font-bold leading-tight text-[#171A1D]">商品主图</h1>
+            <p className="mt-3 text-[14px] font-normal leading-6 text-[#5F6B7A]">
+              上传商品图，AI 即刻生成 <span className="font-semibold text-[#1683FF]">符合多电商平台规范</span> 的高转化率商品主图。
+            </p>
+            <div className="mt-12">
+              {renderSuitePreview()}
             </div>
           </div>
         </div>
