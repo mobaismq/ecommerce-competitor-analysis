@@ -4946,7 +4946,7 @@ function pickDisplayImage(images = []) {
     .sort((a, b) => imagePriority(a.type) - imagePriority(b.type))[0]?.url || ''
 }
 
-function normalizeSkuRows(skus = []) {
+function normalizeSkuRows(skus = [], roots = []) {
   return (skus || [])
     .map((sku) => ({
       skuId: String(sku.sku_id || sku.id || '').trim(),
@@ -4954,7 +4954,7 @@ function normalizeSkuRows(skus = []) {
       info: String(sku.sku_info || '').trim(),
       price: money(sku.coupon_price ?? sku.price),
       stockQty: toInt(sku.stock_qty, null),
-      imageUrl: maybeLocalImageAsDataUrl(sku.sku_image_path) || normalizeUrl(sku.sku_image_url),
+      imageUrl: maybeLocalImageAsDataUrl(sku.sku_image_path, roots) || normalizeUrl(sku.sku_image_url),
     }))
     .filter((sku) => sku.title || sku.skuId)
     .slice(0, 80)
@@ -4984,11 +4984,13 @@ function productOverviewFromGenerated(row) {
 }
 
 function productOverviewFromRaw(product, skus = [], media = []) {
-  const normalizedSkus = normalizeSkuRows(skus)
+  // 以商品源文件目录为根，解析 media_asset/SKU 里的相对图片路径（如 ../product_page_images/main/001.jpg）
+  const roots = sourceRootsFromRows([product])
+  const normalizedSkus = normalizeSkuRows(skus, roots)
   const mediaImages = (media || [])
     .map((asset) => ({
       image_type: asset.image_type,
-      url: imageUrlFrom(asset),
+      url: imageUrlFrom(asset, roots),
       path: asset.storage_path,
     }))
     .filter((image) => image.url)

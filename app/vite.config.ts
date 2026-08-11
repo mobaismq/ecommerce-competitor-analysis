@@ -7,6 +7,7 @@ import { spawn } from 'child_process'
 import { analyzeProductMainImageAndSave, deleteGeneratedMainImages, generateAiMarketReport, generateOverallReportFromProductMainImageReports, getAnalysisProductsView, getAnalysisReportView, getMainImageAiReport, getOpenAiSettings, getProductMainImageAnalysis, getSuiteMainImageDescriptions, listAnalysisReportRows, listGeneratedMainImages, listProductOptions, listSuitePriceBands, listSuiteProducts, previewMarketPriceBands, readLatestMarketReport, saveGeneratedMainImages, saveOpenAiSettings, testArkResponsesConnection } from './src/server/aiMarketAnalysis.js'
 import { generateProductSetImage } from './src/server/arkImageGeneration.js'
 import { expandProductSetPrompts } from './src/server/mainImagePromptExpansion.js'
+import { fetchTaobaoCategories, fetchTaobaoShops, getTaobaoConfigStatus } from './src/server/taobaoTopClient.js'
 
 
 function figmaAssetResolver() {
@@ -638,9 +639,33 @@ function localRpaApi() {
     name: 'local-rpa-api',
     configureServer(server) {
       server.middlewares.use(async (req, res, next) => {
-        if (!req.url?.startsWith('/api/rpa/') && !req.url?.startsWith('/api/report/') && !req.url?.startsWith('/api/product-sets/')) return next()
+        if (!req.url?.startsWith('/api/rpa/') && !req.url?.startsWith('/api/report/') && !req.url?.startsWith('/api/product-sets/') && !req.url?.startsWith('/api/taobao/')) return next()
 
         try {
+          if (req.method === 'GET' && req.url.startsWith('/api/taobao/status')) {
+            return sendJson(res, 200, { ok: true, ...getTaobaoConfigStatus() })
+          }
+
+          if (req.method === 'GET' && req.url.startsWith('/api/taobao/shops')) {
+            try {
+              const shops = await fetchTaobaoShops()
+              return sendJson(res, 200, { ok: true, shops })
+            } catch (error) {
+              return sendJson(res, 200, { ok: false, error: error instanceof Error ? error.message : String(error) })
+            }
+          }
+
+          if (req.method === 'GET' && req.url.startsWith('/api/taobao/categories')) {
+            const requestUrl = new URL(req.url, 'http://localhost')
+            const parentCid = Number(requestUrl.searchParams.get('parent_cid') || 0)
+            try {
+              const categories = await fetchTaobaoCategories(parentCid)
+              return sendJson(res, 200, { ok: true, categories })
+            } catch (error) {
+              return sendJson(res, 200, { ok: false, error: error instanceof Error ? error.message : String(error) })
+            }
+          }
+
           if (req.method === 'GET' && req.url.startsWith('/api/product-sets/products')) {
             const requestUrl = new URL(req.url, 'http://localhost')
             const query = (requestUrl.searchParams.get('q') || '').trim()
@@ -670,6 +695,7 @@ function localRpaApi() {
               prompt: body.prompt,
               image: body.image,
               size: body.size || '2K',
+              ratio: body.ratio || '',
               watermark: body.watermark === true,
             })
             return sendJson(res, 200, payload)

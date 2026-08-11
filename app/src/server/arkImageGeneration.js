@@ -24,6 +24,21 @@ loadLocalEnv()
 const ARK_IMAGE_ENDPOINT = 'https://ark.cn-beijing.volces.com/api/v3/images/generations'
 const DEFAULT_MODEL = process.env.ARK_IMAGE_MODEL || 'doubao-seedream-5-0-260128'
 
+// 宽高比 → Ark size 像素值（长边 2048 的 2K 档，Seedream 支持 "宽x高" 格式）
+const RATIO_SIZE_MAP = {
+  '1:1': '2048x2048',
+  '3:4': '1536x2048',
+  '4:3': '2048x1536',
+  '9:16': '1152x2048',
+  '16:9': '2048x1152',
+}
+
+function resolveImageSize(size, ratio) {
+  const pixelSize = RATIO_SIZE_MAP[String(ratio || '').trim()]
+  if (pixelSize) return pixelSize
+  return String(size || '2K').trim() || '2K'
+}
+
 function normalizeGeneratedImages(data) {
   const rawItems = Array.isArray(data?.data) ? data.data : []
   return rawItems
@@ -63,7 +78,7 @@ async function saveGeneratedImage(image, index) {
   }
 }
 
-export async function generateProductSetImage({ prompt, image, size = '2K', watermark = false }) {
+export async function generateProductSetImage({ prompt, image, size = '2K', ratio = '', watermark = false }) {
   loadLocalEnv()
   const apiKey = process.env.ARK_API_KEY
   if (!apiKey) {
@@ -74,6 +89,8 @@ export async function generateProductSetImage({ prompt, image, size = '2K', wate
   const cleanImage = String(image || '').trim()
   if (!cleanPrompt) throw new Error('请输入主图提示词')
   if (!cleanImage) throw new Error('请先上传商品原图')
+
+  const resolvedSize = resolveImageSize(size, ratio)
 
   const response = await fetch(ARK_IMAGE_ENDPOINT, {
     method: 'POST',
@@ -87,7 +104,7 @@ export async function generateProductSetImage({ prompt, image, size = '2K', wate
       image: cleanImage,
       sequential_image_generation: 'disabled',
       response_format: 'url',
-      size,
+      size: resolvedSize,
       stream: false,
       watermark,
     }),
@@ -108,6 +125,8 @@ export async function generateProductSetImage({ prompt, image, size = '2K', wate
   return {
     ok: true,
     model: DEFAULT_MODEL,
+    size: resolvedSize,
+    ratio: String(ratio || '').trim() || null,
     images,
     raw: payload,
   }

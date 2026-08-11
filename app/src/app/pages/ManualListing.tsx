@@ -44,6 +44,8 @@ type UploadPreview = {
 type CategoryNode = {
   label: string;
   children?: CategoryNode[];
+  cid?: number;
+  isParent?: boolean;
 };
 
 const FIELD_LABEL_CLASS = "mb-1.5 block text-[14px] font-bold text-[#0A1B39]";
@@ -643,8 +645,73 @@ function CategoryPickerModal({
 }) {
   const [selectedPath, setSelectedPath] = useState<string[]>(value);
   const [keyword, setKeyword] = useState("");
+  const [apiMode, setApiMode] = useState(false);
+  const [apiNotice, setApiNotice] = useState("");
+  const [apiColumns, setApiColumns] = useState<{ parentPath: string[]; nodes: CategoryNode[]; loading?: boolean }[]>([]);
+
+  // 打开时先拉淘宝一级类目，成功则走 API 级联，失败回退本地类目树
+  useEffect(() => {
+    if (!open) return;
+    setSelectedPath(value);
+    setKeyword("");
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/taobao/categories?parent_cid=0");
+        const payload = await res.json();
+        if (cancelled) return;
+        if (payload?.ok && Array.isArray(payload.categories) && payload.categories.length > 0) {
+          setApiMode(true);
+          setApiNotice("");
+          setApiColumns([
+            {
+              parentPath: [],
+              nodes: payload.categories.map((cat: { name: string; cid: number; isParent: boolean }) => ({
+                label: cat.name,
+                cid: cat.cid,
+                isParent: cat.isParent,
+              })),
+            },
+          ]);
+        } else {
+          setApiMode(false);
+          setApiNotice(payload?.error ? `淘宝类目接口暂不可用（${payload.error}），已使用本地类目` : "未配置淘宝开放平台，已使用本地类目");
+          setApiColumns([]);
+        }
+      } catch {
+        if (!cancelled) {
+          setApiMode(false);
+          setApiNotice("淘宝类目接口暂不可用，已使用本地类目");
+          setApiColumns([]);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   if (!open) return null;
+
+  const loadApiChildren = async (parentPath: string[], cid: number, level: number) => {
+    setApiColumns((prev) => [...prev.slice(0, level + 1), { parentPath, nodes: [], loading: true }]);
+    let nodes: CategoryNode[] = [];
+    try {
+      const res = await fetch(`/api/taobao/categories?parent_cid=${cid}`);
+      const payload = await res.json();
+      if (payload?.ok && Array.isArray(payload.categories)) {
+        nodes = payload.categories.map((cat: { name: string; cid: number; isParent: boolean }) => ({
+          label: cat.name,
+          cid: cat.cid,
+          isParent: cat.isParent,
+        }));
+      }
+    } catch {
+      nodes = [];
+    }
+    setApiColumns((prev) => [...prev.slice(0, level + 1), { parentPath, nodes }]);
+  };
 
   const filterCategoryTree = (nodes: CategoryNode[], keywordValue: string): CategoryNode[] => (
     nodes.reduce<CategoryNode[]>((result, node) => {
@@ -737,19 +804,63 @@ function CategoryPickerModal({
         )}
 
         <div className="px-6 pb-4">
+          {apiNotice && (
+            <div className="mb-3 rounded-lg bg-[#fff7e6] px-3 py-2 text-[12px] text-[#ad6800]">{apiNotice}</div>
+          )}
           <div className="flex items-center gap-2 mb-4">
             <input
               type="text"
               value={keyword}
               onChange={(e) => setKeyword(e.target.value)}
-              placeholder="类目搜索"
-              className="flex-1 h-9 rounded-lg border border-[#e6e9ef] bg-white px-3 text-[13px] outline-none focus:border-[#3388ff]"
+              placeholder={apiMode ? "API 模式下请逐级选择类目" : "类目搜索"}
+              disabled={apiMode}
+              className={`flex-1 h-9 rounded-lg border border-[#e6e9ef] bg-white px-3 text-[13px] outline-none focus:border-[#3388ff] ${apiMode ? "opacity-60" : ""}`}
             />
             <button className="h-9 px-4 rounded-lg bg-[#f5f6f8] text-[13px] text-[#0A1B39] hover:bg-[#e6e9ef]">
               搜索
             </button>
           </div>
 
+          {apiMode ? (
+            <div className="flex border border-[#eef1f5] rounded-lg overflow-hidden">
+              {apiColumns.map((col, idx) => (
+                <div key={idx} className="flex-1 min-w-[180px] max-h-[300px] overflow-y-auto border-r border-[#eef1f5] last:border-r-0">
+                  {col.loading ? (
+                    <div className="flex h-10 items-center justify-center text-[12px] text-[#86909C]">加载中…</div>
+                  ) : col.nodes.length === 0 ? (
+                    <div className="flex h-10 items-center justify-center text-[12px] text-[#86909C]">暂无子类目</div>
+                  ) : (
+                    col.nodes.map((node) => {
+                      const currentPath = [...col.parentPath, node.label];
+                      const isSelected = selectedPath.join("/") === currentPath.join("/");
+                      return (
+                        <button
+                          key={`${node.cid ?? node.label}`}
+                          type="button"
+                          className={`flex h-10 w-full items-center justify-between px-4 text-left text-[13px] transition-colors ${
+                            isSelected
+                              ? "bg-[#e4f3ff] font-bold text-[#3388ff]"
+                              : "font-normal text-[#0A1B39] hover:bg-[#f5f8fc]"
+                          }`}
+                          onClick={() => {
+                            setSelectedPath(currentPath);
+                            if (node.isParent && node.cid != null) {
+                              void loadApiChildren(currentPath, node.cid, idx);
+                            } else {
+                              setApiColumns((prev) => prev.slice(0, idx + 1));
+                            }
+                          }}
+                        >
+                          <span>{node.label}</span>
+                          {node.isParent && <ChevronDown className="-rotate-90 h-4 w-4 text-[#86909C]" />}
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
           <div className="flex border border-[#eef1f5] rounded-lg overflow-hidden">
             {getColumns().map((col, idx) => (
               <div key={idx} className="flex-1 min-w-[180px] max-h-[300px] overflow-y-auto border-r border-[#eef1f5] last:border-r-0">
@@ -783,6 +894,7 @@ function CategoryPickerModal({
               </div>
             ))}
           </div>
+          )}
         </div>
 
         <div className="flex justify-center pb-6">
@@ -2021,10 +2133,31 @@ export function ManualListing({
   const [taobaoProductTitle, setTaobaoProductTitle] = useState("");
   const [taobaoGuideTitle, setTaobaoGuideTitle] = useState("");
   const [taobaoStore, setTaobaoStore] = useState("");
+  const [taobaoStoreOptions, setTaobaoStoreOptions] = useState<string[]>(MOCK_TAOBAO_STORES);
   const [taobaoCategory, setTaobaoCategory] = useState<string[]>([]);
   const [taobaoProductMaster, setTaobaoProductMaster] = useState("");
   const [taobaoMerchantCode, setTaobaoMerchantCode] = useState("");
   const [showCategoryModal, setShowCategoryModal] = useState(false);
+
+  // 商家店铺优先取淘宝开放平台真实店铺（taobao.shops.get），未配置/失败时回退本地 mock
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/taobao/shops")
+      .then((res) => res.json())
+      .then((payload) => {
+        if (cancelled) return;
+        if (payload?.ok && Array.isArray(payload.shops) && payload.shops.length > 0) {
+          const names = payload.shops
+            .map((shop: { title?: string; nick?: string }) => shop.title || shop.nick || "")
+            .filter(Boolean);
+          if (names.length > 0) setTaobaoStoreOptions(names);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const [showGalleryModal, setShowGalleryModal] = useState(false);
   const [selectedMainGroup, setSelectedMainGroup] = useState<string[]>([]);
   const [selectedDetailGroup, setSelectedDetailGroup] = useState<string[]>([]);
@@ -2267,7 +2400,7 @@ export function ManualListing({
 	                        </label>
 	                        <SearchableSelect
 	                          value={taobaoStore}
-	                          options={MOCK_TAOBAO_STORES}
+	                          options={taobaoStoreOptions}
 	                          onChange={setTaobaoStore}
 	                          placeholder="请选择"
 	                        />
