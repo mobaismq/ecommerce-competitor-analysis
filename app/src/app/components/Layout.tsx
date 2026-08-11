@@ -105,6 +105,7 @@ export function Layout() {
     const saved = localStorage.getItem("sidebar_manually_collapsed");
     return saved ? new Set(JSON.parse(saved)) : new Set();
   });
+  const [hoveredFlyout, setHoveredFlyout] = useState<string | null>(null);
 
   useEffect(() => {
     localStorage.setItem("sidebar_expanded", JSON.stringify(expanded));
@@ -117,6 +118,10 @@ export function Layout() {
   useEffect(() => {
     localStorage.setItem("sidebar_manually_collapsed", JSON.stringify(Array.from(manuallyCollapsed)));
   }, [manuallyCollapsed]);
+
+  useEffect(() => {
+    setHoveredFlyout(null);
+  }, [location.pathname]);
 
   useEffect(() => {
     setExpandedGroups((prev) => {
@@ -157,6 +162,45 @@ export function Layout() {
     });
   };
 
+  function renderFlyoutItems(items: NavItem[], depth: number = 0): ReactNode {
+    return items.map((item) => {
+      const hasChildren = Boolean(item.children?.length);
+      const isActive = item.to ? item.to === location.pathname : false;
+      const hasActiveDescendant = hasActiveChild(item, location.pathname);
+
+      if (hasChildren) {
+        return (
+          <div key={item.label} className={depth > 0 ? "mt-1" : ""}>
+            <div
+              className={`flex h-9 items-center rounded-lg px-3 text-[14px] ${hasActiveDescendant ? "font-bold text-[#0A1B39]" : "font-semibold text-[#0A1B39]"}`}
+              style={{ paddingLeft: `${12 + depth * 16}px` }}
+            >
+              <span className="truncate">{item.label}</span>
+            </div>
+            <div className="mt-1 flex flex-col gap-1">{renderFlyoutItems(item.children!, depth + 1)}</div>
+          </div>
+        );
+      }
+
+      const content = (
+        <div
+          className={`flex h-9 items-center rounded-lg px-3 text-[14px] transition-colors ${isActive ? "bg-[#e8f3ff] font-bold text-[#3388ff]" : "font-normal text-[#0A1B39] hover:bg-[#f5f7fa] hover:text-[#3388ff]"}`}
+          style={{ paddingLeft: `${12 + depth * 16}px` }}
+        >
+          <span className="truncate">{item.label}</span>
+        </div>
+      );
+
+      return item.to ? (
+        <Link key={item.label} to={item.to} onClick={() => setHoveredFlyout(null)}>
+          {content}
+        </Link>
+      ) : (
+        <div key={item.label}>{content}</div>
+      );
+    });
+  }
+
   function renderNavItems(items: NavItem[], depth: number = 0): ReactNode {
     return items.map((item) => {
       const hasChildren = Boolean(item.children?.length);
@@ -167,6 +211,33 @@ export function Layout() {
       if (depth > 0 && !expanded) return null;
 
       const indentStyle = depth > 0 ? { paddingLeft: `${40 + (depth - 1) * 24}px` } : {};
+
+      if (hasChildren && !expanded && depth === 0) {
+        const content = (
+          <div
+            className={`flex h-10 w-10 items-center justify-center rounded-lg transition-colors ${hasActiveDescendant ? "bg-[#e4f3ff] text-[#0A1B39]" : hoveredFlyout === item.label ? "bg-[#f5f6f8] text-[#0A1B39]" : "text-[#0A1B39]"}`}
+          >
+            <div className="shrink-0">{item.icon}</div>
+          </div>
+        );
+
+        return (
+          <div
+            key={item.label}
+            className="relative flex justify-center"
+            onMouseEnter={() => setHoveredFlyout(item.label)}
+            onMouseLeave={() => setHoveredFlyout((current) => current === item.label ? null : current)}
+          >
+            {content}
+            <div className={`absolute left-full top-0 z-[120] pl-3 ${hoveredFlyout === item.label ? "block" : "hidden"}`}>
+              <div className="w-[220px] rounded-2xl bg-white p-3 shadow-[0_16px_40px_rgba(10,27,57,0.14)] ring-1 ring-[#eef1f5]">
+                <div className="mb-2 px-3 py-1 text-[14px] font-normal text-[#86909C]">{item.label}</div>
+                <div className="flex flex-col gap-1">{renderFlyoutItems(item.children!)}</div>
+              </div>
+            </div>
+          </div>
+        );
+      }
 
       if (hasChildren && expanded) {
         return (
