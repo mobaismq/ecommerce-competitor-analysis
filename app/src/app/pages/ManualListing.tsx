@@ -41,6 +41,21 @@ type UploadPreview = {
   name: string;
   type: "image" | "video";
 };
+type SkuItem = {
+  id: string;
+  specName: string;
+  specImage: string;
+  price: string;
+  quantity: string;
+  laserLines: string;
+  bodyLength: string;
+  skuCode: string;
+  barcode: string;
+  skuCategory: string;
+  searchImage: string;
+  searchTitle: string;
+  isListed: boolean;
+};
 type CategoryNode = {
   label: string;
   children?: CategoryNode[];
@@ -1864,6 +1879,28 @@ export function ManualListing({
   const initialPlatform = (location.state as { platform?: string })?.platform ?? "抖店";
   const [activePlatform, setActivePlatform] = useState(initialPlatform);
   const [activeTab, setActiveTab] = useState<TabName>("基础信息");
+  const [showDraftList, setShowDraftList] = useState(false);
+  const [saveToast, setSaveToast] = useState<{ msg: string; type: "success" | "error" } | null>(null);
+  const [mockDrafts, setMockDrafts] = useState([
+    { name: "草稿_2026-08-08 17:26:46", date: "2026-08-08 17:26:46" },
+    { name: "草稿_2026-08-07 23:48:47", date: "2026-08-07 23:48:48" },
+    { name: "草稿_2026-08-07 23:39:05", date: "2026-08-07 23:39:05" },
+    { name: "草稿_2026-08-07 20:15:22", date: "2026-08-07 20:15:22" },
+    { name: "草稿_2026-08-06 18:30:11", date: "2026-08-06 18:30:11" },
+  ]);
+
+  const handleSaveDraft = () => {
+    try {
+      const now = new Date();
+      const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}:${String(now.getSeconds()).padStart(2, "0")}`;
+      const draft = { name: `草稿_${dateStr}`, date: dateStr };
+      setMockDrafts(prev => [draft, ...prev]);
+      setSaveToast({ msg: "保存成功", type: "success" });
+    } catch {
+      setSaveToast({ msg: "保存失败", type: "error" });
+    }
+    setTimeout(() => setSaveToast(null), 2000);
+  };
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const sectionRefs = useRef({
     "基础信息": null as HTMLDivElement | null,
@@ -1959,6 +1996,39 @@ export function ManualListing({
     return () => { if (cleanup) cleanup(); };
   }, [activePlatform]);
 
+  // 点击外部关闭草稿列表
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (showDraftList && !target.closest('[data-draft-container]')) {
+        setShowDraftList(false);
+      }
+    };
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, [showDraftList]);
+
+  const storeCategoryData = [
+    { name: "电动工具", children: ["手电钻", "水平仪", "电锤", "角磨机", "电锯"] },
+    { name: "温度计", children: ["机械温湿度计", "电子温湿度计", "蓝牙温度计", "食品温度计", "冰箱温度计", "鱼缸水温计", "红水温度计"] },
+    { name: "测量工具", children: ["卷尺", "激光测距仪", "游标卡尺", "千分尺"] },
+    { name: "手动工具", children: ["螺丝刀", "扳手", "钳子", "锤子", "锯子"] },
+  ];
+
+  const productAttributeData = [
+    { name: "电池类型", important: true, type: "input", placeholder: "请输入" },
+    { name: "供电方式", important: true, type: "select", options: ["请选择", "电池供电", "USB充电", "插电使用"] },
+    { name: "货号", important: true, type: "input", placeholder: "请输入" },
+    { name: "品牌", important: true, type: "input", placeholder: "请输入", help: "正确填写品牌信息有助于提升曝光，请正确填写，若未找到品牌，请[新增品牌]或选择【无品牌/无注册商标】" },
+    { name: "材质", important: false, type: "input", placeholder: "请输入" },
+    { name: "防护等级", important: false, type: "select", options: ["请选择", "IP54", "IP65", "IP67", "IP68"] },
+    { name: "机身高度", important: false, type: "number", unit: "mm" },
+    { name: "机身宽度", important: false, type: "number", unit: "mm" },
+    { name: "续航时间", important: false, type: "number", unitSelect: true, unitOptions: ["请选择单位", "小时", "分钟"] },
+    { name: "整机重量", important: false, type: "number", unitSelect: true, unitOptions: ["请选择单位", "kg", "g"] },
+    { name: "装修及施工内容", important: false, type: "input", placeholder: "请输入" },
+  ];
+
   const [storeName, setStoreName] = useState("抖音旗舰店");
   const [productTitle, setProductTitle] = useState("");
   const [recommendText, setRecommendText] = useState("");
@@ -2020,6 +2090,11 @@ export function ManualListing({
   const [taobaoMainImages, setTaobaoMainImages] = useState<Array<UploadPreview | null>>(Array(5).fill(null));
   const [taobaoProductTitle, setTaobaoProductTitle] = useState("");
   const [taobaoGuideTitle, setTaobaoGuideTitle] = useState("");
+  const [taobaoStoreCategory, setTaobaoStoreCategory] = useState<string[]>([]);
+  const [storeCategoryOpen, setStoreCategoryOpen] = useState(false);
+  const [expandedCats, setExpandedCats] = useState<Record<string, boolean>>({ "电动工具": true, "温度计": true });
+  const [productAttrsOpen, setProductAttrsOpen] = useState(false);
+  const [productAttrs, setProductAttrs] = useState<Record<string, string>>({});
   const [taobaoStore, setTaobaoStore] = useState("");
   const [taobaoCategory, setTaobaoCategory] = useState<string[]>([]);
   const [taobaoProductMaster, setTaobaoProductMaster] = useState("");
@@ -2052,6 +2127,15 @@ export function ManualListing({
   const [taobaoRegionalTemplate, setTaobaoRegionalTemplate] = useState("请选择");
   const [taobaoWarrantyService, setTaobaoWarrantyService] = useState(false);
   const [taobaoSevenDayReturn, setTaobaoSevenDayReturn] = useState(true);
+  const [skuList, setSkuList] = useState<SkuItem[]>([]);
+  const [imageUploadModal, setImageUploadModal] = useState<{ open: boolean; type: "spec" | "search"; skuId: string | null }>({ open: false, type: "spec", skuId: null });
+  const [hoveredImage, setHoveredImage] = useState<{ type: "spec" | "search"; skuId: string; rect: DOMRect } | null>(null);
+  const [deleteConfirmModal, setDeleteConfirmModal] = useState<{ open: boolean; skuId: string | null }>({ open: false, skuId: null });
+  const [colWidths, setColWidths] = useState<Record<string, number>>({
+    specName: 140, specImage: 80, price: 120, quantity: 100,
+    laserLines: 120, bodyLength: 120, skuCode: 140, barcode: 120,
+    skuCategory: 120, searchImage: 80, searchTitle: 140, isListed: 80, action: 80,
+  });
   const [pddStoreName, setPddStoreName] = useState("请选择店铺");
   const [pddProductCode, setPddProductCode] = useState("");
   const [pddProductTitle, setPddProductTitle] = useState("");
@@ -2080,6 +2164,87 @@ export function ManualListing({
   const [xhsEnglishName, setXhsEnglishName] = useState("");
   const [xhsPromise, setXhsPromise] = useState("");
   const usesDouyinTemplate = activePlatform === "抖店";
+
+  useEffect(() => {
+    const totalStock = skuList.reduce((sum, sku) => sum + (Number(sku.quantity) || 0), 0);
+    setTaobaoStock(String(totalStock));
+  }, [skuList]);
+
+  const handleAddSku = () => {
+    const newSku: SkuItem = {
+      id: Date.now().toString() + Math.random().toString(36).substring(2, 11),
+      specName: "",
+      specImage: "",
+      price: "",
+      quantity: "",
+      laserLines: "",
+      bodyLength: "",
+      skuCode: "",
+      barcode: "",
+      skuCategory: "",
+      searchImage: "",
+      searchTitle: "",
+      isListed: true,
+    };
+    setSkuList([...skuList, newSku]);
+  };
+
+  const handleUpdateSku = (id: string, field: keyof SkuItem, value: string | boolean) => {
+    setSkuList(skuList.map(sku => sku.id === id ? { ...sku, [field]: value } : sku));
+  };
+
+  const handleDeleteSku = (id: string) => {
+    setSkuList(skuList.filter(sku => sku.id !== id));
+    setDeleteConfirmModal({ open: false, skuId: null });
+  };
+
+  const skuTableRef = useRef<HTMLTableElement>(null);
+
+  const handleColResizeStart = (col: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startW = colWidths[col] || 100;
+    const table = skuTableRef.current;
+    if (!table) return;
+
+    const onMove = (ev: MouseEvent) => {
+      const diff = ev.clientX - startX;
+      const newW = Math.max(60, startW + diff);
+      setColWidths(prev => {
+        const next = { ...prev, [col]: newW };
+        // Also update table width immediately
+        const totalW = Object.values(next).reduce((s, w) => s + w, 0);
+        if (table) table.style.width = totalW + "px";
+        return next;
+      });
+    };
+    const onUp = () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  };
+
+  const handleImageUpload = (id: string, type: "spec" | "search", imageUrl: string) => {
+    const field = type === "spec" ? "specImage" : "searchImage";
+    handleUpdateSku(id, field, imageUrl);
+    setImageUploadModal({ open: false, type: "spec", skuId: null });
+  };
+
+  const handleLocalUpload = (id: string, type: "spec" | "search", file: File) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const imageUrl = e.target?.result as string;
+      handleImageUpload(id, type, imageUrl);
+    };
+    reader.readAsDataURL(file);
+  };
 
   const createPreview = (file: File, type: UploadPreview["type"]): UploadPreview => ({
     url: URL.createObjectURL(file),
@@ -2189,45 +2354,87 @@ export function ManualListing({
 
   return (
     <div ref={scrollContainerRef} className="h-full overflow-y-auto bg-[#f4f7fb]">
-      {/* Sticky Tab Bar - outside padding */}
-      <div className="sticky top-0 z-10 bg-[#f4f7fb] flex items-center justify-center gap-0 pt-4 pb-3 px-6">
-        {TABS[activePlatform]?.map((tab, index) => (
-          <div key={tab} className="flex items-center">
-            <button
-              onClick={() => scrollToSection(tab)}
-              className={`px-4 py-2 text-[17px] font-bold transition-colors ${
-                activeTab === tab
-                  ? "text-[#3388ff]"
-                  : "text-[#86909C] hover:text-[#0A1B39]"
-              }`}
-            >
-              {tab}
-            </button>
-            {index < (TABS[activePlatform]?.length ?? 0) - 1 && (
-              <span className="text-[#d0d5dd] text-[14px] px-1">/</span>
-            )}
-          </div>
-        ))}
-      </div>
-
       {/* Content with padding */}
       <div className="p-6">
       {/* Single White Container */}
       <div className="rounded-2xl bg-white p-6">
         {/* Top Bar */}
-        <div className="flex items-center justify-between shrink-0">
+        <div className="flex items-center justify-between shrink-0 pb-2">
           <PageHeader breadcrumbs={breadcrumbs} className="mb-0" />
-          <div className="flex items-center gap-3">
-            <button className="h-[38px] rounded-xl border border-[#e1e6ee] bg-white px-5 text-[14px] font-bold text-[#0A1B39] transition-colors hover:bg-[#f5f6f8]">
-              存草稿
-            </button>
+          <div className="flex items-center gap-3 -mt-[10px] relative">
+            <div className="relative" data-draft-container>
+              <div className="h-[38px] flex items-center rounded-full bg-[#f0f2f5] px-5 text-[14px] font-bold text-[#0A1B39] transition-colors hover:bg-[#e8eaed]">
+                <button
+                  onClick={() => setShowDraftList(!showDraftList)}
+                  className="flex items-center gap-2 cursor-pointer"
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
+                    <polyline points="22,6 12,13 2,6" />
+                  </svg>
+                  <span>{mockDrafts.length}</span>
+                </button>
+                <button
+                  onClick={handleSaveDraft}
+                  className="ml-2 cursor-pointer"
+                >
+                  保存草稿
+                </button>
+              </div>
+              {showDraftList && (
+                <div className="absolute right-0 top-[44px] w-[360px] bg-white rounded-xl shadow-[0_4px_20px_rgba(0,0,0,0.12)] border border-[#eef1f5] z-50 overflow-hidden">
+                  <div className="px-4 py-3 border-b border-[#f0f2f5]">
+                    <span className="text-[15px] font-bold text-[#0A1B39]">您在当前类目下的草稿（{mockDrafts.length}）</span>
+                  </div>
+                  <div className="max-h-[320px] overflow-y-auto">
+                    {mockDrafts.map((draft, i) => (
+                      <div key={i} className="px-4 py-3 border-b border-[#f5f6f8] last:border-0 hover:bg-[#f8f9fb] cursor-pointer transition-colors">
+                        <div className="flex items-center justify-between">
+                          <div className="flex-1 min-w-0">
+                            <div className="text-[14px] text-[#3388ff] font-medium truncate">{draft.name}</div>
+                            <div className="text-[13px] text-[#86909C] mt-0.5">{draft.date}</div>
+                          </div>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setMockDrafts(prev => prev.filter((_, idx) => idx !== i)); }}
+                            className="text-[13px] text-[#86909C] hover:text-[#ff4d4f] ml-3 shrink-0"
+                          >
+                            删除
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
             <button className="h-[38px] rounded-xl bg-[#3388ff] px-6 text-[14px] font-bold text-white shadow-[0_8px_24px_rgba(47,130,255,.25)] transition-all hover:bg-[#1a6fe8] hover:shadow-[0_12px_32px_rgba(47,130,255,.35)]">
               立即发布
             </button>
           </div>
         </div>
 
-        <div className="flex gap-6 pt-6">
+        {/* Tab Bar - sticky on scroll */}
+        <div className="sticky top-0 z-10 bg-white flex items-center justify-center gap-0 h-[40px] -mx-6 px-6 border-b border-[#eef1f5] -mt-[10px]">
+          {TABS[activePlatform]?.map((tab, index) => (
+            <div key={tab} className="flex items-center">
+              <button
+                onClick={() => scrollToSection(tab)}
+                className={`px-3 py-1.5 text-[15px] font-bold transition-colors ${
+                  activeTab === tab
+                    ? "text-[#3388ff]"
+                    : "text-[#86909C] hover:text-[#0A1B39]"
+                }`}
+              >
+                {tab}
+              </button>
+              {index < (TABS[activePlatform]?.length ?? 0) - 1 && (
+                <span className="text-[#d0d5dd] text-[13px] px-1">/</span>
+              )}
+            </div>
+          ))}
+        </div>
+
+        <div className="flex gap-6">
           {/* Left Platform Sidebar */}
 	          <div className="w-[110px] shrink-0 space-y-2 py-3">
 	            {PLATFORMS.map((platform) => (
@@ -2329,12 +2536,9 @@ export function ManualListing({
 	                          value={taobaoMerchantCode}
 	                          onChange={(e) => setTaobaoMerchantCode(e.target.value.slice(0, 64))}
 	                          placeholder="请输入"
-	                          className={`${INPUT_CLASS} pr-24`}
+	                          className={INPUT_CLASS}
 	                          readOnly={!!MOCK_PRODUCT_MASTER.find(p => p.name === taobaoProductMaster)?.code}
 	                        />
-	                        <div className="absolute right-3 top-1/2 flex -translate-y-1/2 items-center gap-3 text-[12px]">
-	                          <span className="text-[#86909C]">{taobaoMerchantCode.length}/64</span>
-	                        </div>
 	                      </div>
 
 	                      <div>
@@ -2375,6 +2579,133 @@ export function ManualListing({
 	                            <button className="font-bold text-[#3388ff]">AI推荐</button>
 	                          </div>
 	                        </div>
+	                      </div>
+
+	                      <div>
+	                        <label className={FIELD_LABEL_CLASS}>店铺中分类</label>
+	                        <p className="mb-2 text-[12px] text-[#86909C]">最多支持选择20项分类</p>
+	                        <div className="relative">
+	                          <button
+	                            type="button"
+	                            className={`${SELECT_TRIGGER_CLASS} ${taobaoStoreCategory.length > 0 ? "" : ""}`}
+	                            onClick={() => setStoreCategoryOpen(!storeCategoryOpen)}
+	                          >
+	                            <span className={taobaoStoreCategory.length === 0 ? "font-normal text-[#98A2B3]" : ""}>
+	                              {taobaoStoreCategory.length > 0 ? `已选${taobaoStoreCategory.length}项` : "选择分类"}
+	                            </span>
+	                            <ChevronDown className={`h-4 w-4 text-[#86909C] transition-transform ${storeCategoryOpen ? "rotate-180" : ""}`} />
+	                          </button>
+	                          {storeCategoryOpen && (
+	                            <div className="absolute left-0 right-0 top-[calc(100%+6px)] z-40 overflow-y-auto rounded-xl border border-[#e1e6ee] bg-white py-2 shadow-[0_12px_28px_rgba(15,23,41,.14)]" style={{ maxHeight: 300 }}>
+	                              {storeCategoryData.map((cat) => (
+	                                <div key={cat.name}>
+	                                  <div className="flex items-center gap-2 px-3 py-1.5">
+	                                    <button
+	                                      type="button"
+	                                      className="text-[#86909C] hover:text-[#0A1B39]"
+	                                      onClick={() => setExpandedCats(prev => ({ ...prev, [cat.name]: !prev[cat.name] }))}
+	                                    >
+	                                      <ChevronDown className={`h-3.5 w-3.5 transition-transform ${expandedCats[cat.name] !== false ? "rotate-0" : "-rotate-90"}`} />
+	                                    </button>
+	                                    <span className="text-[13px] font-bold text-[#0A1B39]">{cat.name}</span>
+	                                  </div>
+	                                  {expandedCats[cat.name] !== false && cat.children && (
+	                                    <div className="ml-6">
+	                                      {cat.children.map((sub) => (
+	                                        <label key={sub} className="flex cursor-pointer items-center gap-2 px-3 py-1.5 hover:bg-[#f5f8fc]">
+	                                          <div
+	                                            className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border-2 transition-colors ${
+	                                              taobaoStoreCategory.includes(sub)
+	                                                ? "border-[#3388ff] bg-[#3388ff]"
+	                                                : "border-[#d0d5dd] bg-white"
+	                                            }`}
+	                                            onClick={() => {
+	                                              if (taobaoStoreCategory.includes(sub)) {
+	                                                setTaobaoStoreCategory(prev => prev.filter(c => c !== sub));
+	                                              } else if (taobaoStoreCategory.length < 20) {
+	                                                setTaobaoStoreCategory(prev => [...prev, sub]);
+	                                              }
+	                                            }}
+	                                          >
+	                                            {taobaoStoreCategory.includes(sub) && <span className="text-[12px] leading-none text-white">✓</span>}
+	                                          </div>
+	                                          <span className="text-[13px] text-[#0A1B39]">{sub}</span>
+	                                        </label>
+	                                      ))}
+	                                    </div>
+	                                  )}
+	                                </div>
+	                              ))}
+	                            </div>
+	                          )}
+	                        </div>
+	                      </div>
+
+	                      <div>
+	                        <label className={FIELD_LABEL_CLASS}>商品属性</label>
+	                        <button
+	                          type="button"
+	                          className="mb-3 flex items-center gap-1 text-[13px] text-[#3388ff] hover:underline"
+	                          onClick={() => setProductAttrsOpen(!productAttrsOpen)}
+	                        >
+	                          {productAttrsOpen ? "收起属性" : "展开属性"}
+	                          <ChevronDown className={`h-3.5 w-3.5 transition-transform ${productAttrsOpen ? "rotate-180" : ""}`} />
+	                        </button>
+	                        {productAttrsOpen && (
+	                          <div className="border border-[#eef1f5] rounded-lg p-4">
+	                            <div className="grid grid-cols-2 gap-x-6 gap-y-5">
+	                              {productAttributeData.map((attr) => (
+	                                <div key={attr.name} className="space-y-2">
+	                                  <label className="text-[13px] font-bold text-[#0A1B39]">
+	                                    {attr.name}
+	                                  </label>
+	                                  {attr.type === "input" && (
+	                                    <>
+	                                      <input
+	                                        type="text"
+	                                        value={productAttrs[attr.name] || ""}
+	                                        onChange={(e) => setProductAttrs(prev => ({ ...prev, [attr.name]: e.target.value }))}
+	                                        placeholder={attr.placeholder}
+	                                        className={`${INPUT_CLASS}`}
+	                                      />
+	                                      {attr.help && <p className="text-[11px] text-[#86909C]">{attr.help}</p>}
+	                                    </>
+	                                  )}
+	                                  {attr.type === "select" && (
+	                                    <select
+	                                      value={productAttrs[attr.name] || ""}
+	                                      onChange={(e) => setProductAttrs(prev => ({ ...prev, [attr.name]: e.target.value }))}
+	                                      className={`${INPUT_CLASS}`}
+	                                    >
+	                                      {attr.options?.map(opt => (
+	                                        <option key={opt} value={opt}>{opt}</option>
+	                                      ))}
+	                                    </select>
+	                                  )}
+	                                  {attr.type === "number" && (
+	                                    <div className="flex items-center gap-2">
+	                                      <input
+	                                        type="text"
+	                                        value={productAttrs[attr.name] || ""}
+	                                        onChange={(e) => setProductAttrs(prev => ({ ...prev, [attr.name]: e.target.value }))}
+	                                        placeholder="数字"
+	                                        className="h-10 flex-1 rounded-lg border border-[#dce3ee] bg-white px-3 text-[13px] text-[#0A1B39] outline-none transition-colors placeholder:text-[#98A2B3] focus:border-[#3388ff] focus:ring-2 focus:ring-[#d8ebff]"
+	                                      />
+	                                      {attr.unit && <span className="shrink-0 text-[13px] text-[#0A1B39]">{attr.unit}</span>}
+	                                      {attr.unitSelect && (
+	                                        <select className="h-10 w-[120px] shrink-0 rounded-lg border border-[#dce3ee] bg-white px-3 text-[13px] text-[#0A1B39] outline-none transition-colors focus:border-[#3388ff] focus:ring-2 focus:ring-[#d8ebff]">
+	                                          {attr.unitOptions?.map(opt => (
+	                                            <option key={opt} value={opt}>{opt}</option>
+	                                          ))}
+	                                        </select>
+	                                      )}
+	                                    </div>
+	                                  )}
+	                                </div>
+	                              ))}
+	                            </div>
+	                          </div>
+	                        )}
 	                      </div>
 
 	                    </div>
@@ -3720,12 +4051,252 @@ export function ManualListing({
 	                    <div className="mb-5 flex items-center gap-3">
 	                      <span className="text-[14px] font-bold text-[#0A1B39]">销售规格 <span className="text-[#ff4d4f]">*</span></span>
 	                    </div>
+
+	                    {skuList.length > 0 && (
+	                      <div className="overflow-x-auto border border-[#eef1f5] rounded-lg">
+	                        <table ref={skuTableRef} className="border-collapse text-[12px]" style={{ tableLayout: "fixed", width: Object.values(colWidths).reduce((s, w) => s + w, 0) + "px" }}>
+	                          <thead>
+	                            <tr className="bg-[#f5f7fa]">
+	                              <th className="border border-[#eef1f5] px-3 py-2 text-left font-bold text-[#0A1B39] whitespace-nowrap relative select-none" style={{ width: colWidths.specName + "px" }}>规格名称 <span className="text-[#ff4d4f]">*</span><span onMouseDown={(e) => handleColResizeStart("specName", e)} className="absolute right-0 top-0 h-full w-2 cursor-col-resize hover:bg-[#3388ff]/40" /></th>
+	                              <th className="border border-[#eef1f5] px-3 py-2 text-left font-bold text-[#0A1B39] whitespace-nowrap relative select-none" style={{ width: colWidths.specImage + "px" }}>规格图片<span onMouseDown={(e) => handleColResizeStart("specImage", e)} className="absolute right-0 top-0 h-full w-2 cursor-col-resize hover:bg-[#3388ff]/40" /></th>
+	                              <th className="border border-[#eef1f5] px-3 py-2 text-left font-bold text-[#0A1B39] whitespace-nowrap relative select-none" style={{ width: colWidths.price + "px" }}>价格 <span className="text-[#ff4d4f]">*</span><span onMouseDown={(e) => handleColResizeStart("price", e)} className="absolute right-0 top-0 h-full w-2 cursor-col-resize hover:bg-[#3388ff]/40" /></th>
+	                              <th className="border border-[#eef1f5] px-3 py-2 text-left font-bold text-[#0A1B39] whitespace-nowrap relative select-none" style={{ width: colWidths.quantity + "px" }}>数量 <span className="text-[#ff4d4f]">*</span><span onMouseDown={(e) => handleColResizeStart("quantity", e)} className="absolute right-0 top-0 h-full w-2 cursor-col-resize hover:bg-[#3388ff]/40" /></th>
+	                              <th className="border border-[#eef1f5] px-3 py-2 text-left font-bold text-[#0A1B39] whitespace-nowrap relative select-none" style={{ width: colWidths.laserLines + "px" }}>激光线数 <span className="text-[#ff4d4f]">*</span><span onMouseDown={(e) => handleColResizeStart("laserLines", e)} className="absolute right-0 top-0 h-full w-2 cursor-col-resize hover:bg-[#3388ff]/40" /></th>
+	                              <th className="border border-[#eef1f5] px-3 py-2 text-left font-bold text-[#0A1B39] whitespace-nowrap relative select-none" style={{ width: colWidths.bodyLength + "px" }}>机身长度 <span className="text-[#ff4d4f]">*</span><span onMouseDown={(e) => handleColResizeStart("bodyLength", e)} className="absolute right-0 top-0 h-full w-2 cursor-col-resize hover:bg-[#3388ff]/40" /></th>
+	                              <th className="border border-[#eef1f5] px-3 py-2 text-left font-bold text-[#0A1B39] whitespace-nowrap relative select-none" style={{ width: colWidths.skuCode + "px" }}>商家SKU编码<span onMouseDown={(e) => handleColResizeStart("skuCode", e)} className="absolute right-0 top-0 h-full w-2 cursor-col-resize hover:bg-[#3388ff]/40" /></th>
+	                              <th className="border border-[#eef1f5] px-3 py-2 text-left font-bold text-[#0A1B39] whitespace-nowrap relative select-none" style={{ width: colWidths.barcode + "px" }}>条形码<span onMouseDown={(e) => handleColResizeStart("barcode", e)} className="absolute right-0 top-0 h-full w-2 cursor-col-resize hover:bg-[#3388ff]/40" /></th>
+	                              <th className="border border-[#eef1f5] px-3 py-2 text-left font-bold text-[#0A1B39] whitespace-nowrap relative select-none" style={{ width: colWidths.skuCategory + "px" }}>SKU分类<span onMouseDown={(e) => handleColResizeStart("skuCategory", e)} className="absolute right-0 top-0 h-full w-2 cursor-col-resize hover:bg-[#3388ff]/40" /></th>
+	                              <th className="border border-[#eef1f5] px-3 py-2 text-left font-bold text-[#0A1B39] whitespace-nowrap relative select-none" style={{ width: colWidths.searchImage + "px" }}>SKU搜索图片<span onMouseDown={(e) => handleColResizeStart("searchImage", e)} className="absolute right-0 top-0 h-full w-2 cursor-col-resize hover:bg-[#3388ff]/40" /></th>
+	                              <th className="border border-[#eef1f5] px-3 py-2 text-left font-bold text-[#0A1B39] whitespace-nowrap relative select-none" style={{ width: colWidths.searchTitle + "px" }}>SKU搜索标题<span onMouseDown={(e) => handleColResizeStart("searchTitle", e)} className="absolute right-0 top-0 h-full w-2 cursor-col-resize hover:bg-[#3388ff]/40" /></th>
+	                              <th className="border border-[#eef1f5] px-3 py-2 text-left font-bold text-[#0A1B39] whitespace-nowrap relative select-none" style={{ width: colWidths.isListed + "px" }}>是否上架<span onMouseDown={(e) => handleColResizeStart("isListed", e)} className="absolute right-0 top-0 h-full w-2 cursor-col-resize hover:bg-[#3388ff]/40" /></th>
+	                              <th className="border border-[#eef1f5] px-3 py-2 text-left font-bold text-[#0A1B39] whitespace-nowrap sticky right-0 bg-[#f5f7fa] z-10 relative select-none" style={{ width: colWidths.action + "px" }}>操作</th>
+	                            </tr>
+	                          </thead>
+	                          <tbody>
+	                            {skuList.map((sku) => (
+	                              <tr key={sku.id} className="bg-white">
+	                                <td className="border border-[#eef1f5] px-2 py-1.5">
+	                                  <input
+	                                    type="text"
+	                                    value={sku.specName}
+	                                    onChange={(e) => handleUpdateSku(sku.id, "specName", e.target.value)}
+	                                    className="h-8 w-full rounded border border-[#dce3ee] bg-white px-2 text-[12px] text-[#0A1B39] outline-none focus:border-[#3388ff]"
+	                                    placeholder="请输入规格名称"
+	                                  />
+	                                </td>
+	                                <td className="border border-[#eef1f5] px-2 py-1.5 min-w-[60px]">
+	                                  <div
+	                                    className="relative inline-block"
+	                                    onMouseEnter={(e) => { const r = e.currentTarget.getBoundingClientRect(); setHoveredImage({ type: "spec", skuId: sku.id, rect: r }); }}
+	                                    onMouseLeave={() => setHoveredImage(null)}
+	                                  >
+	                                    <div className="flex h-12 w-12 items-center justify-center rounded border border-dashed border-[#d0d5dd] bg-[#f9fafb]">
+	                                      {sku.specImage ? (
+	                                        <img src={sku.specImage} alt="规格图" className="h-full w-full rounded object-cover" />
+	                                      ) : (
+	                                        <ImageIcon className="h-4 w-4 text-[#c0c4cc]" />
+	                                      )}
+	                                    </div>
+	                                  </div>
+	                                </td>
+	                                <td className="border border-[#eef1f5] px-2 py-1.5">
+	                                  <input
+	                                    type="text"
+	                                    value={sku.price}
+	                                    onChange={(e) => handleUpdateSku(sku.id, "price", e.target.value)}
+	                                    className="h-8 w-full rounded border border-[#dce3ee] bg-white px-2 text-[12px] text-[#0A1B39] outline-none focus:border-[#3388ff]"
+	                                    placeholder="请输入价格"
+	                                  />
+	                                </td>
+	                                <td className="border border-[#eef1f5] px-2 py-1.5">
+	                                  <input
+	                                    type="text"
+	                                    value={sku.quantity}
+	                                    onChange={(e) => handleUpdateSku(sku.id, "quantity", e.target.value)}
+	                                    className="h-8 w-full rounded border border-[#dce3ee] bg-white px-2 text-[12px] text-[#0A1B39] outline-none focus:border-[#3388ff]"
+	                                    placeholder="请输入数量"
+	                                  />
+	                                </td>
+	                                <td className="border border-[#eef1f5] px-2 py-1.5">
+	                                  <input
+	                                    type="text"
+	                                    value={sku.laserLines}
+	                                    onChange={(e) => handleUpdateSku(sku.id, "laserLines", e.target.value)}
+	                                    className="h-8 w-full rounded border border-[#dce3ee] bg-white px-2 text-[12px] text-[#0A1B39] outline-none focus:border-[#3388ff]"
+	                                    placeholder="请输入激光线数"
+	                                  />
+	                                </td>
+	                                <td className="border border-[#eef1f5] px-2 py-1.5">
+	                                  <input
+	                                    type="text"
+	                                    value={sku.bodyLength}
+	                                    onChange={(e) => handleUpdateSku(sku.id, "bodyLength", e.target.value)}
+	                                    className="h-8 w-full rounded border border-[#dce3ee] bg-white px-2 text-[12px] text-[#0A1B39] outline-none focus:border-[#3388ff]"
+	                                    placeholder="请输入机身长度"
+	                                  />
+	                                </td>
+	                                <td className="border border-[#eef1f5] px-2 py-1.5">
+	                                  <input
+	                                    type="text"
+	                                    value={sku.skuCode}
+	                                    onChange={(e) => handleUpdateSku(sku.id, "skuCode", e.target.value)}
+	                                    className="h-8 w-full rounded border border-[#dce3ee] bg-white px-2 text-[12px] text-[#0A1B39] outline-none focus:border-[#3388ff]"
+	                                    placeholder="请输入SKU编码"
+	                                  />
+	                                </td>
+	                                <td className="border border-[#eef1f5] px-2 py-1.5">
+	                                  <input
+	                                    type="text"
+	                                    value={sku.barcode}
+	                                    onChange={(e) => handleUpdateSku(sku.id, "barcode", e.target.value)}
+	                                    className="h-8 w-full rounded border border-[#dce3ee] bg-white px-2 text-[12px] text-[#0A1B39] outline-none focus:border-[#3388ff]"
+	                                    placeholder="请输入条形码"
+	                                  />
+	                                </td>
+	                                <td className="border border-[#eef1f5] px-2 py-1.5">
+	                                  <select
+	                                    value={sku.skuCategory}
+	                                    onChange={(e) => handleUpdateSku(sku.id, "skuCategory", e.target.value)}
+	                                    className="h-8 w-full rounded border border-[#dce3ee] bg-white px-2 text-[12px] text-[#0A1B39] outline-none focus:border-[#3388ff]"
+	                                  >
+	                                    <option value="">请选择</option>
+	                                    <option value="单品">单品</option>
+	                                    <option value="套餐">套餐</option>
+	                                    <option value="搭配/配件/赠品/样品">搭配/配件/赠品/样品</option>
+	                                    <option value="信息说明">信息说明</option>
+	                                  </select>
+	                                </td>
+	                                <td className="border border-[#eef1f5] px-2 py-1.5 min-w-[60px]">
+	                                  <div
+	                                    className="relative inline-block"
+	                                    onMouseEnter={(e) => { const r = e.currentTarget.getBoundingClientRect(); setHoveredImage({ type: "search", skuId: sku.id, rect: r }); }}
+	                                    onMouseLeave={() => setHoveredImage(null)}
+	                                  >
+	                                    <div className="flex h-12 w-12 items-center justify-center rounded border border-dashed border-[#d0d5dd] bg-[#f9fafb]">
+	                                      {sku.searchImage ? (
+	                                        <img src={sku.searchImage} alt="搜索图" className="h-full w-full rounded object-cover" />
+	                                      ) : (
+	                                        <ImageIcon className="h-4 w-4 text-[#c0c4cc]" />
+	                                      )}
+	                                    </div>
+	                                  </div>
+	                                </td>
+	                                <td className="border border-[#eef1f5] px-2 py-1.5">
+	                                  <input
+	                                    type="text"
+	                                    value={sku.searchTitle}
+	                                    onChange={(e) => handleUpdateSku(sku.id, "searchTitle", e.target.value.slice(0, 30))}
+	                                    className="h-8 w-full rounded border border-[#dce3ee] bg-white px-2 text-[12px] text-[#0A1B39] outline-none focus:border-[#3388ff]"
+	                                    placeholder="最多30字符"
+	                                  />
+	                                </td>
+	                                <td className="border border-[#eef1f5] px-2 py-1.5 text-center">
+	                                  <button
+	                                    type="button"
+	                                    onClick={() => handleUpdateSku(sku.id, "isListed", !sku.isListed)}
+	                                    className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${sku.isListed ? "bg-[#3388ff]" : "bg-[#dce3ee]"}`}
+	                                  >
+	                                    <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${sku.isListed ? "translate-x-4" : "translate-x-0.5"}`} />
+	                                  </button>
+	                                </td>
+	                                <td className="border border-[#eef1f5] px-2 py-1.5 text-center sticky right-0 bg-white z-10">
+                                  <button
+                                    type="button"
+                                    onClick={() => setDeleteConfirmModal({ open: true, skuId: sku.id })}
+                                    className="text-[#ff4d4f] hover:underline"
+                                  >
+                                    删除
+                                  </button>
+                                </td>
+                              </tr>
+	                            ))}
+	                          </tbody>
+	                        </table>
+	                      </div>
+	                    )}
+
+	                    {hoveredImage && (
+	                      <div
+	                        className="fixed z-[9999] pointer-events-none"
+	                        style={{ left: hoveredImage.rect.left, top: hoveredImage.rect.bottom + 4 }}
+	                      >
+	                        <div className="overflow-hidden rounded-lg border border-[#eef1f5] bg-white py-1 shadow-[0_4px_12px_rgba(15,23,41,.12)] pointer-events-auto w-[100px]">
+	                          <button type="button" onClick={() => { setImageUploadModal({ open: true, type: hoveredImage.type, skuId: hoveredImage.skuId }); setHoveredImage(null); }} className="block h-7 w-full text-center text-[12px] font-normal text-[#0A1B39] transition-colors hover:bg-[#f5f6f8]">图库上传</button>
+	                          <button type="button" onClick={() => { setImageUploadModal({ open: true, type: hoveredImage.type, skuId: hoveredImage.skuId }); setHoveredImage(null); }} className="block h-7 w-full text-center text-[12px] font-normal text-[#0A1B39] transition-colors hover:bg-[#f5f6f8]">空间上传</button>
+	                          <label className="block h-7 w-full text-center text-[12px] font-normal text-[#0A1B39] transition-colors hover:bg-[#f5f6f8] cursor-pointer">
+	                            本地上传
+	                            <input type="file" accept="image/*" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) handleLocalUpload(hoveredImage.skuId, hoveredImage.type, file); e.target.value = ""; setHoveredImage(null); }} />
+	                          </label>
+	                        </div>
+	                      </div>
+	                    )}
+
 	                    <button
 	                      type="button"
-	                      className="h-10 rounded-full bg-[#f2f4f7] px-5 text-[14px] font-bold text-[#4a5568] transition-colors hover:bg-[#e8edf3]"
+	                      onClick={handleAddSku}
+	                      className="mt-3 h-10 rounded-full bg-[#f2f4f7] px-5 text-[14px] font-bold text-[#4a5568] transition-colors hover:bg-[#e8edf3]"
 	                    >
-	                      + 创建规格
+	                      + 添加规格
 	                    </button>
+
+	                    {imageUploadModal.open && imageUploadModal.skuId && (
+	                      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+	                        <div className="relative w-[600px] rounded-lg bg-white p-6 shadow-lg">
+	                          <div className="mb-4 flex items-center justify-between">
+	                            <h3 className="text-[16px] font-bold text-[#0A1B39]">图片上传</h3>
+	                            <button
+	                              type="button"
+	                              onClick={() => setImageUploadModal({ open: false, type: "spec", skuId: null })}
+	                              className="text-[#86909C] hover:text-[#0A1B39]"
+	                            >
+	                              <X className="h-5 w-5" />
+	                            </button>
+	                          </div>
+	                          <div className="grid grid-cols-4 gap-3">
+	                            {[1, 2, 3, 4, 5, 6, 7, 8].map((item) => (
+	                              <button
+	                                key={item}
+	                                type="button"
+	                                onClick={() => {
+	                                  handleImageUpload(imageUploadModal.skuId!, imageUploadModal.type, `https://placehold.co/120x120/f5f7fa/86909C?text=图片${item}`);
+	                                }}
+	                                className="aspect-square rounded-lg border border-[#dce3ee] bg-[#f5f7fa] hover:border-[#3388ff]"
+	                              >
+	                                <img
+	                                  src={`https://placehold.co/120x120/f5f7fa/86909C?text=图片${item}`}
+	                                  alt={`图片${item}`}
+	                                  className="h-full w-full rounded-lg object-cover"
+	                                />
+	                              </button>
+	                            ))}
+	                          </div>
+	                        </div>
+	                      </div>
+	                    )}
+
+	                    {deleteConfirmModal.open && deleteConfirmModal.skuId && (
+	                      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+	                        <div className="w-[400px] rounded-lg bg-white p-6 shadow-lg">
+	                          <h3 className="mb-4 text-[16px] font-bold text-[#0A1B39]">确认删除该规格信息？</h3>
+	                          <div className="flex justify-end gap-3">
+	                            <button
+	                              type="button"
+	                              onClick={() => setDeleteConfirmModal({ open: false, skuId: null })}
+	                              className="h-9 rounded-lg border border-[#dce3ee] bg-white px-4 text-[14px] font-bold text-[#0A1B39] hover:bg-[#f5f7fa]"
+	                            >
+	                              取消
+	                            </button>
+	                            <button
+	                              type="button"
+	                              onClick={() => handleDeleteSku(deleteConfirmModal.skuId!)}
+	                              className="h-9 rounded-lg bg-[#3388ff] px-4 text-[14px] font-bold text-white hover:bg-[#2a6fcc]"
+	                            >
+	                              确认
+	                            </button>
+	                          </div>
+	                        </div>
+	                      </div>
+	                    )}
 	                  </div>
 
 	                  <div>
@@ -4585,6 +5156,19 @@ export function ManualListing({
           setTaobaoDetailImages(newDetailImages);
         }}
       />
+
+      {/* Toast Notification */}
+      {saveToast && (
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[9999]">
+          <div className={`px-6 py-3 rounded-lg shadow-lg text-[14px] font-medium ${
+            saveToast.type === "success"
+              ? "bg-[#52c41a] text-white"
+              : "bg-[#ff4d4f] text-white"
+          }`}>
+            {saveToast.msg}
+          </div>
+        </div>
+      )}
       </div>
     </div>
   );
