@@ -92,6 +92,7 @@ interface ImageGroup {
   product: string;
   platforms: string[];
   createTime: string;
+  creator: string;
   images: ImageItem[];
 }
 
@@ -211,6 +212,7 @@ function generateGroups(count: number): ImageGroup[] {
         size: SIZES[(i + j) % SIZES.length],
       });
     }
+    const creators = ["天天向辉", "张三", "李四", "王五"];
     groups.push({
       id: `g${i + 1}`,
       coverUrl: IMG(`${basePrompt} front view product shot studio lighting`),
@@ -222,6 +224,7 @@ function generateGroups(count: number): ImageGroup[] {
       product: productName,
       platforms,
       createTime: `2026-${month}-${day}`,
+      creator: creators[i % creators.length],
       images,
     });
   }
@@ -267,6 +270,7 @@ function buildGroupsFromDbRows(rows: DbGeneratedImage[]): ImageGroup[] {
       product: productName,
       platforms: first.platform ? [String(first.platform)] : [],
       createTime: String(first.createdAt || "").slice(0, 10),
+      creator: "天天向辉",
       images: list.map((row) => ({
         id: `db-${row.id}`,
         url: String(row.imageUrl || ""),
@@ -852,7 +856,7 @@ export function ImageGallery() {
               {/* 图片信息 */}
               <div>
                 <div className="rounded-xl border border-[#e9edf3] p-4">
-                  <div className="grid grid-cols-6 gap-4 text-[13px]">
+                  <div className="grid grid-cols-7 gap-4 text-[13px]">
                     <div>
                       <div className="text-[#86909C] mb-1">图片类型</div>
                       <div className="text-[#0A1B39]">{viewingGroup.type}</div>
@@ -876,6 +880,10 @@ export function ImageGallery() {
                     <div>
                       <div className="text-[#86909C] mb-1">创建时间</div>
                       <div className="text-[#0A1B39]">{viewingGroup.createTime}</div>
+                    </div>
+                    <div>
+                      <div className="text-[#86909C] mb-1">图片生成人</div>
+                      <div className="text-[#0A1B39]">{viewingGroup.creator}</div>
                     </div>
                   </div>
                 </div>
