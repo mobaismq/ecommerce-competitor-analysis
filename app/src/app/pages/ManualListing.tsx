@@ -2563,7 +2563,6 @@ export function ManualListing({
 	                      <div>
 	                        <label className={FIELD_LABEL_CLASS}>
 	                          导购标题
-	                          <span className="ml-1 inline-flex h-3.5 w-3.5 items-center justify-center rounded-full border border-[#cfd7e3] text-[10px] text-[#86909C]">?</span>
 	                        </label>
 	                        <p className="mb-2 text-[12px] text-[#86909C]">标题结构推荐：品牌 + 品类词 + 利益点</p>
 	                        <div className="relative">
@@ -3397,7 +3396,6 @@ export function ManualListing({
 	                  <div>
 	                    <div className="mb-2 flex items-center gap-2">
 	                      <label className={FIELD_LABEL_CLASS}>白底图</label>
-	                      <span className="mb-1.5 inline-flex h-4 w-4 items-center justify-center rounded-full border border-[#d0d5dd] text-[11px] text-[#86909C]">?</span>
 	                    </div>
 	                    <p className="mb-4 text-[13px] leading-relaxed text-[#86909C]">
 	                      图片要求：要求尺寸800x800，纯白背景、商品主体清晰完整。审核通过图片将用于频道、活动等场景，可获得更多场域曝光机会。

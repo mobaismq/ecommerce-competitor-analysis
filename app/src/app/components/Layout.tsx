@@ -1,6 +1,6 @@
-import { useState, useEffect, type ReactNode } from "react";
-import { Link, Outlet, useLocation } from "react-router";
-import { ChevronDown, Copy, FileText, FolderOpen, Package, PanelLeftClose, PanelLeftOpen, Target, Cpu, FileBarChart, Video, WalletCards, ShoppingBag, Database, Image, Film, Sparkles, Globe, Settings, UserCog, Users, Store } from "lucide-react";
+import { useState, useEffect, useRef, type ReactNode } from "react";
+import { Link, Outlet, useLocation, useNavigate } from "react-router";
+import { ChevronDown, Copy, FileText, FolderOpen, Package, PanelLeftClose, PanelLeftOpen, Target, Cpu, FileBarChart, Video, WalletCards, ShoppingBag, Database, Image, Film, Sparkles, Globe, Settings, UserCog, Users, Store, User } from "lucide-react";
 import brandLogo from "@/imports/image-5.png";
 import { SidebarContext } from "./SidebarContext";
 
@@ -70,10 +70,33 @@ function hasActiveChild(item: NavItem, pathname: string): boolean {
 
 export function Layout() {
   const location = useLocation();
+  const navigate = useNavigate();
   const [expanded, setExpanded] = useState(() => {
     const saved = localStorage.getItem("sidebar_expanded");
     return saved !== null ? JSON.parse(saved) : true;
   });
+  const [showAccountMenu, setShowAccountMenu] = useState(false);
+  const hideTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const handleMouseEnter = () => {
+    if (hideTimerRef.current) {
+      clearTimeout(hideTimerRef.current);
+      hideTimerRef.current = null;
+    }
+    if (expanded) {
+      setShowAccountMenu(true);
+    }
+  };
+
+  const handleMouseLeave = () => {
+    hideTimerRef.current = setTimeout(() => {
+      setShowAccountMenu(false);
+    }, 50);
+  };
+
+  const handleLogout = () => {
+    navigate('/login');
+  };
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => {
     const saved = localStorage.getItem("sidebar_expanded_groups");
     return saved ? new Set(JSON.parse(saved)) : new Set(["资产库", "市场", "竞品分析"]);
@@ -191,13 +214,44 @@ export function Layout() {
         <aside className={`${expanded ? "w-[240px]" : "w-[72px]"} relative z-30 h-full shrink-0 border-r border-[#e9edf3] bg-white flex flex-col transition-all duration-300`}>
           <div className={`flex h-[68px] shrink-0 items-center border-b border-[#e9edf3] ${expanded ? "gap-2.5 px-6" : "justify-center"}`}>
             <img src={brandLogo} alt="品牌 logo" className="h-8 w-8 rounded-lg object-contain" />
-            {expanded && <span className="text-[18px] font-extrabold tracking-[-0.02em]">Design Studio</span>}
+            {expanded && <span className="text-[18px] font-extrabold tracking-[-0.02em]">繁星</span>}
           </div>
           <nav className={`flex flex-col gap-2 px-3 pt-4 flex-1 ${expanded ? "overflow-y-auto custom-scrollbar" : "overflow-visible"}`}>
             {renderNavItems(nav)}
           </nav>
-          <div className={`${expanded ? "px-5 pb-4 flex items-center justify-between" : "pb-4 flex flex-col items-center gap-3"}`}>
-            <div className="h-8 w-8 shrink-0 rounded-full bg-gradient-to-b from-[#80d4ff] to-[#d7efff] shadow-inner" />
+          <div className={`${expanded ? "px-5 pb-4 flex items-end justify-between" : "pb-4 flex flex-col items-center gap-3"}`}>
+            <div
+              className="relative pt-[16px]"
+              data-account-menu
+              onMouseEnter={handleMouseEnter}
+              onMouseLeave={handleMouseLeave}
+            >
+              <div
+                className="h-8 w-8 rounded-full bg-gradient-to-b from-[#80d4ff] to-[#d7efff] shadow-inner cursor-pointer"
+              />
+              {showAccountMenu && expanded && (
+                <div
+                  className="absolute bottom-[40px] left-0 w-[180px] bg-white rounded-lg shadow-[0_4px_20px_rgba(0,0,0,0.12)] border border-[#eef1f5] z-50 overflow-hidden"
+                  onMouseEnter={handleMouseEnter}
+                  onMouseLeave={handleMouseLeave}
+                >
+                  <button
+                    onClick={() => { setShowAccountMenu(false); navigate('/settings/account-info'); }}
+                    className="w-full px-4 py-3 flex items-center justify-center gap-3 hover:bg-[#f8f9fb] transition-colors"
+                  >
+                    <User className="h-5 w-5 text-[#86909C]" />
+                    <span className="text-[14px] text-[#0A1B39]">账号信息</span>
+                  </button>
+                  <div className="border-t border-[#f0f2f5]" />
+                  <button
+                    onClick={handleLogout}
+                    className="w-full px-4 py-3 text-[14px] text-[#0A1B39] hover:bg-[#f5f6f8] transition-colors text-center"
+                  >
+                    退出当前账号
+                  </button>
+                </div>
+              )}
+            </div>
             <button onClick={() => setExpanded(!expanded)} className="flex items-center justify-center h-10 w-10 rounded-lg hover:bg-[#f5f6f8] transition-colors text-[#86909C]">
               {expanded ? <PanelLeftClose className="h-4 w-4" /> : <PanelLeftOpen className="h-4 w-4" />}
             </button>

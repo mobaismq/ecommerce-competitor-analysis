@@ -1,5 +1,10 @@
 import { createBrowserRouter, Navigate } from "react-router";
 import { Layout } from "./components/Layout";
+import { LoginPage } from "./pages/LoginPage";
+import { PhoneVerificationPage } from "./pages/PhoneVerificationPage";
+import { ChangePasswordPage } from "./pages/ChangePasswordPage";
+import { ChangePhonePage } from "./pages/ChangePhonePage";
+import { AccountInfoPage } from "./pages/AccountInfoPage";
 import { AssetLibrary } from "./pages/AssetLibrary";
 import { ProductImageSets } from "./pages/ProductImageSets";
 import { APlusDetail } from "./pages/APlusDetail";
@@ -37,10 +42,30 @@ function ProductManagementManualListing() {
 
 export const router = createBrowserRouter([
   {
+    path: "/login",
+    Component: LoginPage,
+  },
+  {
+    path: "/verify-phone",
+    Component: PhoneVerificationPage,
+  },
+  {
+    path: "/change-password",
+    Component: ChangePasswordPage,
+  },
+  {
+    path: "/change-phone",
+    Component: ChangePhonePage,
+  },
+  {
+    path: "/settings/account-info",
+    Component: AccountInfoPage,
+  },
+  {
     path: "/",
     Component: Layout,
     children: [
-      { index: true, Component: AssetLibrary },
+      { index: true, element: <Navigate to="/market/competitive/ai-collect" replace /> },
       { path: "product/master-data", Component: ProductMasterData },
       { path: "product/management", Component: ProductManagement },
       { path: "product/management/manual", Component: ProductManagementManualListing },
