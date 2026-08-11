@@ -383,6 +383,7 @@ export function ProductImageSets() {
               prompt: item.prompt || generationText,
               image: uploadedImage,
               size: "2K",
+              ratio: settings.ratio,
               watermark: false,
             }),
           });
