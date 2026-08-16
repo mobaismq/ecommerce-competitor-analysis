@@ -7,9 +7,17 @@ export function ChangePasswordPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
 
-  const handleSubmit = () => {
-    if (!newPassword || newPassword.length < 6) {
-      setError("密码长度不能少于6位");
+  const handleSubmit = async () => {
+    setError("");
+
+    if (!newPassword) {
+      setError("密码不可为空");
+      return;
+    }
+
+    // 6-20 位字母、数字、特殊字符（ASCII 可打印字符，不含空格）
+    if (!/^[\x21-\x7E]{6,20}$/.test(newPassword)) {
+      setError("密码格式错误");
       return;
     }
 
@@ -18,11 +26,32 @@ export function ChangePasswordPage() {
       return;
     }
 
-    setError("");
-    // TODO: 调用修改密码接口
-    console.log("修改密码:", newPassword);
-    alert("密码修改成功");
-    navigate(-1);
+    const accountId = localStorage.getItem("current_user_id") || "";
+    if (!accountId) {
+      setError("未获取到当前登录账号，请重新登录");
+      return;
+    }
+
+    try {
+      const response = await fetch("/api/account/change-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          accountId,
+          password: newPassword,
+          updatedBy: localStorage.getItem("current_user") || "",
+        }),
+      });
+      const res = await response.json();
+      if (!response.ok || !res.ok) {
+        setError(res?.error || "修改密码失败");
+        return;
+      }
+      alert("密码修改成功");
+      navigate(-1);
+    } catch {
+      setError("网络异常，请稍后重试");
+    }
   };
 
   return (
@@ -43,7 +72,7 @@ export function ChangePasswordPage() {
                     setNewPassword(e.target.value);
                     if (error) setError("");
                   }}
-                  placeholder="请输入新密码（至少6位）"
+                  placeholder="请输入新密码（6-20字母、数字、特殊字符）"
                   className="flex-1 h-[40px] px-4 rounded-lg border border-[#dce3ee] bg-[#f8f9fb] text-[14px] text-[#0A1B39] outline-none transition-colors placeholder:text-[#98A2B3] focus:border-[#3388ff] focus:bg-white focus:ring-2 focus:ring-[#d8ebff]"
                 />
               </div>

@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { useSearchParams } from "react-router";
 import { Search, RotateCcw, Plus, Upload, Edit, Trash2, ChevronDown, ChevronRight, X, Calendar } from "lucide-react";
 import { PageHeader } from "@/app/components/PageHeader";
+import { hasButtonPermission } from "@/app/utils/permission";
 
 function ImageUpload({
   size = "md",
@@ -544,35 +545,39 @@ export function ProductMasterData() {
 
         {/* 操作按钮 */}
         <div className="mb-4 flex gap-3">
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="h-9 rounded-lg bg-[#409eff] px-5 text-[14px] font-bold text-white hover:bg-[#66b1ff]"
-          >
-            <div className="flex items-center gap-1.5">
-              <Plus className="h-4 w-4" />
-              新增商品
-            </div>
-          </button>
-          <button
-            className="h-9 rounded-lg border border-[#e6e9ef] bg-white px-5 text-[14px] font-bold text-[#0A1B39] hover:bg-[#f5f6f8] relative"
-            onClick={() => {
-              const input = document.createElement("input");
-              input.type = "file";
-              input.accept = ".xlsx,.xls";
-              input.onchange = (e) => {
-                const file = (e.target as HTMLInputElement).files?.[0];
-                if (file) {
-                  alert(`已选择文件：${file.name}`);
-                }
-              };
-              input.click();
-            }}
-          >
-            <div className="flex items-center gap-1.5">
-              <Upload className="h-4 w-4" />
-              导入商品
-            </div>
-          </button>
+          {hasButtonPermission(2001) && (
+            <button
+              onClick={() => setShowAddModal(true)}
+              className="h-9 rounded-lg bg-[#409eff] px-5 text-[14px] font-bold text-white hover:bg-[#66b1ff]"
+            >
+              <div className="flex items-center gap-1.5">
+                <Plus className="h-4 w-4" />
+                新增商品
+              </div>
+            </button>
+          )}
+          {hasButtonPermission(2002) && (
+            <button
+              className="h-9 rounded-lg border border-[#e6e9ef] bg-white px-5 text-[14px] font-bold text-[#0A1B39] hover:bg-[#f5f6f8] relative"
+              onClick={() => {
+                const input = document.createElement("input");
+                input.type = "file";
+                input.accept = ".xlsx,.xls";
+                input.onchange = (e) => {
+                  const file = (e.target as HTMLInputElement).files?.[0];
+                  if (file) {
+                    alert(`已选择文件：${file.name}`);
+                  }
+                };
+                input.click();
+              }}
+            >
+              <div className="flex items-center gap-1.5">
+                <Upload className="h-4 w-4" />
+                导入商品
+              </div>
+            </button>
+          )}
         </div>
 
         {/* 表单信息 */}
@@ -643,24 +648,30 @@ export function ProductMasterData() {
                       <td className="py-3 pr-2 text-[14px] text-[#0A1B39]">{product.createTime}</td>
                       <td className="py-3 pr-4">
                         <div className="flex items-center gap-3">
-                          <button
-                            onClick={() => handleEdit(product)}
-                            className="text-[14px] text-[#409eff] hover:text-[#66b1ff]"
-                          >
-                            编辑
-                          </button>
-                          <button
-                            onClick={() => toggleStatus(product)}
-                            className="text-[14px] text-[#409eff] hover:text-[#66b1ff]"
-                          >
-                            {product.status === "启用" ? "停用" : "启用"}
-                          </button>
-                          <button
-                            onClick={() => handleDelete(product)}
-                            className="text-[14px] text-[#409eff] hover:text-[#66b1ff]"
-                          >
-                            删除
-                          </button>
+                          {hasButtonPermission(2003) && (
+                            <button
+                              onClick={() => handleEdit(product)}
+                              className="text-[14px] text-[#409eff] hover:text-[#66b1ff]"
+                            >
+                              编辑
+                            </button>
+                          )}
+                          {hasButtonPermission(2004) && (
+                            <button
+                              onClick={() => toggleStatus(product)}
+                              className="text-[14px] text-[#409eff] hover:text-[#66b1ff]"
+                            >
+                              {product.status === "启用" ? "停用" : "启用"}
+                            </button>
+                          )}
+                          {hasButtonPermission(2005) && (
+                            <button
+                              onClick={() => handleDelete(product)}
+                              className="text-[14px] text-[#409eff] hover:text-[#66b1ff]"
+                            >
+                              删除
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>

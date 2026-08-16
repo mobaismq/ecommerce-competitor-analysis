@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { AlertCircle, Check, ChevronDown, CircleHelp, Lightbulb, Plus, Upload, X } from "lucide-react";
 import earbudFront from "@/imports/image-15.png";
 import earbudCase from "@/imports/image-16.png";
@@ -12,6 +12,7 @@ import emotionScene from "@/imports/image-24.png";
 import useCases from "@/imports/image-25.png";
 import suiteArrow from "@/imports/箭头.svg";
 import { useSidebar } from "@/app/components/SidebarContext";
+import { usePlatforms } from "@/app/hooks/usePlatforms";
 
 function SectionTitle({ children, help = false }: { children: ReactNode; help?: boolean }) {
   return <h2 className="mb-4 flex items-center gap-1 text-[14px] font-semibold text-[#171A1D]">{children}{help && <CircleHelp className="h-3.5 w-3.5 text-[#8B949E]" />}</h2>;
@@ -47,7 +48,6 @@ function SelectBox({ value, options, open, onToggle, onSelect, wide = false }: {
 }
 
 const APLUS_OPTIONS = {
-  platform: ["亚马逊", "TikTok", "速卖通", "Temu", "Shein", "Shopee", "Lazada", "eBay", "Walmart", "Shopify", "独立站"],
   country: ["美国", "英国", "德国", "法国", "意大利", "西班牙", "日本", "韩国", "加拿大", "澳大利亚", "新加坡", "马来西亚", "泰国", "越南", "巴西", "墨西哥"],
   language: ["英文", "中文", "日文", "韩文", "德文", "法文", "意大利文", "西班牙文", "葡萄牙文", "荷兰文", "波兰文", "泰文", "越南文", "印尼文"],
   type: ["普通A+", "品牌故事", "高级A+", "对比表详情", "图文详情", "旗舰店详情"],
@@ -95,10 +95,18 @@ type UploadedProductImage = {
 
 export function APlusDetail() {
   const { expanded } = useSidebar();
+  const { platforms } = usePlatforms();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [checked, setChecked] = useState(["首屏主视觉", "核心卖点图", "使用场景图", "多角度图", "场景氛围图", "商品细节图"]);
   const [openSetting, setOpenSetting] = useState<string | null>(null);
-  const [settings, setSettings] = useState({ platform: "亚马逊", country: "美国", language: "英文", type: "普通A+" });
+  const [settings, setSettings] = useState({ platform: "", country: "美国", language: "英文", type: "普通A+" });
+
+  // 平台加载后默认选中第一个
+  useEffect(() => {
+    if (!settings.platform && platforms.length) {
+      setSettings((prev) => ({ ...prev, platform: platforms[0].platformName }));
+    }
+  }, [platforms, settings.platform]);
   const [uploadedImages, setUploadedImages] = useState<UploadedProductImage[]>([]);
   const [error, setError] = useState("");
 
@@ -219,7 +227,7 @@ export function APlusDetail() {
 
         <SectionTitle>生成设置</SectionTitle>
         <div className="mb-4 grid grid-cols-3 gap-3">
-          <SelectBox value={settings.platform} options={APLUS_OPTIONS.platform} open={openSetting === "platform"} onToggle={() => setOpenSetting(openSetting === "platform" ? null : "platform")} onSelect={(value) => updateSetting("platform", value)} />
+          <SelectBox value={settings.platform} options={platforms.map((p) => p.platformName)} open={openSetting === "platform"} onToggle={() => setOpenSetting(openSetting === "platform" ? null : "platform")} onSelect={(value) => updateSetting("platform", value)} />
           <SelectBox value={settings.country} options={APLUS_OPTIONS.country} open={openSetting === "country"} onToggle={() => setOpenSetting(openSetting === "country" ? null : "country")} onSelect={(value) => updateSetting("country", value)} />
           <SelectBox value={settings.language} options={APLUS_OPTIONS.language} open={openSetting === "language"} onToggle={() => setOpenSetting(openSetting === "language" ? null : "language")} onSelect={(value) => updateSetting("language", value)} />
           <SelectBox value={settings.type} options={APLUS_OPTIONS.type} open={openSetting === "type"} onToggle={() => setOpenSetting(openSetting === "type" ? null : "type")} onSelect={(value) => updateSetting("type", value)} wide />

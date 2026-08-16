@@ -7,6 +7,7 @@ import detailExplain from "@/imports/image-12.png";
 import sellingPoint from "@/imports/image-13.png";
 import suiteArrow from "@/imports/箭头.svg";
 import { useSidebar } from "@/app/components/SidebarContext";
+import { usePlatforms } from "@/app/hooks/usePlatforms";
 
 function SelectBox({ value, options, open, onToggle, onSelect }: { value: string; options: string[]; open: boolean; onToggle: () => void; onSelect: (value: string) => void }) {
   return (
@@ -42,7 +43,6 @@ function SectionTitle({ children, help = false }: { children: ReactNode; help?: 
 }
 
 const GENERATION_OPTIONS = {
-  platform: ["淘宝天猫1688", "淘宝", "天猫", "抖音", "京东", "拼多多", "亚马逊", "TikTok", "速卖通", "Temu", "Shein", "Shopee", "Lazada", "eBay", "Walmart", "Shopify", "独立站"],
   country: ["中国", "美国", "英国", "德国", "法国", "意大利", "西班牙", "日本", "韩国", "加拿大", "澳大利亚", "新加坡", "马来西亚", "泰国", "越南", "巴西", "墨西哥"],
   language: ["英文", "中文", "日文", "韩文", "德文", "法文", "意大利文", "西班牙文", "葡萄牙文", "荷兰文", "波兰文", "泰文", "越南文", "印尼文"],
   ratio: ["1:1", "3:4", "4:3", "9:16", "16:9"],
@@ -233,13 +233,21 @@ const DEFAULT_CUSTOM_SUITE_COUNTS: Record<CustomSuiteTypeKey, number> = {
 
 export function ProductImageSets() {
   const { expanded } = useSidebar();
+  const { platforms } = usePlatforms();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [mode, setMode] = useState("智能匹配");
   const [customSuiteCounts, setCustomSuiteCounts] = useState<Record<CustomSuiteTypeKey, number>>(DEFAULT_CUSTOM_SUITE_COUNTS);
   const [copy, setCopy] = useState(false);
   const [listingCopy, setListingCopy] = useState(true);
   const [openSetting, setOpenSetting] = useState<string | null>(null);
-  const [settings, setSettings] = useState({ platform: "淘宝天猫1688", country: "中国", language: "中文", ratio: "1:1" });
+  const [settings, setSettings] = useState({ platform: "", country: "中国", language: "中文", ratio: "1:1" });
+
+  // 平台加载后默认选中第一个
+  useEffect(() => {
+    if (!settings.platform && platforms.length) {
+      setSettings((prev) => ({ ...prev, platform: platforms[0].platformName }));
+    }
+  }, [platforms, settings.platform]);
   const [productSearch, setProductSearch] = useState("");
   const [productDropdownOpen, setProductDropdownOpen] = useState(false);
   const [suiteProducts, setSuiteProducts] = useState<SuiteProduct[]>([]);
@@ -691,7 +699,7 @@ export function ProductImageSets() {
 
         <SectionTitle>生成设置</SectionTitle>
         <div className="mb-4 grid grid-cols-2 gap-3">
-          <SelectBox value={settings.platform} options={GENERATION_OPTIONS.platform} open={openSetting === "platform"} onToggle={() => setOpenSetting(openSetting === "platform" ? null : "platform")} onSelect={(value) => updateSetting("platform", value)} />
+          <SelectBox value={settings.platform} options={platforms.map((p) => p.platformName)} open={openSetting === "platform"} onToggle={() => setOpenSetting(openSetting === "platform" ? null : "platform")} onSelect={(value) => updateSetting("platform", value)} />
           <SelectBox value={settings.country} options={GENERATION_OPTIONS.country} open={openSetting === "country"} onToggle={() => setOpenSetting(openSetting === "country" ? null : "country")} onSelect={(value) => updateSetting("country", value)} />
           <SelectBox value={settings.language} options={GENERATION_OPTIONS.language} open={openSetting === "language"} onToggle={() => setOpenSetting(openSetting === "language" ? null : "language")} onSelect={(value) => updateSetting("language", value)} />
           <SelectBox value={settings.ratio} options={GENERATION_OPTIONS.ratio} open={openSetting === "ratio"} onToggle={() => setOpenSetting(openSetting === "ratio" ? null : "ratio")} onSelect={(value) => updateSetting("ratio", value)} />

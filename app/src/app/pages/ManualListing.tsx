@@ -24,9 +24,9 @@ import {
   X,
 } from "lucide-react";
 import { PageHeader } from "@/app/components/PageHeader";
+import { usePlatforms } from "@/app/hooks/usePlatforms";
+import { hasStorePermission } from "@/app/utils/permission";
 
-const PLATFORMS = ["淘宝", "天猫", "京东", "拼多多", "抖店", "小红书"];
-const PLATFORMS_WITH_MANUAL_TEMPLATE = ["淘宝", "京东", "拼多多", "抖店", "小红书"];
 const TABS: Record<string, readonly string[]> = {
   "淘宝": ["基础信息", "图文信息", "销售信息", "物流服务"] as const,
   "天猫": ["基础信息", "图文信息", "销售信息", "物流服务"] as const,
@@ -222,8 +222,15 @@ const PRODUCT_CATEGORY_TREE: CategoryNode[] = [
   },
 ];
 
-// ── Mock Taobao stores (authorized, enabled) ──
-const MOCK_TAOBAO_STORES = ["优品旗舰店", "淘宝优选店", "德力西旗舰店", "小米旗舰店", "九阳旗舰店", "飞利浦旗舰店", "JBL旗舰店"];
+// ── 店铺查询接口返回的店铺记录 ──
+interface StoreRecord {
+  storeId: string;
+  storeName: string;
+  platformId: string;
+  platformName: string;
+  storeStatus: number;
+  isDeleted: number;
+}
 
 // ── Mock product master data (enabled products) ──
 const MOCK_PRODUCT_MASTER = [
@@ -1988,8 +1995,16 @@ export function ManualListing({
   ],
 }: ManualListingProps = {}) {
   const location = useLocation();
-  const initialPlatform = (location.state as { platform?: string })?.platform ?? "抖店";
+  const { platforms } = usePlatforms();
+  const initialPlatform = (location.state as { platform?: string })?.platform ?? "";
   const [activePlatform, setActivePlatform] = useState(initialPlatform);
+
+  // 平台加载后，若未指定平台则默认选中第一个
+  useEffect(() => {
+    if (!activePlatform && platforms.length) {
+      setActivePlatform(platforms[0].platformName);
+    }
+  }, [platforms, activePlatform]);
   const [activeTab, setActiveTab] = useState<TabName>("基础信息");
   const [showDraftList, setShowDraftList] = useState(false);
   const [saveToast, setSaveToast] = useState<{ msg: string; type: "success" | "error" } | null>(null);
@@ -2141,7 +2156,7 @@ export function ManualListing({
     { name: "装修及施工内容", important: false, type: "input", placeholder: "请输入" },
   ];
 
-  const [storeName, setStoreName] = useState("抖音旗舰店");
+  const [storeName, setStoreName] = useState("请选择店铺");
   const [productTitle, setProductTitle] = useState("");
   const [recommendText, setRecommendText] = useState("");
   const [category, setCategory] = useState<string[]>([]);
@@ -2208,24 +2223,25 @@ export function ManualListing({
   const [productAttrsOpen, setProductAttrsOpen] = useState(false);
   const [productAttrs, setProductAttrs] = useState<Record<string, string>>({});
   const [taobaoStore, setTaobaoStore] = useState("");
-  const [taobaoStoreOptions, setTaobaoStoreOptions] = useState<string[]>(MOCK_TAOBAO_STORES);
   const [taobaoCategory, setTaobaoCategory] = useState<string[]>([]);
   const [taobaoProductMaster, setTaobaoProductMaster] = useState("");
   const [taobaoMerchantCode, setTaobaoMerchantCode] = useState("");
   const [showCategoryModal, setShowCategoryModal] = useState(false);
+  const [storeList, setStoreList] = useState<StoreRecord[]>([]);
 
-  // 商家店铺优先取淘宝开放平台真实店铺（taobao.shops.get），未配置/失败时回退本地 mock
+  // 店铺下拉框对接 /api/store/list：仅取未删除且启用状态的店铺
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/taobao/shops")
+    fetch("/api/store/list?page=1&pageSize=100")
       .then((res) => res.json())
       .then((payload) => {
         if (cancelled) return;
-        if (payload?.ok && Array.isArray(payload.shops) && payload.shops.length > 0) {
-          const names = payload.shops
-            .map((shop: { title?: string; nick?: string }) => shop.title || shop.nick || "")
-            .filter(Boolean);
-          if (names.length > 0) setTaobaoStoreOptions(names);
+        if (payload?.ok && Array.isArray(payload.list)) {
+          setStoreList(
+            (payload.list as StoreRecord[]).filter(
+              (s) => s.isDeleted === 0 && s.storeStatus === 1,
+            ),
+          );
         }
       })
       .catch(() => {});
@@ -2233,6 +2249,13 @@ export function ManualListing({
       cancelled = true;
     };
   }, []);
+
+  // 根据平台名称获取该平台下启用状态且账号有权限的店铺名称
+  const storeNamesFor = (platformName: string): string[] =>
+    storeList
+      .filter((s) => s.platformName === platformName && hasStorePermission(s.storeId))
+      .map((s) => s.storeName);
+
   const [showGalleryModal, setShowGalleryModal] = useState(false);
   const [selectedMainGroup, setSelectedMainGroup] = useState<string[]>([]);
   const [selectedDetailGroup, setSelectedDetailGroup] = useState<string[]>([]);
@@ -2570,17 +2593,17 @@ export function ManualListing({
         <div className="flex gap-6">
           {/* Left Platform Sidebar */}
 	          <div className="w-[110px] shrink-0 space-y-2 py-3">
-	            {PLATFORMS.map((platform) => (
+	            {platforms.map((p) => (
 	              <button
-	                key={platform}
-	                onClick={() => setActivePlatform(platform)}
+	                key={p.platformId}
+	                onClick={() => setActivePlatform(p.platformName)}
 	                className={`h-10 w-full px-4 text-left text-[14px] transition-colors ${
-	                  activePlatform === platform
+	                  activePlatform === p.platformName
                     ? "bg-[#e4f3ff] text-[#3388ff] font-bold rounded-lg"
                     : "text-[#4a5568] hover:bg-[#e2e8f0] rounded-lg"
                 }`}
               >
-                {platform}
+                {p.platformName}
               </button>
             ))}
           </div>
@@ -2590,7 +2613,7 @@ export function ManualListing({
             {/* Form in Gray Container */}
             <div className="rounded-xl border border-[#eef1f5] bg-[#fafbfd] p-6">
 
-              {PLATFORMS_WITH_MANUAL_TEMPLATE.includes(activePlatform) ? (
+              {activePlatform !== "天猫" ? (
                 <>
 
               {/* Form Content */}
@@ -2607,7 +2630,7 @@ export function ManualListing({
 	                        </label>
 	                        <SearchableSelect
 	                          value={taobaoStore}
-	                          options={taobaoStoreOptions}
+	                          options={storeNamesFor("淘宝")}
 	                          onChange={setTaobaoStore}
 	                          placeholder="请选择"
 	                        />
@@ -2849,7 +2872,7 @@ export function ManualListing({
 	                        </label>
 	                        <CustomSelect
 	                          value={jdStoreName}
-	                          options={["请选择店铺", "京东旗舰店", "京东专营店"]}
+	                          options={["请选择店铺", ...storeNamesFor("京东")]}
 	                          onChange={setJdStoreName}
 	                        />
 	                        <p className={HELP_TEXT_CLASS} aria-hidden="true">&nbsp;</p>
@@ -3077,7 +3100,7 @@ export function ManualListing({
 	                        </label>
 	                        <CustomSelect
 	                          value={pddStoreName}
-	                          options={["请选择店铺", "拼多多旗舰店", "拼多多专营店"]}
+	                          options={["请选择店铺", ...storeNamesFor("拼多多")]}
 	                          onChange={setPddStoreName}
 	                        />
 	                        <p className={HELP_TEXT_CLASS} aria-hidden="true">&nbsp;</p>
@@ -3185,7 +3208,7 @@ export function ManualListing({
 	                        </label>
 	                        <CustomSelect
 	                          value={xhsStoreName}
-	                          options={["请选择店铺", "小红书旗舰店", "小红书专营店"]}
+	                          options={["请选择店铺", ...storeNamesFor("小红书")]}
 	                          onChange={setXhsStoreName}
 	                        />
 	                        <p className={HELP_TEXT_CLASS} aria-hidden="true">&nbsp;</p>
@@ -3344,7 +3367,7 @@ export function ManualListing({
 	                      </label>
 			                    <CustomSelect
 			                      value={storeName}
-			                      options={["抖音旗舰店", "淘宝旗舰店", "京东旗舰店"]}
+			                      options={["请选择店铺", ...storeNamesFor("抖店")]}
 			                      onChange={setStoreName}
 			                    />
 	                      <p className={HELP_TEXT_CLASS} aria-hidden="true">&nbsp;</p>
