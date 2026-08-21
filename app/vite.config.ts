@@ -6,7 +6,7 @@ import fs from 'fs'
 import { spawn } from 'child_process'
 import { analyzeProductMainImageAndSave, deleteGeneratedMainImages, generateAiMarketReport, generateOverallReportFromProductMainImageReports, getAnalysisProductsView, getAnalysisReportView, getMainImageAiReport, getOpenAiSettings, getProductMainImageAnalysis, getSuiteMainImageDescriptions, listAnalysisReportRows, listGeneratedMainImages, listProductOptions, listSuitePriceBands, listSuiteProducts, previewMarketPriceBands, readLatestMarketReport, saveGeneratedMainImages, saveOpenAiSettings, testArkResponsesConnection } from './src/server/aiMarketAnalysis.js'
 import { generateProductSetImage } from './src/server/arkImageGeneration.js'
-import { expandProductSetPrompts } from './src/server/mainImagePromptExpansion.js'
+import { expandProductSetPrompts, extractProductSetImageText, streamProductSetInformation } from './src/server/mainImagePromptExpansion.js'
 import { fetchTaobaoCategories, fetchTaobaoShops, getTaobaoConfigStatus } from './src/server/taobaoTopClient.js'
 
 
@@ -701,6 +701,14 @@ function localRpaApi() {
             return sendJson(res, 200, payload)
           }
 
+          if (req.method === 'POST' && req.url.startsWith('/api/product-sets/extract-image-text')) {
+            const body = await readBody(req)
+            const payload = await extractProductSetImageText({
+              image: body.image,
+            })
+            return sendJson(res, 200, payload)
+          }
+
           if (req.method === 'POST' && req.url.startsWith('/api/product-sets/generated-images/delete')) {
             const body = await readBody(req)
             const payload = await deleteGeneratedMainImages({ ids: Array.isArray(body?.ids) ? body.ids : [] })
@@ -721,6 +729,30 @@ function localRpaApi() {
             return sendJson(res, 200, payload)
           }
 
+          if (req.method === 'POST' && req.url.startsWith('/api/product-sets/expand-prompts-stream')) {
+            const body = await readBody(req)
+            res.statusCode = 200
+            res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8')
+            res.setHeader('Cache-Control', 'no-cache, no-transform')
+            res.setHeader('Connection', 'keep-alive')
+            const writeEvent = (event: unknown) => {
+              res.write(`${JSON.stringify(event)}\n`)
+            }
+            try {
+              await streamProductSetInformation({
+                settings: body.settings,
+                baseText: body.baseText,
+                image: body.image,
+                emit: writeEvent,
+              })
+            } catch (error) {
+              writeEvent({ type: 'error', error: error instanceof Error ? error.message : String(error) })
+            } finally {
+              res.end()
+            }
+            return
+          }
+
           if (req.method === 'POST' && req.url.startsWith('/api/product-sets/expand-prompts')) {
             const body = await readBody(req)
             const payload = await expandProductSetPrompts({
@@ -730,6 +762,7 @@ function localRpaApi() {
               baseText: body.baseText,
               image: body.image,
               selectedSlots: body.selectedSlots,
+              informationOnly: body.informationOnly === true,
             })
             return sendJson(res, 200, payload)
           }

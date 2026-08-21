@@ -2381,20 +2381,58 @@ def click_toolbar_control(label: str) -> dict[str, Any]:
     js = f"""
 (() => {{
   const label = {json.dumps(label, ensure_ascii=False)};
-  const nodes = [...document.querySelectorAll('*')].filter(e =>
-    (e.innerText||'').trim() === label &&
-    String(e.className||'').includes('item-value') &&
-    e.getBoundingClientRect().width > 0 &&
-    e.getBoundingClientRect().height > 0
+  const compact = (text) => String(text || '').trim().replace(/\\s+/g, '');
+  const visible = (e) => {{
+    const r=e.getBoundingClientRect();
+    const s=getComputedStyle(e);
+    return r.width>0 && r.height>0 && r.bottom>0 && r.right>0 &&
+      r.top<window.innerHeight && r.left<window.innerWidth &&
+      s.display!=='none' && s.visibility!=='hidden' && Number(s.opacity || 1) !== 0;
+  }};
+  const toolbarish = (e) => {{
+    let node=e;
+    for(let depth=0; node && depth<8; depth++, node=node.parentElement) {{
+      const cls=String(node.className || '');
+      const text=compact(node.innerText || node.textContent || '');
+      if (/item-value|item-label|plain-hover|toolbar|dropdown|popover|popper|menu|diantoushi|el-dropdown|el-popper/i.test(cls)) return true;
+      if (text.includes('SKU预览') || text.includes('商品数据') || text.includes('问大家') || text.includes('店透视')) return true;
+    }}
+    return false;
+  }};
+  const nodes = [...document.querySelectorAll('button,a,li,div,span,label,[role="button"]')].filter(e =>
+    visible(e) && compact(e.innerText || e.textContent) === label && toolbarish(e)
   );
-  const e = nodes[nodes.length - 1];
-  if (!e) return JSON.stringify({{error:'NOT_FOUND', label}});
-  e.dispatchEvent(new MouseEvent('mouseover', {{bubbles:true}}));
-  e.dispatchEvent(new MouseEvent('mousedown', {{bubbles:true}}));
-  e.dispatchEvent(new MouseEvent('mouseup', {{bubbles:true}}));
-  e.click();
-  const r = e.getBoundingClientRect();
-  return JSON.stringify({{clicked:e.innerText.trim(), count:nodes.length, rect:[Math.round(r.x),Math.round(r.y),Math.round(r.width),Math.round(r.height)]}});
+  const candidates=[];
+  for (const e of nodes) {{
+    let node=e;
+    for (let depth=0; node && depth<6; depth++, node=node.parentElement) {{
+      if (!visible(node)) continue;
+      const text=compact(node.innerText || node.textContent || '');
+      if (text !== label && !text.includes(label)) continue;
+      const r=node.getBoundingClientRect();
+      if (r.width < 30 || r.height < 14 || r.width > 360 || r.height > 96) continue;
+      const cls=String(node.className || '');
+      const exact = text === label;
+      const clickable = node.closest('button,a,li,[role=button],[role=menuitem],.item-value,.item-label,.plain-hover,.el-dropdown-menu__item') || node;
+      const score = (exact ? 1000 : 0) +
+        (/item-value|item-label|plain-hover|toolbar|dropdown|menu|el-/i.test(cls) ? 300 : 0) +
+        Math.min(r.width, 160) + Math.min(r.height, 40) - depth * 20;
+      candidates.push({{e: clickable, text, className: cls, score, rect:[Math.round(r.x),Math.round(r.y),Math.round(r.width),Math.round(r.height)]}});
+    }}
+  }}
+  candidates.sort((a,b)=>a.score-b.score);
+  const pick = candidates[candidates.length - 1];
+  if (!pick) return JSON.stringify({{error:'NOT_FOUND', label, count:nodes.length}});
+  const [x,y,w,h]=pick.rect;
+  const cx=x+w/2, cy=y+h/2;
+  for (const type of ['pointerover','pointerenter','mouseover','mouseenter','mousemove']) {{
+    pick.e.dispatchEvent(new MouseEvent(type, {{bubbles:true, clientX:cx, clientY:cy}}));
+  }}
+  for (const type of ['pointerdown','mousedown','pointerup','mouseup']) {{
+    pick.e.dispatchEvent(new MouseEvent(type, {{bubbles:true, clientX:cx, clientY:cy}}));
+  }}
+  pick.e.click();
+  return JSON.stringify({{clicked:label, count:candidates.length, text:pick.text, className:pick.className, rect:pick.rect, score:pick.score}});
 }})()
 """
     return json.loads(chrome_js(js))

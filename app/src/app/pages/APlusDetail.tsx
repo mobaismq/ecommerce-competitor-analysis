@@ -1,5 +1,5 @@
-import { useRef, useState, type ReactNode } from "react";
-import { AlertCircle, Check, ChevronDown, CircleHelp, Lightbulb, Plus, Upload, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { AlertCircle, Check, ChevronDown, Lightbulb, Loader2, Plus, Upload, X } from "lucide-react";
 import earbudFront from "@/imports/image-15.png";
 import earbudCase from "@/imports/image-16.png";
 import earbudSingle from "@/imports/image-17.png";
@@ -12,10 +12,7 @@ import emotionScene from "@/imports/image-24.png";
 import useCases from "@/imports/image-25.png";
 import suiteArrow from "@/imports/箭头.svg";
 import { useSidebar } from "@/app/components/SidebarContext";
-
-function SectionTitle({ children, help = false }: { children: ReactNode; help?: boolean }) {
-  return <h2 className="mb-4 flex items-center gap-1 text-[14px] font-semibold text-[#171A1D]">{children}{help && <CircleHelp className="h-3.5 w-3.5 text-[#8B949E]" />}</h2>;
-}
+import { AIReportSelector, SectionTitle, type SuiteProduct } from "@/app/components/AIReportSelector";
 
 function SelectBox({ value, options, open, onToggle, onSelect, wide = false }: { value: string; options: string[]; open: boolean; onToggle: () => void; onSelect: (value: string) => void; wide?: boolean }) {
   return (
@@ -93,6 +90,38 @@ type UploadedProductImage = {
   url: string;
 };
 
+type ListingMainSellingPoint = {
+  priority?: number;
+  title?: string;
+  customerBenefit?: string;
+  visualExpression?: string;
+  dataBasis?: string;
+  source?: string[];
+};
+
+type DescriptionPayload = {
+  ok: boolean;
+  band?: {
+    image_prompts?: {
+      main_image_prompt?: string;
+      detail_image_prompt?: string;
+      buyer_show_prompt?: string;
+      title_direction?: string;
+    };
+  };
+  descriptions?: Array<{
+    product_id?: string;
+    title?: string;
+    detail_image_prompt?: string;
+  }>;
+  listingSellingPoints?: {
+    summary?: string;
+    mainImageSellingPoints?: ListingMainSellingPoint[];
+  };
+  mainImagePromptSeed?: string;
+  error?: string;
+};
+
 export function APlusDetail() {
   const { expanded } = useSidebar();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -101,6 +130,25 @@ export function APlusDetail() {
   const [settings, setSettings] = useState({ platform: "亚马逊", country: "美国", language: "英文", type: "普通A+" });
   const [uploadedImages, setUploadedImages] = useState<UploadedProductImage[]>([]);
   const [error, setError] = useState("");
+  const [selectedProduct, setSelectedProduct] = useState("");
+  const [selectedReportOption, setSelectedReportOption] = useState<SuiteProduct | null>(null);
+  const [descriptionPayload, setDescriptionPayload] = useState<DescriptionPayload | null>(null);
+  const [loadingDescriptions, setLoadingDescriptions] = useState(false);
+  const [detailGenerationText, setDetailGenerationText] = useState("");
+
+  const selectedReport = selectedReportOption;
+  const reportSellingPoints = descriptionPayload?.listingSellingPoints?.mainImageSellingPoints || [];
+  const detailPromptSeed = (() => {
+    if (!descriptionPayload) return "";
+    const bandDetail = String(descriptionPayload.band?.image_prompts?.detail_image_prompt || "").trim();
+    if (bandDetail) return bandDetail;
+    const firstProductDetail = String(descriptionPayload.descriptions?.[0]?.detail_image_prompt || "").trim();
+    if (firstProductDetail) return firstProductDetail;
+    const summary = String(descriptionPayload.listingSellingPoints?.summary || "").trim();
+    if (summary) return summary;
+    const seed = String(descriptionPayload.mainImagePromptSeed || "").trim();
+    return seed;
+  })();
 
   const updateSetting = (key: keyof typeof settings, value: string) => {
     setSettings((current) => ({ ...current, [key]: value }));
@@ -154,6 +202,31 @@ export function APlusDetail() {
     setUploadedImages((current) => current.filter((item) => item.id !== id));
     setError("");
   }
+
+  async function loadDescriptions(reportValue: string) {
+    if (!reportValue) return;
+    setLoadingDescriptions(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/product-sets/main-image-descriptions?runId=${encodeURIComponent(reportValue)}`);
+      const data = await response.json();
+      if (!response.ok || !data.ok) throw new Error(data.error || "读取详情图描述失败");
+      setDescriptionPayload(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoadingDescriptions(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!selectedProduct) return;
+    loadDescriptions(selectedProduct).catch(() => undefined);
+  }, [selectedProduct]);
+
+  useEffect(() => {
+    if (detailPromptSeed) setDetailGenerationText(detailPromptSeed);
+  }, [detailPromptSeed]);
 
   return (
     <div className="relative flex h-full bg-[#F2F4F7]">
@@ -217,6 +290,13 @@ export function APlusDetail() {
           </div>
         )}
 
+        <AIReportSelector value={selectedProduct} onChange={(runId, report) => {
+          setSelectedProduct(runId);
+          setSelectedReportOption(report);
+          if (!runId) setDescriptionPayload(null);
+          setError("");
+        }} />
+
         <SectionTitle>生成设置</SectionTitle>
         <div className="mb-4 grid grid-cols-3 gap-3">
           <SelectBox value={settings.platform} options={APLUS_OPTIONS.platform} open={openSetting === "platform"} onToggle={() => setOpenSetting(openSetting === "platform" ? null : "platform")} onSelect={(value) => updateSetting("platform", value)} />
@@ -234,8 +314,33 @@ export function APlusDetail() {
         </div>
         <textarea
           className="mb-4 h-[114px] w-full resize-none rounded-[8px] border border-[#DDE3EC] bg-white p-3 text-[12px] font-normal leading-[20px] text-[#5F6B7A] outline-none focus:border-[#4690FF]"
-          defaultValue={`建议包含以下信息生成更精准：\n1.产品名称\n2.核心卖点\n3.适用人群\n4.期望场景\n5.具体参数`}
+          value={detailGenerationText}
+          onChange={(event) => setDetailGenerationText(event.target.value)}
+          placeholder={`建议包含以下信息生成更精准：\n1.产品名称\n2.核心卖点\n3.适用人群\n4.期望场景\n5.具体参数`}
         />
+        {reportSellingPoints.length ? (
+          <div className="mb-4 rounded-[8px] border border-[#e4ebf5] bg-white p-3">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <div className="text-[12px] font-bold text-[#344054]">已回传报告卖点</div>
+              <span className="rounded-full bg-[#eef6ff] px-2 py-0.5 text-[11px] font-bold text-[#3388ff]">{reportSellingPoints.length} 条</span>
+            </div>
+            <div className="space-y-2">
+              {reportSellingPoints.slice(0, 4).map((item, index) => (
+                <div key={`${item.title || "point"}-${index}`} className="rounded-[8px] bg-[#f8fafc] p-2.5 text-[12px] leading-5 text-[#667085]">
+                  <div className="font-bold text-[#0A1B39]">{index + 1}. {item.title || "报告卖点"}</div>
+                  <div className="mt-0.5">画面表达：{item.visualExpression || "商品主体清晰，少量文字表达核心卖点"}</div>
+                  <div className="mt-0.5 truncate text-[#98A2B3]">依据：{item.dataBasis || "竞品报告数据库聚合"}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+        {loadingDescriptions && selectedReport ? (
+          <div className="mb-6 flex items-center gap-2 rounded-[8px] bg-[#f8fafc] px-3 py-2 text-[12px] font-semibold text-[#667085]">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            正在导入详情图生图文本
+          </div>
+        ) : null}
 
         <SectionTitle help>包含模块（多选）</SectionTitle>
         <div className="grid grid-cols-2 gap-3">
