@@ -335,6 +335,18 @@ export async function createAccount(input = {}) {
 
   return withConnection(async (connection) => {
     await ensureAccountSchema(connection)
+    // 校验账号名称、手机号分别不可重复
+    const [nameDup] = await connection.query(
+      'SELECT 1 AS hit FROM sys_account WHERE account_name = ? AND is_deleted = 0 LIMIT 1',
+      [accountName],
+    )
+    if (nameDup.length) throw new ApiError('账号名称已存在')
+    const [phoneDup] = await connection.query(
+      'SELECT 1 AS hit FROM sys_account WHERE phone = ? AND is_deleted = 0 LIMIT 1',
+      [phone],
+    )
+    if (phoneDup.length) throw new ApiError('手机号已存在')
+
     const accountId = await generateUniqueAccountId(connection)
     await connection.query(
       `INSERT INTO sys_account (
@@ -433,6 +445,43 @@ export async function deleteAccount(input = {}) {
     }
     const account = await selectAccountById(connection, accountId)
     return { ok: true, account }
+  })
+}
+
+// ── 校验账号名称/手机号是否重复（创建账号前使用） ──
+
+export async function checkAccountDuplicate(input = {}) {
+  const accountName = input.accountName == null ? '' : String(input.accountName).trim()
+  const phone = input.phone == null ? '' : String(input.phone).trim()
+  const excludeAccountId = input.excludeAccountId == null ? '' : String(input.excludeAccountId).trim()
+
+  return withConnection(async (connection) => {
+    await ensureAccountSchema(connection)
+    const result = { ok: true, accountNameExists: false, phoneExists: false }
+
+    if (accountName) {
+      let sql = 'SELECT 1 AS hit FROM sys_account WHERE account_name = ? AND is_deleted = 0'
+      const params = [accountName]
+      if (excludeAccountId) {
+        sql += ' AND account_id != ?'
+        params.push(excludeAccountId)
+      }
+      const [rows] = await connection.query(`${sql} LIMIT 1`, params)
+      result.accountNameExists = rows.length > 0
+    }
+
+    if (phone) {
+      let sql = 'SELECT 1 AS hit FROM sys_account WHERE phone = ? AND is_deleted = 0'
+      const params = [phone]
+      if (excludeAccountId) {
+        sql += ' AND account_id != ?'
+        params.push(excludeAccountId)
+      }
+      const [rows] = await connection.query(`${sql} LIMIT 1`, params)
+      result.phoneExists = rows.length > 0
+    }
+
+    return result
   })
 }
 

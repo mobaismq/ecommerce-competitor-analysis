@@ -453,9 +453,20 @@ function StoreCard({ store, onToggleStatus, onDelete, onAuth }: { store: Store; 
         </div>
       </div>
 
-      {/* 平台文字角标（右上角） */}
-      <div className="absolute top-2 right-2 rounded-full bg-[#eef3fb] px-2 py-0.5 text-[11px] text-[#86909C]">
-        {store.platform}
+      {/* 平台logo+名称角标（右上角） */}
+      <div className="absolute top-2 right-2 flex items-center gap-1 rounded-full bg-white border border-[#e6e9ef] shadow-sm pl-1 pr-2 py-0.5">
+        <div className="relative h-4 w-4 shrink-0 overflow-hidden rounded-sm flex items-center justify-center">
+          <span className="text-[10px] font-bold text-[#86909C]">{store.platform.slice(0, 1)}</span>
+          {store.platformLogo && (
+            <img
+              src={store.platformLogo}
+              alt={store.platform}
+              className="absolute inset-0 h-full w-full object-cover"
+              onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+            />
+          )}
+        </div>
+        <span className="text-[11px] text-[#86909C] leading-none">{store.platform}</span>
       </div>
 
       <div className="flex items-center gap-2 mb-3">
@@ -479,12 +490,12 @@ function StoreCard({ store, onToggleStatus, onDelete, onAuth }: { store: Store; 
 
       <div className="space-y-1.5 mb-3">
         <div className="flex items-center justify-between">
-          <span className="text-[12px] text-[#86909C]">授权到期</span>
-          <span className="text-[12px] text-[#0A1B39]">{store.authExpireTime}</span>
-        </div>
-        <div className="flex items-center justify-between">
           <span className="text-[12px] text-[#86909C]">授权时间</span>
           <span className="text-[12px] text-[#0A1B39]">{store.authTime}</span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-[12px] text-[#86909C]">授权到期</span>
+          <span className="text-[12px] text-[#0A1B39]">{store.authExpireTime}</span>
         </div>
       </div>
 
@@ -549,14 +560,11 @@ export function StoreManagement() {
           const p = platforms.find((x) => x.platformName === filterPlatform);
           if (p) params.set("platformId", p.platformId);
         }
-        // 账号店铺权限：无任何店铺权限时不展示店铺；有权限则仅查询有权限的店铺
+        // 账号店铺权限：无店铺权限限制时查询全部店铺；有权限则仅查询有权限的店铺
         const storePerms = getUserPermissions().storePermissionIds;
-        if (storePerms.length === 0) {
-          setStores([]);
-          setTotal(0);
-          return;
+        if (storePerms.length > 0) {
+          params.set("storeIds", storePerms.join(","));
         }
-        params.set("storeIds", storePerms.join(","));
         if (filterStartDate) params.set("authTimeStart", filterStartDate);
         if (filterEndDate) params.set("authTimeEnd", filterEndDate);
         const response = await fetch(`/api/store/list?${params.toString()}`);

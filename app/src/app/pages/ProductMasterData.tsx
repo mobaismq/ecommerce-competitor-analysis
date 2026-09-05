@@ -639,14 +639,14 @@ export function ProductMasterData() {
                           ? `¥${minStandardPrice}`
                           : `¥${minStandardPrice}-¥${maxStandardPrice}`}
                       </td>
-                      <td className="py-3 pr-2">
+                      <td className="py-3 pr-2 whitespace-nowrap">
                         <span className="inline-block rounded-full px-3 py-0.5 text-[12px] text-black">
                           {product.status}
                         </span>
                       </td>
                       <td className="py-3 pr-2 text-[14px] text-[#0A1B39]">{product.updateTime}</td>
                       <td className="py-3 pr-2 text-[14px] text-[#0A1B39]">{product.createTime}</td>
-                      <td className="py-3 pr-4">
+                      <td className="py-3 pr-4 whitespace-nowrap">
                         <div className="flex items-center gap-3">
                           {hasButtonPermission(2003) && (
                             <button

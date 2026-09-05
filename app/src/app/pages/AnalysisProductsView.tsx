@@ -211,7 +211,7 @@ export function AnalysisProductsView() {
   if (loading) {
     return (
       <div className="grid h-full place-items-center bg-[#f4f7fb]">
-        <div className="flex items-center gap-2 rounded-2xl bg-white px-5 py-4 text-[14px] font-bold text-[#86909C] shadow-[0_8px_32px_rgba(29,38,52,.06)]">
+        <div className="flex items-center gap-2 rounded-2xl bg-white px-5 py-4 text-[14px]  text-[#86909C] shadow-[0_8px_32px_rgba(29,38,52,.06)]">
           <Loader2 className="h-4 w-4 animate-spin" />
           正在读取商品和 SKU...
         </div>
@@ -222,10 +222,10 @@ export function AnalysisProductsView() {
   if (error) {
     return (
       <div className="h-full overflow-y-auto bg-[#f4f7fb] p-6 custom-scrollbar">
-        <Link to="/market/competitive/report" className="mb-4 inline-flex items-center gap-2 text-[13px] font-bold text-[#3388ff] hover:text-[#1a6fe8]">
+        <Link to="/market/competitive/report" className="mb-4 inline-flex items-center gap-2 text-[13px]  text-[#3388ff] hover:text-[#1a6fe8]">
           返回分析报告
         </Link>
-        <div className="rounded-2xl border border-[#ffd7d7] bg-white p-8 text-[14px] font-bold text-[#c62828] shadow-[0_8px_32px_rgba(29,38,52,.06)]">
+        <div className="rounded-2xl border border-[#ffd7d7] bg-white p-8 text-[14px]  text-[#c62828] shadow-[0_8px_32px_rgba(29,38,52,.06)]">
           {error}
         </div>
       </div>
@@ -251,14 +251,14 @@ export function AnalysisProductsView() {
                 <Package className="h-5 w-5" />
               </div>
               <div>
-                <h1 className="text-[24px] font-extrabold tracking-[-0.02em] text-[#0A1B39]">{data?.collection.keyword || keyword || "全部商品"}</h1>
-                <p className="mt-1 text-[13px] font-bold text-[#86909C]">查看该集合下每个商品的一张主图、标题和完整 SKU 信息。</p>
+                <h1 className="text-[24px]  tracking-[-0.02em] text-[#0A1B39]">{data?.collection.keyword || keyword || "全部商品"}</h1>
+                <p className="mt-1 text-[13px]  text-[#86909C]">查看该集合下每个商品的一张主图、标题和完整 SKU 信息。</p>
               </div>
             </div>
           </div>
           <Link
             to="/market/competitive/report"
-            className="h-10 rounded-lg border border-[#dce3ee] bg-white px-4 py-2.5 text-[13px] font-bold text-[#344054] hover:border-[#3388ff] hover:text-[#3388ff]"
+            className="h-10 rounded-lg border border-[#dce3ee] bg-white px-4 py-2.5 text-[13px]  text-[#344054] hover:border-[#3388ff] hover:text-[#3388ff]"
           >
             返回列表
           </Link>
@@ -266,20 +266,20 @@ export function AnalysisProductsView() {
 
         <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
           <div className="rounded-xl bg-[#f8fafc] p-4">
-            <p className="text-[12px] font-bold text-[#86909C]">商品数量</p>
-            <p className="mt-1 text-[20px] font-extrabold text-[#0A1B39]">{data?.collection.productCount || 0}</p>
+            <p className="text-[12px]  text-[#86909C]">商品数量</p>
+            <p className="mt-1 text-[20px]  text-[#0A1B39]">{data?.collection.productCount || 0}</p>
           </div>
           <div className="rounded-xl bg-[#f8fafc] p-4">
-            <p className="text-[12px] font-bold text-[#86909C]">价格区间</p>
-            <p className="mt-1 text-[20px] font-extrabold text-[#0A1B39]">{data?.collection.priceRange || "-"}</p>
+            <p className="text-[12px]  text-[#86909C]">价格区间</p>
+            <p className="mt-1 text-[20px]  text-[#0A1B39]">{data?.collection.priceRange || "-"}</p>
           </div>
           <div className="rounded-xl bg-[#f8fafc] p-4">
-            <p className="text-[12px] font-bold text-[#86909C]">采集时间</p>
-            <p className="mt-1 text-[15px] font-extrabold text-[#0A1B39]">{data?.collection.collectTime || "-"}</p>
+            <p className="text-[12px]  text-[#86909C]">采集时间</p>
+            <p className="mt-1 text-[15px]  text-[#0A1B39]">{data?.collection.collectTime || "-"}</p>
           </div>
           <div className="rounded-xl bg-[#f8fafc] p-4">
-            <p className="text-[12px] font-bold text-[#86909C]">数据来源</p>
-            <p className="mt-1 text-[15px] font-extrabold text-[#0A1B39]">{data?.source || "-"}</p>
+            <p className="text-[12px]  text-[#86909C]">数据来源</p>
+            <p className="mt-1 text-[15px]  text-[#0A1B39]">{data?.source || "-"}</p>
           </div>
         </div>
       </section>
@@ -287,14 +287,14 @@ export function AnalysisProductsView() {
       <section className="rounded-2xl bg-white p-5 shadow-[0_8px_32px_rgba(29,38,52,.06)]">
         <div className="mb-5 flex flex-wrap items-center justify-between gap-4">
           <div>
-            <h2 className="text-[18px] font-extrabold text-[#0A1B39]">商品清单</h2>
-            <p className="mt-1 text-[13px] font-bold text-[#86909C]">共 {products.length} 个商品，每页 {PAGE_SIZE} 个</p>
+            <h2 className="text-[18px]  text-[#0A1B39]">商品清单</h2>
+            <p className="mt-1 text-[13px]  text-[#86909C]">共 {products.length} 个商品，每页 {PAGE_SIZE} 个</p>
           </div>
           <div className="flex w-full flex-wrap items-center justify-end gap-3 xl:w-auto">
             <button
               onClick={handleBatchAnalyze}
               disabled={batchRunning || Boolean(analyzingProductId)}
-              className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-[#3388ff] px-4 text-[13px] font-bold text-white shadow-[0_4px_12px_rgba(51,136,255,.2)] hover:bg-[#1a6fe8] disabled:cursor-not-allowed disabled:bg-[#b8d7ff]"
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-[#3388ff] px-4 text-[13px]  text-white shadow-[0_4px_12px_rgba(51,136,255,.2)] hover:bg-[#1a6fe8] disabled:cursor-not-allowed disabled:bg-[#b8d7ff]"
             >
               {batchRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <BrainCircuit className="h-4 w-4" />}
               批量主图分析入库
@@ -305,21 +305,21 @@ export function AnalysisProductsView() {
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 placeholder="搜索标题、商品ID、SKU"
-                className="h-10 w-full rounded-lg border border-[#dce3ee] bg-white pl-9 pr-3 text-[13px] font-bold text-[#0A1B39] outline-none focus:border-[#3388ff] focus:ring-2 focus:ring-[#d8ebff]"
+                className="h-10 w-full rounded-lg border border-[#dce3ee] bg-white pl-9 pr-3 text-[13px]  text-[#0A1B39] outline-none focus:border-[#3388ff] focus:ring-2 focus:ring-[#d8ebff]"
               />
             </div>
           </div>
         </div>
 
         {batchRunning && (
-          <div className="mb-4 rounded-lg border border-[#d8ebff] bg-[#f0f7ff] px-3 py-2 text-[13px] font-bold text-[#3388ff]">
+          <div className="mb-4 rounded-lg border border-[#d8ebff] bg-[#f0f7ff] px-3 py-2 text-[13px]  text-[#3388ff]">
             正在批量入库：{batchProgress.done + 1}/{batchProgress.total}
             {batchProgress.current ? ` · ${batchProgress.current.slice(0, 40)}` : ""}
           </div>
         )}
 
         {analysisError && (
-          <div className="mb-4 rounded-lg border border-[#ffd7d7] bg-[#fff5f5] px-3 py-2 text-[13px] font-bold text-[#c62828]">
+          <div className="mb-4 rounded-lg border border-[#ffd7d7] bg-[#fff5f5] px-3 py-2 text-[13px]  text-[#c62828]">
             {analysisError}
           </div>
         )}
@@ -327,11 +327,11 @@ export function AnalysisProductsView() {
         {products.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20">
             <Package className="mb-4 h-16 w-16 text-[#d0d5dd]" />
-            <p className="text-[16px] font-bold text-[#86909C]">暂无商品</p>
+            <p className="text-[16px]  text-[#86909C]">暂无商品</p>
           </div>
         ) : (
           <div className="overflow-hidden rounded-2xl border border-[#eef1f5]">
-            <div className="grid grid-cols-[84px_minmax(260px,1.35fr)_96px_88px_minmax(260px,1fr)_132px] gap-3 bg-[#f9fafb] px-4 py-3 text-[13px] font-bold text-[#86909C]">
+            <div className="grid grid-cols-[84px_minmax(260px,1.35fr)_96px_88px_minmax(260px,1fr)_132px] gap-3 bg-[#f9fafb] px-4 py-3 text-[13px]  text-[#86909C]">
               <div>主图</div>
               <div>商品标题</div>
               <div>价格</div>
@@ -356,8 +356,8 @@ export function AnalysisProductsView() {
                   </div>
 
                   <div className="min-w-0 self-center">
-                    <h3 className="line-clamp-2 text-[14px] font-extrabold leading-6 text-[#0A1B39]">{product.title}</h3>
-                    <div className="mt-2 flex flex-wrap gap-1.5 text-[12px] font-bold">
+                    <h3 className="line-clamp-2 text-[14px]  leading-6 text-[#0A1B39]">{product.title}</h3>
+                    <div className="mt-2 flex flex-wrap gap-1.5 text-[12px] ">
                       {product.productId && <span className="rounded-lg bg-[#f8fafc] px-2 py-1 text-[#667085]">ID {product.productId}</span>}
                       {product.shopName && <span className="max-w-[160px] truncate rounded-lg bg-[#f8fafc] px-2 py-1 text-[#667085]">{product.shopName}</span>}
                       <span className="rounded-lg bg-[#f8fafc] px-2 py-1 text-[#667085]">图片 {product.imageCount}</span>
@@ -365,13 +365,13 @@ export function AnalysisProductsView() {
                   </div>
 
                   <div className="self-center">
-                    <p className="text-[14px] font-extrabold text-[#ff4d00]">{product.priceRange || formatMoney(product.price)}</p>
-                    {product.salesAmount != null && <p className="mt-1 text-[12px] font-bold text-[#98A2B3]">销额 {formatMoney(product.salesAmount)}</p>}
+                    <p className="text-[14px]  text-[#ff4d00]">{product.priceRange || formatMoney(product.price)}</p>
+                    {product.salesAmount != null && <p className="mt-1 text-[12px]  text-[#98A2B3]">销额 {formatMoney(product.salesAmount)}</p>}
                   </div>
 
                   <div className="self-center">
-                    <p className="text-[14px] font-extrabold text-[#0A1B39]">{formatCount(product.soldCount)}</p>
-                    <p className="mt-1 text-[12px] font-bold text-[#98A2B3]">SKU {product.skuCount}</p>
+                    <p className="text-[14px]  text-[#0A1B39]">{formatCount(product.soldCount)}</p>
+                    <p className="mt-1 text-[12px]  text-[#98A2B3]">SKU {product.skuCount}</p>
                   </div>
 
                   <div className="self-center">
@@ -383,8 +383,8 @@ export function AnalysisProductsView() {
                               key={`${sku.skuId || sku.title}-${index}`}
                               className="max-w-full rounded-lg bg-[#f8fafc] px-2 py-1.5"
                             >
-                              <p className="line-clamp-1 text-[12px] font-bold text-[#0A1B39]">{sku.title}</p>
-                              <div className="mt-0.5 flex items-center gap-2 text-[11px] font-bold">
+                              <p className="line-clamp-1 text-[12px]  text-[#0A1B39]">{sku.title}</p>
+                              <div className="mt-0.5 flex items-center gap-2 text-[11px] ">
                                 {sku.skuId && <span className="text-[#98A2B3]">SKU {sku.skuId}</span>}
                                 <span className="text-[#ff4d00]">{formatMoney(sku.price)}</span>
                               </div>
@@ -393,7 +393,7 @@ export function AnalysisProductsView() {
                         </div>
                       </div>
                     ) : (
-                      <p className="text-[12px] font-bold text-[#98A2B3]">暂无 SKU 数据</p>
+                      <p className="text-[12px]  text-[#98A2B3]">暂无 SKU 数据</p>
                     )}
                   </div>
 
@@ -401,7 +401,7 @@ export function AnalysisProductsView() {
                     <button
                       onClick={() => product.mainImageAnalysisId ? handleViewMainImageReport(product) : handleAnalyzeMainImage(product)}
                       disabled={Boolean(analyzingProductId) || Boolean(reportLoadingProductId) || (!product.imageUrl && !product.mainImageAnalysisId)}
-                      className={`inline-flex h-8 w-full items-center justify-center gap-1 rounded-lg px-2 text-[12px] font-bold transition-colors ${
+                      className={`inline-flex h-8 w-full items-center justify-center gap-1 rounded-lg px-2 text-[12px]  transition-colors ${
                         product.mainImageAnalysisId
                           ? "bg-[#e8f5e9] text-[#2e7d32] hover:bg-[#ddf1df]"
                           : "bg-[#3388ff] text-white hover:bg-[#1a6fe8]"
@@ -425,26 +425,26 @@ export function AnalysisProductsView() {
                           : "主图分析入库"}
                     </button>
                     {product.productUrl ? (
-                      <a href={product.productUrl} target="_blank" rel="noopener noreferrer" className="inline-flex h-8 w-full items-center justify-center gap-1 rounded-lg bg-[#f0f7ff] px-2 text-[12px] font-bold text-[#3388ff] hover:bg-[#e4f3ff]">
+                      <a href={product.productUrl} target="_blank" rel="noopener noreferrer" className="inline-flex h-8 w-full items-center justify-center gap-1 rounded-lg bg-[#f0f7ff] px-2 text-[12px]  text-[#3388ff] hover:bg-[#e4f3ff]">
                         <ExternalLink className="h-4 w-4" />
                         链接
                       </a>
                     ) : (
-                      <span className="text-[12px] font-bold text-[#d0d5dd]">-</span>
+                      <span className="text-[12px]  text-[#d0d5dd]">-</span>
                     )}
                   </div>
                 </article>
               ))}
             </div>
             <div className="flex items-center justify-between border-t border-[#eef1f5] bg-white px-4 py-3">
-              <span className="text-[13px] font-bold text-[#86909C]">
+              <span className="text-[13px]  text-[#86909C]">
                 第 {safeCurrentPage} / {totalPages} 页，显示 {(safeCurrentPage - 1) * PAGE_SIZE + 1}-{Math.min(safeCurrentPage * PAGE_SIZE, products.length)} 条
               </span>
               <div className="flex items-center gap-1.5">
                 <button
                   onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
                   disabled={safeCurrentPage === 1}
-                  className="flex h-8 items-center rounded-lg border border-[#eef1f5] px-3 text-[13px] font-bold text-[#344054] transition-colors hover:bg-[#f9fafb] disabled:cursor-not-allowed disabled:opacity-40"
+                  className="flex h-8 items-center rounded-lg border border-[#eef1f5] px-3 text-[13px]  text-[#344054] transition-colors hover:bg-[#f9fafb] disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   上一页
                 </button>
@@ -452,7 +452,7 @@ export function AnalysisProductsView() {
                   <button
                     key={page}
                     onClick={() => setCurrentPage(page)}
-                    className={`flex h-8 min-w-[32px] items-center justify-center rounded-lg px-2 text-[13px] font-bold transition-colors ${
+                    className={`flex h-8 min-w-[32px] items-center justify-center rounded-lg px-2 text-[13px]  transition-colors ${
                       safeCurrentPage === page
                         ? "bg-[#3388ff] text-white"
                         : "border border-[#eef1f5] text-[#344054] hover:bg-[#f9fafb]"
@@ -464,7 +464,7 @@ export function AnalysisProductsView() {
                 <button
                   onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
                   disabled={safeCurrentPage === totalPages}
-                  className="flex h-8 items-center rounded-lg border border-[#eef1f5] px-3 text-[13px] font-bold text-[#344054] transition-colors hover:bg-[#f9fafb] disabled:cursor-not-allowed disabled:opacity-40"
+                  className="flex h-8 items-center rounded-lg border border-[#eef1f5] px-3 text-[13px]  text-[#344054] transition-colors hover:bg-[#f9fafb] disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   下一页
                 </button>
@@ -482,9 +482,9 @@ export function AnalysisProductsView() {
           >
             <div className="flex items-start justify-between gap-4 border-b border-[#eef1f5] px-6 py-5">
               <div className="min-w-0">
-                <p className="text-[13px] font-bold text-[#3388ff]">主图分析报告</p>
-                <h3 className="mt-1 line-clamp-2 text-[20px] font-extrabold text-[#0A1B39]">{reportModal.productTitle}</h3>
-                <div className="mt-2 flex flex-wrap gap-2 text-[12px] font-bold text-[#667085]">
+                <p className="text-[13px]  text-[#3388ff]">主图分析报告</p>
+                <h3 className="mt-1 line-clamp-2 text-[20px]  text-[#0A1B39]">{reportModal.productTitle}</h3>
+                <div className="mt-2 flex flex-wrap gap-2 text-[12px]  text-[#667085]">
                   {reportModal.productId && <span className="rounded-lg bg-[#f8fafc] px-2.5 py-1">ID {reportModal.productId}</span>}
                   {reportModal.model && <span className="rounded-lg bg-[#f8fafc] px-2.5 py-1">{reportModal.model}</span>}
                   {reportModal.createdAt && <span className="rounded-lg bg-[#f8fafc] px-2.5 py-1">{reportModal.createdAt}</span>}
@@ -508,7 +508,7 @@ export function AnalysisProductsView() {
                     )}
                   </div>
                   {reportModal.productUrl && (
-                    <a href={reportModal.productUrl} target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-lg bg-[#f0f7ff] text-[12px] font-bold text-[#3388ff] hover:bg-[#e4f3ff]">
+                    <a href={reportModal.productUrl} target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-lg bg-[#f0f7ff] text-[12px]  text-[#3388ff] hover:bg-[#e4f3ff]">
                       <ExternalLink className="h-4 w-4" />
                       打开商品
                     </a>
@@ -517,44 +517,44 @@ export function AnalysisProductsView() {
 
                 <div className="space-y-4">
                   <div className="rounded-xl bg-[#f8fafc] p-4">
-                    <p className="mb-2 text-[13px] font-extrabold text-[#0A1B39]">主图识别文字</p>
+                    <p className="mb-2 text-[13px]  text-[#0A1B39]">主图识别文字</p>
                     <div className="flex flex-wrap gap-2">
                       {(reportModal.reportJson?.main_image_ocr_text || []).length ? (
                         reportModal.reportJson.main_image_ocr_text.map((text: string, index: number) => (
-                          <span key={index} className="rounded-lg bg-white px-2.5 py-1 text-[12px] font-bold text-[#344054]">{text}</span>
+                          <span key={index} className="rounded-lg bg-white px-2.5 py-1 text-[12px]  text-[#344054]">{text}</span>
                         ))
                       ) : (
-                        <span className="text-[13px] font-bold text-[#98A2B3]">暂无识别文字</span>
+                        <span className="text-[13px]  text-[#98A2B3]">暂无识别文字</span>
                       )}
                     </div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-4">
                     <div className="rounded-xl bg-[#f8fafc] p-4">
-                      <p className="mb-2 text-[13px] font-extrabold text-[#0A1B39]">图片卖点</p>
+                      <p className="mb-2 text-[13px]  text-[#0A1B39]">图片卖点</p>
                       <div className="space-y-2">
                         {(reportModal.reportJson?.image_selling_points || []).slice(0, 8).map((item: any, index: number) => (
                           <div key={index} className="rounded-lg bg-white px-3 py-2">
-                            <p className="text-[12px] font-extrabold text-[#0A1B39]">{item.term || item.keyword}</p>
-                            {item.evidence && <p className="mt-1 text-[12px] font-medium leading-5 text-[#667085]">{item.evidence}</p>}
+                            <p className="text-[12px]  text-[#0A1B39]">{item.term || item.keyword}</p>
+                            {item.evidence && <p className="mt-1 text-[12px]  leading-5 text-[#667085]">{item.evidence}</p>}
                           </div>
                         ))}
                       </div>
                     </div>
                     <div className="rounded-xl bg-[#f8fafc] p-4">
-                      <p className="mb-2 text-[13px] font-extrabold text-[#0A1B39]">问大家需求</p>
+                      <p className="mb-2 text-[13px]  text-[#0A1B39]">问大家需求</p>
                       <div className="space-y-2">
                         {(reportModal.reportJson?.qa_user_needs || []).length ? (
                           reportModal.reportJson.qa_user_needs.slice(0, 8).map((item: any, index: number) => (
                             <div key={index} className="rounded-lg bg-white px-3 py-2">
-                              <p className="text-[12px] font-extrabold text-[#0A1B39]">{item.term || item.keyword}</p>
-                              {item.evidence && <p className="mt-1 text-[12px] font-medium leading-5 text-[#667085]">{item.evidence}</p>}
+                              <p className="text-[12px]  text-[#0A1B39]">{item.term || item.keyword}</p>
+                              {item.evidence && <p className="mt-1 text-[12px]  leading-5 text-[#667085]">{item.evidence}</p>}
                             </div>
                           ))
                         ) : (
                           <div className="rounded-lg bg-white px-3 py-3">
-                            <p className="text-[12px] font-extrabold text-[#98A2B3]">暂无问大家数据</p>
-                            <p className="mt-1 text-[12px] font-medium leading-5 text-[#667085]">
+                            <p className="text-[12px]  text-[#98A2B3]">暂无问大家数据</p>
+                            <p className="mt-1 text-[12px]  leading-5 text-[#667085]">
                               该商品没有导入问大家记录，所以这里不会强行编造需求。可先参考图片卖点、标题/SKU卖点，或重新采集时补充问大家数据。
                             </p>
                           </div>
@@ -564,19 +564,19 @@ export function AnalysisProductsView() {
                   </div>
 
                   <div className="rounded-xl bg-[#f8fafc] p-4">
-                    <p className="mb-2 text-[13px] font-extrabold text-[#0A1B39]">后续可复用建议</p>
+                    <p className="mb-2 text-[13px]  text-[#0A1B39]">后续可复用建议</p>
                     <div className="grid grid-cols-3 gap-3">
                       <div className="rounded-lg bg-white p-3">
-                        <p className="mb-1 text-[12px] font-bold text-[#86909C]">沿用表达</p>
-                        <p className="text-[12px] font-bold leading-5 text-[#344054]">{(reportModal.reportJson?.listing_suggestions?.keep_points || []).join("、") || "暂无"}</p>
+                        <p className="mb-1 text-[12px]  text-[#86909C]">沿用表达</p>
+                        <p className="text-[12px]  leading-5 text-[#344054]">{(reportModal.reportJson?.listing_suggestions?.keep_points || []).join("、") || "暂无"}</p>
                       </div>
                       <div className="rounded-lg bg-white p-3">
-                        <p className="mb-1 text-[12px] font-bold text-[#86909C]">差异化补强</p>
-                        <p className="text-[12px] font-bold leading-5 text-[#344054]">{(reportModal.reportJson?.listing_suggestions?.differentiation_points || []).join("、") || "暂无"}</p>
+                        <p className="mb-1 text-[12px]  text-[#86909C]">差异化补强</p>
+                        <p className="text-[12px]  leading-5 text-[#344054]">{(reportModal.reportJson?.listing_suggestions?.differentiation_points || []).join("、") || "暂无"}</p>
                       </div>
                       <div className="rounded-lg bg-white p-3">
-                        <p className="mb-1 text-[12px] font-bold text-[#86909C]">场景/人群</p>
-                        <p className="text-[12px] font-bold leading-5 text-[#344054]">
+                        <p className="mb-1 text-[12px]  text-[#86909C]">场景/人群</p>
+                        <p className="text-[12px]  leading-5 text-[#344054]">
                           {[reportModal.reportJson?.audience_and_scene?.audience, reportModal.reportJson?.audience_and_scene?.scene].filter(Boolean).join(" / ") || "暂无"}
                         </p>
                       </div>
@@ -584,7 +584,7 @@ export function AnalysisProductsView() {
                   </div>
 
                   <details className="rounded-xl bg-[#0b1220] p-4">
-                    <summary className="cursor-pointer text-[13px] font-bold text-white">查看原始 JSON</summary>
+                    <summary className="cursor-pointer text-[13px]  text-white">查看原始 JSON</summary>
                     <pre className="mt-3 max-h-[280px] overflow-auto whitespace-pre-wrap text-[12px] leading-5 text-[#d7e1f5] custom-scrollbar">
                       {JSON.stringify(reportModal.reportJson || {}, null, 2)}
                     </pre>

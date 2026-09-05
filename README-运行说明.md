@@ -18,19 +18,30 @@
   - `clean_data.py`
   - `load_to_mysql.py`
 
-## 启动前端
+## 启动
+
+### 1. 启动后端服务（独立 Node 服务，默认端口 8787）
 
 ```bash
-cd /Users/shuishoukeke/Desktop/电商竞品分析项目-前后端源码-20260721-135110/app
+cd app
 npm install
+npm run server
+```
+
+### 2. 启动前端（Vite，自动把 /api 代理到 8787 后端）
+
+```bash
+cd app
 npm run dev
 ```
 
-启动后访问：
+启动后访问前端：
 
 ```text
-http://127.0.0.1:5173/
+http://localhost:5173/
 ```
+
+> 说明：后端 API 已拆分为独立 Node HTTP 服务，代码在 `app/server/`（`index.js` 入口 + `apiHandler.js` 路由），通过 Vite `server.proxy` 转发 `/api`。
 
 ## 说明
 

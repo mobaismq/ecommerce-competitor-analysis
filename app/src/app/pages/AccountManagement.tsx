@@ -582,7 +582,7 @@ function AccountForm({
     setName(val);
     if (val.length > 15) {
       setNameError("账号名称最多15个字符");
-    } else if (nameError === "账号名称最多15个字符" || nameError === "账号名称不可为空") {
+    } else if (nameError === "账号名称最多15个字符" || nameError === "账号名称不可为空" || nameError === "账号名称已存在") {
       setNameError("");
     }
   };
@@ -592,8 +592,40 @@ function AccountForm({
     setPhone(digits);
     if (digits.length > 11) {
       setPhoneError("手机号格式错误");
-    } else if (phoneError === "手机号格式错误" || phoneError === "手机号不可为空") {
+    } else if (phoneError === "手机号格式错误" || phoneError === "手机号不可为空" || phoneError === "手机号已存在") {
       setPhoneError("");
+    }
+  };
+
+  // 失焦校验账号名称是否重复（仅创建时）
+  const handleNameBlur = async () => {
+    if (isEdit) return;
+    const val = name.trim();
+    if (!val || val.length > 15) return;
+    try {
+      const response = await fetch(`/api/account/check-duplicate?accountName=${encodeURIComponent(val)}`);
+      const res = await response.json();
+      if (response.ok && res?.ok && res.accountNameExists) {
+        setNameError("账号名称已存在");
+      }
+    } catch {
+      // 忽略网络异常
+    }
+  };
+
+  // 失焦校验手机号是否重复（仅创建时）
+  const handlePhoneBlur = async () => {
+    if (isEdit) return;
+    const val = phone.trim();
+    if (!val || !/^\d{11}$/.test(val)) return;
+    try {
+      const response = await fetch(`/api/account/check-duplicate?phone=${encodeURIComponent(val)}`);
+      const res = await response.json();
+      if (response.ok && res?.ok && res.phoneExists) {
+        setPhoneError("手机号已存在");
+      }
+    } catch {
+      // 忽略网络异常
     }
   };
 
@@ -713,6 +745,7 @@ function AccountForm({
             placeholder="请输入"
             value={name}
             onChange={(e) => handleNameChange(e.target.value)}
+            onBlur={handleNameBlur}
             className={`h-9 w-full rounded-lg border ${nameError ? "border-[#ff4d4f]" : "border-[#e6e9ef]"} bg-white px-3 text-[13px] outline-none focus:border-[#409eff]`}
           />
           {nameError && <p className="text-[12px] text-[#ff4d4f] mt-1">{nameError}</p>}
@@ -728,6 +761,7 @@ function AccountForm({
             placeholder="请输入"
             value={phone}
             onChange={(e) => handlePhoneChange(e.target.value)}
+            onBlur={handlePhoneBlur}
             readOnly={isEdit}
             className={`h-9 w-full rounded-lg border ${phoneError ? "border-[#ff4d4f]" : "border-[#e6e9ef]"} bg-white px-3 text-[13px] outline-none focus:border-[#409eff] ${isEdit ? "bg-[#f5f6f8] text-[#86909C] cursor-not-allowed" : ""}`}
           />
@@ -1383,13 +1417,13 @@ export function AccountManagement() {
               <div className="flex items-center gap-2">
                 <button
                   onClick={handleQuery}
-                  className="h-8 rounded-lg bg-[#409eff] px-5 text-[13px] font-bold text-white hover:bg-[#66b1ff] transition-colors"
+                  className="h-8 rounded-lg bg-[#409eff] px-5 text-[13px] font-bold text-white hover:bg-[#66b1ff] transition-colors shrink-0 whitespace-nowrap"
                 >
                   查询
                 </button>
                 <button
                   onClick={handleReset}
-                  className="h-8 rounded-lg border border-[#e6e9ef] bg-white px-5 text-[13px] font-bold text-[#0A1B39] hover:bg-[#f5f6f8] transition-colors"
+                  className="h-8 rounded-lg border border-[#e6e9ef] bg-white px-5 text-[13px] font-bold text-[#0A1B39] hover:bg-[#f5f6f8] transition-colors shrink-0 whitespace-nowrap"
                 >
                   重置
                 </button>
@@ -1417,28 +1451,28 @@ export function AccountManagement() {
               加载中…
             </div>
           ) : pagedAccounts.length > 0 ? (
-            <div className="bg-white rounded-xl border border-[#e6e9ef] overflow-hidden flex-1">
-              <table className="w-full text-[13px]">
+            <div className="bg-white rounded-xl border border-[#e6e9ef] overflow-auto flex-1 min-h-0">
+              <table className="w-full min-w-[900px] text-[13px]">
                 <thead>
                   <tr className="bg-[#f5f6f8]">
-                    <th className="px-4 py-3 text-left font-medium text-[#86909C]">账号名称</th>
-                    <th className="px-4 py-3 text-left font-medium text-[#86909C]">手机号</th>
-                    <th className="px-4 py-3 text-left font-medium text-[#86909C]">部门</th>
-                    <th className="px-4 py-3 text-left font-medium text-[#86909C]">角色</th>
+                    <th className="px-4 py-3 text-left font-medium text-[#86909C] whitespace-nowrap">账号名称</th>
+                    <th className="px-4 py-3 text-left font-medium text-[#86909C] whitespace-nowrap">手机号</th>
+                    <th className="px-4 py-3 text-left font-medium text-[#86909C] whitespace-nowrap">部门</th>
+                    <th className="px-4 py-3 text-left font-medium text-[#86909C] whitespace-nowrap">角色</th>
                     <th className="px-4 py-3 text-left font-medium text-[#86909C] whitespace-nowrap">状态</th>
-                    <th className="px-4 py-3 text-left font-medium text-[#86909C]">创建时间</th>
-                    <th className="px-4 py-3 text-left font-medium text-[#86909C] w-[260px]">操作</th>
+                    <th className="px-4 py-3 text-left font-medium text-[#86909C] whitespace-nowrap">创建时间</th>
+                    <th className="px-4 py-3 text-left font-medium text-[#86909C] w-[260px] whitespace-nowrap">操作</th>
                   </tr>
                 </thead>
                 <tbody>
                   {pagedAccounts.map((account) => (
                     <tr key={account.id} className="border-t border-[#f0f2f5]">
-                      <td className="px-4 py-3 text-[#0A1B39]">{account.name}</td>
-                      <td className="px-4 py-3 text-[#0A1B39]">{account.phone}</td>
-                      <td className="px-4 py-3 text-[#86909C]">{account.departmentName}</td>
-                      <td className="px-4 py-3 text-[#86909C]">{account.roleNames.join("、")}</td>
+                      <td className="px-4 py-3 text-[#0A1B39] whitespace-nowrap">{account.name}</td>
+                      <td className="px-4 py-3 text-[#0A1B39] whitespace-nowrap">{account.phone}</td>
+                      <td className="px-4 py-3 text-[#86909C] whitespace-nowrap">{account.departmentName}</td>
+                      <td className="px-4 py-3 text-[#86909C] whitespace-nowrap">{account.roleNames.join("、")}</td>
                       <td className="px-4 py-3 text-[#0A1B39] whitespace-nowrap">{account.status}</td>
-                      <td className="px-4 py-3 text-[#86909C]">{account.createTime}</td>
+                      <td className="px-4 py-3 text-[#86909C] whitespace-nowrap">{account.createTime}</td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-4">
                           {hasButtonPermission(2011) && (

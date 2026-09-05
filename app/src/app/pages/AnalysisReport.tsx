@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { useNavigate } from "react-router";
-import { AlertCircle, Boxes, CheckCircle2, ChevronLeft, ChevronRight, Eye, FileBarChart, Loader2, Search, Sparkles, Trash2, X } from "lucide-react";
+import { AlertCircle, Boxes, Calendar, CheckCircle2, ChevronLeft, ChevronRight, Eye, FileBarChart, Loader2, Search, Sparkles, Trash2, X } from "lucide-react";
 import { PageHeader } from "@/app/components/PageHeader";
 import { ReportJobBanner } from "../components/ReportJobBanner";
 
@@ -76,10 +76,10 @@ interface GenerateJob {
 }
 
 const STATUS_CONFIG: Record<ReportStatus, { text: string; className: string }> = {
-  not_generated: { text: "未生成", className: "bg-[#f2f4f7] text-[#86909C]" },
-  generating: { text: "生成中", className: "bg-[#fff3e0] text-[#f57c00]" },
-  failed: { text: "生成失败", className: "bg-[#ffEBEE] text-[#c62828]" },
-  generated: { text: "已生成", className: "bg-[#e8f5e9] text-[#2e7d32]" },
+  not_generated: { text: "未生成", className: "text-[#86909C]" },
+  generating: { text: "生成中", className: "text-[#f57c00]" },
+  failed: { text: "生成失败", className: "text-[#c62828]" },
+  generated: { text: "已生成", className: "text-[#2e7d32]" },
 };
 
 const PAGE_SIZE = 10;
@@ -105,6 +105,91 @@ function parseManualPriceBands(text: string): ManualPriceBand[] {
     })
     .filter((band): band is ManualPriceBand => Boolean(band))
     .sort((a, b) => a.price_min - b.price_min);
+}
+
+function DateRangePicker({
+  startDate,
+  endDate,
+  onStartChange,
+  onEndChange,
+  placeholder = "请选择日期范围",
+}: {
+  startDate: string;
+  endDate: string;
+  onStartChange: (val: string) => void;
+  onEndChange: (val: string) => void;
+  placeholder?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const hasValue = startDate || endDate;
+  const displayText = startDate && endDate ? `${startDate} 至 ${endDate}` : placeholder;
+
+  const handleClear = () => {
+    onStartChange("");
+    onEndChange("");
+  };
+
+  return (
+    <div ref={ref} className="relative flex-1 min-w-0">
+      <button
+        onClick={() => setOpen(!open)}
+        className="h-8 w-full rounded-lg border border-[#e6e9ef] bg-white px-2.5 text-left text-[13px] outline-none focus:border-[#409eff] flex items-center justify-between min-w-0"
+      >
+        <span className={`truncate ${hasValue ? "text-[#0A1B39]" : "text-[#c0c4cc]"}`} title={displayText}>{displayText}</span>
+        <div className="flex items-center gap-1 shrink-0">
+          {hasValue && (
+            <button onClick={(e) => { e.stopPropagation(); handleClear(); }} className="text-[#c0c4cc] hover:text-[#86909C]">
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+          <Calendar className="h-3.5 w-3.5 text-[#c0c4cc]" />
+        </div>
+      </button>
+      {open && (
+        <div className="absolute top-full left-0 mt-2 bg-white border border-[#e6e9ef] rounded-lg shadow-lg z-50 p-4 w-80">
+          <div className="flex items-center gap-2 mb-3">
+            <div className="flex-1">
+              <label className="block text-[12px] text-[#86909C] mb-1">开始日期</label>
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => onStartChange(e.target.value)}
+                className="h-8 w-full rounded-lg border border-[#e6e9ef] bg-white px-2 text-[13px] outline-none focus:border-[#409eff]"
+              />
+            </div>
+            <span className="text-[12px] text-[#86909C] mt-4">至</span>
+            <div className="flex-1">
+              <label className="block text-[12px] text-[#86909C] mb-1">结束日期</label>
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => onEndChange(e.target.value)}
+                className="h-8 w-full rounded-lg border border-[#e6e9ef] bg-white px-2 text-[13px] outline-none focus:border-[#409eff]"
+              />
+            </div>
+          </div>
+          <div className="flex justify-end gap-2">
+            <button onClick={handleClear} className="h-7 px-3 rounded-lg border border-[#e6e9ef] bg-white text-[13px] text-[#0A1B39] hover:bg-[#f5f6f8] transition-colors">
+              清除
+            </button>
+            <button onClick={() => setOpen(false)} className="h-7 px-3 rounded-lg bg-[#409eff] text-[13px] text-white hover:bg-[#66b1ff] transition-colors">
+              确定
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function AnalysisReport() {
@@ -429,14 +514,14 @@ export function AnalysisReport() {
                 ) : (
                   <AlertCircle className="h-4 w-4 text-[#c62828]" />
                 )}
-                <p className="text-[14px] font-extrabold text-[#0A1B39]">
+                <p className="text-[14px]  text-[#0A1B39]">
                   {generateJob.status === "completed" ? "整体报告已生成并保存" : generateJob.status === "failed" ? "整体报告生成失败" : "整体报告生成中"}
                 </p>
                 {generateJob.keyword && (
-                  <span className="rounded-full bg-white px-2.5 py-1 text-[12px] font-bold text-[#667085]">{generateJob.keyword}</span>
+                  <span className="rounded-full bg-white px-2.5 py-1 text-[12px]  text-[#667085]">{generateJob.keyword}</span>
                 )}
               </div>
-              <p className="mt-1 text-[12px] font-bold text-[#667085]">
+              <p className="mt-1 text-[12px]  text-[#667085]">
                 {generateJob.progress?.message || (generateJob.status === "running" ? "正在调用 AI 汇总单品报告" : "")}
               </p>
             </div>
@@ -460,8 +545,8 @@ export function AnalysisReport() {
               {activeGenerateSteps.map((step) => (
                 <div key={step.key || step.label} className="rounded-xl bg-white/80 px-3 py-2">
                   <div className="mb-1.5 flex items-center justify-between gap-2">
-                    <span className="text-[12px] font-extrabold text-[#0A1B39]">{step.label}</span>
-                    <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${
+                    <span className="text-[12px]  text-[#0A1B39]">{step.label}</span>
+                    <span className={`rounded-full px-2 py-0.5 text-[11px]  ${
                       step.status === "completed"
                         ? "bg-[#e8f5e9] text-[#2e7d32]"
                         : step.status === "failed"
@@ -481,7 +566,7 @@ export function AnalysisReport() {
                       style={{ width: `${stepPercent(step)}%` }}
                     />
                   </div>
-                  <p className="mt-1 line-clamp-1 text-[11px] font-bold text-[#86909C]">
+                  <p className="mt-1 line-clamp-1 text-[11px]  text-[#86909C]">
                     {step.message || `${step.current || 0}/${step.total || 0}`}
                   </p>
                 </div>
@@ -489,7 +574,7 @@ export function AnalysisReport() {
             </div>
           )}
           {(generateJob.result?.report || generateJob.result?.reportJson?.summary?.ai_usage || generateJob.error) && (
-            <div className="mt-3 flex flex-wrap gap-2 text-[12px] font-bold text-[#667085]">
+            <div className="mt-3 flex flex-wrap gap-2 text-[12px]  text-[#667085]">
               {generateJob.result?.report?.model && <span className="rounded-lg bg-white px-2.5 py-1">模型 {generateJob.result.report.model}</span>}
               {generateJob.result?.report?.sourceProductReportCount != null && (
                 <span className="rounded-lg bg-white px-2.5 py-1">
@@ -513,46 +598,45 @@ export function AnalysisReport() {
       )}
 
       {/* Query Conditions */}
-      <div className="mb-5 rounded-2xl bg-white p-5 shadow-[0_8px_32px_rgba(29,38,52,.06)]">
-        <div className="flex flex-wrap items-end gap-4">
-          <div className="min-w-[200px] flex-1">
-            <label className="mb-1.5 block text-[12px] font-bold text-[#667085]">关键词</label>
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#98A2B3]" />
+      <div className="mb-4 rounded-xl bg-white p-4">
+        <div className="grid grid-cols-4 gap-3">
+          <div className="flex items-center gap-2">
+            <label className="shrink-0 text-[12px] text-[#86909C]">关键词</label>
+            <div className="relative flex-1">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[#c0c4cc]" />
               <input
                 type="text"
                 value={searchKeyword}
                 onChange={(e) => setSearchKeyword(e.target.value)}
                 placeholder="请输入"
-                className="h-10 w-full rounded-lg border border-[#dce3ee] bg-white pl-9 pr-3 text-[13px] font-bold text-[#0A1B39] outline-none focus:border-[#3388ff] focus:ring-2 focus:ring-[#d8ebff]"
+                className="h-8 w-full rounded-lg border border-[#e6e9ef] bg-white pl-8 pr-7 text-[13px] outline-none focus:border-[#409eff]"
               />
+              {searchKeyword && (
+                <button onClick={() => setSearchKeyword("")} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#c0c4cc] hover:text-[#86909C]">
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
             </div>
           </div>
-          <div className="min-w-[200px] flex-1">
-            <label className="mb-1.5 block text-[12px] font-bold text-[#667085]">采集时间</label>
-            <div className="flex items-center gap-2">
-              <input
-                type="date"
-                value={startTime}
-                onChange={(e) => setStartTime(e.target.value)}
-                className="h-10 w-full rounded-lg border border-[#dce3ee] bg-white px-3 text-[13px] font-bold text-[#0A1B39] outline-none focus:border-[#3388ff] focus:ring-2 focus:ring-[#d8ebff]"
-              />
-              <span className="text-[13px] font-bold text-[#86909C]">至</span>
-              <input
-                type="date"
-                value={endTime}
-                onChange={(e) => setEndTime(e.target.value)}
-                className="h-10 w-full rounded-lg border border-[#dce3ee] bg-white px-3 text-[13px] font-bold text-[#0A1B39] outline-none focus:border-[#3388ff] focus:ring-2 focus:ring-[#d8ebff]"
-              />
-            </div>
+
+          <div className="flex items-center gap-2">
+            <label className="shrink-0 text-[12px] text-[#86909C]">采集时间</label>
+            <DateRangePicker
+              startDate={startTime}
+              endDate={endTime}
+              onStartChange={setStartTime}
+              onEndChange={setEndTime}
+              placeholder="请选择日期范围"
+            />
           </div>
-          <div className="min-w-[200px] flex-1">
-            <label className="mb-1.5 block text-[12px] font-bold text-[#667085]">报告状态</label>
+
+          <div className="flex items-center gap-2">
+            <label className="shrink-0 text-[12px] text-[#86909C]">报告状态</label>
             <select
               value={reportStatus}
               onChange={(e) => setReportStatus(e.target.value)}
-              className="h-10 w-full rounded-lg border border-[#dce3ee] bg-white px-3 text-[13px] font-bold text-[#0A1B39] outline-none focus:border-[#3388ff] focus:ring-2 focus:ring-[#d8ebff] appearance-none"
-              style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2398A2B3' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E")`, backgroundRepeat: "no-repeat", backgroundPosition: "right 12px center" }}
+              className={`h-8 w-full rounded-lg border border-[#e6e9ef] bg-white px-2.5 text-[13px] outline-none focus:border-[#409eff] appearance-none ${reportStatus === "" ? "text-[#98A2B3]" : "text-[#0A1B39]"}`}
+              style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23c0c4cc' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E")`, backgroundRepeat: "no-repeat", backgroundPosition: "right 10px center" }}
             >
               <option value="">请选择</option>
               <option value="not_generated">未生成</option>
@@ -561,25 +645,28 @@ export function AnalysisReport() {
               <option value="failed">生成失败</option>
             </select>
           </div>
-          <button
-            onClick={applySearch}
-            className="h-10 rounded-lg bg-[#3388ff] px-6 text-[13px] font-bold text-white shadow-[0_4px_12px_rgba(51,136,255,.25)] transition-all hover:bg-[#1a6fe8]"
-          >
-            查询
-          </button>
-          <button
-            onClick={resetSearch}
-            className="h-10 rounded-lg border border-[#dce3ee] bg-white px-4 text-[13px] font-bold text-[#344054] hover:border-[#3388ff] hover:text-[#3388ff]"
-          >
-            重置
-          </button>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={applySearch}
+              className="h-8 rounded-lg bg-[#409eff] px-5 text-[13px] font-bold text-white hover:bg-[#66b1ff] transition-colors shrink-0"
+            >
+              查询
+            </button>
+            <button
+              onClick={resetSearch}
+              className="h-8 rounded-lg border border-[#e6e9ef] bg-white px-4 text-[13px] text-[#0A1B39] hover:bg-[#f5f6f8] transition-colors shrink-0"
+            >
+              重置
+            </button>
+          </div>
         </div>
       </div>
 
       {/* Table */}
       <div className="rounded-2xl bg-white p-5 shadow-[0_8px_32px_rgba(29,38,52,.06)]">
         {rowsError && (
-          <div className="mb-3 rounded-lg border border-[#ffd7d7] bg-[#fff5f5] px-3 py-2 text-[13px] font-bold text-[#c62828]">
+          <div className="mb-3 rounded-lg border border-[#ffd7d7] bg-[#fff5f5] px-3 py-2 text-[13px]  text-[#c62828]">
             {rowsError}
           </div>
         )}
@@ -587,82 +674,75 @@ export function AnalysisReport() {
           <table className="w-full">
             <thead>
               <tr className="border-b border-[#eef1f5] bg-[#f9fafb]">
-                <th className="px-4 py-3.5 text-left text-[13px] font-bold text-[#86909C] whitespace-nowrap">关键词</th>
-                <th className="px-4 py-3.5 text-left text-[13px] font-bold text-[#86909C] whitespace-nowrap">价格区间</th>
-                <th className="px-4 py-3.5 text-left text-[13px] font-bold text-[#86909C] whitespace-nowrap">竞品数量</th>
-                <th className="px-4 py-3.5 text-left text-[13px] font-bold text-[#86909C] whitespace-nowrap">采集时间</th>
-                <th className="px-4 py-3.5 text-left text-[13px] font-bold text-[#86909C] whitespace-nowrap">报告状态</th>
-                <th className="px-4 py-3.5 text-left text-[13px] font-bold text-[#86909C] whitespace-nowrap">报告标题</th>
-                <th className="px-4 py-3.5 text-left text-[13px] font-bold text-[#86909C] whitespace-nowrap">操作</th>
+                <th className="px-4 py-3.5 text-left text-[13px]  text-[#86909C] whitespace-nowrap">关键词</th>
+                <th className="px-4 py-3.5 text-left text-[13px]  text-[#86909C] whitespace-nowrap">价格区间</th>
+                <th className="px-4 py-3.5 text-left text-[13px]  text-[#86909C] whitespace-nowrap">竞品数量</th>
+                <th className="px-4 py-3.5 text-left text-[13px]  text-[#86909C] whitespace-nowrap">采集时间</th>
+                <th className="px-4 py-3.5 text-left text-[13px]  text-[#86909C] whitespace-nowrap">报告状态</th>
+                <th className="px-4 py-3.5 text-left text-[13px]  text-[#86909C] whitespace-nowrap">报告标题</th>
+                <th className="px-4 py-3.5 text-left text-[13px]  text-[#86909C] whitespace-nowrap">操作</th>
               </tr>
             </thead>
             <tbody>
               {rowsLoading && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-12 text-center text-[14px] font-bold text-[#86909C]">
+                  <td colSpan={7} className="px-4 py-12 text-center text-[14px]  text-[#86909C]">
                     <span className="inline-flex items-center gap-2">
                       <Loader2 className="h-4 w-4 animate-spin" />
-                      正在读取数据库数据...
+                      加载中…
                     </span>
                   </td>
                 </tr>
               )}
               {!rowsLoading && pageRows.map((row) => (
                 <tr key={row.id} className="border-b border-[#eef1f5] transition-colors hover:bg-[#f9fafb]">
-                  <td className="px-4 py-4 text-[14px] font-bold text-[#0A1B39] whitespace-nowrap">{row.keyword}</td>
-                  <td className="px-4 py-4 text-[14px] font-medium text-[#344054] whitespace-nowrap">{row.priceRange}</td>
-                  <td className="px-4 py-4 text-[14px] font-medium text-[#344054] whitespace-nowrap">{row.competitorCount}</td>
-                  <td className="px-4 py-4 text-[14px] font-medium text-[#86909C] whitespace-nowrap">{row.collectTime}</td>
+                  <td className="px-4 py-4 text-[14px]  text-[#0A1B39] whitespace-nowrap">{row.keyword}</td>
+                  <td className="px-4 py-4 text-[14px]  text-[#344054] whitespace-nowrap">{row.priceRange}</td>
+                  <td className="px-4 py-4 text-[14px]  text-[#344054] whitespace-nowrap">{row.competitorCount}</td>
+                  <td className="px-4 py-4 text-[14px]  text-[#86909C] whitespace-nowrap">{row.collectTime}</td>
                   <td className="px-4 py-4 whitespace-nowrap">
-                    <span className={`rounded-full px-2.5 py-1 text-[12px] font-bold ${STATUS_CONFIG[row.status].className}`}>
+                    <span className={`rounded-full px-2.5 py-1 text-[12px]  ${STATUS_CONFIG[row.status].className}`}>
                       {STATUS_CONFIG[row.status].text}
                     </span>
                   </td>
-                  <td className="px-4 py-4 text-[14px] font-medium text-[#0A1B39] whitespace-nowrap">
+                  <td className="px-4 py-4 text-[14px]  text-[#0A1B39] whitespace-nowrap">
                     {row.reportTitle || <span className="text-[#d0d5dd]">—</span>}
                   </td>
                   <td className="px-4 py-4 whitespace-nowrap">
                     <div className="flex items-center gap-2">
+                      {/* 查看采集数据 */}
                       <button
-                        onClick={() => handleViewProducts(row)}
-                        className="flex items-center gap-1 text-[13px] font-bold text-[#0A1B39] hover:text-[#3388ff]"
-                      >
-                        <Boxes className="h-3.5 w-3.5" />
-                        查看全部商品
-                      </button>
-                      <span className="text-[#d0d5dd]">|</span>
+                          onClick={() => handleViewProducts(row)}
+                          className="flex items-center text-[13px]  text-[#3388ff] hover:text-[#1a6fe8]"
+                        >
+                          查看采集数据
+                        </button>
                       {/* AI生成整体报告 */}
                       {row.status === "generating" ? (
-                        <button disabled className="flex items-center gap-1 text-[13px] font-bold text-[#b0b7c3] cursor-not-allowed">
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        <button disabled className="flex items-center text-[13px]  text-[#b0b7c3] cursor-not-allowed">
                           生成中
                         </button>
                       ) : (
                         <button
                           onClick={() => handleGenerate(row)}
-                          className="flex items-center gap-1 text-[13px] font-bold text-[#3388ff] hover:text-[#1a6fe8]"
+                          className="flex items-center text-[13px]  text-[#3388ff] hover:text-[#1a6fe8]"
                         >
-                          <Sparkles className="h-3.5 w-3.5" />
-                          AI生成整体报告
+                          AI生成分析报告
                         </button>
                       )}
-                      <span className="text-[#d0d5dd]">|</span>
                       {/* 查看报告 */}
                       <button
                         onClick={() => handleViewReport(row)}
                         disabled={row.status !== "generated"}
-                        className="flex items-center gap-1 text-[13px] font-bold text-[#2e7d32] hover:text-[#1b5e20] disabled:cursor-not-allowed disabled:text-[#b0b7c3]"
+                        className="flex items-center text-[13px]  text-[#3388ff] hover:text-[#1a6fe8] disabled:cursor-not-allowed disabled:text-[#b0b7c3]"
                       >
-                        <Eye className="h-3.5 w-3.5" />
                         查看报告
                       </button>
-                      <span className="text-[#d0d5dd]">|</span>
                       {/* 删除 */}
                       <button
                         onClick={() => handleDelete(row)}
-                        className="flex items-center gap-1 text-[13px] font-bold text-[#e53935] hover:text-[#c62828]"
+                        className="flex items-center text-[13px]  text-[#3388ff] hover:text-[#1a6fe8]"
                       >
-                        <Trash2 className="h-3.5 w-3.5" />
                         删除
                       </button>
                     </div>
@@ -676,7 +756,7 @@ export function AnalysisReport() {
         {!rowsLoading && pageRows.length === 0 && (
           <div className="flex flex-col items-center justify-center py-20">
             <FileBarChart className="mb-4 h-16 w-16 text-[#d0d5dd]" />
-            <p className="text-[16px] font-bold text-[#86909C]">暂无数据</p>
+            <p className="text-[16px]  text-[#86909C]">暂无数据</p>
             <p className="mt-2 text-[14px] text-[#86909C]">前往「AI数据采集」页面采集竞品数据后查看报告</p>
           </div>
         )}
@@ -684,7 +764,7 @@ export function AnalysisReport() {
         {/* Pagination */}
         {filteredRows.length > 0 && (
           <div className="flex items-center justify-between border-t border-[#eef1f5] px-6 py-4">
-            <span className="text-[13px] font-bold text-[#86909C]">
+            <span className="text-[13px]  text-[#86909C]">
               共 {filteredRows.length} 条
             </span>
             <div className="flex items-center gap-1.5">
@@ -699,7 +779,7 @@ export function AnalysisReport() {
                 <button
                   key={page}
                   onClick={() => setCurrentPage(page)}
-                  className={`flex h-8 min-w-[32px] items-center justify-center rounded-lg px-2 text-[13px] font-bold transition-colors ${
+                  className={`flex h-8 min-w-[32px] items-center justify-center rounded-lg px-2 text-[13px]  transition-colors ${
                     currentPage === page
                       ? "bg-[#3388ff] text-white"
                       : "border border-[#eef1f5] text-[#344054] hover:bg-[#f9fafb]"
@@ -725,7 +805,7 @@ export function AnalysisReport() {
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/40" onClick={() => !confirmingGenerate && setGenerateModal(null)}>
           <div className="max-h-[88vh] w-[min(760px,92vw)] overflow-y-auto rounded-2xl bg-white p-6 shadow-[0_24px_64px_rgba(29,38,52,.2)] sm:p-8 custom-scrollbar" onClick={(e) => e.stopPropagation()}>
             <div className="mb-6 flex items-center justify-between">
-              <h2 className="text-[20px] font-extrabold text-[#0A1B39]">AI生成整体报告</h2>
+              <h2 className="text-[20px]  text-[#0A1B39]">AI生成整体报告</h2>
               {!confirmingGenerate && (
                 <button onClick={() => setGenerateModal(null)} className="grid h-8 w-8 place-items-center rounded-full bg-[#f2f4f7] text-[#86909C] hover:bg-[#eceff4]">
                   <X className="h-4 w-4" />
@@ -738,30 +818,30 @@ export function AnalysisReport() {
                 <div className="mb-5 rounded-lg bg-[#f8fafc] p-4">
                   <div className="grid grid-cols-2 gap-3 text-[13px]">
                     <div>
-                      <span className="font-bold text-[#86909C]">关键词：</span>
-                      <span className="font-bold text-[#0A1B39]">{generateModal.keyword}</span>
+                      <span className=" text-[#86909C]">关键词：</span>
+                      <span className=" text-[#0A1B39]">{generateModal.keyword}</span>
                     </div>
                     <div>
-                      <span className="font-bold text-[#86909C]">价格区间：</span>
-                      <span className="font-bold text-[#0A1B39]">{generateModal.priceRange}</span>
+                      <span className=" text-[#86909C]">价格区间：</span>
+                      <span className=" text-[#0A1B39]">{generateModal.priceRange}</span>
                     </div>
                     <div>
-                      <span className="font-bold text-[#86909C]">竞品数量：</span>
-                      <span className="font-bold text-[#0A1B39]">{generateModal.competitorCount}</span>
+                      <span className=" text-[#86909C]">竞品数量：</span>
+                      <span className=" text-[#0A1B39]">{generateModal.competitorCount}</span>
                     </div>
                     <div>
-                      <span className="font-bold text-[#86909C]">采集时间：</span>
-                      <span className="font-bold text-[#0A1B39]">{generateModal.collectTime}</span>
+                      <span className=" text-[#86909C]">采集时间：</span>
+                      <span className=" text-[#0A1B39]">{generateModal.collectTime}</span>
                     </div>
                   </div>
                 </div>
 
                 <div className="mb-5 rounded-xl border border-[#d8ebff] bg-[#f5faff] p-4">
-                  <p className="text-[13px] font-extrabold text-[#0A1B39]">生成逻辑</p>
-                  <p className="mt-2 text-[13px] font-medium leading-6 text-[#667085]">
+                  <p className="text-[13px]  text-[#0A1B39]">生成逻辑</p>
+                  <p className="mt-2 text-[13px]  leading-6 text-[#667085]">
                     系统会先把未入库商品自动执行「单品主图分析入库」，再汇总该集合下所有单品报告生成整体竞品报告，包含共性卖点、图片规律、问大家需求、铺货建议和作图方向。
                   </p>
-                  <p className="mt-2 text-[12px] font-bold text-[#3388ff]">
+                  <p className="mt-2 text-[12px]  text-[#3388ff]">
                     运行过程中会实时显示「入库进度」「价格区间划分」和「整体图片报告生成进度」。
                   </p>
                 </div>
@@ -769,14 +849,14 @@ export function AnalysisReport() {
                 <div className="mb-5 rounded-xl border border-[#eef1f5] bg-white p-4">
                   <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
                     <div>
-                      <p className="text-[13px] font-extrabold text-[#0A1B39]">价格区间划分</p>
-                      <p className="mt-1 text-[12px] font-bold text-[#86909C]">整体报告会按这里的价格段汇总，后续页面按这些区间展示。</p>
+                      <p className="text-[13px]  text-[#0A1B39]">价格区间划分</p>
+                      <p className="mt-1 text-[12px]  text-[#86909C]">整体报告会按这里的价格段汇总，后续页面按这些区间展示。</p>
                     </div>
                     <div className="flex rounded-lg bg-[#f2f4f7] p-1">
                       <button
                         type="button"
                         onClick={() => setPriceGroupingMode("manual")}
-                        className={`h-8 rounded-md px-3 text-[12px] font-extrabold transition-colors ${
+                        className={`h-8 rounded-md px-3 text-[12px]  transition-colors ${
                           priceGroupingMode === "manual" ? "bg-white text-[#3388ff] shadow-sm" : "text-[#667085] hover:text-[#0A1B39]"
                         }`}
                       >
@@ -785,7 +865,7 @@ export function AnalysisReport() {
                       <button
                         type="button"
                         onClick={() => setPriceGroupingMode("ai")}
-                        className={`h-8 rounded-md px-3 text-[12px] font-extrabold transition-colors ${
+                        className={`h-8 rounded-md px-3 text-[12px]  transition-colors ${
                           priceGroupingMode === "ai" ? "bg-white text-[#3388ff] shadow-sm" : "text-[#667085] hover:text-[#0A1B39]"
                         }`}
                       >
@@ -800,32 +880,32 @@ export function AnalysisReport() {
                         value={manualPriceBandText}
                         onChange={(event) => setManualPriceBandText(event.target.value)}
                         placeholder={"例如：\n0-30\n30-60\n60-100\n100-180"}
-                        className="min-h-24 w-full resize-none rounded-lg border border-[#d8e0ec] bg-[#fbfcff] px-3 py-2 text-[13px] font-bold leading-6 text-[#0A1B39] outline-none transition-colors focus:border-[#3388ff] focus:bg-white"
+                        className="min-h-24 w-full resize-none rounded-lg border border-[#d8e0ec] bg-[#fbfcff] px-3 py-2 text-[13px]  leading-6 text-[#0A1B39] outline-none transition-colors focus:border-[#3388ff] focus:bg-white"
                       />
                       <div className="mt-2 flex flex-wrap items-center gap-2">
                         {parsedManualPriceBands.length ? parsedManualPriceBands.map((band) => (
-                          <span key={`${band.price_min}-${band.price_max}`} className="rounded-full bg-[#f0f7ff] px-3 py-1 text-[12px] font-extrabold text-[#3388ff]">
+                          <span key={`${band.price_min}-${band.price_max}`} className="rounded-full bg-[#f0f7ff] px-3 py-1 text-[12px]  text-[#3388ff]">
                             {band.label}
                           </span>
                         )) : (
-                          <span className="text-[12px] font-bold text-[#98A2B3]">未识别到价格段，将按全量竞品集合生成。</span>
+                          <span className="text-[12px]  text-[#98A2B3]">未识别到价格段，将按全量竞品集合生成。</span>
                         )}
                       </div>
                     </div>
                   ) : (
                     <div className="grid gap-3 sm:grid-cols-[1fr_160px]">
-                      <div className="rounded-lg bg-[#f8fafc] px-3 py-3 text-[12px] font-bold leading-6 text-[#667085]">
+                      <div className="rounded-lg bg-[#f8fafc] px-3 py-3 text-[12px]  leading-6 text-[#667085]">
                         AI 会根据商品代表价格、销量、标题和单品主图报告先划分价格区间，再按这些区间生成整体报告。适合商品价格跨度较大时使用。
                       </div>
                       <label className="block">
-                        <span className="mb-1 block text-[12px] font-extrabold text-[#667085]">期望区间数</span>
+                        <span className="mb-1 block text-[12px]  text-[#667085]">期望区间数</span>
                         <input
                           type="number"
                           min={1}
                           max={6}
                           value={aiPriceBandCount}
                           onChange={(event) => setAiPriceBandCount(Math.max(1, Math.min(6, Number(event.target.value) || 3)))}
-                          className="h-11 w-full rounded-lg border border-[#d8e0ec] bg-[#fbfcff] px-3 text-[13px] font-bold text-[#0A1B39] outline-none transition-colors focus:border-[#3388ff] focus:bg-white"
+                          className="h-11 w-full rounded-lg border border-[#d8e0ec] bg-[#fbfcff] px-3 text-[13px]  text-[#0A1B39] outline-none transition-colors focus:border-[#3388ff] focus:bg-white"
                         />
                       </label>
                     </div>
@@ -835,23 +915,23 @@ export function AnalysisReport() {
                 <div className="mb-5 rounded-xl border border-[#eef1f5] bg-white p-4">
                   <div className="mb-3 flex items-center justify-between gap-3">
                     <div>
-                      <p className="text-[13px] font-extrabold text-[#0A1B39]">当前入库数据</p>
-                      <p className="mt-1 text-[12px] font-bold text-[#86909C]">这里展示本次整体报告会用到的单品主图分析报告。</p>
+                      <p className="text-[13px]  text-[#0A1B39]">当前入库数据</p>
+                      <p className="mt-1 text-[12px]  text-[#86909C]">这里展示本次整体报告会用到的单品主图分析报告。</p>
                     </div>
                     {previewLoading ? (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-[#f2f4f7] px-3 py-1 text-[12px] font-bold text-[#667085]">
+                      <span className="inline-flex items-center gap-1 rounded-full bg-[#f2f4f7] px-3 py-1 text-[12px]  text-[#667085]">
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
                         读取中
                       </span>
                     ) : (
-                      <span className="rounded-full bg-[#f0f7ff] px-3 py-1 text-[12px] font-extrabold text-[#3388ff]">
+                      <span className="rounded-full bg-[#f0f7ff] px-3 py-1 text-[12px]  text-[#3388ff]">
                         已入库 {importedPreviewProducts.length}/{previewProducts.length}
                       </span>
                     )}
                   </div>
 
                   {previewError && (
-                    <div className="rounded-lg border border-[#ffd7d7] bg-[#fff5f5] px-3 py-2 text-[12px] font-bold text-[#c62828]">
+                    <div className="rounded-lg border border-[#ffd7d7] bg-[#fff5f5] px-3 py-2 text-[12px]  text-[#c62828]">
                       {previewError}
                     </div>
                   )}
@@ -860,38 +940,38 @@ export function AnalysisReport() {
                     <>
                       <div className="mb-3 grid grid-cols-3 gap-2">
                         <div className="rounded-lg bg-[#f8fafc] px-3 py-2">
-                          <p className="text-[11px] font-bold text-[#98A2B3]">集合商品</p>
-                          <p className="mt-1 text-[18px] font-extrabold text-[#0A1B39]">{previewProducts.length}</p>
+                          <p className="text-[11px]  text-[#98A2B3]">集合商品</p>
+                          <p className="mt-1 text-[18px]  text-[#0A1B39]">{previewProducts.length}</p>
                         </div>
                         <div className="rounded-lg bg-[#f0fff6] px-3 py-2">
-                          <p className="text-[11px] font-bold text-[#38a169]">已主图分析入库</p>
-                          <p className="mt-1 text-[18px] font-extrabold text-[#16803a]">{importedPreviewProducts.length}</p>
+                          <p className="text-[11px]  text-[#38a169]">已主图分析入库</p>
+                          <p className="mt-1 text-[18px]  text-[#16803a]">{importedPreviewProducts.length}</p>
                         </div>
                         <div className="rounded-lg bg-[#fff8ed] px-3 py-2">
-                          <p className="text-[11px] font-bold text-[#d97706]">待自动补齐</p>
-                          <p className="mt-1 text-[18px] font-extrabold text-[#b45309]">{pendingPreviewProducts.length}</p>
+                          <p className="text-[11px]  text-[#d97706]">待自动补齐</p>
+                          <p className="mt-1 text-[18px]  text-[#b45309]">{pendingPreviewProducts.length}</p>
                         </div>
                       </div>
 
                       <div className="grid gap-3 md:grid-cols-2">
                         <div className="rounded-lg border border-[#d9f4e5] bg-[#fbfffd] p-3">
-                          <div className="mb-2 flex items-center gap-1.5 text-[12px] font-extrabold text-[#16803a]">
+                          <div className="mb-2 flex items-center gap-1.5 text-[12px]  text-[#16803a]">
                             <CheckCircle2 className="h-3.5 w-3.5" />
                             已入库单品报告
                           </div>
                           <div className="max-h-48 space-y-2 overflow-y-auto pr-1 custom-scrollbar">
                             {importedPreviewProducts.length ? importedPreviewProducts.map((product) => (
                               <div key={product.productId || product.title} className="rounded-lg bg-white px-3 py-2 shadow-[0_1px_3px_rgba(29,38,52,.04)]">
-                                <p className="line-clamp-1 text-[12px] font-extrabold text-[#0A1B39]">{product.title}</p>
-                                <p className="mt-1 text-[11px] font-bold text-[#98A2B3]">
+                                <p className="line-clamp-1 text-[12px]  text-[#0A1B39]">{product.title}</p>
+                                <p className="mt-1 text-[11px]  text-[#98A2B3]">
                                   ID {product.productId || "-"} · 报告 {product.mainImageAnalysisId}
                                 </p>
                                 {product.mainImageAnalyzedAt && (
-                                  <p className="mt-0.5 text-[11px] font-medium text-[#98A2B3]">{product.mainImageAnalyzedAt}</p>
+                                  <p className="mt-0.5 text-[11px]  text-[#98A2B3]">{product.mainImageAnalyzedAt}</p>
                                 )}
                               </div>
                             )) : (
-                              <div className="rounded-lg bg-white px-3 py-6 text-center text-[12px] font-bold text-[#98A2B3]">
+                              <div className="rounded-lg bg-white px-3 py-6 text-center text-[12px]  text-[#98A2B3]">
                                 暂无已入库单品报告
                               </div>
                             )}
@@ -899,20 +979,20 @@ export function AnalysisReport() {
                         </div>
 
                         <div className="rounded-lg border border-[#ffead5] bg-[#fffdf8] p-3">
-                          <div className="mb-2 flex items-center gap-1.5 text-[12px] font-extrabold text-[#b45309]">
+                          <div className="mb-2 flex items-center gap-1.5 text-[12px]  text-[#b45309]">
                             <AlertCircle className="h-3.5 w-3.5" />
                             待自动补齐商品
                           </div>
                           <div className="max-h-48 space-y-2 overflow-y-auto pr-1 custom-scrollbar">
                             {pendingPreviewProducts.length ? pendingPreviewProducts.map((product) => (
                               <div key={product.productId || product.title} className="rounded-lg bg-white px-3 py-2 shadow-[0_1px_3px_rgba(29,38,52,.04)]">
-                                <p className="line-clamp-1 text-[12px] font-extrabold text-[#0A1B39]">{product.title}</p>
-                                <p className="mt-1 text-[11px] font-bold text-[#98A2B3]">
+                                <p className="line-clamp-1 text-[12px]  text-[#0A1B39]">{product.title}</p>
+                                <p className="mt-1 text-[11px]  text-[#98A2B3]">
                                   ID {product.productId || "-"} · 价格 {product.priceRange || "-"} · 销量 {product.soldCount ?? 0}
                                 </p>
                               </div>
                             )) : (
-                              <div className="rounded-lg bg-white px-3 py-6 text-center text-[12px] font-bold text-[#98A2B3]">
+                              <div className="rounded-lg bg-white px-3 py-6 text-center text-[12px]  text-[#98A2B3]">
                                 全部商品都已入库
                               </div>
                             )}
@@ -926,14 +1006,14 @@ export function AnalysisReport() {
                 <div className="flex gap-3">
                   <button
                     onClick={() => setGenerateModal(null)}
-                    className="h-11 flex-1 rounded-lg bg-[#f2f4f7] text-[14px] font-bold text-[#0A1B39] transition-colors hover:bg-[#eceff4]"
+                    className="h-11 flex-1 rounded-lg bg-[#f2f4f7] text-[14px]  text-[#0A1B39] transition-colors hover:bg-[#eceff4]"
                   >
                     取消
                   </button>
                   <button
                     onClick={confirmGenerate}
                     disabled={previewLoading || previewProducts.length === 0}
-                    className="h-11 flex-1 rounded-lg bg-[#3388ff] text-[14px] font-bold text-white shadow-[0_8px_24px_rgba(47,130,255,.25)] transition-all hover:bg-[#1a6fe8] disabled:cursor-not-allowed disabled:bg-[#c9d2df] disabled:shadow-none"
+                    className="h-11 flex-1 rounded-lg bg-[#3388ff] text-[14px]  text-white shadow-[0_8px_24px_rgba(47,130,255,.25)] transition-all hover:bg-[#1a6fe8] disabled:cursor-not-allowed disabled:bg-[#c9d2df] disabled:shadow-none"
                   >
                     入库并生成整体报告
                   </button>
@@ -965,10 +1045,10 @@ export function AnalysisReport() {
                       )}
                     </div>
                     <div className="min-w-0">
-                      <p className="text-[15px] font-extrabold text-[#0A1B39]">
+                      <p className="text-[15px]  text-[#0A1B39]">
                         {generateJob?.status === "completed" ? "入库和整体报告已完成" : generateJob?.status === "failed" ? "任务失败" : "正在入库并生成整体报告"}
                       </p>
-                      <p className="mt-1 text-[12px] font-bold leading-5 text-[#667085]">
+                      <p className="mt-1 text-[12px]  leading-5 text-[#667085]">
                         {generateJob?.progress?.message || "正在准备任务"}
                       </p>
                     </div>
@@ -988,10 +1068,10 @@ export function AnalysisReport() {
                     <div key={step.key || step.label} className="rounded-xl border border-[#eef1f5] bg-white p-4">
                       <div className="mb-2 flex items-center justify-between gap-3">
                         <div>
-                          <p className="text-[13px] font-extrabold text-[#0A1B39]">{step.label}</p>
-                          <p className="mt-1 text-[12px] font-bold text-[#86909C]">{step.message || `${step.current || 0}/${step.total || 0}`}</p>
+                          <p className="text-[13px]  text-[#0A1B39]">{step.label}</p>
+                          <p className="mt-1 text-[12px]  text-[#86909C]">{step.message || `${step.current || 0}/${step.total || 0}`}</p>
                         </div>
-                        <span className={`rounded-full px-3 py-1 text-[12px] font-extrabold ${
+                        <span className={`rounded-full px-3 py-1 text-[12px]  ${
                           step.status === "completed"
                             ? "bg-[#e8f5e9] text-[#2e7d32]"
                             : step.status === "failed"
@@ -1016,7 +1096,7 @@ export function AnalysisReport() {
                 </div>
 
                 {(generateJob?.result?.report || generateJob?.error) && (
-                  <div className="mt-4 rounded-xl bg-[#f8fafc] p-4 text-[12px] font-bold text-[#667085]">
+                  <div className="mt-4 rounded-xl bg-[#f8fafc] p-4 text-[12px]  text-[#667085]">
                     {generateJob.result?.report?.autoImportedProductReports != null && (
                       <p>本次自动补齐入库：{generateJob.result.report.autoImportedProductReports} 个商品</p>
                     )}
@@ -1041,14 +1121,14 @@ export function AnalysisReport() {
                       setGenerateModal(null);
                     }}
                     disabled={generateJob?.status === "running"}
-                    className="h-11 flex-1 rounded-lg bg-[#f2f4f7] text-[14px] font-bold text-[#0A1B39] transition-colors hover:bg-[#eceff4] disabled:cursor-not-allowed disabled:text-[#98A2B3]"
+                    className="h-11 flex-1 rounded-lg bg-[#f2f4f7] text-[14px]  text-[#0A1B39] transition-colors hover:bg-[#eceff4] disabled:cursor-not-allowed disabled:text-[#98A2B3]"
                   >
                     {generateJob?.status === "running" ? "运行中" : "关闭"}
                   </button>
                   <button
                     onClick={() => generateModal && handleViewReport(generateModal)}
                     disabled={generateJob?.status !== "completed"}
-                    className="h-11 flex-1 rounded-lg bg-[#3388ff] text-[14px] font-bold text-white shadow-[0_8px_24px_rgba(47,130,255,.25)] transition-all hover:bg-[#1a6fe8] disabled:cursor-not-allowed disabled:bg-[#c9d2df] disabled:shadow-none"
+                    className="h-11 flex-1 rounded-lg bg-[#3388ff] text-[14px]  text-white shadow-[0_8px_24px_rgba(47,130,255,.25)] transition-all hover:bg-[#1a6fe8] disabled:cursor-not-allowed disabled:bg-[#c9d2df] disabled:shadow-none"
                   >
                     查看整体报告
                   </button>
@@ -1064,24 +1144,24 @@ export function AnalysisReport() {
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/40" onClick={() => setDeleteRow(null)}>
           <div className="w-[min(440px,90vw)] rounded-2xl bg-white p-6 sm:p-8 shadow-[0_24px_64px_rgba(29,38,52,.2)]" onClick={(e) => e.stopPropagation()}>
             <div className="mb-6 flex items-center justify-between">
-              <h2 className="text-[18px] font-extrabold text-[#0A1B39]">提示</h2>
+              <h2 className="text-[18px]  text-[#0A1B39]">提示</h2>
               <button onClick={() => setDeleteRow(null)} className="grid h-8 w-8 place-items-center rounded-full bg-[#f2f4f7] text-[#86909C] hover:bg-[#eceff4]">
                 <X className="h-4 w-4" />
               </button>
             </div>
-            <p className="mb-6 text-[15px] font-bold text-[#344054]">
+            <p className="mb-6 text-[15px]  text-[#344054]">
               删除后不可恢复，确认删除采集数据及分析报告？
             </p>
             <div className="flex gap-3">
               <button
                 onClick={() => setDeleteRow(null)}
-                className="h-11 flex-1 rounded-lg bg-[#f2f4f7] text-[14px] font-bold text-[#0A1B39] transition-colors hover:bg-[#eceff4]"
+                className="h-11 flex-1 rounded-lg bg-[#f2f4f7] text-[14px]  text-[#0A1B39] transition-colors hover:bg-[#eceff4]"
               >
                 取消
               </button>
               <button
                 onClick={confirmDelete}
-                className="h-11 flex-1 rounded-lg bg-[#e53935] text-[14px] font-bold text-white transition-all hover:bg-[#c62828]"
+                className="h-11 flex-1 rounded-lg bg-[#e53935] text-[14px]  text-white transition-all hover:bg-[#c62828]"
               >
                 确认删除
               </button>

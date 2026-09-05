@@ -561,10 +561,10 @@ function SectionCard({
   return (
     <section className="mb-5 rounded-2xl bg-white p-6 shadow-[0_8px_32px_rgba(29,38,52,.06)]">
       <div className="mb-5 flex items-start gap-3">
-        <div className={`grid h-10 w-10 shrink-0 place-items-center rounded-lg text-[13px] font-extrabold ${toneMap[tone]}`}>{no}</div>
+        <div className={`grid h-10 w-10 shrink-0 place-items-center rounded-lg text-[13px]  ${toneMap[tone]}`}>{no}</div>
         <div>
-          <h2 className="text-[18px] font-extrabold text-[#0A1B39]">{title}</h2>
-          {subtitle ? <p className="mt-1 text-[13px] font-medium text-[#86909C]">{subtitle}</p> : null}
+          <h2 className="text-[18px]  text-[#0A1B39]">{title}</h2>
+          {subtitle ? <p className="mt-1 text-[13px]  text-[#86909C]">{subtitle}</p> : null}
         </div>
       </div>
       {children}
@@ -573,11 +573,11 @@ function SectionCard({
 }
 
 function PillList({ items, empty = "暂无数据" }: { items: string[]; empty?: string }) {
-  if (!items.length) return <p className="text-[13px] font-bold text-[#98A2B3]">{empty}</p>;
+  if (!items.length) return <p className="text-[13px]  text-[#98A2B3]">{empty}</p>;
   return (
     <div className="flex flex-wrap gap-2">
       {items.map((item, index) => (
-        <span key={`${item}-${index}`} className="rounded-lg bg-[#f2f4f7] px-2.5 py-1 text-[12px] font-bold text-[#0A1B39]">
+        <span key={`${item}-${index}`} className="rounded-lg bg-[#f2f4f7] px-2.5 py-1 text-[12px]  text-[#0A1B39]">
           {item}
         </span>
       ))}
@@ -590,8 +590,8 @@ function FieldGrid({ rows }: { rows: { label: string; value: unknown }[] }) {
     <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
       {rows.map((row) => (
         <div key={row.label} className="rounded-lg bg-[#f8fafc] p-4">
-          <p className="mb-1 text-[12px] font-bold text-[#86909C]">{row.label}</p>
-          <p className="text-[15px] font-extrabold text-[#0A1B39]">{textValue(row.value)}</p>
+          <p className="mb-1 text-[12px]  text-[#86909C]">{row.label}</p>
+          <p className="text-[15px]  text-[#0A1B39]">{textValue(row.value)}</p>
         </div>
       ))}
     </div>
@@ -607,7 +607,7 @@ function KeywordMatrixTable({
 }) {
   if (!rows.length) {
     return (
-      <div className="rounded-xl border border-dashed border-[#d8e0ea] bg-[#f8fafc] p-5 text-[13px] font-bold text-[#98A2B3]">
+      <div className="rounded-xl border border-dashed border-[#d8e0ea] bg-[#f8fafc] p-5 text-[13px]  text-[#98A2B3]">
         暂无可统计关键词数据
       </div>
     );
@@ -617,7 +617,7 @@ function KeywordMatrixTable({
     <div className="overflow-x-auto rounded-2xl border border-[#edf1f6] bg-white">
       <table className="w-full min-w-[860px] border-collapse">
         <thead>
-          <tr className="bg-[#f8fafc] text-left text-[12px] font-extrabold text-[#86909C]">
+          <tr className="bg-[#f8fafc] text-left text-[12px]  text-[#86909C]">
             <th className="px-4 py-3">关键词</th>
             <th className="px-4 py-3 text-right">词频</th>
             <th className="px-4 py-3 text-right">商品覆盖</th>
@@ -629,8 +629,8 @@ function KeywordMatrixTable({
         </thead>
         <tbody>
           {rows.map((item, index) => (
-            <tr key={`${item.keyword}-${index}`} className="border-t border-[#edf1f6] text-[13px] font-bold text-[#344054]">
-              <td className="max-w-[320px] break-words px-4 py-3.5 text-[14px] font-extrabold text-[#0A1B39]">{item.keyword}</td>
+            <tr key={`${item.keyword}-${index}`} className="border-t border-[#edf1f6] text-[13px]  text-[#344054]">
+              <td className="max-w-[320px] break-words px-4 py-3.5 text-[14px]  text-[#0A1B39]">{item.keyword}</td>
               <td className="px-4 py-3.5 text-right text-[#0A1B39]">{textValue(item.frequency, "0")}</td>
               <td className="px-4 py-3.5 text-right">{textValue(item.productCoverage, "0")}%</td>
               {variant === "blue" ? <td className="px-4 py-3.5 text-right">{textValue(item.titleCoverage, "0")}%</td> : null}
@@ -640,11 +640,11 @@ function KeywordMatrixTable({
               <td className="max-w-[220px] px-4 py-3.5">
                 <div className="flex flex-wrap gap-1.5">
                   {(item.sources || []).slice(0, 4).map((source) => (
-                    <span key={source} className="rounded-md bg-[#eef6ff] px-2 py-0.5 text-[11px] font-extrabold text-[#3388ff]">{source}</span>
+                    <span key={source} className="rounded-md bg-[#eef6ff] px-2 py-0.5 text-[11px]  text-[#3388ff]">{source}</span>
                   ))}
                 </div>
               </td>
-              <td className="max-w-[340px] px-4 py-3.5 text-[12px] font-medium leading-5 text-[#667085]">{textValue(item.reason)}</td>
+              <td className="max-w-[340px] px-4 py-3.5 text-[12px]  leading-5 text-[#667085]">{textValue(item.reason)}</td>
             </tr>
           ))}
         </tbody>
@@ -662,26 +662,26 @@ function KeywordMatrixSection({ matrix }: { matrix?: AnyRecord | null }) {
     <SectionCard no="KW" title="关键词矩阵" subtitle="基于数据库里的商品标题、SKU、主图识别、评论和问大家文本统计。" tone="green">
       <div className="mb-4 grid gap-3 md:grid-cols-3">
         <div className="rounded-xl bg-[#f8fafc] p-4">
-          <p className="text-[12px] font-bold text-[#86909C]">覆盖商品</p>
-          <p className="mt-1 text-[18px] font-extrabold text-[#0A1B39]">{textValue(matrix?.productCount, "0")} 个</p>
+          <p className="text-[12px]  text-[#86909C]">覆盖商品</p>
+          <p className="mt-1 text-[18px]  text-[#0A1B39]">{textValue(matrix?.productCount, "0")} 个</p>
         </div>
         <div className="rounded-xl bg-[#f8fafc] p-4">
-          <p className="text-[12px] font-bold text-[#86909C]">文本样本</p>
-          <p className="mt-1 text-[18px] font-extrabold text-[#0A1B39]">{textValue(matrix?.textSampleCount, "0")} 条</p>
+          <p className="text-[12px]  text-[#86909C]">文本样本</p>
+          <p className="mt-1 text-[18px]  text-[#0A1B39]">{textValue(matrix?.textSampleCount, "0")} 条</p>
         </div>
         <div className="rounded-xl bg-[#f8fafc] p-4">
-          <p className="text-[12px] font-bold text-[#86909C]">数据来源</p>
-          <p className="mt-1 text-[15px] font-extrabold text-[#0A1B39]">{firstAvailable(matrix?.source, "database")}</p>
+          <p className="text-[12px]  text-[#86909C]">数据来源</p>
+          <p className="mt-1 text-[15px]  text-[#0A1B39]">{firstAvailable(matrix?.source, "database")}</p>
         </div>
       </div>
 
       <div className="space-y-5">
         <div>
-          <h3 className="mb-3 text-[17px] font-extrabold text-[#0A1B39]">核心关键词数据</h3>
+          <h3 className="mb-3 text-[17px]  text-[#0A1B39]">核心关键词数据</h3>
           <KeywordMatrixTable rows={coreKeywords.slice(0, 5)} variant="core" />
         </div>
         <div>
-          <h3 className="mb-3 text-[17px] font-extrabold text-[#0A1B39]">蓝海词机会</h3>
+          <h3 className="mb-3 text-[17px]  text-[#0A1B39]">蓝海词机会</h3>
           <KeywordMatrixTable rows={blueOceanKeywords.slice(0, 5)} variant="blue" />
         </div>
       </div>
@@ -698,13 +698,13 @@ function RecommendationActionsSection({ actions }: { actions?: AnyRecord | null 
 
   return (
     <SectionCard no="ACT" title="建议动作与评论反推" subtitle="基于数据库中的 SKU、评论、问大家、关键词矩阵和商品洞察生成。" tone="orange">
-      <div className="mb-5 rounded-xl border border-[#edf1f6] bg-[#f8fafc] p-4 text-[12px] font-bold leading-5 text-[#667085]">
+      <div className="mb-5 rounded-xl border border-[#edf1f6] bg-[#f8fafc] p-4 text-[12px]  leading-5 text-[#667085]">
         {textValue(actions.dataNote, "基于当前报告关联数据生成。")}
       </div>
 
       <div className="mb-6 rounded-2xl border border-[#edf1f6] bg-white p-5">
-        <h3 className="mb-4 text-[18px] font-extrabold text-[#0A1B39]">建议动作</h3>
-        <div className="space-y-3 text-[14px] font-bold leading-6 text-[#344054]">
+        <h3 className="mb-4 text-[18px]  text-[#0A1B39]">建议动作</h3>
+        <div className="space-y-3 text-[14px]  leading-6 text-[#344054]">
           <p><span className="text-[#0A1B39]">标题结构建议：</span>{textValue(actionPlan.titleStructure)}</p>
           <p><span className="text-[#0A1B39]">定价锚点：</span>{textValue(actionPlan.priceAnchor)}</p>
           <p><span className="text-[#0A1B39]">Search Terms 关键词填充：</span>{textValue(actionPlan.searchTerms)}</p>
@@ -712,7 +712,7 @@ function RecommendationActionsSection({ actions }: { actions?: AnyRecord | null 
             <p className="mb-2 text-[#0A1B39]">五点顺序：</p>
             <div className="grid gap-2 md:grid-cols-5">
               {asArray<string>(actionPlan.imageOrder).slice(0, 5).map((item, index) => (
-                <div key={`${item}-${index}`} className="rounded-xl bg-[#f8fafc] px-3 py-3 text-[12px] font-extrabold leading-5 text-[#344054]">
+                <div key={`${item}-${index}`} className="rounded-xl bg-[#f8fafc] px-3 py-3 text-[12px]  leading-5 text-[#344054]">
                   <span className="mr-1 text-[#3388ff]">{index + 1}.</span>{item}
                 </div>
               ))}
@@ -722,17 +722,17 @@ function RecommendationActionsSection({ actions }: { actions?: AnyRecord | null 
       </div>
 
       <div className="mb-6">
-        <h3 className="mb-3 text-[18px] font-extrabold text-[#0A1B39]">好评卖点 Top 3</h3>
+        <h3 className="mb-3 text-[18px]  text-[#0A1B39]">好评卖点 Top 3</h3>
         {positiveRows.length ? (
           <div className="grid gap-4 md:grid-cols-3">
             {positiveRows.map((item, index) => (
               <div key={`${textValue(item.title)}-${index}`} className="rounded-2xl border border-[#edf1f6] bg-white p-5">
-                <p className="mb-2 text-[15px] font-extrabold text-[#0A1B39]">卖点 {index + 1}：{textValue(item.title)}</p>
-                <p className="text-[12px] font-bold text-[#86909C]">提及频次 {textValue(item.count, "0")} · 覆盖商品 {textValue(item.productCoverage, "0")} 个</p>
-                <p className="mt-3 text-[13px] font-bold leading-6 text-[#344054]">{textValue(item.action, "可放入主图/副图作为核心卖点验证。")}</p>
+                <p className="mb-2 text-[15px]  text-[#0A1B39]">卖点 {index + 1}：{textValue(item.title)}</p>
+                <p className="text-[12px]  text-[#86909C]">提及频次 {textValue(item.count, "0")} · 覆盖商品 {textValue(item.productCoverage, "0")} 个</p>
+                <p className="mt-3 text-[13px]  leading-6 text-[#344054]">{textValue(item.action, "可放入主图/副图作为核心卖点验证。")}</p>
                 <div className="mt-3 space-y-2">
                   {asArray<AnyRecord>(item.evidence).slice(0, 2).map((evidence, evidenceIndex) => (
-                    <p key={evidenceIndex} className="rounded-xl bg-[#f8fafc] px-3 py-2 text-[12px] font-medium leading-5 text-[#667085]">
+                    <p key={evidenceIndex} className="rounded-xl bg-[#f8fafc] px-3 py-2 text-[12px]  leading-5 text-[#667085]">
                       {textValue(evidence.text)}
                     </p>
                   ))}
@@ -741,12 +741,12 @@ function RecommendationActionsSection({ actions }: { actions?: AnyRecord | null 
             ))}
           </div>
         ) : (
-          <div className="rounded-xl border border-dashed border-[#d8e0ea] bg-[#f8fafc] p-5 text-[13px] font-bold text-[#98A2B3]">暂无好评卖点样本</div>
+          <div className="rounded-xl border border-dashed border-[#d8e0ea] bg-[#f8fafc] p-5 text-[13px]  text-[#98A2B3]">暂无好评卖点样本</div>
         )}
       </div>
 
       <div>
-        <h3 className="mb-3 text-[18px] font-extrabold text-[#0A1B39]">差评痛点 Top 3（含反推卖点）</h3>
+        <h3 className="mb-3 text-[18px]  text-[#0A1B39]">差评痛点 Top 3（含反推卖点）</h3>
         {painRows.length ? (
           <div className="space-y-4">
             {painRows.map((item, index) => {
@@ -755,23 +755,23 @@ function RecommendationActionsSection({ actions }: { actions?: AnyRecord | null 
               return (
                 <div key={`${textValue(item.title)}-${index}`} className="rounded-2xl border border-[#edf1f6] bg-white p-5">
                   <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-                    <p className="text-[15px] font-extrabold text-[#0A1B39]">{textValue(item.title)} · {count} 条</p>
-                    <p className="text-[12px] font-bold text-[#86909C]">{asArray<string>(item.sources).join(" / ") || "数据库"}</p>
+                    <p className="text-[15px]  text-[#0A1B39]">{textValue(item.title)} · {count} 条</p>
+                    <p className="text-[12px]  text-[#86909C]">{asArray<string>(item.sources).join(" / ") || "数据库"}</p>
                   </div>
                   <div className="grid gap-3 md:grid-cols-[1fr_1fr]">
                     <div className="space-y-2">
                       {asArray<AnyRecord>(item.evidence).slice(0, 2).map((evidence, evidenceIndex) => (
-                        <p key={evidenceIndex} className="rounded-xl bg-[#f8fafc] px-3 py-2 text-[12px] font-medium leading-5 text-[#667085]">
+                        <p key={evidenceIndex} className="rounded-xl bg-[#f8fafc] px-3 py-2 text-[12px]  leading-5 text-[#667085]">
                           {textValue(evidence.text)}
                         </p>
                       ))}
                       {!asArray(item.evidence).length ? (
-                        <p className="rounded-xl bg-[#f8fafc] px-3 py-2 text-[12px] font-medium leading-5 text-[#98A2B3]">
+                        <p className="rounded-xl bg-[#f8fafc] px-3 py-2 text-[12px]  leading-5 text-[#98A2B3]">
                           当前缺少真实差评样本，以下为基于商品标题、主图识别和销售表现的反推验证项。
                         </p>
                       ) : null}
                     </div>
-                    <div className="rounded-xl bg-[#fff7ed] px-4 py-3 text-[13px] font-bold leading-6 text-[#9a3412]">
+                    <div className="rounded-xl bg-[#fff7ed] px-4 py-3 text-[13px]  leading-6 text-[#9a3412]">
                       反推卖点：{textValue(item.reverseSellingPoint, "把该痛点转成图片里的明确承诺和证据。")}
                     </div>
                   </div>
@@ -780,7 +780,7 @@ function RecommendationActionsSection({ actions }: { actions?: AnyRecord | null 
             })}
           </div>
         ) : (
-          <div className="rounded-xl border border-dashed border-[#d8e0ea] bg-[#f8fafc] p-5 text-[13px] font-bold text-[#98A2B3]">暂无差评痛点样本</div>
+          <div className="rounded-xl border border-dashed border-[#d8e0ea] bg-[#f8fafc] p-5 text-[13px]  text-[#98A2B3]">暂无差评痛点样本</div>
         )}
       </div>
     </SectionCard>
@@ -837,29 +837,29 @@ function PriceBandStrategySection({
     >
       <div className="mb-4 grid gap-3 md:grid-cols-4">
         <div className="rounded-xl bg-[#f8fafc] p-4">
-          <p className="text-[12px] font-bold text-[#86909C]">有效价格区间</p>
-          <p className="mt-1 text-[18px] font-extrabold text-[#0A1B39]">{bands.length} 个</p>
-          <p className="mt-1 text-[12px] font-bold text-[#667085]">空区间不会进入报告</p>
+          <p className="text-[12px]  text-[#86909C]">有效价格区间</p>
+          <p className="mt-1 text-[18px]  text-[#0A1B39]">{bands.length} 个</p>
+          <p className="mt-1 text-[12px]  text-[#667085]">空区间不会进入报告</p>
         </div>
         <div className="rounded-xl bg-[#f8fafc] p-4">
-          <p className="text-[12px] font-bold text-[#86909C]">主力价格区间</p>
-          <p className="mt-1 text-[18px] font-extrabold text-[#0A1B39]">{textValue(mainBand?.band)}</p>
-          <p className="mt-1 text-[12px] font-bold text-[#667085]">按销售额/销量综合排序</p>
+          <p className="text-[12px]  text-[#86909C]">主力价格区间</p>
+          <p className="mt-1 text-[18px]  text-[#0A1B39]">{textValue(mainBand?.band)}</p>
+          <p className="mt-1 text-[12px]  text-[#667085]">按销售额/销量综合排序</p>
         </div>
         <div className="rounded-xl bg-[#f8fafc] p-4">
-          <p className="text-[12px] font-bold text-[#86909C]">样本总销量</p>
-          <p className="mt-1 text-[18px] font-extrabold text-[#0A1B39]">{totalSold > 0 ? formatCount(Math.round(totalSold)) : "暂无"}</p>
+          <p className="text-[12px]  text-[#86909C]">样本总销量</p>
+          <p className="mt-1 text-[18px]  text-[#0A1B39]">{totalSold > 0 ? formatCount(Math.round(totalSold)) : "暂无"}</p>
         </div>
         <div className="rounded-xl bg-[#f8fafc] p-4">
-          <p className="text-[12px] font-bold text-[#86909C]">样本总销售额</p>
-          <p className="mt-1 text-[18px] font-extrabold text-[#0A1B39]">{totalSales > 0 ? moneyText(totalSales) : "暂无"}</p>
+          <p className="text-[12px]  text-[#86909C]">样本总销售额</p>
+          <p className="mt-1 text-[18px]  text-[#0A1B39]">{totalSales > 0 ? moneyText(totalSales) : "暂无"}</p>
         </div>
       </div>
 
       <div className="overflow-x-auto rounded-2xl border border-[#edf1f6] bg-white">
         <table className="w-full min-w-[1180px] border-collapse">
           <thead>
-            <tr className="bg-[#f8fafc] text-left text-[12px] font-extrabold text-[#86909C]">
+            <tr className="bg-[#f8fafc] text-left text-[12px]  text-[#86909C]">
               <th className="px-4 py-3">价格区间</th>
               <th className="px-4 py-3">定位</th>
               <th className="px-4 py-3 text-right">竞品数</th>
@@ -883,10 +883,10 @@ function PriceBandStrategySection({
               const points = asArray(selling?.coreSellingPoints).map((item) => item.term).filter(Boolean).slice(0, 4);
               const needs = asArray(demand?.unmetNeeds).slice(0, 2).filter(Boolean);
               return (
-                <tr key={band.band} className="border-t border-[#edf1f6] text-[13px] font-bold text-[#344054]">
-                  <td className="px-4 py-4 font-extrabold text-[#0A1B39]">{band.band}</td>
+                <tr key={band.band} className="border-t border-[#edf1f6] text-[13px]  text-[#344054]">
+                  <td className="px-4 py-4  text-[#0A1B39]">{band.band}</td>
                   <td className="px-4 py-4">
-                    <span className="rounded-md bg-[#eef6ff] px-2 py-1 text-[12px] font-extrabold text-[#3388ff]">{bandRole(band)}</span>
+                    <span className="rounded-md bg-[#eef6ff] px-2 py-1 text-[12px]  text-[#3388ff]">{bandRole(band)}</span>
                   </td>
                   <td className="px-4 py-4 text-right">{textValue(band.competitorCount, "0")}</td>
                   <td className="px-4 py-4 text-right text-[#ff4d00]">{moneyText(band.avgPrice)}</td>
@@ -913,9 +913,9 @@ function PriceBandStrategySection({
                   <td className="max-w-[220px] px-4 py-4 leading-5">
                     {points.length ? points.join("、") : needs.length ? needs.join("、") : "暂无"}
                   </td>
-                  <td className="max-w-[300px] px-4 py-4 text-[12px] font-medium leading-5 text-[#667085]">{bandSuggestion(band)}</td>
+                  <td className="max-w-[300px] px-4 py-4 text-[12px]  leading-5 text-[#667085]">{bandSuggestion(band)}</td>
                   <td className="px-4 py-4">
-                    <button onClick={() => onOpenProducts(band.band)} className="text-[13px] font-extrabold text-[#3388ff] hover:text-[#1a6fe8]">
+                    <button onClick={() => onOpenProducts(band.band)} className="text-[13px]  text-[#3388ff] hover:text-[#1a6fe8]">
                       查看商品
                     </button>
                   </td>
@@ -969,11 +969,11 @@ function ListingSellingPointsSection({ points, reportId }: { points?: AnyRecord 
   return (
     <SectionCard no="SELL" title="主图卖点与详情页卖点" subtitle={aiReport ? "主图卖点由 AI 视觉分析全部竞品主图生成，用于生图；详情页卖点基于评论/痛点反推。" : "主图卖点仅基于竞品主图识别分析提炼，用于生图；详情页卖点基于评论/痛点反推。"} tone="purple">
       {/* 综合总结话术 */}
-      <div className="mb-6 rounded-xl border border-[#e0e7ff] bg-[#f5f7ff] p-5 text-[14px] font-bold leading-7 text-[#1e293b]">
+      <div className="mb-6 rounded-xl border border-[#e0e7ff] bg-[#f5f7ff] p-5 text-[14px]  leading-7 text-[#1e293b]">
         <div className="mb-2 flex items-center gap-2">
-          <p className="text-[12px] font-extrabold uppercase tracking-wider text-[#7c3aed]">主图卖点分析总结{aiReport ? "（AI 分析全部竞品主图）" : ""}</p>
+          <p className="text-[12px]  uppercase tracking-wider text-[#7c3aed]">主图卖点分析总结{aiReport ? "（AI 分析全部竞品主图）" : ""}</p>
           {aiReport?.analyzedCount > 0 && (
-            <span className="rounded-full bg-[#ede9fe] px-2 py-0.5 text-[10px] font-extrabold text-[#7c3aed]">已分析 {textValue(aiReport.analyzedCount)} 张主图</span>
+            <span className="rounded-full bg-[#ede9fe] px-2 py-0.5 text-[10px]  text-[#7c3aed]">已分析 {textValue(aiReport.analyzedCount)} 张主图</span>
           )}
         </div>
         {aiLoading ? (
@@ -981,36 +981,36 @@ function ListingSellingPointsSection({ points, reportId }: { points?: AnyRecord 
         ) : (
           textValue(aiReport?.summary, "") || textValue(points?.summary, "主图负责第一眼转化，详情页负责证据解释、规格说明和痛点消除。")
         )}
-        {!aiLoading && aiError && <p className="mt-2 text-[12px] font-medium text-[#b45309]">{aiError}</p>}
+        {!aiLoading && aiError && <p className="mt-2 text-[12px]  text-[#b45309]">{aiError}</p>}
       </div>
 
       {/* 推荐主图文案 */}
       {imageTextCopy && (
         <div className="mb-6 rounded-xl border border-[#d1fae5] bg-[#ecfdf5] p-5">
-          <p className="mb-3 text-[13px] font-extrabold text-[#059669]">推荐主图文案</p>
+          <p className="mb-3 text-[13px]  text-[#059669]">推荐主图文案</p>
           {imageTextCopy.split("\n").map((line, i) => {
             const trimmed = line.trim();
             if (!trimmed) return null;
             if (trimmed.startsWith("【布局建议】")) {
-              return <p key={i} className="mb-3 text-[13px] font-bold leading-6 text-[#374151]">{trimmed}</p>;
+              return <p key={i} className="mb-3 text-[13px]  leading-6 text-[#374151]">{trimmed}</p>;
             }
             if (trimmed.startsWith("【推荐主图文案】")) {
-              return <p key={i} className="mb-2 text-[12px] font-extrabold text-[#059669]">推荐文案：</p>;
+              return <p key={i} className="mb-2 text-[12px]  text-[#059669]">推荐文案：</p>;
             }
             const match = trimmed.match(/^(\d+)\.\s*大字：「(.+?)」\s*\|\s*副文案：(.+?)\s*\|\s*位置：(.+)$/);
             if (match) {
               return (
                 <div key={i} className="mb-2 flex items-start gap-3 rounded-lg border border-[#d1fae5] bg-white px-4 py-3">
-                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[#059669] text-[11px] font-extrabold text-white">{match[1]}</span>
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[#059669] text-[11px]  text-white">{match[1]}</span>
                   <div>
-                    <span className="text-[18px] font-extrabold text-[#0A1B39]">「{match[2]}」</span>
-                    {match[3] && match[3] !== "（无）" && <span className="ml-3 text-[12px] font-bold text-[#667085]">{match[3]}</span>}
-                    <span className="ml-3 text-[11px] font-bold text-[#86909C]">@ {match[4]}</span>
+                    <span className="text-[18px]  text-[#0A1B39]">「{match[2]}」</span>
+                    {match[3] && match[3] !== "（无）" && <span className="ml-3 text-[12px]  text-[#667085]">{match[3]}</span>}
+                    <span className="ml-3 text-[11px]  text-[#86909C]">@ {match[4]}</span>
                   </div>
                 </div>
               );
             }
-            return <p key={i} className="text-[12px] font-medium text-[#667085]">{trimmed}</p>;
+            return <p key={i} className="text-[12px]  text-[#667085]">{trimmed}</p>;
           })}
         </div>
       )}
@@ -1018,24 +1018,24 @@ function ListingSellingPointsSection({ points, reportId }: { points?: AnyRecord 
       {/* 主图卖点紧凑列表 */}
       {mainPoints.length > 0 && (
         <div className="mb-6">
-          <h3 className="mb-3 text-[16px] font-extrabold text-[#0A1B39]">主图卖点参考</h3>
+          <h3 className="mb-3 text-[16px]  text-[#0A1B39]">主图卖点参考</h3>
           <div className="space-y-2">
             {mainPoints.map((item, index) => (
               <div key={`${textValue(item.title)}-${index}`} className="flex items-start gap-3 rounded-xl border border-[#edf1f6] bg-white px-4 py-3">
-                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[#eef2ff] text-[12px] font-extrabold text-[#4f46e5]">
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[#eef2ff] text-[12px]  text-[#4f46e5]">
                   {textValue(item.priority, String(index + 1))}
                 </span>
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-[14px] font-extrabold text-[#0A1B39]">{textValue(item.title)}</span>
-                    <span className="text-[11px] font-bold text-[#86909C]">{asArray<string>(item.source).join(" / ") || "数据库"}</span>
+                    <span className="text-[14px]  text-[#0A1B39]">{textValue(item.title)}</span>
+                    <span className="text-[11px]  text-[#86909C]">{asArray<string>(item.source).join(" / ") || "数据库"}</span>
                   </div>
                   {(textValue(item.customerBenefit, "") || textValue(item.visualExpression, "")) && (
-                    <p className="mt-1 text-[12px] font-bold leading-5 text-[#4f46e5]">
+                    <p className="mt-1 text-[12px]  leading-5 text-[#4f46e5]">
                       {textValue(item.customerBenefit, "")}{textValue(item.customerBenefit, "") && textValue(item.visualExpression, "") ? "；" : ""}{textValue(item.visualExpression, "")}
                     </p>
                   )}
-                  <p className="mt-1 text-[12px] font-medium leading-5 text-[#667085]">
+                  <p className="mt-1 text-[12px]  leading-5 text-[#667085]">
                     {textValue(item.dataBasis)}
                   </p>
                 </div>
@@ -1046,11 +1046,11 @@ function ListingSellingPointsSection({ points, reportId }: { points?: AnyRecord 
       )}
 
       <div>
-        <h3 className="mb-3 text-[18px] font-extrabold text-[#0A1B39]">详情页卖点</h3>
+        <h3 className="mb-3 text-[18px]  text-[#0A1B39]">详情页卖点</h3>
         <div className="overflow-x-auto rounded-2xl border border-[#edf1f6] bg-white">
           <table className="w-full min-w-[920px] border-collapse">
             <thead>
-              <tr className="bg-[#f8fafc] text-left text-[12px] font-extrabold text-[#86909C]">
+              <tr className="bg-[#f8fafc] text-left text-[12px]  text-[#86909C]">
                 <th className="px-4 py-3">顺序</th>
                 <th className="px-4 py-3">详情模块</th>
                 <th className="px-4 py-3">内容重点</th>
@@ -1060,14 +1060,14 @@ function ListingSellingPointsSection({ points, reportId }: { points?: AnyRecord 
             </thead>
             <tbody>
               {detailPoints.map((item, index) => (
-                <tr key={`${textValue(item.title)}-${index}`} className="border-t border-[#edf1f6] text-[13px] font-bold text-[#344054]">
+                <tr key={`${textValue(item.title)}-${index}`} className="border-t border-[#edf1f6] text-[13px]  text-[#344054]">
                   <td className="px-4 py-4 text-[#7c3aed]">#{textValue(item.priority, String(index + 1))}</td>
-                  <td className="max-w-[220px] px-4 py-4 font-extrabold text-[#0A1B39]">{textValue(item.title)}</td>
+                  <td className="max-w-[220px] px-4 py-4  text-[#0A1B39]">{textValue(item.title)}</td>
                   <td className="max-w-[320px] px-4 py-4 leading-6">{textValue(item.contentFocus)}</td>
                   <td className="max-w-[300px] px-4 py-4">
                     <div className="space-y-1.5">
                       {asArray<string>(item.proofPoints).length ? asArray<string>(item.proofPoints).map((proof, proofIndex) => (
-                        <p key={proofIndex} className="rounded-lg bg-[#f8fafc] px-2.5 py-1.5 text-[12px] font-medium leading-5 text-[#667085]">{proof}</p>
+                        <p key={proofIndex} className="rounded-lg bg-[#f8fafc] px-2.5 py-1.5 text-[12px]  leading-5 text-[#667085]">{proof}</p>
                       )) : <span className="text-[#98A2B3]">暂无</span>}
                     </div>
                   </td>
@@ -1499,58 +1499,58 @@ function StrategyReportBody({
     <>
       <SectionCard no="00" title="总概览与差异化方向" subtitle="先判断市场机会，再决定 Listing 图片应该往哪里打。" tone="purple">
         <div className="rounded-2xl border border-[#eef1f5] bg-[#f8fafc] p-5">
-          <p className="mb-2 text-[13px] font-extrabold text-[#0A1B39]">总概览</p>
-          <p className="text-[14px] font-bold leading-6 text-[#344054]">
+          <p className="mb-2 text-[13px]  text-[#0A1B39]">总概览</p>
+          <p className="text-[14px]  leading-6 text-[#344054]">
             {platformName} / {productName} / 竞品池 + 图片识别 + 评论洞察 / {dataTime}
           </p>
-          <p className="mt-2 text-[13px] font-medium leading-6 text-[#667085]">
+          <p className="mt-2 text-[13px]  leading-6 text-[#667085]">
             本报告基于 {sampleCountText} 个同类商品进行分析，重点研究销量与销售额分布、高销量商品特征、高频卖点、消费者需求与痛点，以及可用于 Listing 图片的差异化机会。
           </p>
           <div className="mt-4 grid gap-3 md:grid-cols-4">
             <div className="rounded-xl bg-white p-4">
-              <p className="text-[12px] font-bold text-[#86909C]">样本总销量</p>
-              <p className="mt-1 text-[18px] font-extrabold text-[#0A1B39]">
+              <p className="text-[12px]  text-[#86909C]">样本总销量</p>
+              <p className="mt-1 text-[18px]  text-[#0A1B39]">
                 {totalSoldNumber > 0
                   ? formatCount(Math.round(totalSoldNumber))
                   : firstAvailable(conclusions.core_metrics?.sample_total_sales_volume, conclusions.core_metrics?.sample_total_sold_count, conclusions.core_metrics?.total_sold_count)}
               </p>
             </div>
             <div className="rounded-xl bg-white p-4">
-              <p className="text-[12px] font-bold text-[#86909C]">样本总销售额</p>
-              <p className="mt-1 text-[18px] font-extrabold text-[#0A1B39]">
+              <p className="text-[12px]  text-[#86909C]">样本总销售额</p>
+              <p className="mt-1 text-[18px]  text-[#0A1B39]">
                 {totalSalesNumber > 0
                   ? moneyText(totalSalesNumber)
                   : firstAvailable(conclusions.core_metrics?.sample_total_sales_amount, conclusions.core_metrics?.total_sales_amount)}
               </p>
             </div>
             <div className="rounded-xl bg-white p-4">
-              <p className="text-[12px] font-bold text-[#86909C]">参考均价</p>
-              <p className="mt-1 text-[18px] font-extrabold text-[#0A1B39]">
+              <p className="text-[12px]  text-[#86909C]">参考均价</p>
+              <p className="mt-1 text-[18px]  text-[#0A1B39]">
                 {avgPriceNumber != null ? moneyText(avgPriceNumber) : firstAvailable(conclusions.core_metrics?.average_price, "暂无")}
               </p>
             </div>
             <div className="rounded-xl bg-white p-4">
-              <p className="text-[12px] font-bold text-[#86909C]">数据来源</p>
-              <p className="mt-1 text-[15px] font-extrabold text-[#0A1B39]">{dataSourceName}</p>
+              <p className="text-[12px]  text-[#86909C]">数据来源</p>
+              <p className="mt-1 text-[15px]  text-[#0A1B39]">{dataSourceName}</p>
             </div>
           </div>
         </div>
 
         <div className="mt-5">
-          <p className="mb-3 text-[16px] font-extrabold text-[#0A1B39]">同类竞品差异化方向 3 条</p>
+          <p className="mb-3 text-[16px]  text-[#0A1B39]">同类竞品差异化方向 3 条</p>
           <div className="space-y-3">
             {overviewDirections.map((direction, index) => (
               <div key={direction.title} className="rounded-2xl border border-[#eef1f5] bg-white p-5">
                 <div className="flex flex-wrap items-start justify-between gap-3">
-                  <p className="text-[15px] font-extrabold leading-6 text-[#0A1B39]">{direction.title}</p>
+                  <p className="text-[15px]  leading-6 text-[#0A1B39]">{direction.title}</p>
                   {numericValue((direction.score as AnyRecord)?.overall_score) != null ? (
-                    <div className="rounded-full bg-[#eef4ff] px-3 py-1 text-[12px] font-extrabold text-[#3388ff]">
+                    <div className="rounded-full bg-[#eef4ff] px-3 py-1 text-[12px]  text-[#3388ff]">
                       机会分 {numericValue((direction.score as AnyRecord)?.overall_score)}
                     </div>
                   ) : null}
                 </div>
-                <p className="mt-2 text-[13px] font-medium leading-6 text-[#667085]">{direction.body}</p>
-                <p className="mt-2 text-[13px] font-bold leading-6 text-[#3388ff]">{direction.image}</p>
+                <p className="mt-2 text-[13px]  leading-6 text-[#667085]">{direction.body}</p>
+                <p className="mt-2 text-[13px]  leading-6 text-[#3388ff]">{direction.image}</p>
                 {numericValue((direction.score as AnyRecord)?.overall_score) != null ? (
                   <div className="mt-3 grid gap-2 md:grid-cols-4">
                     {[
@@ -1560,23 +1560,23 @@ function StrategyReportBody({
                       ["图片可表达", (direction.score as AnyRecord)?.visual_expression_score],
                     ].map(([label, value]) => (
                       <div key={label} className="rounded-xl bg-[#f8fafc] px-3 py-2">
-                        <p className="text-[11px] font-bold text-[#98A2B3]">{label}</p>
-                        <p className="mt-1 text-[14px] font-extrabold text-[#0A1B39]">{numericValue(value) ?? "暂无"}/5</p>
+                        <p className="text-[11px]  text-[#98A2B3]">{label}</p>
+                        <p className="mt-1 text-[14px]  text-[#0A1B39]">{numericValue(value) ?? "暂无"}/5</p>
                       </div>
                     ))}
                   </div>
                 ) : null}
                 {textValue((direction.score as AnyRecord)?.score_reason, "") ? (
-                  <p className="mt-2 text-[12px] font-bold leading-5 text-[#86909C]">评分依据：{textValue((direction.score as AnyRecord)?.score_reason, "")}</p>
+                  <p className="mt-2 text-[12px]  leading-5 text-[#86909C]">评分依据：{textValue((direction.score as AnyRecord)?.score_reason, "")}</p>
                 ) : null}
                 {direction.compared || direction.salesEvidence || direction.reviewQaEvidence ? (
-                  <div className="mt-3 space-y-1 rounded-xl bg-[#f8fafc] px-4 py-3 text-[12px] font-bold leading-5 text-[#667085]">
+                  <div className="mt-3 space-y-1 rounded-xl bg-[#f8fafc] px-4 py-3 text-[12px]  leading-5 text-[#667085]">
                     {direction.compared ? <p>对比商品：{direction.compared}</p> : null}
                     {direction.salesEvidence ? <p>销量证据：{direction.salesEvidence}</p> : null}
                     {direction.reviewQaEvidence ? <p>评价/问大家：{direction.reviewQaEvidence}</p> : null}
                   </div>
                 ) : index === 0 && topProduct ? (
-                  <div className="mt-3 rounded-xl bg-[#f8fafc] px-4 py-3 text-[12px] font-bold text-[#667085]">
+                  <div className="mt-3 rounded-xl bg-[#f8fafc] px-4 py-3 text-[12px]  text-[#667085]">
                     代表商品：{shortText(topProduct.title, 48)} · 价格 {topProduct.price != null ? moneyText(topProduct.price) : "暂无"} · 销量 {topProduct.sold != null ? formatCount(Math.round(topProduct.sold)) : "暂无"}
                   </div>
                 ) : null}
@@ -1595,7 +1595,7 @@ function StrategyReportBody({
         tone="blue"
       >
         {competitorShortageText ? (
-          <div className="mb-4 rounded-xl border border-[#dbeafe] bg-[#eff6ff] px-4 py-3 text-[13px] font-bold leading-5 text-[#2563eb]">
+          <div className="mb-4 rounded-xl border border-[#dbeafe] bg-[#eff6ff] px-4 py-3 text-[13px]  leading-5 text-[#2563eb]">
             {competitorShortageText}
           </div>
         ) : null}
@@ -1603,7 +1603,7 @@ function StrategyReportBody({
           <div className="overflow-x-auto rounded-2xl border border-[#edf1f6]">
             <table className="w-full min-w-[1080px] border-collapse bg-white">
               <thead>
-                <tr className="bg-[#f8fafc] text-left text-[12px] font-extrabold text-[#86909C]">
+                <tr className="bg-[#f8fafc] text-left text-[12px]  text-[#86909C]">
                   <th className="px-4 py-3">排名</th>
                   <th className="px-4 py-3">竞品</th>
                   <th className="px-4 py-3">价格</th>
@@ -1624,10 +1624,10 @@ function StrategyReportBody({
                   ].filter(Boolean);
 
                   return (
-                    <tr key={`${item.id || item.title}-${index}`} className="border-t border-[#edf1f6] text-[13px] font-bold text-[#344054]">
+                    <tr key={`${item.id || item.title}-${index}`} className="border-t border-[#edf1f6] text-[13px]  text-[#344054]">
                       <td className="px-4 py-4 text-[#3388ff]">#{index + 1}</td>
                       <td className="max-w-[300px] px-4 py-4">
-                        <p className="font-extrabold leading-5 text-[#0A1B39]">{shortText(item.title, 46)}</p>
+                        <p className=" leading-5 text-[#0A1B39]">{shortText(item.title, 46)}</p>
                         <p className="mt-1 text-[12px] text-[#86909C]">
                           {item.shopName || "店铺暂无"}
                           {item.url ? (
@@ -1651,7 +1651,7 @@ function StrategyReportBody({
             </table>
           </div>
         ) : (
-          <div className="rounded-xl border border-dashed border-[#d8e0ea] bg-[#f8fafc] p-6 text-[14px] font-bold text-[#667085]">
+          <div className="rounded-xl border border-dashed border-[#d8e0ea] bg-[#f8fafc] p-6 text-[14px]  text-[#667085]">
             暂无可用于竞品 Top 的数据库商品数据。请先确认该集合下已入库商品、SKU、销量或图片分析字段。
           </div>
         )}
@@ -1682,8 +1682,8 @@ function StrategyReportBody({
 
       <SectionCard no="02" title="市场核心结论" subtitle="只保留会影响选品、卖点和图片规划的关键判断。" tone="green">
         <div className="mb-4 rounded-xl bg-[#f8fafc] p-4">
-          <p className="mb-1 text-[12px] font-bold text-[#86909C]">市场一句话判断</p>
-          <p className="text-[18px] font-extrabold leading-7 text-[#0A1B39]">
+          <p className="mb-1 text-[12px]  text-[#86909C]">市场一句话判断</p>
+          <p className="text-[18px]  leading-7 text-[#0A1B39]">
             {textValue(conclusions.one_sentence_judgement, `当前 ${report.keyword} 竞品集合需要从销售表现、用户需求和图片表达中提炼可转化卖点。`)}
           </p>
         </div>
@@ -1698,10 +1698,10 @@ function StrategyReportBody({
         <div className="mt-4 grid gap-3 md:grid-cols-3">
           {asArray<AnyRecord>(conclusions.top_conclusions).slice(0, 3).map((item, index) => (
             <div key={index} className="rounded-xl border border-[#edf1f6] bg-white p-4">
-              <p className="mb-2 text-[14px] font-extrabold text-[#0A1B39]">{textValue(item.title, `结论 ${index + 1}`)}</p>
-              <p className="text-[12px] font-bold leading-5 text-[#667085]">数据依据：{textValue(item.data_basis)}</p>
-              <p className="mt-1 text-[12px] font-bold leading-5 text-[#667085]">市场含义：{textValue(item.market_meaning)}</p>
-              <p className="mt-1 text-[12px] font-bold leading-5 text-[#3388ff]">图片影响：{textValue(item.image_impact)}</p>
+              <p className="mb-2 text-[14px]  text-[#0A1B39]">{textValue(item.title, `结论 ${index + 1}`)}</p>
+              <p className="text-[12px]  leading-5 text-[#667085]">数据依据：{textValue(item.data_basis)}</p>
+              <p className="mt-1 text-[12px]  leading-5 text-[#667085]">市场含义：{textValue(item.market_meaning)}</p>
+              <p className="mt-1 text-[12px]  leading-5 text-[#3388ff]">图片影响：{textValue(item.image_impact)}</p>
             </div>
           ))}
         </div>
@@ -1713,49 +1713,49 @@ function StrategyReportBody({
             <thead>
               <tr className="border-b border-[#eef1f5] bg-[#f9fafb]">
                 {["分析范围", "竞品数/占比", "销量占比", "销额表现", "平均评分", "主要卖点", "市场判断"].map((head) => (
-                  <th key={head} className="px-4 py-3 text-left text-[13px] font-bold text-[#86909C] whitespace-nowrap">{head}</th>
+                  <th key={head} className="px-4 py-3 text-left text-[13px]  text-[#86909C] whitespace-nowrap">{head}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {salesRows.map((row, index) => (
                 <tr key={`${textValue(row.price_band)}-${index}`} className="border-b border-[#eef1f5] hover:bg-[#f9fafb]">
-                  <td className="px-4 py-3.5 text-[14px] font-bold text-[#0A1B39] whitespace-nowrap">{textValue(row.price_band || row.price_range, report.priceRange)}</td>
-                  <td className="px-4 py-3.5 text-[13px] font-bold text-[#344054]">{firstAvailable(row.product_count_share, row.competitor_count, row.product_count)}</td>
-                  <td className="px-4 py-3.5 text-[13px] font-bold text-[#344054]">{firstAvailable(row.sales_volume_share, row.totalSold)}</td>
-                  <td className="px-4 py-3.5 text-[13px] font-bold text-[#344054]">{firstAvailable(row.sales_amount_share, moneyText(row.totalSales))}</td>
-                  <td className="px-4 py-3.5 text-[13px] font-bold text-[#344054]">{textValue(row.average_rating)}</td>
-                  <td className="px-4 py-3.5 text-[13px] font-bold text-[#344054] max-w-[260px]">{textValue(row.main_selling_points)}</td>
-                  <td className="px-4 py-3.5 text-[13px] font-medium text-[#667085] max-w-[320px]">{textValue(row.market_judgement)}</td>
+                  <td className="px-4 py-3.5 text-[14px]  text-[#0A1B39] whitespace-nowrap">{textValue(row.price_band || row.price_range, report.priceRange)}</td>
+                  <td className="px-4 py-3.5 text-[13px]  text-[#344054]">{firstAvailable(row.product_count_share, row.competitor_count, row.product_count)}</td>
+                  <td className="px-4 py-3.5 text-[13px]  text-[#344054]">{firstAvailable(row.sales_volume_share, row.totalSold)}</td>
+                  <td className="px-4 py-3.5 text-[13px]  text-[#344054]">{firstAvailable(row.sales_amount_share, moneyText(row.totalSales))}</td>
+                  <td className="px-4 py-3.5 text-[13px]  text-[#344054]">{textValue(row.average_rating)}</td>
+                  <td className="px-4 py-3.5 text-[13px]  text-[#344054] max-w-[260px]">{textValue(row.main_selling_points)}</td>
+                  <td className="px-4 py-3.5 text-[13px]  text-[#667085] max-w-[320px]">{textValue(row.market_judgement)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
         <div>
-          <p className="mb-3 text-[14px] font-extrabold text-[#0A1B39]">代表商品</p>
+          <p className="mb-3 text-[14px]  text-[#0A1B39]">代表商品</p>
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
                 <tr className="border-b border-[#eef1f5] bg-[#f9fafb]">
                   {["排名", "品牌/型号", "价格", "月销量", "月销售额", "评分", "核心卖点", "代表原因"].map((head) => (
-                    <th key={head} className="px-4 py-3 text-left text-[13px] font-bold text-[#86909C] whitespace-nowrap">{head}</th>
+                    <th key={head} className="px-4 py-3 text-left text-[13px]  text-[#86909C] whitespace-nowrap">{head}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {representativeProducts.map((product, index) => (
                   <tr key={`${textValue(product.brand_model)}-${index}`} className="border-b border-[#eef1f5]">
-                    <td className="px-4 py-3 text-[13px] font-bold text-[#0A1B39]">{textValue(product.rank, index + 1)}</td>
-                    <td className="px-4 py-3 text-[13px] font-bold text-[#0A1B39] max-w-[280px]">{firstAvailable(product.brand_model, product.title)}</td>
-                    <td className="px-4 py-3 text-[13px] font-bold text-[#ff5a1f]">{moneyText(product.price)}</td>
-                    <td className="px-4 py-3 text-[13px] font-bold text-[#344054]">{textValue(product.monthly_sales)}</td>
-                    <td className="px-4 py-3 text-[13px] font-bold text-[#344054]">{moneyText(product.monthly_sales_amount)}</td>
-                    <td className="px-4 py-3 text-[13px] font-bold text-[#344054]">{textValue(product.rating)}</td>
-                    <td className="px-4 py-3 text-[13px] font-medium text-[#344054] max-w-[260px]">
+                    <td className="px-4 py-3 text-[13px]  text-[#0A1B39]">{textValue(product.rank, index + 1)}</td>
+                    <td className="px-4 py-3 text-[13px]  text-[#0A1B39] max-w-[280px]">{firstAvailable(product.brand_model, product.title)}</td>
+                    <td className="px-4 py-3 text-[13px]  text-[#ff5a1f]">{moneyText(product.price)}</td>
+                    <td className="px-4 py-3 text-[13px]  text-[#344054]">{textValue(product.monthly_sales)}</td>
+                    <td className="px-4 py-3 text-[13px]  text-[#344054]">{moneyText(product.monthly_sales_amount)}</td>
+                    <td className="px-4 py-3 text-[13px]  text-[#344054]">{textValue(product.rating)}</td>
+                    <td className="px-4 py-3 text-[13px]  text-[#344054] max-w-[260px]">
                       {cleanSellingPointText(product.core_selling_points, firstAvailable(product.brand_model, product.title), report.keyword) || "暂无"}
                     </td>
-                    <td className="px-4 py-3 text-[13px] font-medium text-[#667085]">{textValue(product.representative_reason)}</td>
+                    <td className="px-4 py-3 text-[13px]  text-[#667085]">{textValue(product.representative_reason)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -1773,7 +1773,7 @@ function StrategyReportBody({
             ["潜在机会卖点", sellingPointAnalysis.categories?.opportunity_selling_points],
           ].map(([label, value]) => (
             <div key={label as string} className="rounded-xl border border-[#edf1f6] bg-[#f8fafc] p-4">
-              <p className="mb-3 text-[14px] font-extrabold text-[#0A1B39]">{label as string}</p>
+              <p className="mb-3 text-[14px]  text-[#0A1B39]">{label as string}</p>
               <PillList items={toTermList(value, 8)} />
             </div>
           ))}
@@ -1783,19 +1783,19 @@ function StrategyReportBody({
             <thead>
               <tr className="border-b border-[#eef1f5] bg-[#f9fafb]">
                 {["卖点", "覆盖率", "覆盖商品销额占比", "高销量覆盖率", "用户关注度", "市场属性"].map((head) => (
-                  <th key={head} className="px-4 py-3 text-left text-[13px] font-bold text-[#86909C] whitespace-nowrap">{head}</th>
+                  <th key={head} className="px-4 py-3 text-left text-[13px]  text-[#86909C] whitespace-nowrap">{head}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {sellingPerformance.slice(0, 12).map((item, index) => (
                 <tr key={`${textValue(item.selling_point)}-${index}`} className="border-b border-[#eef1f5]">
-                  <td className="px-4 py-3.5 text-[13px] font-extrabold text-[#0A1B39]">{textValue(item.selling_point)}</td>
-                  <td className="px-4 py-3.5 text-[13px] font-bold text-[#344054]">{textValue(item.product_coverage_rate)}</td>
-                  <td className="px-4 py-3.5 text-[13px] font-bold text-[#344054]">{textValue(item.covered_product_sales_amount_share)}</td>
-                  <td className="px-4 py-3.5 text-[13px] font-bold text-[#344054]">{textValue(item.high_sales_product_coverage_rate)}</td>
-                  <td className="px-4 py-3.5 text-[13px] font-bold text-[#344054]">{textValue(item.user_attention)}</td>
-                  <td className="px-4 py-3.5 text-[13px] font-bold text-[#3388ff]">{textValue(item.market_attribute)}</td>
+                  <td className="px-4 py-3.5 text-[13px]  text-[#0A1B39]">{textValue(item.selling_point)}</td>
+                  <td className="px-4 py-3.5 text-[13px]  text-[#344054]">{textValue(item.product_coverage_rate)}</td>
+                  <td className="px-4 py-3.5 text-[13px]  text-[#344054]">{textValue(item.covered_product_sales_amount_share)}</td>
+                  <td className="px-4 py-3.5 text-[13px]  text-[#344054]">{textValue(item.high_sales_product_coverage_rate)}</td>
+                  <td className="px-4 py-3.5 text-[13px]  text-[#344054]">{textValue(item.user_attention)}</td>
+                  <td className="px-4 py-3.5 text-[13px]  text-[#3388ff]">{textValue(item.market_attribute)}</td>
                 </tr>
               ))}
             </tbody>
@@ -1809,19 +1809,19 @@ function StrategyReportBody({
             <thead>
               <tr className="border-b border-[#eef1f5] bg-[#f9fafb]">
                 {["排名", "用户需求", "评论提及", "关键词需求", "高销量满足度", "市场缺口"].map((head) => (
-                  <th key={head} className="px-4 py-3 text-left text-[13px] font-bold text-[#86909C] whitespace-nowrap">{head}</th>
+                  <th key={head} className="px-4 py-3 text-left text-[13px]  text-[#86909C] whitespace-nowrap">{head}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {needRows.slice(0, 8).map((item, index) => (
                 <tr key={`${textValue(item.user_need)}-${index}`} className="border-b border-[#eef1f5]">
-                  <td className="px-4 py-3.5 text-[13px] font-bold text-[#0A1B39]">{textValue(item.rank, index + 1)}</td>
-                  <td className="px-4 py-3.5 text-[13px] font-extrabold text-[#0A1B39]">{textValue(item.user_need)}</td>
-                  <td className="px-4 py-3.5 text-[13px] font-bold text-[#344054]">{textValue(item.review_mention_rate)}</td>
-                  <td className="px-4 py-3.5 text-[13px] font-bold text-[#344054]">{textValue(item.keyword_demand)}</td>
-                  <td className="px-4 py-3.5 text-[13px] font-bold text-[#344054]">{textValue(item.high_sales_product_satisfaction)}</td>
-                  <td className="px-4 py-3.5 text-[13px] font-bold text-[#3388ff]">{textValue(item.market_gap)}</td>
+                  <td className="px-4 py-3.5 text-[13px]  text-[#0A1B39]">{textValue(item.rank, index + 1)}</td>
+                  <td className="px-4 py-3.5 text-[13px]  text-[#0A1B39]">{textValue(item.user_need)}</td>
+                  <td className="px-4 py-3.5 text-[13px]  text-[#344054]">{textValue(item.review_mention_rate)}</td>
+                  <td className="px-4 py-3.5 text-[13px]  text-[#344054]">{textValue(item.keyword_demand)}</td>
+                  <td className="px-4 py-3.5 text-[13px]  text-[#344054]">{textValue(item.high_sales_product_satisfaction)}</td>
+                  <td className="px-4 py-3.5 text-[13px]  text-[#3388ff]">{textValue(item.market_gap)}</td>
                 </tr>
               ))}
             </tbody>
@@ -1829,11 +1829,11 @@ function StrategyReportBody({
         </div>
         <div className="grid gap-4 md:grid-cols-2">
           <div className="rounded-xl border border-[#edf1f6] bg-[#f8fafc] p-4">
-            <p className="mb-3 text-[14px] font-extrabold text-[#0A1B39]">好评需求</p>
+            <p className="mb-3 text-[14px]  text-[#0A1B39]">好评需求</p>
             <PillList items={asArray<AnyRecord>(consumerDemand.positive_review_needs).map((item) => firstAvailable(item.positive_theme, item.theme, item.user_benefit)).filter(Boolean).slice(0, 10)} />
           </div>
           <div className="rounded-xl border border-[#edf1f6] bg-[#f8fafc] p-4">
-            <p className="mb-3 text-[14px] font-extrabold text-[#0A1B39]">差评痛点</p>
+            <p className="mb-3 text-[14px]  text-[#0A1B39]">差评痛点</p>
             <PillList items={asArray<AnyRecord>(consumerDemand.negative_pain_points).map((item) => firstAvailable(item.pain_point, item.theme, item.reverse_selling_point)).filter(Boolean).slice(0, 10)} />
           </div>
         </div>
@@ -1845,19 +1845,19 @@ function StrategyReportBody({
             <thead>
               <tr className="border-b border-[#eef1f5] bg-[#f9fafb]">
                 {["卖点", "需求强度", "销售验证", "竞争缺口", "可视化程度", "综合建议"].map((head) => (
-                  <th key={head} className="px-4 py-3 text-left text-[13px] font-bold text-[#86909C] whitespace-nowrap">{head}</th>
+                  <th key={head} className="px-4 py-3 text-left text-[13px]  text-[#86909C] whitespace-nowrap">{head}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {opportunityMatrix.slice(0, 10).map((item, index) => (
                 <tr key={`${textValue(item.selling_point)}-${index}`} className="border-b border-[#eef1f5]">
-                  <td className="px-4 py-3.5 text-[13px] font-extrabold text-[#0A1B39]">{textValue(item.selling_point)}</td>
-                  <td className="px-4 py-3.5 text-[13px] font-bold text-[#344054]">{textValue(item.demand_strength)}</td>
-                  <td className="px-4 py-3.5 text-[13px] font-bold text-[#344054]">{textValue(item.sales_validation)}</td>
-                  <td className="px-4 py-3.5 text-[13px] font-bold text-[#344054]">{textValue(item.competition_gap)}</td>
-                  <td className="px-4 py-3.5 text-[13px] font-bold text-[#344054]">{textValue(item.visualization_degree)}</td>
-                  <td className="px-4 py-3.5 text-[13px] font-bold text-[#3388ff]">{textValue(item.recommendation)}</td>
+                  <td className="px-4 py-3.5 text-[13px]  text-[#0A1B39]">{textValue(item.selling_point)}</td>
+                  <td className="px-4 py-3.5 text-[13px]  text-[#344054]">{textValue(item.demand_strength)}</td>
+                  <td className="px-4 py-3.5 text-[13px]  text-[#344054]">{textValue(item.sales_validation)}</td>
+                  <td className="px-4 py-3.5 text-[13px]  text-[#344054]">{textValue(item.competition_gap)}</td>
+                  <td className="px-4 py-3.5 text-[13px]  text-[#344054]">{textValue(item.visualization_degree)}</td>
+                  <td className="px-4 py-3.5 text-[13px]  text-[#3388ff]">{textValue(item.recommendation)}</td>
                 </tr>
               ))}
             </tbody>
@@ -1868,25 +1868,25 @@ function StrategyReportBody({
       <SectionCard no="07" title="产品定位与视觉策略" subtitle="把市场机会转成目标人群、核心场景和视觉差异化。" tone="blue">
         <div className="grid gap-4 md:grid-cols-3">
           <div className="rounded-xl border border-[#edf1f6] bg-[#f8fafc] p-4">
-            <p className="mb-2 text-[13px] font-bold text-[#86909C]">目标人群</p>
-            <p className="text-[15px] font-extrabold leading-6 text-[#0A1B39]">{textValue(positioning.product_positioning?.target_audience)}</p>
+            <p className="mb-2 text-[13px]  text-[#86909C]">目标人群</p>
+            <p className="text-[15px]  leading-6 text-[#0A1B39]">{textValue(positioning.product_positioning?.target_audience)}</p>
           </div>
           <div className="rounded-xl border border-[#edf1f6] bg-[#f8fafc] p-4">
-            <p className="mb-2 text-[13px] font-bold text-[#86909C]">核心使用场景</p>
-            <p className="text-[15px] font-extrabold leading-6 text-[#0A1B39]">{textValue(positioning.product_positioning?.core_usage_scenarios)}</p>
+            <p className="mb-2 text-[13px]  text-[#86909C]">核心使用场景</p>
+            <p className="text-[15px]  leading-6 text-[#0A1B39]">{textValue(positioning.product_positioning?.core_usage_scenarios)}</p>
           </div>
           <div className="rounded-xl border border-[#edf1f6] bg-[#f8fafc] p-4">
-            <p className="mb-2 text-[13px] font-bold text-[#86909C]">一句话定位</p>
-            <p className="text-[15px] font-extrabold leading-6 text-[#0A1B39]">{textValue(positioning.product_positioning?.one_sentence_positioning)}</p>
+            <p className="mb-2 text-[13px]  text-[#86909C]">一句话定位</p>
+            <p className="text-[15px]  leading-6 text-[#0A1B39]">{textValue(positioning.product_positioning?.one_sentence_positioning)}</p>
           </div>
         </div>
         <div className="mt-4 grid gap-4 md:grid-cols-3">
           {asArray<AnyRecord>(positioning.core_selling_point_hierarchy).slice(0, 3).map((item, index) => (
             <div key={index} className="rounded-xl border border-[#edf1f6] bg-white p-4">
-              <p className="mb-2 text-[14px] font-extrabold text-[#0A1B39]">核心卖点 {index + 1}</p>
-              <p className="text-[13px] font-bold leading-5 text-[#344054]">卖点：{textValue(item.selling_point)}</p>
-              <p className="mt-1 text-[13px] font-medium leading-5 text-[#667085]">用户收益：{textValue(item.user_benefit)}</p>
-              <p className="mt-1 text-[13px] font-medium leading-5 text-[#3388ff]">视觉表现：{textValue(item.visual_suggestion)}</p>
+              <p className="mb-2 text-[14px]  text-[#0A1B39]">核心卖点 {index + 1}</p>
+              <p className="text-[13px]  leading-5 text-[#344054]">卖点：{textValue(item.selling_point)}</p>
+              <p className="mt-1 text-[13px]  leading-5 text-[#667085]">用户收益：{textValue(item.user_benefit)}</p>
+              <p className="mt-1 text-[13px]  leading-5 text-[#3388ff]">视觉表现：{textValue(item.visual_suggestion)}</p>
             </div>
           ))}
         </div>
@@ -1897,18 +1897,18 @@ function StrategyReportBody({
           {imagePlan.slice(0, 8).map((item, index) => (
             <div key={`${textValue(item.image_module)}-${index}`} className="rounded-xl border border-[#edf1f6] bg-[#f8fafc] p-4">
               <div className="mb-2 flex items-center justify-between gap-3">
-                <p className="text-[15px] font-extrabold text-[#0A1B39]">图 {textValue(item.image_no, index + 1)} · {textValue(item.image_module)}</p>
+                <p className="text-[15px]  text-[#0A1B39]">图 {textValue(item.image_no, index + 1)} · {textValue(item.image_module)}</p>
                 <button
                   onClick={() => onOpenProducts(textValue(item.data_basis, report.priceRange))}
-                  className="text-[12px] font-bold text-[#3388ff] hover:text-[#1a6fe8]"
+                  className="text-[12px]  text-[#3388ff] hover:text-[#1a6fe8]"
                 >
                   商品详情
                 </button>
               </div>
-              <p className="text-[13px] font-bold leading-5 text-[#344054]">主要任务：{textValue(item.main_task)}</p>
-              <p className="mt-1 text-[13px] font-medium leading-5 text-[#667085]">核心卖点：{textValue(item.core_selling_point)}</p>
-              <p className="mt-1 text-[13px] font-medium leading-5 text-[#667085]">用户需求：{textValue(item.user_need)}</p>
-              <p className="mt-1 text-[13px] font-medium leading-5 text-[#667085]">数据依据：{textValue(item.data_basis)}</p>
+              <p className="text-[13px]  leading-5 text-[#344054]">主要任务：{textValue(item.main_task)}</p>
+              <p className="mt-1 text-[13px]  leading-5 text-[#667085]">核心卖点：{textValue(item.core_selling_point)}</p>
+              <p className="mt-1 text-[13px]  leading-5 text-[#667085]">用户需求：{textValue(item.user_need)}</p>
+              <p className="mt-1 text-[13px]  leading-5 text-[#667085]">数据依据：{textValue(item.data_basis)}</p>
             </div>
           ))}
         </div>
@@ -1921,26 +1921,26 @@ function StrategyReportBody({
             return (
               <div key={`${textValue(item.image_name)}-${index}`} className="rounded-xl border border-[#edf1f6] bg-[#f8fafc] p-4">
                 <div className="mb-3 flex items-center justify-between gap-3">
-                  <h3 className="text-[16px] font-extrabold text-[#0A1B39]">图片 {textValue(item.image_no, index + 1)}：{textValue(item.image_name)}</h3>
-                  <span className="rounded-lg bg-[#e4f3ff] px-2.5 py-1 text-[12px] font-extrabold text-[#3388ff]">{textValue(item.core_selling_point)}</span>
+                  <h3 className="text-[16px]  text-[#0A1B39]">图片 {textValue(item.image_no, index + 1)}：{textValue(item.image_name)}</h3>
+                  <span className="rounded-lg bg-[#e4f3ff] px-2.5 py-1 text-[12px]  text-[#3388ff]">{textValue(item.core_selling_point)}</span>
                 </div>
                 <div className="grid gap-3 md:grid-cols-3">
                   <div>
-                    <p className="mb-1 text-[12px] font-bold text-[#86909C]">图片目标</p>
-                    <p className="text-[13px] font-bold leading-5 text-[#344054]">{textValue(item.image_goal)}</p>
+                    <p className="mb-1 text-[12px]  text-[#86909C]">图片目标</p>
+                    <p className="text-[13px]  leading-5 text-[#344054]">{textValue(item.image_goal)}</p>
                   </div>
                   <div>
-                    <p className="mb-1 text-[12px] font-bold text-[#86909C]">用户收益</p>
-                    <p className="text-[13px] font-bold leading-5 text-[#344054]">{textValue(item.user_benefit)}</p>
+                    <p className="mb-1 text-[12px]  text-[#86909C]">用户收益</p>
+                    <p className="text-[13px]  leading-5 text-[#344054]">{textValue(item.user_benefit)}</p>
                   </div>
                   <div>
-                    <p className="mb-1 text-[12px] font-bold text-[#86909C]">文案层级</p>
-                    <p className="text-[13px] font-bold leading-5 text-[#344054]">{textValue(copy.main_title)} / {textValue(copy.subtitle)}</p>
+                    <p className="mb-1 text-[12px]  text-[#86909C]">文案层级</p>
+                    <p className="text-[13px]  leading-5 text-[#344054]">{textValue(copy.main_title)} / {textValue(copy.subtitle)}</p>
                   </div>
                 </div>
                 <div className="mt-3 rounded-lg bg-white p-3">
-                  <p className="mb-1 text-[12px] font-bold text-[#86909C]">完整生图提示词</p>
-                  <p className="whitespace-pre-wrap text-[13px] font-medium leading-6 text-[#344054]">{textValue(item.full_generation_prompt)}</p>
+                  <p className="mb-1 text-[12px]  text-[#86909C]">完整生图提示词</p>
+                  <p className="whitespace-pre-wrap text-[13px]  leading-6 text-[#344054]">{textValue(item.full_generation_prompt)}</p>
                 </div>
               </div>
             );
@@ -1957,16 +1957,16 @@ function StrategyReportBody({
             ["图片策略", decision.image_strategy],
           ].map(([label, value]) => (
             <div key={label as string} className="rounded-xl border border-[#edf1f6] bg-[#f8fafc] p-4">
-              <p className="mb-3 text-[14px] font-extrabold text-[#0A1B39]">{label as string}</p>
+              <p className="mb-3 text-[14px]  text-[#0A1B39]">{label as string}</p>
               <PillList items={Object.entries(value || {}).map(([key, val]) => `${key}：${textValue(val)}`).slice(0, 10)} />
             </div>
           ))}
         </div>
         <div className="mt-4 rounded-xl border border-[#edf1f6] bg-white p-4">
-          <p className="mb-3 text-[14px] font-extrabold text-[#0A1B39]">最终图片顺序</p>
+          <p className="mb-3 text-[14px]  text-[#0A1B39]">最终图片顺序</p>
           <div className="grid gap-2 md:grid-cols-4">
             {toTermList(decision.final_image_sequence, 8).map((item, index) => (
-              <div key={`${item}-${index}`} className="rounded-lg bg-[#f8fafc] p-3 text-[13px] font-bold text-[#344054]">
+              <div key={`${item}-${index}`} className="rounded-lg bg-[#f8fafc] p-3 text-[13px]  text-[#344054]">
                 {index + 1}. {item}
               </div>
             ))}
@@ -2089,7 +2089,7 @@ export function AnalysisReportView() {
           ]}
         />
         <div className="grid min-h-[360px] place-items-center rounded-2xl bg-white shadow-[0_8px_32px_rgba(29,38,52,.06)]">
-          <div className="flex items-center gap-2 text-[14px] font-bold text-[#667085]">
+          <div className="flex items-center gap-2 text-[14px]  text-[#667085]">
             <Loader2 className="h-5 w-5 animate-spin text-[#3388ff]" />
             正在读取数据库报告...
           </div>
@@ -2101,11 +2101,11 @@ export function AnalysisReportView() {
   if (reportError || !report) {
     return (
       <div className="h-full overflow-y-auto bg-[#f4f7fb] p-6 custom-scrollbar">
-        <Link to="/market/competitive/report" className="mb-4 inline-flex items-center gap-2 text-[13px] font-bold text-[#3388ff] hover:text-[#1a6fe8]">
+        <Link to="/market/competitive/report" className="mb-4 inline-flex items-center gap-2 text-[13px]  text-[#3388ff] hover:text-[#1a6fe8]">
           <ArrowLeft className="h-4 w-4" />
           返回分析报告列表
         </Link>
-        <div className="rounded-2xl bg-white p-8 text-[14px] font-bold text-[#c62828] shadow-[0_8px_32px_rgba(29,38,52,.06)]">
+        <div className="rounded-2xl bg-white p-8 text-[14px]  text-[#c62828] shadow-[0_8px_32px_rgba(29,38,52,.06)]">
           {reportError || "没有找到对应的分析报告"}
         </div>
       </div>
@@ -2127,17 +2127,17 @@ export function AnalysisReportView() {
       />
 
       {/* Back */}
-      <Link to="/market/competitive/report" className="mb-4 inline-flex items-center gap-2 text-[13px] font-bold text-[#3388ff] hover:text-[#1a6fe8]">
+      <Link to="/market/competitive/report" className="mb-4 inline-flex items-center gap-2 text-[13px]  text-[#3388ff] hover:text-[#1a6fe8]">
         <ArrowLeft className="h-4 w-4" />
         返回分析报告列表
       </Link>
 
       {/* 报告标题 */}
       <div className="mb-5 flex items-center justify-between">
-        <h1 className="text-[28px] font-extrabold tracking-[-0.02em] text-[#0A1B39]">{textValue(report.report_title, report.title)}</h1>
+        <h1 className="text-[28px]  tracking-[-0.02em] text-[#0A1B39]">{textValue(report.report_title, report.title)}</h1>
         <button
           onClick={() => { setProfitModal(true); resetProfitModal(); }}
-          className="rounded-lg border border-[#3388ff] px-4 py-2 text-[13px] font-bold text-[#3388ff] transition-colors hover:bg-[#f0f7ff]"
+          className="rounded-lg border border-[#3388ff] px-4 py-2 text-[13px]  text-[#3388ff] transition-colors hover:bg-[#f0f7ff]"
         >
           利润测算
         </button>
@@ -2147,20 +2147,20 @@ export function AnalysisReportView() {
       <div className="mb-5 rounded-2xl bg-white p-5 shadow-[0_8px_32px_rgba(29,38,52,.06)]">
         <div className="grid grid-cols-4 gap-4">
           <div className="rounded-lg bg-[#f8fafc] p-4">
-            <p className="mb-1 text-[12px] font-bold text-[#86909C]">关键词</p>
-            <p className="text-[16px] font-extrabold text-[#0A1B39]">{report.keyword}</p>
+            <p className="mb-1 text-[12px]  text-[#86909C]">关键词</p>
+            <p className="text-[16px]  text-[#0A1B39]">{report.keyword}</p>
           </div>
           <div className="rounded-lg bg-[#f8fafc] p-4">
-            <p className="mb-1 text-[12px] font-bold text-[#86909C]">采集价格范围</p>
-            <p className="text-[16px] font-extrabold text-[#0A1B39]">{report.priceRange}</p>
+            <p className="mb-1 text-[12px]  text-[#86909C]">采集价格范围</p>
+            <p className="text-[16px]  text-[#0A1B39]">{report.priceRange}</p>
           </div>
           <div className="rounded-lg bg-[#f8fafc] p-4">
-            <p className="mb-1 text-[12px] font-bold text-[#86909C]">竞品数量</p>
-            <p className="text-[16px] font-extrabold text-[#0A1B39]">{report.competitorCount} 个</p>
+            <p className="mb-1 text-[12px]  text-[#86909C]">竞品数量</p>
+            <p className="text-[16px]  text-[#0A1B39]">{report.competitorCount} 个</p>
           </div>
           <div className="rounded-lg bg-[#f8fafc] p-4">
-            <p className="mb-1 text-[12px] font-bold text-[#86909C]">采集时间</p>
-            <p className="text-[16px] font-extrabold text-[#0A1B39]">{report.collectTime}</p>
+            <p className="mb-1 text-[12px]  text-[#86909C]">采集时间</p>
+            <p className="text-[16px]  text-[#0A1B39]">{report.collectTime}</p>
           </div>
         </div>
       </div>
@@ -2184,8 +2184,8 @@ export function AnalysisReportView() {
             <TrendingUp className="h-5 w-5" />
           </div>
           <div>
-            <h2 className="text-[18px] font-extrabold text-[#0A1B39]">销售分析</h2>
-            <p className="text-[13px] font-medium text-[#86909C]">
+            <h2 className="text-[18px]  text-[#0A1B39]">销售分析</h2>
+            <p className="text-[13px]  text-[#86909C]">
               {isManualOverallReport ? "按全量竞品集合汇总销量、销额和均价；价格段后续由你手动划分" : "按价格区间分析竞品销量、销额分布"}
             </p>
           </div>
@@ -2194,29 +2194,29 @@ export function AnalysisReportView() {
           <table className="w-full">
             <thead>
               <tr className="border-b border-[#eef1f5] bg-[#f9fafb]">
-                <th className="px-4 py-3 text-left text-[13px] font-bold text-[#86909C] whitespace-nowrap">{isManualOverallReport ? "分析范围" : "价格区间"}</th>
-                <th className="px-4 py-3 text-left text-[13px] font-bold text-[#86909C] whitespace-nowrap">竞品数</th>
-                <th className="px-4 py-3 text-left text-[13px] font-bold text-[#86909C] whitespace-nowrap">均价</th>
-                <th className="px-4 py-3 text-left text-[13px] font-bold text-[#86909C] whitespace-nowrap">总销量</th>
-                <th className="px-4 py-3 text-left text-[13px] font-bold text-[#86909C] whitespace-nowrap">总销额</th>
-                <th className="px-4 py-3 text-left text-[13px] font-bold text-[#86909C] whitespace-nowrap">销量占比</th>
-                <th className="px-4 py-3 text-left text-[13px] font-bold text-[#86909C] whitespace-nowrap">详情</th>
+                <th className="px-4 py-3 text-left text-[13px]  text-[#86909C] whitespace-nowrap">{isManualOverallReport ? "分析范围" : "价格区间"}</th>
+                <th className="px-4 py-3 text-left text-[13px]  text-[#86909C] whitespace-nowrap">竞品数</th>
+                <th className="px-4 py-3 text-left text-[13px]  text-[#86909C] whitespace-nowrap">均价</th>
+                <th className="px-4 py-3 text-left text-[13px]  text-[#86909C] whitespace-nowrap">总销量</th>
+                <th className="px-4 py-3 text-left text-[13px]  text-[#86909C] whitespace-nowrap">总销额</th>
+                <th className="px-4 py-3 text-left text-[13px]  text-[#86909C] whitespace-nowrap">销量占比</th>
+                <th className="px-4 py-3 text-left text-[13px]  text-[#86909C] whitespace-nowrap">详情</th>
               </tr>
             </thead>
             <tbody>
               {report.salesAnalysis.map((band) => (
                 <tr key={band.band} className="border-b border-[#eef1f5] hover:bg-[#f9fafb]">
-                  <td className="px-4 py-3.5 text-[14px] font-bold text-[#0A1B39] whitespace-nowrap">{band.band}</td>
-                  <td className="px-4 py-3.5 text-[14px] font-medium text-[#344054]">{band.competitorCount}</td>
-                  <td className="px-4 py-3.5 text-[14px] font-medium text-[#344054]">{formatMoney(band.avgPrice)}</td>
-                  <td className="px-4 py-3.5 text-[14px] font-medium text-[#344054]">{formatCount(band.totalSold)}</td>
-                  <td className="px-4 py-3.5 text-[14px] font-medium text-[#344054]">{formatMoney(band.totalSales)}</td>
+                  <td className="px-4 py-3.5 text-[14px]  text-[#0A1B39] whitespace-nowrap">{band.band}</td>
+                  <td className="px-4 py-3.5 text-[14px]  text-[#344054]">{band.competitorCount}</td>
+                  <td className="px-4 py-3.5 text-[14px]  text-[#344054]">{formatMoney(band.avgPrice)}</td>
+                  <td className="px-4 py-3.5 text-[14px]  text-[#344054]">{formatCount(band.totalSold)}</td>
+                  <td className="px-4 py-3.5 text-[14px]  text-[#344054]">{formatMoney(band.totalSales)}</td>
                   <td className="px-4 py-3.5">
                     <div className="flex items-center gap-2">
                       <div className="h-2 w-[100px] overflow-hidden rounded-full bg-[#e8edf5]">
                         <div className="h-full rounded-full bg-[#3388ff]" style={{ width: `${band.share}%` }} />
                       </div>
-                      <span className="text-[13px] font-bold text-[#3388ff]">{band.share}%</span>
+                      <span className="text-[13px]  text-[#3388ff]">{band.share}%</span>
                     </div>
                   </td>
                   <td className="px-4 py-3.5">
@@ -2225,7 +2225,7 @@ export function AnalysisReportView() {
                         const bandData = report.priceBandProducts.find((bp) => bp.band === band.band);
                         if (bandData) setDetailModal(bandData);
                       }}
-                      className="text-[13px] font-bold text-[#3388ff] hover:text-[#1a6fe8]"
+                      className="text-[13px]  text-[#3388ff] hover:text-[#1a6fe8]"
                     >
                       详情
                     </button>
@@ -2244,8 +2244,8 @@ export function AnalysisReportView() {
             <BarChart3 className="h-5 w-5" />
           </div>
           <div>
-            <h2 className="text-[18px] font-extrabold text-[#0A1B39]">卖点分析</h2>
-            <p className="text-[13px] font-medium text-[#86909C]">
+            <h2 className="text-[18px]  text-[#0A1B39]">卖点分析</h2>
+            <p className="text-[13px]  text-[#86909C]">
               {isManualOverallReport ? "全量竞品集合的核心卖点与图片特点" : "各价格区间竞品核心卖点与图片特点"}
             </p>
           </div>
@@ -2254,24 +2254,24 @@ export function AnalysisReportView() {
           {report.sellingAnalysis.map((band) => (
             <div key={band.band} className="rounded-lg border border-[#edf1f6] bg-[#f8fafc] p-4">
               <div className="mb-3 flex items-center gap-2">
-                <span className="rounded-lg bg-[#e4f3ff] px-2.5 py-1 text-[13px] font-extrabold text-[#3388ff]">{band.band}</span>
+                <span className="rounded-lg bg-[#e4f3ff] px-2.5 py-1 text-[13px]  text-[#3388ff]">{band.band}</span>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <p className="mb-2 text-[13px] font-bold text-[#86909C]">核心卖点</p>
+                  <p className="mb-2 text-[13px]  text-[#86909C]">核心卖点</p>
                   <div className="flex flex-wrap gap-2">
                     {band.coreSellingPoints.map((item) => (
-                      <span key={item.term} className="rounded-lg bg-[#f2f4f7] px-2.5 py-1 text-[12px] font-bold text-[#0A1B39]">
+                      <span key={item.term} className="rounded-lg bg-[#f2f4f7] px-2.5 py-1 text-[12px]  text-[#0A1B39]">
                         {item.term} <span className="text-[#86909C]">×{item.count}</span>
                       </span>
                     ))}
                   </div>
                 </div>
                 <div>
-                  <p className="mb-2 text-[13px] font-bold text-[#86909C]">图片特点</p>
+                  <p className="mb-2 text-[13px]  text-[#86909C]">图片特点</p>
                   <div className="flex flex-wrap gap-2">
                     {band.imageFeatures.map((item) => (
-                      <span key={item.term} className="rounded-lg bg-[#f2f4f7] px-2.5 py-1 text-[12px] font-bold text-[#0A1B39]">
+                      <span key={item.term} className="rounded-lg bg-[#f2f4f7] px-2.5 py-1 text-[12px]  text-[#0A1B39]">
                         {item.term} <span className="text-[#86909C]">×{item.count}</span>
                       </span>
                     ))}
@@ -2290,22 +2290,22 @@ export function AnalysisReportView() {
             <MessageSquare className="h-5 w-5" />
           </div>
           <div>
-            <h2 className="text-[18px] font-extrabold text-[#0A1B39]">评价分析</h2>
-            <p className="text-[13px] font-medium text-[#86909C]">分析挖掘全量商品评论数据中的差评、好评与用户诉求</p>
+            <h2 className="text-[18px]  text-[#0A1B39]">评价分析</h2>
+            <p className="text-[13px]  text-[#86909C]">分析挖掘全量商品评论数据中的差评、好评与用户诉求</p>
           </div>
         </div>
         <div className="space-y-4">
           {report.reviewAnalysis.map((band) => (
             <div key={band.band} className="rounded-lg border border-[#edf1f6] bg-[#f8fafc] p-4">
               <div className="mb-3 flex items-center gap-2">
-                <span className="rounded-lg bg-[#e4f3ff] px-2.5 py-1 text-[13px] font-extrabold text-[#3388ff]">{band.band}</span>
+                <span className="rounded-lg bg-[#e4f3ff] px-2.5 py-1 text-[13px]  text-[#3388ff]">{band.band}</span>
               </div>
               <div className="grid grid-cols-3 gap-4">
                 <div>
-                  <p className="mb-2 text-[13px] font-bold text-[#86909C]">差评内容</p>
+                  <p className="mb-2 text-[13px]  text-[#86909C]">差评内容</p>
                   <ul className="space-y-1.5">
                     {band.negativeReviews.map((item, idx) => (
-                      <li key={idx} className="flex items-start gap-2 text-[13px] font-medium text-[#0A1B39]">
+                      <li key={idx} className="flex items-start gap-2 text-[13px]  text-[#0A1B39]">
                         <span className="mt-1.5 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-[#0A1B39]" />
                         {item}
                       </li>
@@ -2313,10 +2313,10 @@ export function AnalysisReportView() {
                   </ul>
                 </div>
                 <div>
-                  <p className="mb-2 text-[13px] font-bold text-[#86909C]">好评内容</p>
+                  <p className="mb-2 text-[13px]  text-[#86909C]">好评内容</p>
                   <ul className="space-y-1.5">
                     {band.positiveReviews.map((item, idx) => (
-                      <li key={idx} className="flex items-start gap-2 text-[13px] font-medium text-[#0A1B39]">
+                      <li key={idx} className="flex items-start gap-2 text-[13px]  text-[#0A1B39]">
                         <span className="mt-1.5 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-[#0A1B39]" />
                         {item}
                       </li>
@@ -2324,10 +2324,10 @@ export function AnalysisReportView() {
                   </ul>
                 </div>
                 <div>
-                  <p className="mb-2 text-[13px] font-bold text-[#86909C]">用户诉求</p>
+                  <p className="mb-2 text-[13px]  text-[#86909C]">用户诉求</p>
                   <ul className="space-y-1.5">
                     {band.userDemands.map((item, idx) => (
-                      <li key={idx} className="flex items-start gap-2 text-[13px] font-medium text-[#0A1B39]">
+                      <li key={idx} className="flex items-start gap-2 text-[13px]  text-[#0A1B39]">
                         <span className="mt-1.5 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-[#0A1B39]" />
                         {item}
                       </li>
@@ -2347,21 +2347,21 @@ export function AnalysisReportView() {
             <HelpCircle className="h-5 w-5" />
           </div>
           <div>
-            <h2 className="text-[18px] font-extrabold text-[#0A1B39]">问大家分析</h2>
-            <p className="text-[13px] font-medium text-[#86909C]">分析挖掘全量问大家数据中用户关注的问题</p>
+            <h2 className="text-[18px]  text-[#0A1B39]">问大家分析</h2>
+            <p className="text-[13px]  text-[#86909C]">分析挖掘全量问大家数据中用户关注的问题</p>
           </div>
         </div>
         <div className="space-y-4">
           {report.qaAnalysis.map((band) => (
             <div key={band.band} className="rounded-lg border border-[#edf1f6] bg-[#f8fafc] p-4">
               <div className="mb-3 flex items-center gap-2">
-                <span className="rounded-lg bg-[#e4f3ff] px-2.5 py-1 text-[13px] font-extrabold text-[#3388ff]">{band.band}</span>
+                <span className="rounded-lg bg-[#e4f3ff] px-2.5 py-1 text-[13px]  text-[#3388ff]">{band.band}</span>
               </div>
               <div className="grid grid-cols-3 gap-4">
                 {band.questions.map((item, idx) => (
                   <div key={idx} className="rounded-lg bg-[#f2f4f7] p-3">
-                    <p className="mb-1 text-[13px] font-bold text-[#0A1B39]">{item.question}</p>
-                    <p className="text-[12px] font-medium text-[#86909C]">关注人数：{item.count}</p>
+                    <p className="mb-1 text-[13px]  text-[#0A1B39]">{item.question}</p>
+                    <p className="text-[12px]  text-[#86909C]">关注人数：{item.count}</p>
                   </div>
                 ))}
               </div>
@@ -2377,22 +2377,22 @@ export function AnalysisReportView() {
             <Lightbulb className="h-5 w-5" />
           </div>
           <div>
-            <h2 className="text-[18px] font-extrabold text-[#0A1B39]">潜在需求分析</h2>
-            <p className="text-[13px] font-medium text-[#86909C]">挖掘评论和问大家中的差异化机会</p>
+            <h2 className="text-[18px]  text-[#0A1B39]">潜在需求分析</h2>
+            <p className="text-[13px]  text-[#86909C]">挖掘评论和问大家中的差异化机会</p>
           </div>
         </div>
         <div className="space-y-4">
           {report.demandAnalysis.map((band) => (
             <div key={band.band} className="rounded-lg border border-[#edf1f6] bg-[#f8fafc] p-4">
               <div className="mb-3 flex items-center gap-2">
-                <span className="rounded-lg bg-[#e4f3ff] px-2.5 py-1 text-[13px] font-extrabold text-[#3388ff]">{band.band}</span>
+                <span className="rounded-lg bg-[#e4f3ff] px-2.5 py-1 text-[13px]  text-[#3388ff]">{band.band}</span>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <p className="mb-2 text-[13px] font-bold text-[#86909C]">用户痛点</p>
+                  <p className="mb-2 text-[13px]  text-[#86909C]">用户痛点</p>
                   <ul className="space-y-1.5">
                     {band.unmetNeeds.map((need, index) => (
-                      <li key={index} className="flex items-start gap-2 text-[13px] font-medium text-[#0A1B39]">
+                      <li key={index} className="flex items-start gap-2 text-[13px]  text-[#0A1B39]">
                         <span className="mt-1.5 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-[#0A1B39]" />
                         {need}
                       </li>
@@ -2400,10 +2400,10 @@ export function AnalysisReportView() {
                   </ul>
                 </div>
                 <div>
-                  <p className="mb-2 text-[13px] font-bold text-[#86909C]">差异化机会</p>
+                  <p className="mb-2 text-[13px]  text-[#86909C]">差异化机会</p>
                   <ul className="space-y-1.5">
                     {band.opportunities.map((opp, index) => (
-                      <li key={index} className="flex items-start gap-2 text-[13px] font-medium text-[#0A1B39]">
+                      <li key={index} className="flex items-start gap-2 text-[13px]  text-[#0A1B39]">
                         <span className="mt-1.5 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-[#0A1B39]" />
                         {opp}
                       </li>
@@ -2423,8 +2423,8 @@ export function AnalysisReportView() {
             <LayoutGrid className="h-5 w-5" />
           </div>
           <div>
-            <h2 className="text-[18px] font-extrabold text-[#0A1B39]">布局建议</h2>
-            <p className="text-[13px] font-medium text-[#86909C]">
+            <h2 className="text-[18px]  text-[#0A1B39]">布局建议</h2>
+            <p className="text-[13px]  text-[#86909C]">
               {isManualOverallReport ? "基于整体集合给出主推卖点和后续手动分价格段的方向" : "建议主推卖点与价格区间布局策略"}
             </p>
           </div>
@@ -2435,20 +2435,20 @@ export function AnalysisReportView() {
               <div className="mb-2 flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
                   <Database className="h-4 w-4 text-[#3388ff]" />
-                  <span className="text-[14px] font-extrabold text-[#0A1B39]">{suggestion.priceRange}</span>
+                  <span className="text-[14px]  text-[#0A1B39]">{suggestion.priceRange}</span>
                 </div>
                 <div className="flex items-center gap-3">
-                  <Link to="/product-sets" className="text-[13px] font-bold text-[#3388ff] hover:text-[#1a6fe8]">生成主图</Link>
-                  <Link to="/aplus" className="text-[13px] font-bold text-[#3388ff] hover:text-[#1a6fe8]">生成详情图</Link>
+                  <Link to="/product-sets" className="text-[13px]  text-[#3388ff] hover:text-[#1a6fe8]">生成主图</Link>
+                  <Link to="/aplus" className="text-[13px]  text-[#3388ff] hover:text-[#1a6fe8]">生成详情图</Link>
                 </div>
               </div>
               <div className="mb-3">
-                <p className="mb-1 text-[12px] font-bold text-[#86909C]">建议主推卖点</p>
-                <p className="text-[13px] font-bold leading-5 text-[#344054]">{suggestion.coreSellingPoints}</p>
+                <p className="mb-1 text-[12px]  text-[#86909C]">建议主推卖点</p>
+                <p className="text-[13px]  leading-5 text-[#344054]">{suggestion.coreSellingPoints}</p>
               </div>
               <div>
-                <p className="mb-1 text-[12px] font-bold text-[#86909C]">布局建议</p>
-                <p className="text-[13px] font-medium leading-5 text-[#344054]">{suggestion.suggestion}</p>
+                <p className="mb-1 text-[12px]  text-[#86909C]">布局建议</p>
+                <p className="text-[13px]  leading-5 text-[#344054]">{suggestion.suggestion}</p>
               </div>
             </div>
           ))}
@@ -2463,7 +2463,7 @@ export function AnalysisReportView() {
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/40" onClick={() => { setDetailModal(null); setExpandedProducts(new Set()); }}>
           <div className="w-[min(900px,90vw)] max-h-[80vh] rounded-2xl bg-white shadow-[0_24px_64px_rgba(29,38,52,.2)]" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between border-b border-[#eef1f5] px-6 py-4">
-              <h2 className="text-[18px] font-extrabold text-[#0A1B39]">详情</h2>
+              <h2 className="text-[18px]  text-[#0A1B39]">详情</h2>
               <button onClick={() => { setDetailModal(null); setExpandedProducts(new Set()); }} className="grid h-8 w-8 place-items-center rounded-full bg-[#f2f4f7] text-[#86909C] hover:bg-[#eceff4]">
                 <X className="h-4 w-4" />
               </button>
@@ -2472,13 +2472,13 @@ export function AnalysisReportView() {
               <table className="w-full">
                 <thead className="sticky top-0 bg-[#f9fafb]">
                   <tr className="border-b border-[#eef1f5]">
-                    <th className="px-4 py-3 text-left text-[13px] font-bold text-[#86909C] whitespace-nowrap">店铺名称</th>
-                    <th className="px-4 py-3 text-left text-[13px] font-bold text-[#86909C] whitespace-nowrap">商品标题</th>
-                    <th className="px-4 py-3 text-left text-[13px] font-bold text-[#86909C] whitespace-nowrap">SKU数量</th>
-                    <th className="px-4 py-3 text-left text-[13px] font-bold text-[#86909C] whitespace-nowrap">均价</th>
-                    <th className="px-4 py-3 text-left text-[13px] font-bold text-[#86909C] whitespace-nowrap">总销量</th>
-                    <th className="px-4 py-3 text-left text-[13px] font-bold text-[#86909C] whitespace-nowrap">总销额</th>
-                    <th className="px-4 py-3 text-left text-[13px] font-bold text-[#86909C] whitespace-nowrap"></th>
+                    <th className="px-4 py-3 text-left text-[13px]  text-[#86909C] whitespace-nowrap">店铺名称</th>
+                    <th className="px-4 py-3 text-left text-[13px]  text-[#86909C] whitespace-nowrap">商品标题</th>
+                    <th className="px-4 py-3 text-left text-[13px]  text-[#86909C] whitespace-nowrap">SKU数量</th>
+                    <th className="px-4 py-3 text-left text-[13px]  text-[#86909C] whitespace-nowrap">均价</th>
+                    <th className="px-4 py-3 text-left text-[13px]  text-[#86909C] whitespace-nowrap">总销量</th>
+                    <th className="px-4 py-3 text-left text-[13px]  text-[#86909C] whitespace-nowrap">总销额</th>
+                    <th className="px-4 py-3 text-left text-[13px]  text-[#86909C] whitespace-nowrap"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -2487,17 +2487,17 @@ export function AnalysisReportView() {
                     return (
                       <>
                         <tr key={product.id} className="border-b border-[#eef1f5] hover:bg-[#f9fafb]">
-                          <td className="px-4 py-3.5 text-[14px] font-bold text-[#0A1B39] whitespace-nowrap">{product.shopName}</td>
-                          <td className="px-4 py-3.5 text-[14px] font-medium text-[#3388ff] max-w-[240px]">
+                          <td className="px-4 py-3.5 text-[14px]  text-[#0A1B39] whitespace-nowrap">{product.shopName}</td>
+                          <td className="px-4 py-3.5 text-[14px]  text-[#3388ff] max-w-[240px]">
                             <a href={product.productUrl} target="_blank" rel="noopener noreferrer" className="hover:text-[#1a6fe8] hover:underline inline-flex items-center gap-1">
                               {product.title}
                               <ExternalLink className="h-3 w-3 shrink-0" />
                             </a>
                           </td>
-                          <td className="px-4 py-3.5 text-[14px] font-medium text-[#344054]">{product.skuCount}</td>
-                          <td className="px-4 py-3.5 text-[14px] font-medium text-[#344054]">{formatMoney(product.avgPrice)}</td>
-                          <td className="px-4 py-3.5 text-[14px] font-medium text-[#344054]">{formatCount(product.totalSold)}</td>
-                          <td className="px-4 py-3.5 text-[14px] font-medium text-[#344054]">{formatMoney(product.totalSales)}</td>
+                          <td className="px-4 py-3.5 text-[14px]  text-[#344054]">{product.skuCount}</td>
+                          <td className="px-4 py-3.5 text-[14px]  text-[#344054]">{formatMoney(product.avgPrice)}</td>
+                          <td className="px-4 py-3.5 text-[14px]  text-[#344054]">{formatCount(product.totalSold)}</td>
+                          <td className="px-4 py-3.5 text-[14px]  text-[#344054]">{formatMoney(product.totalSales)}</td>
                           <td className="px-4 py-3.5">
                             <button onClick={() => toggleExpand(product.id)} className="text-[#3388ff] hover:text-[#1a6fe8]">
                               <ChevronDown className={`h-4 w-4 transition-transform ${isExpanded ? "rotate-180" : ""}`} />
@@ -2511,15 +2511,15 @@ export function AnalysisReportView() {
                                 <table className="w-full">
                                   <thead>
                                     <tr className="border-b border-[#eef1f5]">
-                                      <th className="px-4 py-2 text-left text-[12px] font-bold text-[#86909C]">SKU名称</th>
-                                      <th className="px-4 py-2 text-left text-[12px] font-bold text-[#86909C]">价格</th>
+                                      <th className="px-4 py-2 text-left text-[12px]  text-[#86909C]">SKU名称</th>
+                                      <th className="px-4 py-2 text-left text-[12px]  text-[#86909C]">价格</th>
                                     </tr>
                                   </thead>
                                   <tbody>
                                     {product.skus.map((sku, idx) => (
                                       <tr key={idx} className="border-b border-[#f0f2f5] last:border-0">
-                                        <td className="px-4 py-2 text-[13px] font-medium text-[#344054]">{sku.name}</td>
-                                        <td className="px-4 py-2 text-[13px] font-bold text-[#0A1B39]">{formatMoney(sku.price)}</td>
+                                        <td className="px-4 py-2 text-[13px]  text-[#344054]">{sku.name}</td>
+                                        <td className="px-4 py-2 text-[13px]  text-[#0A1B39]">{formatMoney(sku.price)}</td>
                                       </tr>
                                     ))}
                                   </tbody>
@@ -2543,7 +2543,7 @@ export function AnalysisReportView() {
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/40" onClick={() => setProfitModal(false)}>
           <div className="w-[min(480px,90vw)] rounded-2xl bg-white p-6 shadow-[0_24px_64px_rgba(29,38,52,.2)]" onClick={(e) => e.stopPropagation()}>
             <div className="mb-6 flex items-center justify-between">
-              <h2 className="text-[18px] font-extrabold text-[#0A1B39]">利润测算</h2>
+              <h2 className="text-[18px]  text-[#0A1B39]">利润测算</h2>
               <button onClick={() => setProfitModal(false)} className="grid h-8 w-8 place-items-center rounded-full bg-[#f2f4f7] text-[#86909C] hover:bg-[#eceff4]">
                 <X className="h-4 w-4" />
               </button>
@@ -2551,7 +2551,7 @@ export function AnalysisReportView() {
 
             <div className="space-y-4">
               <div>
-                <label className="mb-1.5 block text-[12px] font-bold text-[#667085]">售价</label>
+                <label className="mb-1.5 block text-[12px]  text-[#667085]">售价</label>
                 <div className="relative">
                   <input
                     type="number"
@@ -2559,14 +2559,14 @@ export function AnalysisReportView() {
                     onChange={(e) => setSellingPrice(e.target.value)}
                     placeholder="请输入商品售价"
                     inputMode="decimal"
-                    className="h-10 w-full rounded-lg border border-[#dce3ee] bg-[#f9fafb] px-3 pr-12 text-[13px] font-bold text-[#0A1B39] outline-none focus:border-[#3388ff] focus:bg-white"
+                    className="h-10 w-full rounded-lg border border-[#dce3ee] bg-[#f9fafb] px-3 pr-12 text-[13px]  text-[#0A1B39] outline-none focus:border-[#3388ff] focus:bg-white"
                   />
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[12px] font-bold text-[#86909C]">元</span>
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[12px]  text-[#86909C]">元</span>
                 </div>
               </div>
 
               <div>
-                <label className="mb-1.5 block text-[12px] font-bold text-[#667085]">商品成本</label>
+                <label className="mb-1.5 block text-[12px]  text-[#667085]">商品成本</label>
                 <div className="relative">
                   <input
                     type="number"
@@ -2574,43 +2574,43 @@ export function AnalysisReportView() {
                     onChange={(e) => setProductCost(e.target.value)}
                     placeholder="请输入商品成本"
                     inputMode="decimal"
-                    className="h-10 w-full rounded-lg border border-[#dce3ee] bg-[#f9fafb] px-3 pr-12 text-[13px] font-bold text-[#0A1B39] outline-none focus:border-[#3388ff] focus:bg-white"
+                    className="h-10 w-full rounded-lg border border-[#dce3ee] bg-[#f9fafb] px-3 pr-12 text-[13px]  text-[#0A1B39] outline-none focus:border-[#3388ff] focus:bg-white"
                   />
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[12px] font-bold text-[#86909C]">元</span>
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[12px]  text-[#86909C]">元</span>
                 </div>
               </div>
 
               <div>
-                <label className="mb-1.5 block text-[12px] font-bold text-[#667085]">仓配成本</label>
+                <label className="mb-1.5 block text-[12px]  text-[#667085]">仓配成本</label>
                 <div className="relative">
                   <input
                     type="number"
                     value={warehouseCost}
                     onChange={(e) => setWarehouseCost(e.target.value)}
                     inputMode="decimal"
-                    className="h-10 w-full rounded-lg border border-[#dce3ee] bg-[#f9fafb] px-3 pr-12 text-[13px] font-bold text-[#0A1B39] outline-none focus:border-[#3388ff] focus:bg-white"
+                    className="h-10 w-full rounded-lg border border-[#dce3ee] bg-[#f9fafb] px-3 pr-12 text-[13px]  text-[#0A1B39] outline-none focus:border-[#3388ff] focus:bg-white"
                   />
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[12px] font-bold text-[#86909C]">元</span>
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[12px]  text-[#86909C]">元</span>
                 </div>
               </div>
 
               <div>
-                <label className="mb-1.5 block text-[12px] font-bold text-[#667085]">售后成本</label>
+                <label className="mb-1.5 block text-[12px]  text-[#667085]">售后成本</label>
                 <div className="relative">
                   <input
                     type="number"
                     value={afterSalesCost}
                     onChange={(e) => setAfterSalesCost(e.target.value)}
                     inputMode="decimal"
-                    className="h-10 w-full rounded-lg border border-[#dce3ee] bg-[#f9fafb] px-3 pr-12 text-[13px] font-bold text-[#0A1B39] outline-none focus:border-[#3388ff] focus:bg-white"
+                    className="h-10 w-full rounded-lg border border-[#dce3ee] bg-[#f9fafb] px-3 pr-12 text-[13px]  text-[#0A1B39] outline-none focus:border-[#3388ff] focus:bg-white"
                   />
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[12px] font-bold text-[#86909C]">元</span>
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[12px]  text-[#86909C]">元</span>
                 </div>
               </div>
 
               <button
                 onClick={calculateProfit}
-                className="h-11 w-full rounded-lg bg-[#3388ff] text-[14px] font-bold text-white shadow-[0_8px_24px_rgba(47,130,255,.25)] transition-all hover:bg-[#1a6fe8]"
+                className="h-11 w-full rounded-lg bg-[#3388ff] text-[14px]  text-white shadow-[0_8px_24px_rgba(47,130,255,.25)] transition-all hover:bg-[#1a6fe8]"
               >
                 利润测算
               </button>
@@ -2619,22 +2619,22 @@ export function AnalysisReportView() {
                 <div className="rounded-lg bg-[#f8fafc] p-4">
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <p className="text-[12px] font-bold text-[#86909C]">毛利润</p>
-                      <p className="text-[18px] font-extrabold text-[#0A1B39]">¥{profitResult.grossProfit.toFixed(2)}</p>
+                      <p className="text-[12px]  text-[#86909C]">毛利润</p>
+                      <p className="text-[18px]  text-[#0A1B39]">¥{profitResult.grossProfit.toFixed(2)}</p>
                     </div>
                     <div>
-                      <p className="text-[12px] font-bold text-[#86909C]">毛利率</p>
-                      <p className="text-[18px] font-extrabold text-[#2e7d32]">{profitResult.grossMargin.toFixed(2)}%</p>
+                      <p className="text-[12px]  text-[#86909C]">毛利率</p>
+                      <p className="text-[18px]  text-[#2e7d32]">{profitResult.grossMargin.toFixed(2)}%</p>
                     </div>
                     <div>
-                      <p className="text-[12px] font-bold text-[#86909C]">纯利润</p>
-                      <p className={`text-[18px] font-extrabold ${profitResult.netProfit >= 0 ? "text-[#0A1B39]" : "text-[#e53935]"}`}>
+                      <p className="text-[12px]  text-[#86909C]">纯利润</p>
+                      <p className={`text-[18px]  ${profitResult.netProfit >= 0 ? "text-[#0A1B39]" : "text-[#e53935]"}`}>
                         ¥{profitResult.netProfit.toFixed(2)}
                       </p>
                     </div>
                     <div>
-                      <p className="text-[12px] font-bold text-[#86909C]">纯利润率</p>
-                      <p className={`text-[18px] font-extrabold ${profitResult.netMargin >= 0 ? "text-[#2e7d32]" : "text-[#e53935]"}`}>
+                      <p className="text-[12px]  text-[#86909C]">纯利润率</p>
+                      <p className={`text-[18px]  ${profitResult.netMargin >= 0 ? "text-[#2e7d32]" : "text-[#e53935]"}`}>
                         {profitResult.netMargin.toFixed(2)}%
                       </p>
                     </div>
