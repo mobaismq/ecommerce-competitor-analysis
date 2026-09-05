@@ -1,0 +1,74 @@
+
+> @figma/my-make-file@0.0.1 dev
+> vite --host 127.0.0.1 --port 5173
+
+[1G[0K10:20:52 PM [vite] (client) Re-optimizing dependencies because vite config has changed
+
+  VITE v6.3.5  ready in 2659 ms
+
+  ➜  Local:   http://127.0.0.1:5173/
+  ➜  press h + enter to show help
+10:21:25 PM [vite] http proxy error: /api/report/analysis-list?status=generated
+Error: connect ECONNREFUSED 127.0.0.1:8787
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1636:16)
+10:21:59 PM [vite] http proxy error: /api/product-sets/expand-prompts-stream
+Error: connect ECONNREFUSED 127.0.0.1:8787
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1636:16)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J10:22:10 PM [vite] http proxy error: /api/product-sets/expand-prompts-stream
+Error: connect ECONNREFUSED 127.0.0.1:8787
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1636:16) (x2)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J10:22:19 PM [vite] http proxy error: /api/product-sets/expand-prompts-stream
+Error: connect ECONNREFUSED 127.0.0.1:8787
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1636:16) (x3)
+10:22:29 PM [vite] http proxy error: /api/report/analysis-list?status=generated
+Error: connect ECONNREFUSED 127.0.0.1:8787
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1636:16)
+10:22:44 PM [vite] http proxy error: /api/product-sets/expand-prompts-stream
+Error: connect ECONNREFUSED 127.0.0.1:8787
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1636:16)

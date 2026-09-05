@@ -23,7 +23,8 @@ CHECK_JS = r"""
     .filter(isVisible)
     .map(e => (e.innerText || e.textContent || "").trim())
     .filter(Boolean);
-  const combined = [text, ...dialogs].join("\n");
+  const title = document.title || "";
+  const combined = [title, text, ...dialogs].join("\n");
   const guardPatterns = [
     "淘宝验证",
     "访问太频繁",
@@ -45,7 +46,7 @@ CHECK_JS = r"""
   const itemId = new URL(location.href).searchParams.get("id") || (location.href.match(/[?&]id=(\d+)/) || [])[1] || null;
   return JSON.stringify({
     href: location.href,
-    title: document.title,
+    title,
     item_id: itemId,
     guard_detected: guardPatterns.some(p => combined.includes(p)),
     busy_detected: busyPatterns.some(p => combined.includes(p)),

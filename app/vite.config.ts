@@ -24,12 +24,11 @@ function figmaAssetResolver() {
 
 const RPA_SCRIPT = path.resolve(process.cwd(), '../skills/diantoushi-product-research/scripts/run_diantoushi_rpa.py')
 const STATE_FILE = path.resolve(__dirname, '.rpa-run-state.json')
-const REPORT_STATE_FILE = path.resolve(__dirname, '.analysis-report-state.json')
+const BACKEND_TARGET = process.env.BACKEND_TARGET || process.env.VITE_BACKEND_TARGET || 'http://127.0.0.1:8787'
+const ENABLE_RPA_API = process.env.ENABLE_RPA_API !== 'false' && process.env.NODE_ENV !== 'production'
 
 function localRpaApi() {
   let currentRun = readRunState()
-  let currentReport = readReportState()
-  let currentReportJob = null
 
   function readRunState() {
     try {
@@ -42,19 +41,6 @@ function localRpaApi() {
   function writeRunState(run) {
     currentRun = run
     fs.writeFileSync(STATE_FILE, JSON.stringify(run, null, 2))
-  }
-
-  function readReportState() {
-    try {
-      return JSON.parse(fs.readFileSync(REPORT_STATE_FILE, 'utf8'))
-    } catch {
-      return null
-    }
-  }
-
-  function writeReportState(report) {
-    currentReport = report
-    fs.writeFileSync(REPORT_STATE_FILE, JSON.stringify(report, null, 2))
   }
 
   function sendJson(res, status, payload) {
@@ -186,460 +172,12 @@ function localRpaApi() {
     }
   }
 
-  function reportJobPayload() {
-    if (!currentReportJob) return { ok: true, hasJob: false }
-    return { ok: true, hasJob: true, job: currentReportJob }
-  }
-
-  function overallReportSteps(importStep = {}, reportStep = {}, groupingStep = null) {
-    const steps = [
-      {
-        key: 'product_main_image_import',
-        label: '单品主图分析入库',
-        status: 'pending',
-        current: 0,
-        total: 0,
-        ...importStep,
-      },
-    ]
-    if (groupingStep) {
-      steps.push({
-        key: 'price_grouping',
-        label: '价格区间划分',
-        status: 'pending',
-        current: 0,
-        total: 1,
-        ...groupingStep,
-      })
-    }
-    steps.push(
-      {
-        key: 'overall_image_report',
-        label: '整体图片报告生成',
-        status: 'pending',
-        current: 0,
-        total: 1,
-        ...reportStep,
-      },
-    )
-    return steps
-  }
-
-  function updateReportJobProgress(progress) {
-    currentReportJob = {
-      ...currentReportJob,
-      updatedAt: new Date().toISOString(),
-      progress: {
-        ...currentReportJob.progress,
-        ...progress,
-      },
-    }
-  }
-
-  function reportRequestFromBody(body) {
-    const keyword = String(body.keyword || '').trim()
-    if (!keyword) throw new Error('请输入商品关键词')
-    return {
-      keyword,
-      limit: Number(body.limit || 120),
-      costPrice: body.costPrice === '' || body.costPrice == null ? null : Number(body.costPrice),
-      shippingCost: Number(body.shippingCost || 0),
-      packagingCost: Number(body.packagingCost || 0),
-      laborCost: Number(body.laborCost || 0),
-      platformFeeRate: Number(body.platformFeeRate || 0),
-      adFeeRate: Number(body.adFeeRate || 0),
-      targetMargin: Number(body.targetMargin || 0.3),
-      saveToDb: body.saveToDb !== false,
-      targetPriceBand: String(body.targetPriceBand || '').trim(),
-      collectionId: String(body.collectionId || body.id || '').trim(),
-      generationMode: String(body.generationMode || body.mode || '').trim(),
-      priceGroupingMode: String(body.priceGroupingMode || '').trim() === 'ai' ? 'ai' : 'manual',
-      manualPriceBands: Array.isArray(body.manualPriceBands) ? body.manualPriceBands : [],
-      aiPriceBandCount: Math.max(1, Math.min(6, Number(body.aiPriceBandCount || 3))),
-    }
-  }
-
-  function startReportJob(request) {
-    if (currentReportJob?.status === 'running') {
-      const error = new Error('已有报告生成任务正在运行')
-      error.current = currentReportJob
-      throw error
-    }
-
-    const jobId = `report-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`
-    currentReportJob = {
-      id: jobId,
-      status: 'running',
-      keyword: request.keyword,
-      startedAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      progress: {
-        stage: 'queued',
-        message: '任务已创建，准备读取数据库',
-        current: 0,
-        total: 1,
-      },
-      result: null,
-      error: null,
-    }
-
-    Promise.resolve().then(async () => {
-      try {
-        let payload
-        if (request.generationMode === 'product_main_image_summary') {
-          updateReportJobProgress({
-            stage: 'preflight',
-            message: '正在读取集合商品和单品主图分析入库状态',
-            current: 0,
-            total: 2,
-            steps: overallReportSteps(
-              { status: 'running', message: '正在检查缺失的单品报告' },
-              { status: 'pending', message: '等待单品报告入库完成' },
-              {
-                status: 'pending',
-                message: request.priceGroupingMode === 'ai'
-                  ? `等待入库后 AI 划分约 ${request.aiPriceBandCount} 个价格区间`
-                  : request.manualPriceBands?.length
-                    ? `等待按 ${request.manualPriceBands.length} 个手动价格区间汇总`
-                    : '等待按全量竞品集合汇总',
-              },
-            ),
-          })
-
-          const view = await getAnalysisProductsView({ id: request.collectionId, keyword: request.keyword })
-          const safeLimit = Math.max(1, Math.min(200, Number(request.limit || view.products?.length || 120)))
-          const selectedProducts = (view.products || []).slice(0, safeLimit)
-          const pendingProducts = selectedProducts.filter((product) => !product.mainImageAnalysisId)
-          let importedCount = selectedProducts.length - pendingProducts.length
-          const importFailures: Array<{ productId: string; title: string; error: string }> = []
-
-          updateReportJobProgress({
-            stage: 'product_main_image_import',
-            message: pendingProducts.length
-              ? `需要先补齐 ${pendingProducts.length} 个商品的主图分析入库`
-              : '该集合商品已全部完成单品主图分析入库',
-            current: 0,
-            total: Math.max(1, pendingProducts.length + 1),
-            steps: overallReportSteps(
-              {
-                status: pendingProducts.length ? 'running' : 'completed',
-                current: importedCount,
-                total: selectedProducts.length,
-                message: pendingProducts.length ? '正在自动补齐未入库商品' : '无需补齐',
-              },
-              { status: 'pending', message: '等待单品报告入库完成' },
-              {
-                status: 'pending',
-                message: request.priceGroupingMode === 'ai'
-                  ? '等待 AI 划分价格区间'
-                  : request.manualPriceBands?.length
-                    ? `已设置 ${request.manualPriceBands.length} 个手动价格区间`
-                    : '未设置手动价格区间，将按全量集合汇总',
-              },
-            ),
-          })
-
-          for (let index = 0; index < pendingProducts.length; index += 1) {
-            const product = pendingProducts[index]
-            const productTitle = product.title || product.productId || '未知商品'
-            updateReportJobProgress({
-              stage: 'product_main_image_import',
-              message: `正在主图分析入库 ${index + 1}/${pendingProducts.length}：${productTitle}`,
-              current: index,
-              total: pendingProducts.length + 1,
-              steps: overallReportSteps(
-                {
-                  status: 'running',
-                  current: importedCount,
-                  total: selectedProducts.length,
-                  message: `正在处理 ${productTitle}`,
-                },
-                { status: 'pending', message: '等待单品报告入库完成' },
-                {
-                  status: 'pending',
-                  message: request.priceGroupingMode === 'ai'
-                    ? '等待 AI 划分价格区间'
-                    : request.manualPriceBands?.length
-                      ? `已设置 ${request.manualPriceBands.length} 个手动价格区间`
-                      : '未设置手动价格区间，将按全量集合汇总',
-                },
-              ),
-            })
-            try {
-              await analyzeProductMainImageAndSave({
-                productId: product.productId,
-                keyword: request.keyword,
-                fallback: {
-                  title: product.title,
-                  productUrl: product.productUrl,
-                  imageUrl: product.imageUrl,
-                  price: product.price || product.priceRange,
-                  soldCount: product.soldCount,
-                  skus: product.skus,
-                },
-              })
-              importedCount += 1
-            } catch (error) {
-              const message = error instanceof Error ? error.message : String(error || '主图分析失败')
-              importFailures.push({
-                productId: String(product.productId || ''),
-                title: String(product.title || ''),
-                error: message,
-              })
-            }
-
-            updateReportJobProgress({
-              stage: 'product_main_image_import',
-              message: importFailures.length
-                ? `单品主图分析入库 ${index + 1}/${pendingProducts.length}，成功 ${importedCount}/${selectedProducts.length}，已跳过 ${importFailures.length} 个失败商品`
-                : `单品主图分析入库 ${index + 1}/${pendingProducts.length}，成功 ${importedCount}/${selectedProducts.length}`,
-              current: index + 1,
-              total: pendingProducts.length + 1,
-              warnings: importFailures,
-              steps: overallReportSteps(
-                {
-                  status: 'running',
-                  current: importedCount,
-                  total: selectedProducts.length,
-                  message: importFailures.length
-                    ? `已跳过 ${importFailures.length} 个失败商品，继续处理剩余商品`
-                    : '正在自动补齐未入库商品',
-                },
-                { status: 'pending', message: '等待单品报告入库完成' },
-                {
-                  status: 'pending',
-                  message: request.priceGroupingMode === 'ai'
-                    ? '等待 AI 划分价格区间'
-                    : request.manualPriceBands?.length
-                      ? `已设置 ${request.manualPriceBands.length} 个手动价格区间`
-                      : '未设置手动价格区间，将按全量集合汇总',
-                },
-              ),
-            })
-          }
-
-          if (importedCount <= 0) {
-            const reasonCounts = new Map<string, number>()
-            for (const item of importFailures) {
-              const reasonText = String(item.error || '未知原因').replace(/[。.\s]+$/g, '')
-              reasonCounts.set(reasonText, (reasonCounts.get(reasonText) || 0) + 1)
-            }
-            const reason = reasonCounts.size
-              ? Array.from(reasonCounts.entries()).map(([text, count]) => `${count} 个：${text}`).join('；')
-              : '单品主图分析报告不可用'
-
-            updateReportJobProgress({
-              stage: 'overall_image_report',
-              message: `单品主图分析全部不可用，正在使用已有商品数据生成兜底整体报告：${reason}`,
-              current: pendingProducts.length,
-              total: pendingProducts.length + 1,
-              warnings: importFailures,
-              steps: overallReportSteps(
-                {
-                  status: 'failed',
-                  current: 0,
-                  total: selectedProducts.length,
-                  message: `单品主图分析未生成：${reason}`,
-                },
-                { status: 'skipped', current: 0, total: 1, message: '跳过基于单品主图报告的价格区间划分' },
-                { status: 'running', current: 0, total: 1, message: '改用商品快照、SKU、销量和评论数据生成兜底报告' },
-              ),
-            })
-
-            payload = await generateAiMarketReport({
-              ...request,
-              generationMode: 'market_report_fallback',
-              targetPriceBand: '',
-              onProgress(progress) {
-                updateReportJobProgress({
-                  ...progress,
-                  stage: 'overall_image_report',
-                  message: progress.message || '正在生成兜底整体报告',
-                  warnings: importFailures,
-                  steps: overallReportSteps(
-                    {
-                      status: 'failed',
-                      current: 0,
-                      total: selectedProducts.length,
-                      message: `单品主图分析未生成：${reason}`,
-                    },
-                    { status: 'skipped', current: 0, total: 1, message: '跳过基于单品主图报告的价格区间划分' },
-                    {
-                      status: progress.stage === 'persist' ? 'completed' : 'running',
-                      current: progress.current || 0,
-                      total: Math.max(1, progress.total || 1),
-                      message: progress.message || '正在生成兜底整体报告',
-                    },
-                  ),
-                })
-              },
-            })
-            if (Array.isArray(payload.reportJson?.data_gaps)) {
-              payload.reportJson.data_gaps.unshift(`单品主图分析报告全部不可用，已自动降级为商品快照/SKU/销量/评论数据兜底报告：${reason}`)
-            }
-            payload.report = {
-              ...payload.report,
-              generationFallback: 'market_report_without_product_main_image_analysis',
-              autoImportedProductReports: 0,
-              skippedProductReports: importFailures,
-              fallbackReason: reason,
-            }
-          } else {
-            updateReportJobProgress({
-              stage: 'price_grouping',
-              message: request.priceGroupingMode === 'ai' ? '单品主图分析入库完成，正在 AI 划分价格区间' : '单品主图分析入库完成，正在应用价格区间',
-              current: pendingProducts.length,
-              total: pendingProducts.length + 1,
-              warnings: importFailures,
-              steps: overallReportSteps(
-                {
-                  status: 'completed',
-                  current: importedCount,
-                  total: selectedProducts.length,
-                  message: importFailures.length
-                    ? `可用 ${importedCount}/${selectedProducts.length} 个，跳过 ${importFailures.length} 个失败商品`
-                    : pendingProducts.length
-                      ? `已自动补齐 ${pendingProducts.length} 个商品`
-                      : '全部已入库',
-                },
-                { status: 'pending', current: 0, total: 1, message: '等待价格区间划分完成' },
-                {
-                  status: 'running',
-                  current: 0,
-                  total: 1,
-                  message: request.priceGroupingMode === 'ai'
-                    ? `AI 正在划分约 ${request.aiPriceBandCount} 个价格区间`
-                    : request.manualPriceBands?.length
-                      ? `正在应用 ${request.manualPriceBands.length} 个手动价格区间`
-                      : '未设置手动价格区间，将按全量集合汇总',
-                },
-              ),
-            })
-
-            payload = await generateOverallReportFromProductMainImageReports({
-              ...request,
-              skippedProducts: importFailures,
-              onProgress(progress) {
-                const groupingRunning = progress.stage === 'price_grouping'
-                const groupingDone = ['compose', 'persist'].includes(progress.stage || '')
-                updateReportJobProgress({
-                  ...progress,
-                  stage: groupingRunning ? 'price_grouping' : 'overall_image_report',
-                  message: progress.message || '正在生成整体图片报告',
-                  current: pendingProducts.length + (progress.current || 0),
-                  total: pendingProducts.length + Math.max(1, progress.total || 1),
-                  warnings: importFailures,
-                  steps: overallReportSteps(
-                    {
-                      status: 'completed',
-                      current: importedCount,
-                      total: selectedProducts.length,
-                      message: importFailures.length
-                        ? `可用 ${importedCount}/${selectedProducts.length} 个，跳过 ${importFailures.length} 个失败商品`
-                        : pendingProducts.length
-                          ? `已自动补齐 ${pendingProducts.length} 个商品`
-                          : '全部已入库',
-                    },
-                    {
-                      status: groupingRunning ? 'running' : groupingDone ? 'completed' : 'pending',
-                      current: groupingRunning || groupingDone ? 1 : 0,
-                      total: 1,
-                      message: groupingRunning
-                        ? progress.message || '正在划分价格区间'
-                        : groupingDone
-                          ? '价格区间已确认'
-                          : '等待价格区间划分',
-                    },
-                    {
-                      status: groupingRunning ? 'pending' : 'running',
-                      current: groupingRunning ? 0 : progress.current || 0,
-                      total: Math.max(1, progress.total || 1),
-                      message: groupingRunning ? '等待价格区间划分完成' : progress.message || '正在生成整体图片报告',
-                    },
-                  ),
-                })
-              },
-            })
-            payload.report = {
-              ...payload.report,
-              autoImportedProductReports: pendingProducts.length - importFailures.length,
-              skippedProductReports: importFailures,
-            }
-          }
-        } else {
-          payload = await generateAiMarketReport({
-            ...request,
-            onProgress(progress) {
-              updateReportJobProgress(progress)
-            },
-          })
-        }
-        writeReportState({ ...payload.report, reportJson: payload.reportJson, markdown: payload.markdown })
-        // 报告生成完成后，后台自动跑 AI 全主图分析并缓存，之后打开报告页总结卖点直接可用
-        const newRunId = payload?.report?.persistStats?.run_id
-        if (newRunId) {
-          getMainImageAiReport({ id: String(newRunId) }).catch((err) => {
-            console.error('[main-image-ai-report] 自动生成失败：', err instanceof Error ? err.message : err)
-          })
-        }
-        currentReportJob = {
-          ...currentReportJob,
-          status: 'completed',
-          updatedAt: new Date().toISOString(),
-          completedAt: new Date().toISOString(),
-          progress: {
-            stage: 'done',
-            message: '报告已生成并保存',
-            current: 1,
-            total: 1,
-            steps: request.generationMode === 'product_main_image_summary'
-              ? overallReportSteps(
-                {
-                  status: 'completed',
-                  current: payload.report?.sourceProductCount || payload.report?.sourceProductReportCount || 0,
-                  total: payload.report?.sourceProductCount || payload.report?.sourceProductReportCount || 0,
-                  message: `已完成 ${payload.report?.sourceProductReportCount || 0} 个单品报告入库检查`,
-                },
-                { status: 'completed', current: 1, total: 1, message: '整体图片报告已生成并保存' },
-                { status: 'completed', current: 1, total: 1, message: `已生成 ${payload.report?.priceBandCount || 1} 个价格区间` },
-              )
-              : currentReportJob.progress?.steps,
-          },
-          result: payload,
-          error: null,
-        }
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error)
-        const failedSteps = (currentReportJob.progress?.steps || []).map((step) => (
-          step.status === 'running'
-            ? { ...step, status: 'failed', message: errorMessage }
-            : step
-        ))
-        currentReportJob = {
-          ...currentReportJob,
-          status: 'failed',
-          updatedAt: new Date().toISOString(),
-          completedAt: new Date().toISOString(),
-          progress: {
-            ...currentReportJob.progress,
-            stage: 'failed',
-            message: errorMessage,
-            steps: failedSteps.length ? failedSteps : currentReportJob.progress?.steps,
-          },
-          error: errorMessage,
-        }
-        console.error(error)
-      }
-    })
-
-    return currentReportJob
-  }
-
   return {
     name: 'local-rpa-api',
     configureServer(server) {
       server.middlewares.use(async (req, res, next) => {
-        if (!req.url?.startsWith('/api/rpa/') && !req.url?.startsWith('/api/report/') && !req.url?.startsWith('/api/product-sets/') && !req.url?.startsWith('/api/taobao/')) return next()
+        if (!req.url?.startsWith('/api/rpa/')) return next()
+        if (!ENABLE_RPA_API) return sendJson(res, 404, { ok: false, error: 'RPA API 已关闭' })
 
         try {
           if (req.method === 'GET' && req.url.startsWith('/api/taobao/status')) {
@@ -694,6 +232,7 @@ function localRpaApi() {
             const payload = await generateProductSetImage({
               prompt: body.prompt,
               image: body.image,
+              images: body.images,
               size: body.size || '2K',
               ratio: body.ratio || '',
               watermark: body.watermark === true,
@@ -742,7 +281,7 @@ function localRpaApi() {
               await streamProductSetInformation({
                 settings: body.settings,
                 baseText: body.baseText,
-                image: body.image,
+                image: Array.isArray(body.images) && body.images.length ? body.images : body.image,
                 emit: writeEvent,
               })
             } catch (error) {
@@ -953,6 +492,9 @@ function localRpaApi() {
             const speedProfile = ['conservative', 'balanced', 'fast'].includes(String(body.speedProfile || ''))
               ? String(body.speedProfile)
               : 'fast'
+            const skipProductImages = body.skipProductImages == null
+              ? speedProfile === 'fast'
+              : body.skipProductImages !== false
 
             const args = [
               RPA_SCRIPT,
@@ -963,6 +505,7 @@ function localRpaApi() {
             ]
             if (importMysql) args.push('--import-mysql')
             args.push('--speed-profile', speedProfile)
+            if (skipProductImages) args.push('--skip-product-images')
             if (minPrice != null && Number.isFinite(minPrice)) args.push('--min-price', String(minPrice))
             if (maxPrice != null && Number.isFinite(maxPrice)) args.push('--max-price', String(maxPrice))
 
@@ -997,6 +540,7 @@ function localRpaApi() {
                   minPrice,
                   maxPrice,
                   importMysql,
+                  skipProductImages,
                   analyzeAfterImport: false,
                   analysisCostPrice: null,
                   speedProfile,
@@ -1024,7 +568,7 @@ export default defineConfig({
     localRpaApi(),
     figmaAssetResolver(),
     // The React and Tailwind plugins are both required for Make, even if
-    // Tailwind is not being actively used – do not remove them
+    // Tailwind is not being actively used - do not remove them
     react(),
     tailwindcss(),
   ],
@@ -1032,6 +576,26 @@ export default defineConfig({
     alias: {
       // Alias @ to the src directory
       '@': path.resolve(__dirname, './src'),
+    },
+  },
+  server: {
+    proxy: {
+      '/api/auth': {
+        target: BACKEND_TARGET,
+        changeOrigin: true,
+      },
+      '/api/report': {
+        target: BACKEND_TARGET,
+        changeOrigin: true,
+      },
+      '/api/product-sets': {
+        target: BACKEND_TARGET,
+        changeOrigin: true,
+      },
+      '/api/taobao': {
+        target: BACKEND_TARGET,
+        changeOrigin: true,
+      },
     },
   },
 

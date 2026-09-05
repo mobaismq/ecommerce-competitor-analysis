@@ -1,0 +1,5 @@
+
+> ecommerce-competitor-analysis-backend@0.1.0 dev
+> node --watch server.js
+
+[1G[0K[backend] listening on http://127.0.0.1:8787

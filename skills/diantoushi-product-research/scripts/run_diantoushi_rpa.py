@@ -3,6 +3,7 @@ import argparse
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -12,7 +13,7 @@ import zipfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse, parse_qs, quote
 from urllib.request import Request, urlopen
 
 
@@ -37,6 +38,10 @@ SPEED_PROFILES: dict[str, dict[str, float]] = {
         "review_timeout": 120.0,
         "download_poll_interval": 2.0,
         "search_scroll_wait": 3.5,
+        "diantoushi_click_settle": 0.8,
+        "diantoushi_poll_interval": 1.0,
+        "diantoushi_download_idle": 4.0,
+        "diantoushi_file_stable_wait": 0.35,
     },
     "balanced": {
         "export_cooldown": 22.0,
@@ -49,18 +54,26 @@ SPEED_PROFILES: dict[str, dict[str, float]] = {
         "review_timeout": 75.0,
         "download_poll_interval": 1.2,
         "search_scroll_wait": 2.5,
+        "diantoushi_click_settle": 0.55,
+        "diantoushi_poll_interval": 0.6,
+        "diantoushi_download_idle": 3.0,
+        "diantoushi_file_stable_wait": 0.25,
     },
     "fast": {
-        "export_cooldown": 20.0,
-        "batch_delay": 20.0,
+        "export_cooldown": 8.0,
+        "batch_delay": 8.0,
         "ask_ready_timeout": 28.0,
-        "xlsx_first_timeout": 60.0,
-        "xlsx_retry_timeout": 75.0,
-        "sku_timeout": 120.0,
-        "ask_export_timeout": 45.0,
-        "review_timeout": 60.0,
-        "download_poll_interval": 0.8,
+        "xlsx_first_timeout": 35.0,
+        "xlsx_retry_timeout": 45.0,
+        "sku_timeout": 70.0,
+        "ask_export_timeout": 30.0,
+        "review_timeout": 42.0,
+        "download_poll_interval": 0.5,
         "search_scroll_wait": 1.6,
+        "diantoushi_click_settle": 0.22,
+        "diantoushi_poll_interval": 0.22,
+        "diantoushi_download_idle": 1.6,
+        "diantoushi_file_stable_wait": 0.16,
     },
 }
 
@@ -73,13 +86,15 @@ def fs_stamp() -> str:
     return datetime.now().strftime("%Y%m%d-%H%M%S")
 
 
-def speed_value(args: argparse.Namespace, key: str) -> float:
-    return float(SPEED_PROFILES.get(args.speed_profile, SPEED_PROFILES["balanced"])[key])
+def speed_value(args: Optional[argparse.Namespace], key: str) -> float:
+    profile_name = getattr(args, "speed_profile", "balanced") if args is not None else "balanced"
+    return float(SPEED_PROFILES.get(profile_name, SPEED_PROFILES["balanced"])[key])
 
 
 def export_cooldown_seconds(args: argparse.Namespace) -> float:
+    min_seconds = 8.0 if getattr(args, "speed_profile", "") == "fast" else 20.0
     if args.export_cooldown is not None:
-        return max(20.0, float(args.export_cooldown))
+        return max(min_seconds, float(args.export_cooldown))
     return speed_value(args, "export_cooldown")
 
 
@@ -93,6 +108,22 @@ def download_poll_interval(args: argparse.Namespace) -> float:
     if args.download_poll_interval is not None:
         return max(0.5, float(args.download_poll_interval))
     return speed_value(args, "download_poll_interval")
+
+
+def diantoushi_click_settle(args: Optional[argparse.Namespace] = None) -> float:
+    return max(0.15, speed_value(args, "diantoushi_click_settle"))
+
+
+def diantoushi_poll_interval(args: Optional[argparse.Namespace] = None) -> float:
+    return max(0.18, speed_value(args, "diantoushi_poll_interval"))
+
+
+def diantoushi_download_idle(args: Optional[argparse.Namespace] = None) -> float:
+    return max(1.5, speed_value(args, "diantoushi_download_idle"))
+
+
+def diantoushi_file_stable_wait(args: Optional[argparse.Namespace] = None) -> float:
+    return max(0.15, speed_value(args, "diantoushi_file_stable_wait"))
 
 
 def ask_ready_timeout(args: argparse.Namespace) -> float:
@@ -275,6 +306,64 @@ end tell
     raise RuntimeError(str(last_error) if last_error else "Chrome navigation failed")
 
 
+def chrome_navigate_js(url: str) -> None:
+    # Keep the script ASCII-only so AppleScript does not reinterpret Chinese
+    # characters before Chrome's JavaScript engine receives the URL.
+    chrome_js(f"location.href = {json.dumps(url)}; 'ok'")
+
+
+def chrome_open_url_external(url: str, logger: Optional[Logger] = None) -> None:
+    """Open a URL through macOS Launch Services, then bind automation to Chrome's front window."""
+    global CHROME_WINDOW_ID
+    # `open` receives non-ASCII URLs correctly through the user's shell on this
+    # macOS/Chrome combination; Python argv form double-encodes Chinese query text.
+    command = f"open -a {shlex.quote('Google Chrome')} {shlex.quote(url)}"
+    if logger is not None:
+        logger.log(json.dumps({"open_command": command}, ensure_ascii=False))
+    result = subprocess.run(command, shell=True, text=True, capture_output=True)
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or f"Could not open URL: {url}")
+    time.sleep(2.0)
+    parsed = urlparse(url)
+    host_hint = parsed.netloc
+    path_hint = parsed.path
+    query_hint = parse_qs(parsed.query)
+    q_hint = (query_hint.get("q") or [""])[0]
+    matcher = f"""
+set hostHint to {json.dumps(host_hint, ensure_ascii=False)}
+set pathHint to {json.dumps(path_hint, ensure_ascii=False)}
+set queryHint to {json.dumps(q_hint, ensure_ascii=False)}
+set bestId to ""
+tell application "Google Chrome"
+  activate
+  repeat with w in windows
+    set tabIndex to 1
+    repeat with t in tabs of w
+      set u to URL of t
+      if u contains hostHint then
+        if pathHint is "" or u contains pathHint then
+          if queryHint is "" or u contains queryHint or u contains "%E" then
+            set active tab index of w to tabIndex
+            set index of w to 1
+            set bestId to id of w as text
+            exit repeat
+          end if
+        end if
+      end if
+      set tabIndex to tabIndex + 1
+    end repeat
+    if bestId is not "" then exit repeat
+  end repeat
+  if bestId is "" then set bestId to id of front window as text
+end tell
+return bestId
+"""
+    raw = run_osascript(matcher)
+    CHROME_WINDOW_ID = int(raw)
+    if logger is not None:
+        logger.log(json.dumps({"bound_chrome_window_id": CHROME_WINDOW_ID, "bound_state": chrome_title_url()}, ensure_ascii=False, indent=2))
+
+
 def chrome_page_probe() -> dict[str, Any]:
     raw = chrome_js(
         "JSON.stringify({title:document.title,url:location.href,ready:document.readyState,bodyLength:(document.body&&document.body.innerText||'').length})"
@@ -328,9 +417,83 @@ def chrome_title_url() -> dict[str, str]:
 
 
 def taobao_search_url(product_name: str) -> str:
-    # Chrome AppleScript double-encodes literal percent signs in an already-quoted URL.
-    # Passing the raw query lets Chrome encode Chinese/search spaces exactly once.
-    return f"https://s.taobao.com/search?q={product_name}"
+    # Keep the URL ASCII-only before it crosses AppleScript/Chrome automation.
+    # Navigation is performed through JavaScript, which preserves valid percent
+    # escapes while avoiding the Chinese double-encoding seen with `set URL`.
+    return f"https://s.taobao.com/search?q={quote(product_name)}"
+
+
+def open_taobao_search_from_page(logger: Logger, product_name: str) -> dict[str, Any]:
+    reset_chrome_target()
+    chrome_set_url("https://s.taobao.com/search")
+    time.sleep(5.0)
+    before = chrome_title_url()
+    logger.log(json.dumps({"search_base_page": before}, ensure_ascii=False, indent=2))
+    js = r"""
+(() => {
+  const keyword = __KEYWORD__;
+  const visible = (e) => {
+    if (!e) return false;
+    const r = e.getBoundingClientRect();
+    const s = getComputedStyle(e);
+    return r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden';
+  };
+  const textOf = (e) => (e.innerText || e.textContent || e.getAttribute('aria-label') || '').trim().replace(/\s+/g, '');
+  const inputs = [...document.querySelectorAll('input')].filter(visible);
+  const input = inputs.find(i => String(i.className || '').includes('powerfulQuery')) ||
+    inputs.find(i => String(i.className || '').includes('search-suggest')) ||
+    inputs[0];
+  if (!input) return JSON.stringify({ok:false, reason:'NO_SEARCH_INPUT', url:location.href});
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+  setter.call(input, keyword);
+  input.dispatchEvent(new InputEvent('input', {bubbles:true, cancelable:true, inputType:'insertText', data:keyword}));
+  input.dispatchEvent(new Event('change', {bubbles:true, cancelable:true}));
+  input.focus();
+  const buttons = [...document.querySelectorAll('button,a,div,span')].filter(visible).filter(e => {
+    const text = textOf(e);
+    return text === '搜索' || text.startsWith('搜索');
+  });
+  const button = buttons.sort((a, b) => {
+    const ar = a.getBoundingClientRect();
+    const br = b.getBoundingClientRect();
+    const score = (r) => Math.abs(r.y - 120) + Math.abs(r.x - 710);
+    return score(ar) - score(br);
+  })[0];
+  if (button) {
+    const r = button.getBoundingClientRect();
+    const cx = r.x + r.width / 2;
+    const cy = r.y + r.height / 2;
+    button.dispatchEvent(new MouseEvent('mousedown', {bubbles:true, cancelable:true, view:window, clientX:cx, clientY:cy}));
+    button.dispatchEvent(new MouseEvent('mouseup', {bubbles:true, cancelable:true, view:window, clientX:cx, clientY:cy}));
+    button.dispatchEvent(new MouseEvent('click', {bubbles:true, cancelable:true, view:window, clientX:cx, clientY:cy}));
+    button.click();
+  } else {
+    input.dispatchEvent(new KeyboardEvent('keydown', {key:'Enter', code:'Enter', bubbles:true, cancelable:true}));
+    input.dispatchEvent(new KeyboardEvent('keyup', {key:'Enter', code:'Enter', bubbles:true, cancelable:true}));
+  }
+  return JSON.stringify({
+    ok:true,
+    method:'page_search_input',
+    input:{className:String(input.className || ''), value:input.value || ''},
+    button:button ? {text:textOf(button), className:String(button.className || '')} : null,
+    beforeUrl:location.href
+  });
+})()
+"""
+    result = json.loads(chrome_js(js.replace("__KEYWORD__", json.dumps(product_name, ensure_ascii=False))))
+    logger.log(json.dumps({"search_submit": result}, ensure_ascii=False, indent=2))
+    if not result.get("ok"):
+        raise RuntimeError(f"Taobao search input failed: {result.get('reason', 'UNKNOWN')}")
+    time.sleep(8.0)
+    return result
+
+
+def open_taobao_search_by_input(logger: Logger, product_name: str) -> dict[str, Any]:
+    logger.section("open taobao search by input")
+    result = open_taobao_search_from_page(logger, product_name)
+    run_guard(logger, "after search input submit")
+    wait_for_search_page_ready(logger)
+    return result
 
 
 def mac_click_screen(x: float, y: float) -> None:
@@ -624,7 +787,11 @@ JSON.stringify((()=>{
     return json.loads(chrome_js(js))
 
 
-def wait_for_product_image_dialog_loaded(logger: Logger, timeout: int = 35) -> dict[str, Any]:
+def wait_for_product_image_dialog_loaded(
+    logger: Logger,
+    timeout: int = 35,
+    poll_interval: float = 1.0,
+) -> dict[str, Any]:
     logger.section("wait product image dialog loaded")
     deadline = time.time() + timeout
     last: dict[str, Any] = {}
@@ -657,7 +824,7 @@ def wait_for_product_image_dialog_loaded(logger: Logger, timeout: int = 35) -> d
         if loaded:
             logger.log(json.dumps(state, ensure_ascii=False, indent=2))
             return state
-        time.sleep(1.0)
+        time.sleep(max(0.25, poll_interval))
     raise ProductImageExportError(f"商品图自定义下载弹窗加载超时或无主图/详情图数据: {last}")
 
 
@@ -830,10 +997,12 @@ def click_visible_diantoushi_entry_native(label: str) -> dict[str, Any]:
     return located
 
 
-def open_product_image_dialog(logger: Logger) -> dict[str, Any]:
+def open_product_image_dialog(logger: Logger, args: Optional[argparse.Namespace] = None) -> dict[str, Any]:
     run_guard(logger, "before product image dialog open")
     logger.section("open product image dialog")
     attempts: list[dict[str, Any]] = []
+    settle = diantoushi_click_settle(args)
+    dialog_settle = max(0.8, settle * 2)
 
     # Follow the visible 店透视 path shown by the user:
     # 下载 -> 商品图 -> 自定义下载 -> 商品图自定义下载 dialog.
@@ -845,7 +1014,7 @@ def open_product_image_dialog(logger: Logger) -> dict[str, Any]:
         download_menu = click_visible_diantoushi_entry_native("下载")
     attempts.append({"method": "open_download_menu", "result": download_menu})
     logger.log(json.dumps(attempts[-1], ensure_ascii=False))
-    time.sleep(0.8)
+    time.sleep(settle)
     logger.log(json.dumps({"menu_after_download": diantoushi_menu_snapshot()}, ensure_ascii=False, indent=2))
 
     nested = click_toolbar_control("商品图")
@@ -853,7 +1022,7 @@ def open_product_image_dialog(logger: Logger) -> dict[str, Any]:
         nested = click_visible_diantoushi_entry("商品图")
     attempts.append({"method": "download_menu_product_image", "result": nested})
     logger.log(json.dumps(attempts[-1], ensure_ascii=False))
-    time.sleep(1.4)
+    time.sleep(settle)
     logger.log(json.dumps({"menu_after_product_image": diantoushi_menu_snapshot()}, ensure_ascii=False, indent=2))
 
     custom = click_visible_diantoushi_entry("自定义下载")
@@ -861,7 +1030,7 @@ def open_product_image_dialog(logger: Logger) -> dict[str, Any]:
         native_nested = click_visible_diantoushi_entry_native("商品图")
         attempts.append({"method": "download_menu_product_image_native_retry", "result": native_nested})
         logger.log(json.dumps(attempts[-1], ensure_ascii=False))
-        time.sleep(1.6)
+        time.sleep(dialog_settle)
         logger.log(json.dumps({"menu_after_product_image_native_retry": diantoushi_menu_snapshot()}, ensure_ascii=False, indent=2))
         custom = click_visible_diantoushi_entry("自定义下载")
     if not custom.get("ok"):
@@ -872,26 +1041,28 @@ def open_product_image_dialog(logger: Logger) -> dict[str, Any]:
             custom = native_custom
     attempts.append({"method": "product_image_custom_download", "result": custom})
     logger.log(json.dumps(attempts[-1], ensure_ascii=False))
-    time.sleep(2.5)
+    time.sleep(dialog_settle)
     state = product_image_dialog_state()
     if not state.get("error"):
         logger.log(json.dumps(state, ensure_ascii=False, indent=2))
-        return wait_for_product_image_dialog_loaded(logger)
+        return wait_for_product_image_dialog_loaded(logger, poll_interval=diantoushi_poll_interval(args))
 
     # Fallback for older layouts where 商品图 itself may open the dialog.
     direct = click_toolbar_control("商品图")
     attempts.append({"method": "fallback_toolbar_product_image", "result": direct})
     logger.log(json.dumps(attempts[-1], ensure_ascii=False))
-    time.sleep(3.0)
+    time.sleep(dialog_settle)
     state = product_image_dialog_state()
     logger.log(json.dumps({"product_image_dialog": state, "attempts": attempts}, ensure_ascii=False, indent=2))
     if state.get("error"):
         raise ProductImageExportError(f"Could not open 商品图 dialog: {state}; attempts={attempts}")
-    return wait_for_product_image_dialog_loaded(logger)
+    return wait_for_product_image_dialog_loaded(logger, poll_interval=diantoushi_poll_interval(args))
 
 
-def configure_product_image_dialog_main_detail_only(logger: Logger) -> dict[str, Any]:
+def configure_product_image_dialog_main_detail_only(logger: Logger, args: Optional[argparse.Namespace] = None) -> dict[str, Any]:
     logger.section("select only 1:1 main image and detail image")
+    settle = diantoushi_click_settle(args)
+    tiny_settle = min(0.35, max(0.18, settle / 2))
     read_js = r"""
 (() => {
   const visible = (e) => {
@@ -966,12 +1137,12 @@ def configure_product_image_dialog_main_detail_only(logger: Logger) -> dict[str,
                 "click": [round(x), round(y)],
             })
             mac_click_dom_point(x, y)
-            time.sleep(0.35)
+            time.sleep(tiny_settle)
 
         all_filter = next((row for row in filters if str(row.get("text", "")).startswith("全部")), None)
         if all_filter and all_filter.get("checked"):
             click_filter(all_filter, "clear_all")
-            time.sleep(0.8)
+            time.sleep(settle)
             continue
 
         clicked_any = False
@@ -980,7 +1151,7 @@ def configure_product_image_dialog_main_detail_only(logger: Logger) -> dict[str,
                 click_filter(row, "clear_unwanted")
                 clicked_any = True
         if clicked_any:
-            time.sleep(0.8)
+            time.sleep(settle)
             continue
 
         for row in filters:
@@ -988,9 +1159,9 @@ def configure_product_image_dialog_main_detail_only(logger: Logger) -> dict[str,
                 click_filter(row, "select_wanted")
                 clicked_any = True
         if clicked_any:
-            time.sleep(0.8)
+            time.sleep(settle)
             continue
-        time.sleep(0.8)
+        time.sleep(settle)
     state = product_image_dialog_state()
     logger.log(json.dumps({"after_select": state}, ensure_ascii=False, indent=2))
     if not result.get("ok"):
@@ -1049,6 +1220,8 @@ def wait_for_product_image_download(
     before_downloads: dict[str, tuple[int, int]],
     timeout: int = 180,
     poll_interval: float = 1.2,
+    stable_wait: float = 0.2,
+    idle_seconds: float = 4.0,
 ) -> list[Path]:
     logger.section("wait product image download")
     download_dir = Path.home() / "Downloads"
@@ -1072,7 +1245,7 @@ def wait_for_product_image_download(
         for path in completed:
             try:
                 size_1 = path.stat().st_size
-                time.sleep(0.2)
+                time.sleep(stable_wait)
                 size_2 = path.stat().st_size
             except FileNotFoundError:
                 continue
@@ -1082,7 +1255,7 @@ def wait_for_product_image_download(
             latest_paths = stable
         # Store every new file triggered by this click, but wait for Chrome to finish
         # all types before moving anything out of Downloads.
-        if latest_paths and not active and last_change_at and time.time() - last_change_at >= 4.0:
+        if latest_paths and not active and last_change_at and time.time() - last_change_at >= idle_seconds:
             logger.log(json.dumps({
                 "downloaded_product_image_files": [str(p) for p in latest_paths],
                 "download_source": "new_files_since_product_image_click",
@@ -1196,8 +1369,8 @@ def download_product_page_images_from_diantoushi(logger: Logger, args: argparse.
     logger.section("download product images from diantoushi 商品图")
     target_dir.mkdir(parents=True, exist_ok=True)
     clear_product_image_output(target_dir)
-    open_product_image_dialog(logger)
-    configure_product_image_dialog_main_detail_only(logger)
+    open_product_image_dialog(logger, args)
+    configure_product_image_dialog_main_detail_only(logger, args)
     run_guard(logger, "before product image by-type download")
     before_downloads = download_snapshot(Path.home() / "Downloads")
     start = time.time()
@@ -1208,6 +1381,8 @@ def download_product_page_images_from_diantoushi(logger: Logger, args: argparse.
         before_downloads,
         timeout=180,
         poll_interval=download_poll_interval(args),
+        stable_wait=diantoushi_file_stable_wait(args),
+        idle_seconds=diantoushi_download_idle(args),
     )
     try:
         close_dialog("商品图自定义下载")
@@ -1383,6 +1558,24 @@ def download_product_page_images_from_page_dom(logger: Logger, target_dir: Path,
 
 def download_product_page_images(logger: Logger, args: argparse.Namespace, target_dir: Path, product_id: str) -> dict[str, Any]:
     logger.section("download product main/detail images")
+    if args.skip_product_images:
+        payload = {
+            "ok": False,
+            "source": "diantoushi_product_image_download",
+            "product_id": product_id,
+            "main_image_count": 0,
+            "detail_image_count": 0,
+            "failed_count": 0,
+            "images": [],
+            "status": "skipped_by_arg",
+            "reason": "skip_product_images_enabled",
+        }
+        target_dir.mkdir(parents=True, exist_ok=True)
+        (target_dir / "product_page_images.json").write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        logger.log(json.dumps({"product_page_images": payload}, ensure_ascii=False, indent=2))
+        return payload
     try:
         return download_product_page_images_from_diantoushi(logger, args, target_dir, product_id)
     except Exception as exc:
@@ -1557,45 +1750,53 @@ def search_candidates(logger: Logger, product_name: str, max_links: int = 260) -
     logger.section("read search candidates")
     js = r"""
 JSON.stringify([...document.querySelectorAll('a[href]')]
-  .map((a,i)=>({
-    index:i,
-    text:(a.innerText||a.getAttribute('aria-label')||a.title||'').trim().replace(/\s+/g,' ').slice(0,260),
+  .map((a,domIndex)=>({
+    domIndex,
+    text:(a.innerText||a.getAttribute('aria-label')||a.title||'').trim().replace(/\s+/g,' ').slice(0,320),
     href:a.href,
     rect:(()=>{const r=a.getBoundingClientRect();return [Math.round(r.x),Math.round(r.y),Math.round(r.width),Math.round(r.height)]})()
   }))
   .filter(x=>x.text && x.rect[2]>20 && x.rect[3]>10 && /(item\.taobao|detail\.tmall)/.test(x.href))
-  .slice(0,__MAX_LINKS__))
+  .sort((a,b)=>a.rect[1]-b.rect[1] || a.rect[0]-b.rect[0] || a.domIndex-b.domIndex)
+  .slice(0,__MAX_LINKS__)
+  .map((x,visualIndex)=>({...x, visualIndex})))
 """.replace("__MAX_LINKS__", str(max_links))
     raw = chrome_js(js)
     candidates = json.loads(raw)
-    out = []
-    seen_ids = set()
+    by_item: dict[str, dict[str, Any]] = {}
     for candidate in candidates:
         item_id = parse_item_id(candidate["href"])
-        if not item_id or item_id in seen_ids:
+        if not item_id:
             continue
-        seen_ids.add(item_id)
         text = candidate["text"]
         parsed_sales = parse_sales_count(text)
         if parsed_sales is None:
             continue
         original_href = re.sub(r"([?&])ns=[^&]+&?", r"\1", candidate["href"])
         href = canonical_item_url(original_href, item_id)
-        out.append(
-            {
-                "item_id": item_id,
-                "title": text,
-                "href": href,
-                "original_href": original_href,
-                "sales_raw": sales_raw(text),
-                "sales_count": parsed_sales,
-                "price_raw": price_raw(text),
-                "price": parse_price(text),
-                "search_index": candidate["index"],
-            }
-        )
-    out.sort(key=lambda x: (-x["sales_count"], x["search_index"]))
-    logger.log(json.dumps({"candidate_count": len(out), "top_candidates": out[:10]}, ensure_ascii=False, indent=2))
+        row = {
+            "item_id": item_id,
+            "title": text,
+            "href": href,
+            "original_href": original_href,
+            "sales_raw": sales_raw(text),
+            "sales_count": parsed_sales,
+            "price_raw": price_raw(text),
+            "price": parse_price(text),
+            "search_index": candidate["visualIndex"],
+            "visual_index": candidate["visualIndex"],
+            "dom_index": candidate["domIndex"],
+            "rect": candidate["rect"],
+        }
+        current = by_item.get(item_id)
+        if current is None or row["visual_index"] < current["visual_index"]:
+            by_item[item_id] = row
+    out = sorted(by_item.values(), key=lambda x: x["visual_index"])
+    logger.log(json.dumps({
+        "candidate_count": len(out),
+        "visual_order_candidates": out[:10],
+        "top_sales_candidates": sorted(out, key=lambda x: (-x["sales_count"], x["visual_index"]))[:10],
+    }, ensure_ascii=False, indent=2))
     return out
 
 
@@ -1726,41 +1927,29 @@ def apply_price_filter_native(
     if not controls.get("ok"):
         return {"ok": False, "reason": controls.get("reason", "PRICE_CONTROLS_NOT_FOUND"), "range": range_result, "controls": controls}
 
-    chrome_js(r"""
+    fill_price_js = r"""
 (() => {
   const visible=e=>{const r=e.getBoundingClientRect();const s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden'};
   const inputs=[...document.querySelectorAll('input')].filter(visible).filter(i=>/最低|最高|¥|￥/.test(i.placeholder||''));
-  inputs[0].focus();
-  inputs[0].select();
-  return 'OK';
-})()
-""")
-    time.sleep(0.15)
-    mac_replace_text(price_arg_text(min_price))
-    time.sleep(0.2)
-    chrome_js(r"""
-(() => {
-  const visible=e=>{const r=e.getBoundingClientRect();const s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden'};
-  const inputs=[...document.querySelectorAll('input')].filter(visible).filter(i=>/最低|最高|¥|￥/.test(i.placeholder||''));
-  inputs[1].focus();
-  inputs[1].select();
-  return 'OK';
-})()
-""")
-    time.sleep(0.15)
-    mac_replace_text(price_arg_text(max_price))
-    time.sleep(0.2)
-    filled_values = json.loads(chrome_js(r"""
-(() => {
-  const visible=e=>{const r=e.getBoundingClientRect();const s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden'};
-  const inputs=[...document.querySelectorAll('input')].filter(visible).filter(i=>/最低|最高|¥|￥/.test(i.placeholder||''));
+  const values = [__LOW_PRICE__, __HIGH_PRICE__];
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+  inputs.slice(0, 2).forEach((input, index) => {
+    input.focus();
+    input.select();
+    setter.call(input, values[index]);
+    input.dispatchEvent(new InputEvent('input', {bubbles:true, cancelable:true, inputType:'insertText', data:values[index]}));
+    input.dispatchEvent(new Event('change', {bubbles:true, cancelable:true}));
+    input.blur();
+  });
   return JSON.stringify({
     ok: inputs.length >= 2,
     values: inputs.slice(0, 2).map(i=>i.value || ''),
     active: {tag: document.activeElement.tagName, placeholder: document.activeElement.placeholder || '', value: document.activeElement.value || '', className: String(document.activeElement.className || '')}
   });
 })()
-"""))
+"""
+    fill_price_js = fill_price_js.replace("__LOW_PRICE__", json.dumps(price_arg_text(min_price))).replace("__HIGH_PRICE__", json.dumps(price_arg_text(max_price)))
+    filled_values = json.loads(chrome_js(fill_price_js))
     expected_values = [price_arg_text(min_price), price_arg_text(max_price)]
     if filled_values.get("values") != expected_values:
         return {
@@ -1961,6 +2150,14 @@ def apply_search_filters_and_sort(
             }, ensure_ascii=False, indent=2))
         logger.log(json.dumps(chrome_title_url(), ensure_ascii=False, indent=2))
         run_guard(logger, "after price filter")
+        try:
+            result["price_filter_ready"] = wait_for_search_cards_stable(logger, "after price filter")
+        except Exception as exc:
+            result["price_filter_ready"] = {"ok": False, "error": str(exc)}
+            logger.log(json.dumps({
+                "warning": "价格筛选后商品卡片未稳定，继续尝试点击销量。",
+                "error": str(exc),
+            }, ensure_ascii=False, indent=2))
 
     if sort_by_sales:
         js_sales = r"""
@@ -1989,7 +2186,15 @@ def apply_search_filters_and_sort(
 """
         result["sales_sort_ui"] = json.loads(chrome_js(js_sales))
         logger.log(json.dumps(result["sales_sort_ui"], ensure_ascii=False, indent=2))
-        time.sleep(5)
+        time.sleep(2)
+        try:
+            result["sales_sort_ready"] = wait_for_search_cards_stable(logger, "after sales sort")
+        except Exception as exc:
+            result["sales_sort_ready"] = {"ok": False, "error": str(exc)}
+            logger.log(json.dumps({
+                "warning": "销量排序后商品卡片未稳定；候选采集会继续等待/兜底。",
+                "error": str(exc),
+            }, ensure_ascii=False, indent=2))
         logger.log(json.dumps(chrome_title_url(), ensure_ascii=False, indent=2))
         run_guard(logger, "after sales sort")
     logger.log(json.dumps({"search_filter_sort_result": result}, ensure_ascii=False, indent=2))
@@ -2039,6 +2244,66 @@ def wait_for_search_page_ready(logger: Logger, timeout: float = 35.0) -> dict[st
     raise RuntimeError(f"Search page did not become ready before filtering: {last_state}")
 
 
+def wait_for_search_cards_stable(logger: Logger, label: str, timeout: float = 45.0) -> dict[str, Any]:
+    logger.section(f"wait search cards stable {label}")
+    deadline = time.time() + timeout
+    last_state: dict[str, Any] = {}
+    last_signature = ""
+    stable_rounds = 0
+    while time.time() < deadline:
+        state = json.loads(chrome_js(r"""
+(() => {
+  const visible = (e) => {
+    if (!e) return false;
+    const r = e.getBoundingClientRect();
+    const s = getComputedStyle(e);
+    return r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden';
+  };
+  const text = document.body ? document.body.innerText || '' : '';
+  const links = [...document.querySelectorAll('a[href]')]
+    .map((a, domIndex) => {
+      const r = a.getBoundingClientRect();
+      const cardText = (a.innerText || a.textContent || a.getAttribute('aria-label') || a.title || '').trim().replace(/\s+/g, ' ');
+      return {
+        domIndex,
+        href: a.href,
+        text: cardText,
+        rect: [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)]
+      };
+    })
+    .filter(x => x.text && x.rect[2] > 20 && x.rect[3] > 10 && /(item\.taobao|detail\.tmall|id=)/.test(x.href))
+    .sort((a,b) => a.rect[1]-b.rect[1] || a.rect[0]-b.rect[0] || a.domIndex-b.domIndex);
+  const productLinks = links.filter(x => /¥|人付款|人收货|付款|已售|件/.test(x.text));
+  const signature = productLinks.slice(0, 8).map(x => `${x.href}|${x.text.slice(0, 40)}|${x.rect.join(',')}`).join('||');
+  return JSON.stringify({
+    title: document.title,
+    url: location.href,
+    ready: document.readyState,
+    loadingText: /加载中|loading/i.test(text),
+    linkCount: links.length,
+    productLinkCount: productLinks.length,
+    firstProduct: productLinks[0] || null,
+    signature
+  });
+})()
+"""))
+        last_state = state
+        signature = str(state.get("signature") or "")
+        if signature and signature == last_signature and not state.get("loadingText") and int(state.get("productLinkCount") or 0) > 0:
+            stable_rounds += 1
+        else:
+            stable_rounds = 0
+        last_signature = signature
+        logger.log(json.dumps({
+            "search_cards_stable_probe": {k: v for k, v in state.items() if k != "signature"},
+            "stable_rounds": stable_rounds,
+        }, ensure_ascii=False))
+        if stable_rounds >= 1:
+            return state
+        time.sleep(1.5)
+    raise RuntimeError(f"Search cards did not become stable after {label}: {last_state}")
+
+
 def collect_top_search_candidates(
     logger: Logger,
     product_name: str,
@@ -2049,16 +2314,10 @@ def collect_top_search_candidates(
     max_price: Optional[float] = None,
     scroll_wait: float = 3.5,
 ) -> list[dict[str, Any]]:
-    search_url = taobao_search_url(product_name)
     logger.section("open search")
-    logger.log(f"search_url={search_url}")
     logger.log(json.dumps({"price_filter": {"min_price": min_price, "max_price": max_price}}, ensure_ascii=False))
-    navigation = open_url_with_fallback(logger, search_url, "search page", wait_seconds=8.0)
-    logger.log(json.dumps({"search_navigation": navigation}, ensure_ascii=False, indent=2))
-    if not navigation.get("ok"):
-        raise RuntimeError(f"Search page did not open: {navigation.get('state')}")
-    run_guard(logger, "after search")
-    wait_for_search_page_ready(logger)
+    search_submit = open_taobao_search_by_input(logger, product_name)
+    logger.log(json.dumps({"search_submit": search_submit}, ensure_ascii=False, indent=2))
     apply_search_filters_and_sort(logger, min_price, max_price, sort_by_sales=True)
     by_item: dict[str, dict[str, Any]] = {}
     raw_seen_items: set[str] = set()
@@ -2154,16 +2413,41 @@ def open_filtered_sales_search(
     min_price: Optional[float],
     max_price: Optional[float],
 ) -> dict[str, Any]:
-    search_url = taobao_search_url(product_name)
     logger.section("open filtered sales search")
-    logger.log(f"search_url={search_url}")
     logger.log(json.dumps({"price_filter": {"min_price": min_price, "max_price": max_price}}, ensure_ascii=False))
-    chrome_set_url(search_url)
-    time.sleep(8)
+    search_submit = open_taobao_search_by_input(logger, product_name)
+    logger.log(json.dumps({"search_submit": search_submit}, ensure_ascii=False, indent=2))
     logger.log(json.dumps(chrome_title_url(), ensure_ascii=False, indent=2))
-    run_guard(logger, "after search")
-    wait_for_search_page_ready(logger)
-    return apply_search_filters_and_sort(logger, min_price, max_price, sort_by_sales=True)
+    try:
+        result = apply_search_filters_and_sort(logger, min_price, max_price, sort_by_sales=True)
+        if result.get("sales_sort_ui", {}).get("ok") is False:
+            logger.log(json.dumps({
+                "warning": "淘宝销量排序按钮未能确认点击成功；后续会继续按本地解析销量降序选择候选。",
+                "sales_sort_ui": result.get("sales_sort_ui"),
+            }, ensure_ascii=False, indent=2))
+    except Exception as exc:
+        result = {
+            "price_filter_ui": {
+                "ok": False,
+                "method": "taobao_ui_filter_failed_local_price_filter_fallback",
+                "minPrice": min_price,
+                "maxPrice": max_price,
+                "likelyApplied": False,
+                "error": str(exc),
+            },
+            "sales_sort_ui": {
+                "ok": False,
+                "method": "taobao_ui_sort_failed_parsed_sales_sort_fallback",
+                "error": str(exc),
+            },
+        }
+        logger.log(json.dumps({
+            "warning": "淘宝页面筛选/销量排序未成功，继续使用本地严格价格过滤和本地销量排序兜底。",
+            "error": str(exc),
+        }, ensure_ascii=False, indent=2))
+        wait_for_search_page_ready(logger)
+    logger.log(json.dumps({"search_filter_sort_result": result}, ensure_ascii=False, indent=2))
+    return result
 
 
 def goto_search_page(logger: Logger, target_page: int) -> bool:
@@ -2190,6 +2474,7 @@ def collect_current_search_page_candidates(
     max_price: Optional[float],
     scroll_wait: float,
     enforce_local_price_filter: bool = False,
+    prefer_page_order: bool = True,
 ) -> list[dict[str, Any]]:
     logger.section(f"collect current search page {page_index}")
     logger.log(json.dumps({
@@ -2197,6 +2482,7 @@ def collect_current_search_page_candidates(
         "message": f"先采集当前第 {page_index} 页候选，当前页候选会先下载；只有不够 TopN 时才进入下一页。",
         "remaining_needed": remaining,
         "enforce_local_price_filter": enforce_local_price_filter,
+        "prefer_page_order": prefer_page_order,
         "price_filter": {"min_price": min_price, "max_price": max_price},
     }, ensure_ascii=False, indent=2))
     by_item: dict[str, dict[str, Any]] = {}
@@ -2207,7 +2493,17 @@ def collect_current_search_page_candidates(
     stagnant_rounds = 0
     last_raw_count = 0
     for scroll_index in range(max_scrolls + 1):
-        for candidate in search_candidates(logger, product_name, max_links=700):
+        candidates = search_candidates(logger, product_name, max_links=700)
+        if not candidates and scroll_index == 0:
+            try:
+                wait_for_search_cards_stable(logger, "before collecting page candidates")
+                candidates = search_candidates(logger, product_name, max_links=700)
+            except Exception as exc:
+                logger.log(json.dumps({
+                    "warning": "采集候选前商品卡片仍未稳定，继续按当前页面读取结果。",
+                    "error": str(exc),
+                }, ensure_ascii=False, indent=2))
+        for candidate in candidates:
             item_id = candidate["item_id"]
             raw_seen_items.add(item_id)
             if item_id in seen_item_ids:
@@ -2241,7 +2537,7 @@ def collect_current_search_page_candidates(
                     "display_price_out_of_range_count": skipped_by_price,
                     "display_price_unknown_count": skipped_unknown_price,
                     "enforce_local_price_filter": enforce_local_price_filter,
-                    "order_note": "当前页按销量排序后的页面顺序采集；先下载当前页，再按需翻下一页。",
+                    "order_note": "优先按淘宝页面当前顺序采集；页面已点销量时，第一个合格商品会先下载。",
                 },
                 ensure_ascii=False,
             )
@@ -2258,13 +2554,19 @@ def collect_current_search_page_candidates(
         chrome_js("window.scrollBy(0, Math.max(900, window.innerHeight * 0.85)); 'OK'")
         human_wait(logger, scroll_wait, "search result lazy-load after scroll")
         run_guard(logger, f"after search page {page_index} scroll {scroll_index + 1}")
-    out = sorted(by_item.values(), key=lambda x: x["search_index"])[:remaining]
+    if prefer_page_order:
+        out = sorted(by_item.values(), key=lambda x: x["search_index"])[:remaining]
+        selection_order = "按淘宝页面当前顺序选择；价格区间外商品会被本地严格过滤跳过。"
+    else:
+        out = sorted(by_item.values(), key=lambda x: (-x["sales_count"], x["search_index"]))[:remaining]
+        selection_order = "淘宝销量排序未确认成功，按本地解析销量从高到低兜底选择。"
     logger.section(f"selected page {page_index} candidates")
     logger.log(json.dumps({
         "selected_count": len(out),
         "page_index": page_index,
         "download_order": "these_candidates_will_be_downloaded_before_next_page",
         "next_page_policy": "只有当前页下载/尝试完成后，如果总数仍小于 TopN，才会重新打开搜索并进入下一页。",
+        "selection_order": selection_order,
         "candidates": out,
     }, ensure_ascii=False, indent=2))
     return out
@@ -2287,13 +2589,15 @@ def collect_one_sales_page_candidates(
     filter_sort_result = open_filtered_sales_search(logger, args.product_name, args.min_price, args.max_price)
     if not goto_search_page(logger, page_index):
         return []
-    price_filter_ui = (filter_sort_result or {}).get("price_filter_ui") or {}
+    sales_sort_ui = (filter_sort_result or {}).get("sales_sort_ui") or {}
+    prefer_page_order = sales_sort_ui.get("ok") is not False
     enforce_local_price_filter = args.min_price is not None or args.max_price is not None
     if enforce_local_price_filter:
         logger.log(json.dumps({
             "price_filter_policy": "已启用本地严格价格过滤；不在价格区间或无法解析展示价的搜索卡片不会进入下载队列。",
             "page_index": page_index,
             "price_filter": {"min_price": args.min_price, "max_price": args.max_price},
+            "selection_policy": "销量排序点击成功时，按淘宝页面顺序取第一个价格合格商品；销量排序失败时才按本地解析销量兜底。",
         }, ensure_ascii=False, indent=2))
     return collect_current_search_page_candidates(
         logger,
@@ -2306,6 +2610,7 @@ def collect_one_sales_page_candidates(
         max_price=args.max_price,
         scroll_wait=speed_value(args, "search_scroll_wait"),
         enforce_local_price_filter=enforce_local_price_filter,
+        prefer_page_order=prefer_page_order,
     )
 
 
@@ -2324,7 +2629,7 @@ def choose_highest_sales_product(
     return selected
 
 
-def wait_for_toolbar(logger: Logger, timeout: int = 60) -> dict[str, Any]:
+def wait_for_toolbar(logger: Logger, timeout: int = 60, poll_interval: float = 5.0) -> dict[str, Any]:
     logger.section("wait toolbar")
     deadline = time.time() + timeout
     last = {}
@@ -2335,7 +2640,7 @@ def wait_for_toolbar(logger: Logger, timeout: int = 60) -> dict[str, Any]:
             raise RuntimeError(f"Product page is Chrome privacy error while waiting toolbar: {data}")
         if data.get("toolbar_present") and {"商品数据", "SKU预览", "问大家"}.issubset(set(data.get("export_controls", []))):
             return data
-        time.sleep(5)
+        time.sleep(max(0.5, poll_interval))
     raise RuntimeError(f"店透视 toolbar/export controls not ready: {last}")
 
 
@@ -2345,6 +2650,7 @@ def navigate_to_product_with_toolbar(
     label: str,
     retries_per_url: int = 2,
     toolbar_timeout: int = 60,
+    toolbar_poll_interval: float = 5.0,
 ) -> dict[str, Any]:
     item_id = selected.get("item_id") or parse_item_id(selected.get("href", ""))
     urls = canonical_item_urls(selected.get("href", ""), item_id)
@@ -2367,7 +2673,7 @@ def navigate_to_product_with_toolbar(
                     last_error = f"Chrome privacy error after guard readback: {guard}"
                     logger.log(last_error)
                     continue
-                return wait_for_toolbar(logger, timeout=toolbar_timeout)
+                return wait_for_toolbar(logger, timeout=toolbar_timeout, poll_interval=toolbar_poll_interval)
             except RuntimeError as exc:
                 last_error = str(exc)
                 logger.log(f"navigation toolbar attempt failed: {last_error}")
@@ -2587,19 +2893,24 @@ JSON.stringify((()=>{
     return json.loads(chrome_js(js))
 
 
-def open_sku_dialog(logger: Logger) -> None:
+def open_sku_dialog(logger: Logger, args: Optional[argparse.Namespace] = None) -> None:
     run_guard(logger, "before sku open")
     logger.section("click sku preview")
     logger.log(json.dumps(click_toolbar_control("SKU预览"), ensure_ascii=False))
-    time.sleep(8)
-    state = sku_dialog_state()
-    logger.log(json.dumps(state, ensure_ascii=False, indent=2))
-    if state.get("error"):
-        raise RuntimeError(f"Could not open SKU dialog: {state}")
+    deadline = time.time() + 12.0
+    state: dict[str, Any] = {}
+    while time.time() < deadline:
+        state = sku_dialog_state()
+        logger.log(json.dumps({"sku_dialog_poll": state}, ensure_ascii=False, indent=2))
+        if not state.get("error"):
+            return
+        time.sleep(diantoushi_poll_interval(args))
+    raise RuntimeError(f"Could not open SKU dialog: {state}")
 
 
-def click_sku_export_prefer_image_links(logger: Logger) -> str:
+def click_sku_export_prefer_image_links(logger: Logger, args: Optional[argparse.Namespace] = None) -> str:
     logger.section("click sku export xlsx image links")
+    settle = diantoushi_click_settle(args)
     js = r"""
 (() => {
   const dialog=[...document.querySelectorAll('.el-dialog')].find(d=>(d.innerText||'').includes('SKU预览')&&d.getBoundingClientRect().width>100);
@@ -2610,7 +2921,7 @@ def click_sku_export_prefer_image_links(logger: Logger) -> str:
 })()
 """
     logger.log(chrome_js(js))
-    time.sleep(1)
+    time.sleep(settle)
     # Try opening the dropdown caret next to the dialog toolbar export button, then select xlsx+图片链接.
     js_dropdown = r"""
 (() => {
@@ -2634,7 +2945,7 @@ def click_sku_export_prefer_image_links(logger: Logger) -> str:
 })()
 """
     logger.log(chrome_js(js_dropdown))
-    time.sleep(1.2)
+    time.sleep(settle)
     js_menu = r"""
 (() => {
   const visible = (e) => {
@@ -2714,9 +3025,9 @@ def workbook_has_image_links(path: Path) -> bool:
 
 
 def export_sku(logger: Logger, args: argparse.Namespace, item_id: str) -> tuple[Path, str, bool]:
-    open_sku_dialog(logger)
+    open_sku_dialog(logger, args)
     run_guard(logger, "before sku export")
-    variant = click_sku_export_prefer_image_links(logger)
+    variant = click_sku_export_prefer_image_links(logger, args)
     start = time.time()
     sku_path = wait_normalize_xlsx(
         logger,
@@ -2773,7 +3084,7 @@ def ask_dialog_ready(state: dict[str, Any]) -> bool:
     return bool(export_buttons) and ("已成功加载" in title or "问题" in title or "问答" in title)
 
 
-def wait_for_ask_dialog_ready(logger: Logger, timeout: float) -> dict[str, Any]:
+def wait_for_ask_dialog_ready(logger: Logger, timeout: float, poll_interval: float = 2.0) -> dict[str, Any]:
     deadline = time.time() + timeout
     last: dict[str, Any] = {}
     while time.time() < deadline:
@@ -2782,7 +3093,7 @@ def wait_for_ask_dialog_ready(logger: Logger, timeout: float) -> dict[str, Any]:
         logger.log(json.dumps({"ask_ready_poll": state}, ensure_ascii=False, indent=2))
         if ask_dialog_ready(state):
             return state
-        time.sleep(2.0)
+        time.sleep(max(0.25, poll_interval))
     return last
 
 
@@ -2792,7 +3103,7 @@ def export_ask(logger: Logger, args: argparse.Namespace, item_id: str) -> Path:
     run_guard(logger, "before ask open")
     logger.section("click ask")
     logger.log(json.dumps(click_toolbar_control("问大家"), ensure_ascii=False))
-    state = wait_for_ask_dialog_ready(logger, ask_ready_timeout(args))
+    state = wait_for_ask_dialog_ready(logger, ask_ready_timeout(args), poll_interval=diantoushi_poll_interval(args))
     logger.log(json.dumps(state, ensure_ascii=False, indent=2))
     if state.get("error"):
         raise RuntimeError(f"Could not open ask dialog: {state}")
@@ -2851,7 +3162,7 @@ JSON.stringify((()=>{
     return json.loads(chrome_js(js))
 
 
-def wait_for_review_dialog_ready(logger: Logger, timeout: float = 45.0) -> dict[str, Any]:
+def wait_for_review_dialog_ready(logger: Logger, timeout: float = 45.0, poll_interval: float = 2.0) -> dict[str, Any]:
     deadline = time.time() + timeout
     last: dict[str, Any] = {}
     while time.time() < deadline:
@@ -2873,7 +3184,7 @@ def wait_for_review_dialog_ready(logger: Logger, timeout: float = 45.0) -> dict[
             loaded_empty = "已成功加载：0/0条数据" in text and not still_loading
             if has_download_button and not still_loading and (loaded_count > 0 or loaded_empty):
                 return state
-        time.sleep(2.0)
+        time.sleep(max(0.25, poll_interval))
     return last
 
 
@@ -2887,14 +3198,18 @@ def open_review_dialog(logger: Logger, args: argparse.Namespace) -> dict[str, An
     run_guard(logger, "before review open")
     logger.section("click review analysis")
     chrome_js("window.scrollTo(0, 0); 'OK'")
-    time.sleep(0.8)
+    time.sleep(diantoushi_click_settle(args))
     click_result = click_toolbar_control("评价分析")
-    time.sleep(2.0)
+    time.sleep(diantoushi_click_settle(args))
     state = review_dialog_state()
     if state.get("error"):
         click_result = click_visible_diantoushi_entry_native("评价分析")
     logger.log(json.dumps({"review_click": click_result}, ensure_ascii=False, indent=2))
-    state = wait_for_review_dialog_ready(logger, timeout=max(30.0, ask_ready_timeout(args)))
+    state = wait_for_review_dialog_ready(
+        logger,
+        timeout=max(30.0, ask_ready_timeout(args)),
+        poll_interval=diantoushi_poll_interval(args),
+    )
     if state.get("error"):
         raise RuntimeError(f"Could not open review dialog: {state}")
     return state
@@ -2939,7 +3254,7 @@ def configure_review_download_settings(logger: Logger, args: argparse.Namespace)
     logger.log(json.dumps({"review_settings_open": first}, ensure_ascii=False, indent=2))
     if first.get("error"):
         return first
-    time.sleep(1.0)
+    time.sleep(diantoushi_click_settle(args))
     js_popover = f"""
 (() => {{
   const wantPages = {pages};
@@ -3356,7 +3671,7 @@ JSON.stringify((()=>{{
     return json.loads(chrome_js(js))
 
 
-def ensure_review_filter_default(logger: Logger) -> dict[str, Any]:
+def ensure_review_filter_default(logger: Logger, args: Optional[argparse.Namespace] = None) -> dict[str, Any]:
     """Ensure 店透视评论弹窗启用「过滤默认评价」."""
     try:
         state = review_download_control_state()
@@ -3370,7 +3685,7 @@ def ensure_review_filter_default(logger: Logger) -> dict[str, Any]:
             logger.log(json.dumps({"review_filter_default": result}, ensure_ascii=False, indent=2))
             return result
         forced = set_review_filter_default_dom(True)
-        time.sleep(0.8)
+        time.sleep(diantoushi_click_settle(args))
         state = review_download_control_state()
         checked = bool((state.get("filter") or {}).get("checked"))
         result = {
@@ -3469,7 +3784,7 @@ JSON.stringify((()=>{
     return result
 
 
-def configure_review_download_content_native(logger: Logger) -> dict[str, Any]:
+def configure_review_download_content_native(logger: Logger, args: Optional[argparse.Namespace] = None) -> dict[str, Any]:
     """Configure review export content without requiring page-range controls."""
     logger.section("configure review download content native")
     state = review_download_control_state()
@@ -3482,7 +3797,7 @@ def configure_review_download_content_native(logger: Logger) -> dict[str, Any]:
         if not settings_state.get("found"):
             return {"error": "NO_SETTINGS_BUTTON", "state": state}
         click_review_rect(settings_state.get("rect"))
-        time.sleep(1.0)
+        time.sleep(diantoushi_click_settle(args))
         state = review_download_control_state()
         logger.log(json.dumps({"review_content_settings_open": {
             "panelOpen": bool(state.get("panelOpen")),
@@ -3502,7 +3817,7 @@ def configure_review_download_content_native(logger: Logger) -> dict[str, Any]:
         if wanted is None or not check.get("found") or bool(check.get("checked")) == wanted:
             continue
         click_review_rect(check.get("rect"))
-        time.sleep(0.5)
+        time.sleep(diantoushi_click_settle(args))
         state = review_download_control_state()
 
     actual_checks = {
@@ -3542,7 +3857,7 @@ def configure_review_download_settings_native(logger: Logger, args: argparse.Nam
             return {"error": "NO_SETTINGS_BUTTON", "state": state}
         try:
             click_review_rect(settings_state.get("rect"))
-            time.sleep(1.0)
+            time.sleep(diantoushi_click_settle(args))
             state = review_download_control_state()
             logger.log(json.dumps({"review_settings_open_native": {
                 "panelOpen": bool(state.get("panelOpen")),
@@ -3556,14 +3871,14 @@ def configure_review_download_settings_native(logger: Logger, args: argparse.Nam
             return {"error": "NO_SETTINGS_BUTTON_AFTER_NATIVE_OPEN", "state": state}
         opened = open_review_settings_panel()
         logger.log(json.dumps({"review_settings_open": opened}, ensure_ascii=False, indent=2))
-        time.sleep(1.0)
+        time.sleep(diantoushi_click_settle(args))
         state = review_download_control_state()
     if not state.get("panelOpen"):
         settings_state = state.get("settings") or {}
         if settings_state.get("found"):
             try:
                 click_review_rect(settings_state.get("rect"))
-                time.sleep(1.0)
+                time.sleep(diantoushi_click_settle(args))
                 state = review_download_control_state()
                 logger.log(json.dumps({"review_settings_open_native_retry": {
                     "panelOpen": bool(state.get("panelOpen")),
@@ -3580,12 +3895,12 @@ def configure_review_download_settings_native(logger: Logger, args: argparse.Nam
     if not page_radio.get("checked"):
         forced = set_review_page_range_dom(1, want_pages)
         logger.log(json.dumps({"review_page_range_dom_select": forced}, ensure_ascii=False, indent=2))
-        time.sleep(1.0)
+        time.sleep(diantoushi_click_settle(args))
         state = review_download_control_state()
     if not (state.get("pageRadio") or {}).get("checked"):
         forced = set_review_page_range_dom(1, want_pages)
         logger.log(json.dumps({"review_page_range_force_select": forced}, ensure_ascii=False, indent=2))
-        time.sleep(0.8)
+        time.sleep(diantoushi_click_settle(args))
         state = review_download_control_state()
 
     page_inputs = state.get("pageInputs") or []
@@ -3596,9 +3911,9 @@ def configure_review_download_settings_native(logger: Logger, args: argparse.Nam
 
     for item, value in zip(page_inputs[:2], ("1", str(want_pages))):
         click_review_rect(item.get("rect"))
-        time.sleep(0.15)
+        time.sleep(min(0.2, diantoushi_click_settle(args)))
         mac_replace_text(value)
-        time.sleep(0.35)
+        time.sleep(min(0.35, diantoushi_click_settle(args)))
 
     state = review_download_control_state()
     page_inputs = state.get("pageInputs") or []
@@ -3606,7 +3921,7 @@ def configure_review_download_settings_native(logger: Logger, args: argparse.Nam
     if values != ["1", str(want_pages)]:
         forced = set_review_page_range_dom(1, want_pages)
         logger.log(json.dumps({"review_page_range_force_values": forced}, ensure_ascii=False, indent=2))
-        time.sleep(0.5)
+        time.sleep(diantoushi_click_settle(args))
         state = review_download_control_state()
         page_inputs = state.get("pageInputs") or []
         values = [str(item.get("value") or "") for item in page_inputs[:2]]
@@ -3629,7 +3944,7 @@ def configure_review_download_settings_native(logger: Logger, args: argparse.Nam
         if wanted is None or not check.get("found") or bool(check.get("checked")) == wanted:
             continue
         click_review_rect(check.get("rect"))
-        time.sleep(0.5)
+        time.sleep(diantoushi_click_settle(args))
         state = review_download_control_state()
 
     actual_checks = {
@@ -3650,12 +3965,12 @@ def configure_review_download_settings_native(logger: Logger, args: argparse.Nam
         return {"error": "NO_FILTER_DEFAULT_REVIEW_SWITCH", "state": state}
     if not filter_state.get("checked"):
         click_review_rect(filter_state.get("rect"))
-        time.sleep(0.8)
+        time.sleep(diantoushi_click_settle(args))
         state = review_download_control_state()
         if not (state.get("filter") or {}).get("checked"):
             forced_filter = set_review_filter_default_dom(True)
             logger.log(json.dumps({"review_filter_force_enable": forced_filter}, ensure_ascii=False, indent=2))
-            time.sleep(0.8)
+            time.sleep(diantoushi_click_settle(args))
             state = review_download_control_state()
             if not (state.get("filter") or {}).get("checked"):
                 return {"error": "FILTER_DEFAULT_REVIEW_NOT_ENABLED", "state": state}
@@ -3671,7 +3986,7 @@ def configure_review_download_settings_native(logger: Logger, args: argparse.Nam
     return result
 
 
-def click_review_batch_download(logger: Logger) -> dict[str, Any]:
+def click_review_batch_download(logger: Logger, args: Optional[argparse.Namespace] = None) -> dict[str, Any]:
     logger.section("click review batch download")
     state = review_download_control_state()
     if state.get("error"):
@@ -3681,7 +3996,7 @@ def click_review_batch_download(logger: Logger) -> dict[str, Any]:
         settings = state.get("settings") or {}
         if settings.get("found"):
             click_review_rect(settings.get("rect"))
-            time.sleep(1.0)
+            time.sleep(diantoushi_click_settle(args))
             state = review_download_control_state()
             close_attempts.append({
                 "method": "settings_toggle",
@@ -3690,7 +4005,7 @@ def click_review_batch_download(logger: Logger) -> dict[str, Any]:
         if state.get("panelOpen"):
             try:
                 dom_closed = close_review_settings_panel_dom()
-                time.sleep(0.6)
+                time.sleep(diantoushi_click_settle(args))
                 state = review_download_control_state()
                 close_attempts.append({
                     "method": "dom_hide_popover",
@@ -3707,7 +4022,7 @@ def click_review_batch_download(logger: Logger) -> dict[str, Any]:
     if batch.get("disabled"):
         return {"error": "BATCH_DOWNLOAD_BUTTON_DISABLED", "state": state}
     click_review_rect(batch.get("rect"))
-    time.sleep(0.8)
+    time.sleep(diantoushi_click_settle(args))
     return {
         "clicked": "批量下载",
         "native_clicked": True,
@@ -3762,6 +4077,7 @@ def wait_for_review_download(
     before_downloads: dict[str, tuple[int, int]],
     timeout: int = 180,
     poll_interval: float = 2.0,
+    stable_wait: float = 0.35,
 ) -> list[Path]:
     logger.section("wait review comments download")
     download_dir = Path.home() / "Downloads"
@@ -3776,7 +4092,7 @@ def wait_for_review_download(
         for path in candidates:
             try:
                 size_1 = path.stat().st_size
-                time.sleep(0.35)
+                time.sleep(stable_wait)
                 size_2 = path.stat().st_size
             except FileNotFoundError:
                 continue
@@ -4213,9 +4529,9 @@ def export_review_comments(logger: Logger, args: argparse.Namespace, item_id: st
     if args.skip_reviews:
         return {"ok": False, "status": "skipped_by_arg", "product_id": item_id, "time": now_stamp()}
     open_review_dialog(logger, args)
-    filter_result = ensure_review_filter_default(logger)
+    filter_result = ensure_review_filter_default(logger, args)
     select_all_result = select_review_all_loaded_rows_dom(logger)
-    content_settings = configure_review_download_content_native(logger)
+    content_settings = configure_review_download_content_native(logger, args)
     if not select_all_result.get("ok"):
         logger.log(json.dumps({
             "review_select_all_warning": "未能点选表格全选，回退到按页数下载设置",
@@ -4240,7 +4556,7 @@ def export_review_comments(logger: Logger, args: argparse.Namespace, item_id: st
         }, ensure_ascii=False, indent=2))
     run_guard(logger, "before review batch download")
     before_downloads = download_snapshot(Path.home() / "Downloads")
-    click_result = click_review_batch_download(logger)
+    click_result = click_review_batch_download(logger, args)
     logger.log(json.dumps({"review_batch_download_click": click_result}, ensure_ascii=False, indent=2))
     if click_result.get("error"):
         return build_review_comments_payload_from_clipboard(
@@ -4250,13 +4566,16 @@ def export_review_comments(logger: Logger, args: argparse.Namespace, item_id: st
             f"Could not click review batch download: {click_result}",
         )
     total_timeout = review_timeout_seconds(args)
-    first_wait = min(45, max(20, total_timeout // 3))
+    review_first_wait_floor = 10 if getattr(args, "speed_profile", "") == "fast" else 20
+    review_retry_wait_floor = 30 if getattr(args, "speed_profile", "") == "fast" else 60
+    first_wait = min(30 if getattr(args, "speed_profile", "") == "fast" else 45, max(review_first_wait_floor, total_timeout // 3))
     try:
         downloaded = wait_for_review_download(
             logger,
             before_downloads,
             timeout=first_wait,
             poll_interval=download_poll_interval(args),
+            stable_wait=diantoushi_file_stable_wait(args),
         )
     except RuntimeError as first_exc:
         logger.log(json.dumps({
@@ -4265,7 +4584,7 @@ def export_review_comments(logger: Logger, args: argparse.Namespace, item_id: st
         }, ensure_ascii=False, indent=2))
         run_guard(logger, "before review batch download retry")
         before_retry = download_snapshot(Path.home() / "Downloads")
-        retry_click = click_review_batch_download(logger)
+        retry_click = click_review_batch_download(logger, args)
         logger.log(json.dumps({"review_batch_download_retry_click": retry_click}, ensure_ascii=False, indent=2))
         if retry_click.get("error"):
             return build_review_comments_payload_from_clipboard(
@@ -4278,8 +4597,9 @@ def export_review_comments(logger: Logger, args: argparse.Namespace, item_id: st
             downloaded = wait_for_review_download(
                 logger,
                 before_retry,
-                timeout=max(60, total_timeout - first_wait),
+                timeout=max(review_retry_wait_floor, total_timeout - first_wait),
                 poll_interval=download_poll_interval(args),
+                stable_wait=diantoushi_file_stable_wait(args),
             )
         except RuntimeError as second_exc:
             return build_review_comments_payload_from_clipboard(
@@ -4562,7 +4882,7 @@ def export_current_product(
     target_dir: Optional[Path] = None,
     toolbar: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
-    toolbar = toolbar or wait_for_toolbar(logger)
+    toolbar = toolbar or wait_for_toolbar(logger, poll_interval=diantoushi_poll_interval(args))
     item_id = toolbar.get("item_id") or selected.get("item_id") or parse_item_id(chrome_title_url()["url"])
     if not item_id:
         raise RuntimeError("Could not determine item ID after navigation.")
@@ -4712,7 +5032,12 @@ def run_batch_pipeline(args: argparse.Namespace, logger: Logger) -> dict[str, An
             logger.section(f"batch item {selected_total}/{total_label} {item_id}")
             logger.log(json.dumps(selected, ensure_ascii=False, indent=2))
             try:
-                toolbar = navigate_to_product_with_toolbar(logger, selected, item_id)
+                toolbar = navigate_to_product_with_toolbar(
+                    logger,
+                    selected,
+                    item_id,
+                    toolbar_poll_interval=diantoushi_poll_interval(args),
+                )
                 summary = export_current_product(logger, args, selected, item_dir, toolbar=toolbar)
                 results.append(summary)
             except Exception as exc:
@@ -4798,10 +5123,20 @@ def run_pipeline(args: argparse.Namespace, logger: Logger) -> dict[str, Any]:
     logger.log(json.dumps(vars(args), ensure_ascii=False, indent=2))
     if args.product_url:
         selected = {"href": args.product_url, "item_id": parse_item_id(args.product_url), "selection": "direct_url"}
-        toolbar = navigate_to_product_with_toolbar(logger, selected, selected.get("item_id") or "direct")
+        toolbar = navigate_to_product_with_toolbar(
+            logger,
+            selected,
+            selected.get("item_id") or "direct",
+            toolbar_poll_interval=diantoushi_poll_interval(args),
+        )
     else:
         selected = choose_highest_sales_product(logger, args.product_name, min_price=args.min_price, max_price=args.max_price)
-        toolbar = navigate_to_product_with_toolbar(logger, selected, selected.get("item_id") or "selected")
+        toolbar = navigate_to_product_with_toolbar(
+            logger,
+            selected,
+            selected.get("item_id") or "selected",
+            toolbar_poll_interval=diantoushi_poll_interval(args),
+        )
     item_id = toolbar.get("item_id") or selected.get("item_id") or parse_item_id(chrome_title_url()["url"])
     if not item_id:
         raise RuntimeError("Could not determine item ID after navigation.")
@@ -4963,6 +5298,8 @@ def spawn_background(args: argparse.Namespace) -> dict[str, Any]:
         command += ["--review-timeout", str(args.review_timeout)]
     if args.skip_reviews:
         command.append("--skip-reviews")
+    if args.skip_product_images:
+        command.append("--skip-product-images")
     if args.prefetch_candidates_first:
         command.append("--prefetch-candidates-first")
     if args.search_pages != 5:
@@ -4999,14 +5336,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--analysis-target-margin", type=float, default=0.30, help="Target gross margin for post-import profit simulation.")
     parser.add_argument("--top-n", type=int, default=1, help="Export the top N search results by visible sales/payment count. Use 100 for Top100 batch mode.")
     parser.add_argument("--master-dir", help="Batch output root directory. Defaults to Desktop/店透视批量导出-<product>-TopN-<timestamp>.")
-    parser.add_argument("--speed-profile", choices=sorted(SPEED_PROFILES), default="balanced", help="Download pacing profile. All profiles keep >=20s export cooldown; fast shortens dead waits.")
+    parser.add_argument("--speed-profile", choices=sorted(SPEED_PROFILES), default="balanced", help="Download pacing profile. fast uses shorter 店透视 export cooldowns; conservative/balanced keep >=20s cooldown.")
     parser.add_argument("--batch-delay", type=float, default=None, help="Seconds to wait between products in batch mode. Defaults by --speed-profile; MySQL import time counts toward this cooldown.")
-    parser.add_argument("--export-cooldown", type=float, default=None, help="Minimum seconds between heavy 店透视 export actions. Values below 20 are raised to 20.")
+    parser.add_argument("--export-cooldown", type=float, default=None, help="Minimum seconds between heavy 店透视 export actions. fast allows >=8s; conservative/balanced raise values below 20 to 20.")
     parser.add_argument("--ask-ready-timeout", type=float, default=None, help="Seconds to wait for 问大家 dialog readiness before marking it partial. Defaults by --speed-profile.")
     parser.add_argument("--download-poll-interval", type=float, default=None, help="Filesystem polling interval while waiting for downloaded xlsx files. Defaults by --speed-profile.")
     parser.add_argument("--review-pages", type=int, default=10, help="Download 店透视评价分析 comments from page 1 through this page. Defaults to 10.")
     parser.add_argument("--review-timeout", type=int, default=None, help="Seconds to wait for 店透视评价分析 comment export to finish. Defaults by --speed-profile.")
     parser.add_argument("--skip-reviews", action="store_true", help="Skip 店透视评价分析 comment export.")
+    parser.add_argument("--skip-product-images", action="store_true", help="Skip 店透视 商品图 main/detail image download attempt.")
     parser.add_argument("--prefetch-candidates-first", action="store_true", help="Old batch behavior: scan pages until enough candidates are collected before starting downloads. Default downloads page 1 first, then later pages only if needed.")
     parser.add_argument("--search-pages", type=int, default=5, help="Maximum Taobao search result pages to scan when collecting Top N candidates.")
     parser.add_argument("--min-price", type=float, default=None, help="Only download products whose parsed search-card price is >= this value.")
