@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { Search, RotateCcw, Plus, Upload, ChevronDown, ChevronRight, X, Calendar } from "lucide-react";
 import { PageHeader } from "@/app/components/PageHeader";
+import { hasButtonPermission } from "@/app/utils/permission";
+import { usePlatforms } from "@/app/hooks/usePlatforms";
 
 type SKU = {
   skuImage: string | null;
@@ -319,12 +321,19 @@ const initialProducts: Product[] = [
 ];
 
 const statusOptions = ["草稿", "已发布", "发布失败", "审核中"];
-const platforms = ["淘宝", "天猫", "京东", "拼多多", "抖店"];
 
 export function ProductManagement() {
   const navigate = useNavigate();
+  const { platforms } = usePlatforms();
   const [products, setProducts] = useState<Product[]>(initialProducts);
-  const [activePlatform, setActivePlatform] = useState("淘宝");
+  const [activePlatform, setActivePlatform] = useState("");
+
+  // 平台加载后默认选中第一个平台
+  useEffect(() => {
+    if (!activePlatform && platforms.length) {
+      setActivePlatform(platforms[0].platformName);
+    }
+  }, [platforms, activePlatform]);
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
   const [toast, setToast] = useState<{ message: string; visible: boolean }>({ message: "", visible: false });
   const [showPublishDropdown, setShowPublishDropdown] = useState(false);
@@ -474,16 +483,16 @@ export function ProductManagement() {
       <div className="mb-2 flex border-b border-[#e6e9ef]">
         {platforms.map((p) => (
           <button
-            key={p}
-            onClick={() => setActivePlatform(p)}
+            key={p.platformId}
+            onClick={() => setActivePlatform(p.platformName)}
             className={`relative px-5 py-2 text-[14px] font-bold transition-colors ${
-              activePlatform === p
+              activePlatform === p.platformName
                 ? "text-[#409eff]"
                 : "text-[#0A1B39] hover:text-[#409eff]"
             }`}
           >
-            {p}
-            {activePlatform === p && (
+            {p.platformName}
+            {activePlatform === p.platformName && (
               <span className="absolute bottom-0 left-0 right-0 h-[2px] bg-[#409eff]" />
             )}
           </button>
@@ -697,14 +706,16 @@ export function ProductManagement() {
 
       {/* Action Buttons */}
       <div className="mb-4 flex gap-3">
-        <button
-          type="button"
-          onClick={() => navigate("/product/management/manual", { state: { platform: activePlatform } })}
-          className="flex h-9 items-center gap-1.5 rounded-lg bg-[#409eff] px-4 text-[14px] font-bold text-white transition-colors hover:bg-[#66b1ff]"
-        >
-          <Plus className="h-4 w-4" />
-          发布商品
-        </button>
+        {hasButtonPermission(2006) && (
+          <button
+            type="button"
+            onClick={() => navigate("/product/management/manual", { state: { platform: activePlatform } })}
+            className="flex h-9 items-center gap-1.5 rounded-lg bg-[#409eff] px-4 text-[14px] font-bold text-white transition-colors hover:bg-[#66b1ff]"
+          >
+            <Plus className="h-4 w-4" />
+            发布商品
+          </button>
+        )}
         <button
           onClick={handleSync}
           className="flex items-center gap-1.5 h-9 rounded-lg border border-[#e6e9ef] bg-white px-4 text-[14px] font-bold text-[#0A1B39] hover:bg-[#f5f6f8]"
@@ -822,14 +833,16 @@ function ProductRow({
         <td className="py-3 pr-2 text-[14px] text-[#0A1B39]">{product.createTime}</td>
         <td className="py-3 pr-4">
           <div className="flex items-center gap-3">
-            <button className="text-[14px] text-[#409eff] hover:text-[#66b1ff]">编辑</button>
-            <button className="text-[14px] text-[#409eff] hover:text-[#66b1ff]">发布</button>
-            <button
-              onClick={onToggleListing}
-              className="text-[14px] text-[#409eff] hover:text-[#66b1ff]"
-            >
-              {product.listingStatus === "上架" ? "下架" : "上架"}
-            </button>
+            {hasButtonPermission(2007) && <button className="text-[14px] text-[#409eff] hover:text-[#66b1ff]">编辑</button>}
+            {hasButtonPermission(2008) && <button className="text-[14px] text-[#409eff] hover:text-[#66b1ff]">发布</button>}
+            {hasButtonPermission(2009) && (
+              <button
+                onClick={onToggleListing}
+                className="text-[14px] text-[#409eff] hover:text-[#66b1ff]"
+              >
+                {product.listingStatus === "上架" ? "下架" : "上架"}
+              </button>
+            )}
           </div>
         </td>
       </tr>

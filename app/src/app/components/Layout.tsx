@@ -8,6 +8,7 @@ type NavItem = {
   to?: string;
   label: string;
   icon: ReactNode;
+  menuId?: number; // 菜单权限ID（叶子菜单项）
   children?: NavItem[];
 };
 
@@ -20,8 +21,8 @@ const nav: NavItem[] = [
         label: "竞品分析",
         icon: <Target className="h-4 w-4 shrink-0" />,
         children: [
-          { to: "/market/competitive/ai-collect", label: "AI数据采集", icon: <Cpu className="h-4 w-4 shrink-0" /> },
-          { to: "/market/competitive/report", label: "分析报告", icon: <FileBarChart className="h-4 w-4 shrink-0" /> },
+          { to: "/market/competitive/ai-collect", label: "AI数据采集", menuId: 1001, icon: <Cpu className="h-4 w-4 shrink-0" /> },
+          { to: "/market/competitive/report", label: "分析报告", menuId: 1002, icon: <FileBarChart className="h-4 w-4 shrink-0" /> },
         ],
       },
     ],
@@ -30,38 +31,54 @@ const nav: NavItem[] = [
     label: "AIGC",
     icon: <Sparkles className="h-4 w-4 shrink-0" />,
     children: [
-      { to: "/product-sets", label: "商品主图", icon: <WalletCards className="h-4 w-4 shrink-0" /> },
-      { to: "/aplus", label: "详情图", icon: <FileText className="h-4 w-4 shrink-0" /> },
-      { to: "/replicate", label: "爆款图复刻", icon: <Copy className="h-4 w-4 shrink-0" /> },
-      { to: "/video-replicate", label: "爆款视频复刻", icon: <Video className="h-4 w-4 shrink-0" /> },
+      { to: "/product-sets", label: "商品主图", menuId: 1003, icon: <WalletCards className="h-4 w-4 shrink-0" /> },
+      { to: "/aplus", label: "详情图", menuId: 1004, icon: <FileText className="h-4 w-4 shrink-0" /> },
+      { to: "/replicate", label: "爆款图复刻", menuId: 1005, icon: <Copy className="h-4 w-4 shrink-0" /> },
+      { to: "/video-replicate", label: "爆款视频复刻", menuId: 1006, icon: <Video className="h-4 w-4 shrink-0" /> },
     ],
   },
   {
     label: "资产库",
     icon: <FolderOpen className="h-4 w-4 shrink-0" />,
     children: [
-      { to: "/asset/image-gallery", label: "图库", icon: <Image className="h-4 w-4 shrink-0" /> },
-      { to: "/asset/video-gallery", label: "视频库", icon: <Film className="h-4 w-4 shrink-0" /> },
+      { to: "/asset/image-gallery", label: "图库", menuId: 1007, icon: <Image className="h-4 w-4 shrink-0" /> },
+      { to: "/asset/video-gallery", label: "视频库", menuId: 1008, icon: <Film className="h-4 w-4 shrink-0" /> },
     ],
   },
   {
     label: "商品",
     icon: <ShoppingBag className="h-4 w-4 shrink-0" />,
     children: [
-      { to: "/product/master-data", label: "商品主档", icon: <Database className="h-4 w-4 shrink-0" /> },
-      { to: "/product/management", label: "平台商品", icon: <Package className="h-4 w-4 shrink-0" /> },
+      { to: "/product/master-data", label: "商品主档", menuId: 1009, icon: <Database className="h-4 w-4 shrink-0" /> },
+      { to: "/product/management", label: "平台商品", menuId: 1010, icon: <Package className="h-4 w-4 shrink-0" /> },
     ],
   },
   {
     label: "设置",
     icon: <Settings className="h-4 w-4 shrink-0" />,
     children: [
-      { to: "/settings/account", label: "账号管理", icon: <UserCog className="h-4 w-4 shrink-0" /> },
-      { to: "/settings/role", label: "角色管理", icon: <Users className="h-4 w-4 shrink-0" /> },
-      { to: "/settings/store", label: "店铺管理", icon: <Store className="h-4 w-4 shrink-0" /> },
+      { to: "/settings/account", label: "账号管理", menuId: 1011, icon: <UserCog className="h-4 w-4 shrink-0" /> },
+      { to: "/settings/role", label: "角色管理", menuId: 1012, icon: <Users className="h-4 w-4 shrink-0" /> },
+      { to: "/settings/store", label: "店铺管理", menuId: 1013, icon: <Store className="h-4 w-4 shrink-0" /> },
     ],
   },
 ];
+
+// 根据菜单权限过滤导航树（无 menuId 的分组节点保留；有 menuId 的叶子按权限过滤）
+function filterNavByPermission(items: NavItem[], menuPermissionSet: Set<number>): NavItem[] {
+  const result: NavItem[] = [];
+  for (const item of items) {
+    if (item.children) {
+      const children = filterNavByPermission(item.children, menuPermissionSet);
+      if (children.length > 0) {
+        result.push({ ...item, children });
+      }
+    } else if (item.menuId == null || menuPermissionSet.has(item.menuId)) {
+      result.push(item);
+    }
+  }
+  return result;
+}
 
 function hasActiveChild(item: NavItem, pathname: string): boolean {
   if (!item.children) return false;
@@ -106,6 +123,43 @@ export function Layout() {
     return saved ? new Set(JSON.parse(saved)) : new Set();
   });
   const [hoveredFlyout, setHoveredFlyout] = useState<string | null>(null);
+  const [menuPermissionIds, setMenuPermissionIds] = useState<number[]>([]);
+
+  // 登录后读取当前账号的菜单权限；并向后端刷新最新权限（角色权限变更后刷新页面即可生效）
+  useEffect(() => {
+    let cancelled = false;
+
+    // 先用本地缓存的权限兜底展示
+    try {
+      const saved = localStorage.getItem("user_permissions");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        setMenuPermissionIds(Array.isArray(parsed?.menuPermissionIds) ? parsed.menuPermissionIds : []);
+      }
+    } catch {
+      // 忽略
+    }
+
+    // 向后端刷新最新权限
+    const currentUser = localStorage.getItem("current_user");
+    if (currentUser) {
+      fetch(`/api/account/permissions?account=${encodeURIComponent(currentUser)}`)
+        .then((res) => res.json())
+        .then((data) => {
+          if (cancelled || !data?.ok) return;
+          const permissions = data.permissions || { menuPermissionIds: [], buttonPermissionIds: [], storePermissionIds: [] };
+          localStorage.setItem("user_permissions", JSON.stringify(permissions));
+          setMenuPermissionIds(Array.isArray(permissions.menuPermissionIds) ? permissions.menuPermissionIds : []);
+        })
+        .catch(() => {});
+    }
+
+    return () => { cancelled = true; };
+  }, []);
+
+  // 权限为空时显示全部菜单（兜底）；有权限时按权限过滤
+  const menuPermissionSet = new Set(menuPermissionIds);
+  const filteredNav = menuPermissionSet.size > 0 ? filterNavByPermission(nav, menuPermissionSet) : nav;
 
   useEffect(() => {
     localStorage.setItem("sidebar_expanded", JSON.stringify(expanded));
@@ -126,7 +180,7 @@ export function Layout() {
   useEffect(() => {
     setExpandedGroups((prev) => {
       const next = new Set(prev);
-      nav.forEach((item) => {
+      filteredNav.forEach((item) => {
         if (item.children && hasActiveChild(item, location.pathname) && !manuallyCollapsed.has(item.label)) {
           next.add(item.label);
           item.children.forEach((child) => {
@@ -288,7 +342,7 @@ export function Layout() {
             {expanded && <span className="text-[18px] font-extrabold tracking-[-0.02em]">繁星</span>}
           </div>
           <nav className={`flex flex-col gap-2 px-3 pt-4 flex-1 ${expanded ? "overflow-y-auto custom-scrollbar" : "overflow-visible"}`}>
-            {renderNavItems(nav)}
+            {renderNavItems(filteredNav)}
           </nav>
           <div className={`${expanded ? "px-5 pb-4 flex items-end justify-between" : "pb-4 flex flex-col items-center gap-3"}`}>
             <div

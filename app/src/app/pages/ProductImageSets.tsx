@@ -7,6 +7,7 @@ import detailExplain from "@/imports/image-12.png";
 import sellingPoint from "@/imports/image-13.png";
 import suiteArrow from "@/imports/箭头.svg";
 import { useSidebar } from "@/app/components/SidebarContext";
+import { usePlatforms } from "@/app/hooks/usePlatforms";
 import { AiHelpPopover } from "@/app/components/AiHelpPopover";
 import { ProductImageHelpTooltip } from "@/app/components/ProductImageHelpTooltip";
 import { AIReportSelector, SectionTitle, type SuiteProduct } from "@/app/components/AIReportSelector";
@@ -777,6 +778,11 @@ function buildDynamicCustomVariant(
 
 export function ProductImageSets() {
   const { expanded } = useSidebar();
+  const { platforms } = usePlatforms();
+  const platformOptions = useMemo(
+    () => platforms.length ? platforms.map((platform) => platform.platformName) : GENERATION_OPTIONS.platform,
+    [platforms],
+  );
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const aiHelpButtonRef = useRef<HTMLButtonElement | null>(null);
   const resizePanelRef = useRef<HTMLDivElement | null>(null);
@@ -814,6 +820,12 @@ export function ProductImageSets() {
   const [generationActionPanel, setGenerationActionPanel] = useState<GenerationActionPanel | null>(null);
   const [resizePanel, setResizePanel] = useState<ResizePanelState | null>(null);
   const [lightbox, setLightbox] = useState<{ src: string; title: string } | null>(null);
+
+  useEffect(() => {
+    if (platformOptions.length && !platformOptions.includes(settings.platform)) {
+      setSettings((prev) => ({ ...prev, platform: platformOptions[0] }));
+    }
+  }, [platformOptions, settings.platform]);
 
   useEffect(() => {
     if (!resizePanel) return;
@@ -2307,7 +2319,7 @@ export function ProductImageSets() {
 
         <SectionTitle>生成设置</SectionTitle>
         <div className="mb-4 grid grid-cols-2 gap-3">
-          <SelectBox value={settings.platform} options={GENERATION_OPTIONS.platform} open={openSetting === "platform"} onToggle={() => setOpenSetting(openSetting === "platform" ? null : "platform")} onSelect={(value) => updateSetting("platform", value)} />
+          <SelectBox value={settings.platform} options={platformOptions} open={openSetting === "platform"} onToggle={() => setOpenSetting(openSetting === "platform" ? null : "platform")} onSelect={(value) => updateSetting("platform", value)} />
           <SelectBox value={settings.country} options={GENERATION_OPTIONS.country} open={openSetting === "country"} onToggle={() => setOpenSetting(openSetting === "country" ? null : "country")} onSelect={(value) => updateSetting("country", value)} />
           <SelectBox value={settings.language} options={GENERATION_OPTIONS.language} open={openSetting === "language"} onToggle={() => setOpenSetting(openSetting === "language" ? null : "language")} onSelect={(value) => updateSetting("language", value)} />
           <SelectBox value={settings.ratio} options={GENERATION_OPTIONS.ratio} open={openSetting === "ratio"} onToggle={() => setOpenSetting(openSetting === "ratio" ? null : "ratio")} onSelect={(value) => updateSetting("ratio", value)} />

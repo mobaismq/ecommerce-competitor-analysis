@@ -81,6 +81,21 @@ const {
   fetchTaobaoShops,
   getTaobaoConfigStatus,
 } = await import('../app/src/server/taobaoTopClient.js')
+const { createRole, deleteRole, listRoles, updateRole } = await import('../app/src/server/roleManagement.js')
+const { createDept, deleteDept, listDepts, updateDept } = await import('../app/src/server/deptManagement.js')
+const {
+  changeAccountPassword,
+  checkAccountDuplicate,
+  createAccount,
+  deleteAccount,
+  getAccountPermissions,
+  listAccounts,
+  loginAccount,
+  updateAccount,
+} = await import('../app/src/server/accountManagement.js')
+const { listMenus } = await import('../app/src/server/menuManagement.js')
+const { createPlatform, deletePlatform, listPlatforms, updatePlatform } = await import('../app/src/server/platformManagement.js')
+const { createStore, deleteStore, listStores, updateStore } = await import('../app/src/server/storeManagement.js')
 
 let currentReport = readReportState()
 let currentReportJob = null
@@ -664,6 +679,190 @@ async function handleApi(req, res) {
     }
   }
 
+  if (req.method === 'GET' && pathname === '/api/role/list') {
+    const payload = await listRoles({
+      page: requestUrl.searchParams.get('page') || 1,
+      pageSize: requestUrl.searchParams.get('pageSize') || requestUrl.searchParams.get('size') || 10,
+      roleName: requestUrl.searchParams.get('roleName') || requestUrl.searchParams.get('name') || '',
+      roleId: requestUrl.searchParams.get('roleId') || requestUrl.searchParams.get('id') || '',
+      status: requestUrl.searchParams.get('status') || '',
+      isDeleted: requestUrl.searchParams.get('isDeleted') ?? requestUrl.searchParams.get('deleted') ?? '',
+      startTime: requestUrl.searchParams.get('startTime') || '',
+      endTime: requestUrl.searchParams.get('endTime') || '',
+    })
+    return sendJson(res, 200, payload)
+  }
+
+  if (req.method === 'POST' && pathname === '/api/role/create') {
+    const body = await readBody(req)
+    return sendJson(res, 200, await createRole(body || {}))
+  }
+
+  if (req.method === 'POST' && pathname === '/api/role/update') {
+    const body = await readBody(req)
+    return sendJson(res, 200, await updateRole(body || {}))
+  }
+
+  if (req.method === 'POST' && pathname === '/api/role/delete') {
+    const body = await readBody(req)
+    return sendJson(res, 200, await deleteRole(body || {}))
+  }
+
+  if (req.method === 'GET' && pathname === '/api/dept/list') {
+    const payload = await listDepts({
+      page: requestUrl.searchParams.get('page') || 1,
+      pageSize: requestUrl.searchParams.get('pageSize') || requestUrl.searchParams.get('size') || 10,
+      deptName: requestUrl.searchParams.get('deptName') || requestUrl.searchParams.get('name') || '',
+      deptId: requestUrl.searchParams.get('deptId') || requestUrl.searchParams.get('id') || '',
+      status: requestUrl.searchParams.get('status') || '',
+      isDeleted: requestUrl.searchParams.get('isDeleted') ?? requestUrl.searchParams.get('deleted') ?? '',
+      startTime: requestUrl.searchParams.get('startTime') || '',
+      endTime: requestUrl.searchParams.get('endTime') || '',
+    })
+    return sendJson(res, 200, payload)
+  }
+
+  if (req.method === 'POST' && pathname === '/api/dept/create') {
+    const body = await readBody(req)
+    return sendJson(res, 200, await createDept(body || {}))
+  }
+
+  if (req.method === 'POST' && pathname === '/api/dept/update') {
+    const body = await readBody(req)
+    return sendJson(res, 200, await updateDept(body || {}))
+  }
+
+  if (req.method === 'POST' && pathname === '/api/dept/delete') {
+    const body = await readBody(req)
+    return sendJson(res, 200, await deleteDept(body || {}))
+  }
+
+  if (req.method === 'POST' && pathname === '/api/account/login') {
+    const body = await readBody(req)
+    return sendJson(res, 200, await loginAccount(body || {}))
+  }
+
+  if (req.method === 'GET' && pathname === '/api/account/permissions') {
+    const payload = await getAccountPermissions({
+      account: requestUrl.searchParams.get('account') || requestUrl.searchParams.get('accountName') || '',
+    })
+    return sendJson(res, 200, payload)
+  }
+
+  if (req.method === 'GET' && pathname === '/api/account/list') {
+    const payload = await listAccounts({
+      page: requestUrl.searchParams.get('page') || 1,
+      pageSize: requestUrl.searchParams.get('pageSize') || requestUrl.searchParams.get('size') || 10,
+      accountName: requestUrl.searchParams.get('accountName') || requestUrl.searchParams.get('name') || '',
+      phone: requestUrl.searchParams.get('phone') || '',
+      roleId: requestUrl.searchParams.get('roleId') || '',
+      status: requestUrl.searchParams.get('status') || '',
+      isDeleted: requestUrl.searchParams.get('isDeleted') ?? requestUrl.searchParams.get('deleted') ?? '',
+      departmentId: requestUrl.searchParams.get('departmentId') || requestUrl.searchParams.get('deptId') || '',
+      departmentIds: requestUrl.searchParams.get('departmentIds') || requestUrl.searchParams.get('deptIds') || '',
+      startTime: requestUrl.searchParams.get('startTime') || '',
+      endTime: requestUrl.searchParams.get('endTime') || '',
+    })
+    return sendJson(res, 200, payload)
+  }
+
+  if (req.method === 'POST' && pathname === '/api/account/create') {
+    const body = await readBody(req)
+    return sendJson(res, 200, await createAccount(body || {}))
+  }
+
+  if (req.method === 'POST' && pathname === '/api/account/update') {
+    const body = await readBody(req)
+    return sendJson(res, 200, await updateAccount(body || {}))
+  }
+
+  if (req.method === 'POST' && pathname === '/api/account/delete') {
+    const body = await readBody(req)
+    return sendJson(res, 200, await deleteAccount(body || {}))
+  }
+
+  if (req.method === 'GET' && pathname === '/api/account/check-duplicate') {
+    const payload = await checkAccountDuplicate({
+      accountName: requestUrl.searchParams.get('accountName') || '',
+      phone: requestUrl.searchParams.get('phone') || '',
+      excludeAccountId: requestUrl.searchParams.get('excludeAccountId') || '',
+    })
+    return sendJson(res, 200, payload)
+  }
+
+  if (req.method === 'POST' && pathname === '/api/account/change-password') {
+    const body = await readBody(req)
+    return sendJson(res, 200, await changeAccountPassword(body || {}))
+  }
+
+  if (req.method === 'GET' && pathname === '/api/menu/list') {
+    return sendJson(res, 200, await listMenus())
+  }
+
+  if (req.method === 'GET' && pathname === '/api/platform/list') {
+    const payload = await listPlatforms({
+      page: requestUrl.searchParams.get('page') || 1,
+      pageSize: requestUrl.searchParams.get('pageSize') || requestUrl.searchParams.get('size') || 10,
+      platformName: requestUrl.searchParams.get('platformName') || requestUrl.searchParams.get('name') || '',
+      platformId: requestUrl.searchParams.get('platformId') || requestUrl.searchParams.get('id') || '',
+      status: requestUrl.searchParams.get('status') || '',
+      isDeleted: requestUrl.searchParams.get('isDeleted') ?? requestUrl.searchParams.get('deleted') ?? '',
+      startTime: requestUrl.searchParams.get('startTime') || '',
+      endTime: requestUrl.searchParams.get('endTime') || '',
+    })
+    return sendJson(res, 200, payload)
+  }
+
+  if (req.method === 'POST' && pathname === '/api/platform/create') {
+    const body = await readBody(req)
+    return sendJson(res, 200, await createPlatform(body || {}))
+  }
+
+  if (req.method === 'POST' && pathname === '/api/platform/update') {
+    const body = await readBody(req)
+    return sendJson(res, 200, await updatePlatform(body || {}))
+  }
+
+  if (req.method === 'POST' && pathname === '/api/platform/delete') {
+    const body = await readBody(req)
+    return sendJson(res, 200, await deletePlatform(body || {}))
+  }
+
+  if (req.method === 'GET' && pathname === '/api/store/list') {
+    const payload = await listStores({
+      page: requestUrl.searchParams.get('page') || 1,
+      pageSize: requestUrl.searchParams.get('pageSize') || requestUrl.searchParams.get('size') || 10,
+      storeName: requestUrl.searchParams.get('storeName') || requestUrl.searchParams.get('name') || '',
+      storeId: requestUrl.searchParams.get('storeId') || requestUrl.searchParams.get('id') || '',
+      storeIds: requestUrl.searchParams.get('storeIds') || '',
+      platformId: requestUrl.searchParams.get('platformId') || '',
+      platformStoreId: requestUrl.searchParams.get('platformStoreId') || '',
+      status: requestUrl.searchParams.get('status') || '',
+      authStatus: requestUrl.searchParams.get('authStatus') || '',
+      isDeleted: requestUrl.searchParams.get('isDeleted') ?? requestUrl.searchParams.get('deleted') ?? '',
+      authTimeStart: requestUrl.searchParams.get('authTimeStart') || '',
+      authTimeEnd: requestUrl.searchParams.get('authTimeEnd') || '',
+      authExpireTimeStart: requestUrl.searchParams.get('authExpireTimeStart') || '',
+      authExpireTimeEnd: requestUrl.searchParams.get('authExpireTimeEnd') || '',
+    })
+    return sendJson(res, 200, payload)
+  }
+
+  if (req.method === 'POST' && pathname === '/api/store/create') {
+    const body = await readBody(req)
+    return sendJson(res, 200, await createStore(body || {}))
+  }
+
+  if (req.method === 'POST' && pathname === '/api/store/update') {
+    const body = await readBody(req)
+    return sendJson(res, 200, await updateStore(body || {}))
+  }
+
+  if (req.method === 'POST' && pathname === '/api/store/delete') {
+    const body = await readBody(req)
+    return sendJson(res, 200, await deleteStore(body || {}))
+  }
+
   if (req.method === 'GET' && pathname === '/api/product-sets/products') {
     const payload = await listSuiteProducts((requestUrl.searchParams.get('q') || '').trim())
     return sendJson(res, 200, payload)
@@ -956,7 +1155,18 @@ const server = http.createServer(async (req, res) => {
   }
 
   const pathname = parseRequestUrl(req).pathname
-  if (!pathname.startsWith('/api/auth/') && !pathname.startsWith('/api/report/') && !pathname.startsWith('/api/product-sets/') && !pathname.startsWith('/api/taobao/')) {
+  if (
+    !pathname.startsWith('/api/auth/') &&
+    !pathname.startsWith('/api/report/') &&
+    !pathname.startsWith('/api/product-sets/') &&
+    !pathname.startsWith('/api/taobao/') &&
+    !pathname.startsWith('/api/role/') &&
+    !pathname.startsWith('/api/dept/') &&
+    !pathname.startsWith('/api/account/') &&
+    !pathname.startsWith('/api/menu/') &&
+    !pathname.startsWith('/api/platform/') &&
+    !pathname.startsWith('/api/store/')
+  ) {
     return sendJson(res, 404, { ok: false, error: 'API 不存在' })
   }
 

@@ -596,6 +596,30 @@ export default defineConfig({
         target: BACKEND_TARGET,
         changeOrigin: true,
       },
+      '/api/role': {
+        target: BACKEND_TARGET,
+        changeOrigin: true,
+      },
+      '/api/dept': {
+        target: BACKEND_TARGET,
+        changeOrigin: true,
+      },
+      '/api/account': {
+        target: BACKEND_TARGET,
+        changeOrigin: true,
+      },
+      '/api/menu': {
+        target: BACKEND_TARGET,
+        changeOrigin: true,
+      },
+      '/api/platform': {
+        target: BACKEND_TARGET,
+        changeOrigin: true,
+      },
+      '/api/store': {
+        target: BACKEND_TARGET,
+        changeOrigin: true,
+      },
     },
   },
 
