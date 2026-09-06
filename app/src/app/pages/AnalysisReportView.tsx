@@ -938,26 +938,48 @@ function ListingSellingPointsSection({ points, reportId }: { points?: AnyRecord 
   useEffect(() => {
     if (!reportId) return;
     let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let attempts = 0;
     setAiLoading(true);
     setAiError("");
-    fetch(`/api/report/main-image-ai-report?id=${encodeURIComponent(reportId)}`)
-      .then((res) => res.json())
-      .then((data) => {
-        if (cancelled) return;
-        if (data?.ok && data?.source === "ai" && data?.summary) {
-          setAiReport(data);
-        } else if (data?.error) {
-          setAiError(String(data.error));
-        }
+    // 后端在首次分析时会挂起请求直到完成；若请求被中断（后端重启/代理超时）
+    // 则每 8 秒自动重试，避免页面永远停在“分析中”
+    const retry = () => {
+      attempts += 1;
+      if (attempts >= 4) {
+        setAiError("AI 全主图分析请求失败，已回退到本地聚合结果。");
+        setAiLoading(false);
+        return;
+      }
+      timer = setTimeout(load, 8000);
+    };
+    const load = () => {
+      fetch(`/api/report/main-image-ai-report?id=${encodeURIComponent(reportId)}`, {
+        signal: AbortSignal.timeout(420000),
       })
-      .catch(() => {
-        if (!cancelled) setAiError("AI 全主图分析请求失败，已回退到本地聚合结果。");
-      })
-      .finally(() => {
-        if (!cancelled) setAiLoading(false);
-      });
+        .then((res) => res.json())
+        .then((data) => {
+          if (cancelled) return;
+          if (data?.ok && data?.source === "ai" && data?.summary) {
+            setAiReport(data);
+            setAiLoading(false);
+            return;
+          }
+          if (data?.error) {
+            setAiError(String(data.error));
+            setAiLoading(false);
+            return;
+          }
+          retry();
+        })
+        .catch(() => {
+          if (!cancelled) retry();
+        });
+    };
+    load();
     return () => {
       cancelled = true;
+      if (timer) clearTimeout(timer);
     };
   }, [reportId]);
 

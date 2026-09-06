@@ -22,6 +22,7 @@ function loadEnvFile(filePath) {
 }
 
 loadEnvFile(path.resolve(__dirname, '.env.local'))
+loadEnvFile(path.resolve(APP_DIR, '.env.local'))
 
 const PORT = Number(process.env.PORT || 8787)
 const HOST = process.env.HOST || '127.0.0.1'
@@ -33,6 +34,11 @@ const SESSION_TTL_SECONDS = Number(process.env.SESSION_TTL_SECONDS || 8 * 60 * 6
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin'
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || ''
 const SESSION_SECRET = process.env.SESSION_SECRET || ''
+const REPORT_PRODUCT_ANALYSIS_CONCURRENCY = Math.max(
+  1,
+  Math.min(8, Number(process.env.REPORT_PRODUCT_ANALYSIS_CONCURRENCY || 2)),
+)
+const AUTO_MAIN_IMAGE_AI_REPORT = process.env.AUTO_MAIN_IMAGE_AI_REPORT === 'true'
 
 if (IS_PRODUCTION) {
   const missing = []
@@ -47,6 +53,7 @@ process.chdir(APP_DIR)
 
 const {
   analyzeProductMainImageAndSave,
+  askDataAgent,
   deleteGeneratedMainImages,
   generateAiMarketReport,
   generateOverallReportFromProductMainImageReports,
@@ -56,6 +63,7 @@ const {
   getOpenAiSettings,
   getProductMainImageAnalysis,
   getSuiteMainImageDescriptions,
+  listDataAgentDatasets,
   listAnalysisReportRows,
   listGeneratedMainImages,
   listProductOptions,
@@ -353,6 +361,7 @@ function reportRequestFromBody(body) {
     targetPriceBand: String(body.targetPriceBand || '').trim(),
     collectionId: String(body.collectionId || body.id || '').trim(),
     generationMode: String(body.generationMode || body.mode || '').trim(),
+    autoImportProductReports: body.autoImportProductReports !== false,
     priceGroupingMode: String(body.priceGroupingMode || '').trim() === 'ai' ? 'ai' : 'manual',
     manualPriceBands: Array.isArray(body.manualPriceBands) ? body.manualPriceBands : [],
     aiPriceBandCount: Math.max(1, Math.min(6, Number(body.aiPriceBandCount || 3))),
@@ -409,13 +418,18 @@ function startReportJob(request) {
         const view = await getAnalysisProductsView({ id: request.collectionId, keyword: request.keyword })
         const safeLimit = Math.max(1, Math.min(200, Number(request.limit || view.products?.length || 120)))
         const selectedProducts = (view.products || []).slice(0, safeLimit)
-        const pendingProducts = selectedProducts.filter((product) => !product.mainImageAnalysisId)
-        let importedCount = selectedProducts.length - pendingProducts.length
+        const missingAnalysisProducts = selectedProducts.filter((product) => !product.mainImageAnalysisId)
+        const pendingProducts = request.autoImportProductReports === false
+          ? []
+          : missingAnalysisProducts
+        let importedCount = selectedProducts.length - missingAnalysisProducts.length
         const importFailures = []
 
         updateReportJobProgress({
           stage: 'product_main_image_import',
-          message: pendingProducts.length
+          message: request.autoImportProductReports === false
+            ? '快速模式：跳过单品主图分析入库，直接用商品数据生成整体报告'
+            : pendingProducts.length
             ? `需要先补齐 ${pendingProducts.length} 个商品的主图分析入库`
             : '该集合商品已全部完成单品主图分析入库',
           current: 0,
@@ -425,7 +439,9 @@ function startReportJob(request) {
               status: pendingProducts.length ? 'running' : 'completed',
               current: importedCount,
               total: selectedProducts.length,
-              message: pendingProducts.length ? '正在自动补齐未入库商品' : '无需补齐',
+              message: request.autoImportProductReports === false
+                ? '快速模式已跳过补齐'
+                : pendingProducts.length ? '正在自动补齐未入库商品' : '无需补齐',
             },
             { status: 'pending', message: '等待单品报告入库完成' },
             {
@@ -439,56 +455,95 @@ function startReportJob(request) {
           ),
         })
 
-        for (let index = 0; index < pendingProducts.length; index += 1) {
-          const product = pendingProducts[index]
-          const productTitle = product.title || product.productId || '未知商品'
-          updateReportJobProgress({
-            stage: 'product_main_image_import',
-            message: `正在主图分析入库 ${index + 1}/${pendingProducts.length}：${productTitle}`,
-            current: index,
-            total: pendingProducts.length + 1,
-            steps: overallReportSteps(
-              {
-                status: 'running',
-                current: importedCount,
-                total: selectedProducts.length,
-                message: `正在处理 ${productTitle}`,
-              },
-              { status: 'pending', message: '等待单品报告入库完成' },
-              {
-                status: 'pending',
-                message: request.priceGroupingMode === 'ai'
-                  ? '等待 AI 划分价格区间'
-                  : request.manualPriceBands?.length
-                    ? `已设置 ${request.manualPriceBands.length} 个手动价格区间`
-                    : '未设置手动价格区间，将按全量集合汇总',
-              },
-            ),
-          })
-          try {
-            await analyzeProductMainImageAndSave({
-              productId: product.productId,
-              keyword: request.keyword,
-              fallback: {
-                title: product.title,
-                productUrl: product.productUrl,
-                imageUrl: product.imageUrl,
-                price: product.price || product.priceRange,
-                soldCount: product.soldCount,
-                skus: product.skus,
-              },
-            })
-            importedCount += 1
-          } catch (error) {
-            importFailures.push({
-              productId: String(product.productId || ''),
-              title: String(product.title || ''),
-              error: error instanceof Error ? error.message : String(error || '主图分析失败'),
-            })
+        if (pendingProducts.length) {
+          const importConcurrency = Math.min(REPORT_PRODUCT_ANALYSIS_CONCURRENCY, pendingProducts.length)
+          let nextProductIndex = 0
+          let completedPendingCount = 0
+
+          async function runProductImportWorker() {
+            while (nextProductIndex < pendingProducts.length) {
+              const index = nextProductIndex
+              nextProductIndex += 1
+              const product = pendingProducts[index]
+              const productTitle = product.title || product.productId || '未知商品'
+              updateReportJobProgress({
+                stage: 'product_main_image_import',
+                message: importConcurrency > 1
+                  ? `正在并发主图分析入库 ${completedPendingCount}/${pendingProducts.length}（并发 ${importConcurrency}）：${productTitle}`
+                  : `正在主图分析入库 ${index + 1}/${pendingProducts.length}：${productTitle}`,
+                current: completedPendingCount,
+                total: pendingProducts.length + 1,
+                steps: overallReportSteps(
+                  {
+                    status: 'running',
+                    current: importedCount,
+                    total: selectedProducts.length,
+                    message: `正在处理 ${productTitle}`,
+                  },
+                  { status: 'pending', message: '等待单品报告入库完成' },
+                  {
+                    status: 'pending',
+                    message: request.priceGroupingMode === 'ai'
+                      ? '等待 AI 划分价格区间'
+                      : request.manualPriceBands?.length
+                        ? `已设置 ${request.manualPriceBands.length} 个手动价格区间`
+                        : '未设置手动价格区间，将按全量集合汇总',
+                  },
+                ),
+              })
+              try {
+                await analyzeProductMainImageAndSave({
+                  productId: product.productId,
+                  keyword: request.keyword,
+                  fallback: {
+                    title: product.title,
+                    productUrl: product.productUrl,
+                    imageUrl: product.imageUrl,
+                    price: product.price || product.priceRange,
+                    soldCount: product.soldCount,
+                    skus: product.skus,
+                  },
+                })
+                importedCount += 1
+              } catch (error) {
+                importFailures.push({
+                  productId: String(product.productId || ''),
+                  title: String(product.title || ''),
+                  error: error instanceof Error ? error.message : String(error || '主图分析失败'),
+                })
+              } finally {
+                completedPendingCount += 1
+                updateReportJobProgress({
+                  stage: 'product_main_image_import',
+                  message: `单品主图分析入库已完成 ${completedPendingCount}/${pendingProducts.length}`,
+                  current: completedPendingCount,
+                  total: pendingProducts.length + 1,
+                  steps: overallReportSteps(
+                    {
+                      status: completedPendingCount >= pendingProducts.length ? 'completed' : 'running',
+                      current: importedCount,
+                      total: selectedProducts.length,
+                      message: `已完成 ${completedPendingCount}/${pendingProducts.length} 个待入库商品`,
+                    },
+                    { status: 'pending', message: '等待单品报告入库完成' },
+                    {
+                      status: 'pending',
+                      message: request.priceGroupingMode === 'ai'
+                        ? '等待 AI 划分价格区间'
+                        : request.manualPriceBands?.length
+                          ? `已设置 ${request.manualPriceBands.length} 个手动价格区间`
+                          : '未设置手动价格区间，将按全量集合汇总',
+                    },
+                  ),
+                })
+              }
+            }
           }
+
+          await Promise.all(Array.from({ length: importConcurrency }, () => runProductImportWorker()))
         }
 
-        if (importedCount <= 0) {
+        if (importedCount <= 0 && request.autoImportProductReports !== false) {
           const reasonCounts = new Map()
           for (const item of importFailures) {
             const reasonText = String(item.error || '未知原因').replace(/[。.\s]+$/g, '')
@@ -594,7 +649,7 @@ function startReportJob(request) {
 
       writeReportState({ ...payload.report, reportJson: payload.reportJson, markdown: payload.markdown })
       const newRunId = payload?.report?.persistStats?.run_id
-      if (newRunId) {
+      if (newRunId && AUTO_MAIN_IMAGE_AI_REPORT) {
         getMainImageAiReport({ id: String(newRunId) }).catch((err) => {
           console.error('[main-image-ai-report] 自动生成失败：', err instanceof Error ? err.message : err)
         })
@@ -655,6 +710,24 @@ function startReportJob(request) {
 async function handleApi(req, res) {
   const requestUrl = parseRequestUrl(req)
   const pathname = requestUrl.pathname
+
+  if (req.method === 'GET' && pathname === '/api/agent/datasets') {
+    const payload = await listDataAgentDatasets({
+      keyword: (requestUrl.searchParams.get('keyword') || '').trim(),
+    })
+    return sendJson(res, 200, payload)
+  }
+
+  if (req.method === 'POST' && pathname === '/api/agent/ask') {
+    const body = await readBody(req)
+    const payload = await askDataAgent({
+      datasetId: body.datasetId,
+      keyword: body.keyword,
+      question: body.question,
+      history: body.history,
+    })
+    return sendJson(res, 200, payload)
+  }
 
   if (req.method === 'GET' && pathname === '/api/taobao/status') {
     return sendJson(res, 200, { ok: true, ...getTaobaoConfigStatus() })
@@ -1157,6 +1230,7 @@ const server = http.createServer(async (req, res) => {
   const pathname = parseRequestUrl(req).pathname
   if (
     !pathname.startsWith('/api/auth/') &&
+    !pathname.startsWith('/api/agent/') &&
     !pathname.startsWith('/api/report/') &&
     !pathname.startsWith('/api/product-sets/') &&
     !pathname.startsWith('/api/taobao/') &&

@@ -1,6 +1,8 @@
 import crypto from 'crypto'
 import fs from 'fs'
 import path from 'path'
+import { fileURLToPath } from 'url'
+import { spawn } from 'child_process'
 import mysql from 'mysql2/promise'
 
 function loadLocalEnv() {
@@ -85,8 +87,19 @@ export function saveOpenAiSettings({ apiKey, model }) {
 
 const MAX_VISION_IMAGES = Number(process.env.ARK_ANALYSIS_MAX_IMAGES || process.env.OPENAI_ANALYSIS_MAX_IMAGES || 100)
 const VISION_BATCH_SIZE = Math.max(1, Math.min(8, Number(process.env.ARK_ANALYSIS_BATCH_IMAGES || 4)))
-const ARK_ANALYSIS_TIMEOUT_MS = Number(process.env.ARK_ANALYSIS_TIMEOUT_MS || 240000)
+const ARK_ANALYSIS_TIMEOUT_MS = boundedEnvNumber('ARK_ANALYSIS_TIMEOUT_MS', 240000, 30000, 600000)
+const PRODUCT_MAIN_IMAGE_MAX_OUTPUT_TOKENS = boundedEnvNumber('ARK_PRODUCT_ANALYSIS_MAX_OUTPUT_TOKENS', 8000, 2000, 16000)
+const PRICE_BAND_MAX_OUTPUT_TOKENS = boundedEnvNumber('ARK_PRICE_BAND_MAX_OUTPUT_TOKENS', 3000, 1000, 8000)
+const VISION_BATCH_MAX_OUTPUT_TOKENS = boundedEnvNumber('ARK_VISION_BATCH_MAX_OUTPUT_TOKENS', 5000, 2000, 8000)
+const OVERALL_REPORT_MAX_OUTPUT_TOKENS = boundedEnvNumber('ARK_OVERALL_REPORT_MAX_OUTPUT_TOKENS', 10000, 4000, 16000)
+const DATA_AGENT_MAX_OUTPUT_TOKENS = boundedEnvNumber('ARK_DATA_AGENT_MAX_OUTPUT_TOKENS', 3000, 1000, 8000)
 const ARK_RESPONSES_ENDPOINT = 'https://ark.cn-beijing.volces.com/api/v3/responses'
+
+function boundedEnvNumber(name, fallback, min, max) {
+  const value = Number(process.env[name] || fallback)
+  if (!Number.isFinite(value)) return fallback
+  return Math.max(min, Math.min(max, value))
+}
 
 function mysqlConfig() {
   return {
@@ -101,12 +114,24 @@ function mysqlConfig() {
   }
 }
 
+let mysqlPool = null
+
 async function withConnection(fn) {
-  const connection = await mysql.createConnection(mysqlConfig())
+  if (!mysqlPool) {
+    mysqlPool = mysql.createPool({
+      ...mysqlConfig(),
+      waitForConnections: true,
+      connectionLimit: 8,
+      maxIdle: 8,
+      idleTimeout: 60000,
+      enableKeepAlive: true,
+    })
+  }
+  const connection = await mysqlPool.getConnection()
   try {
     return await fn(connection)
   } finally {
-    await connection.end()
+    connection.release()
   }
 }
 
@@ -135,6 +160,36 @@ function money(value) {
 
 function jsonText(value) {
   return JSON.stringify(value ?? null, null, 0)
+}
+
+function stripDataUrlImages(images) {
+  return (images || [])
+    .filter((image) => image && typeof image === 'object')
+    .map((image) => {
+      const url = String(image.url || '')
+      if (url.startsWith('data:')) {
+        return { ...image, url: '' }
+      }
+      return image
+    })
+}
+
+function sanitizeProductForPersist(product) {
+  if (!product || typeof product !== 'object') return product
+  const images = stripDataUrlImages(product.images || []).map((image) => {
+    const url = String(image.url || '')
+    if (url.startsWith('data:')) return { ...image, url: '' }
+    return image
+  })
+  const skus = (product.skus || []).map((sku) => {
+    if (!sku || typeof sku !== 'object') return sku
+    const next = { ...sku }
+    for (const key of ['sku_image_url', 'imageUrl', 'url']) {
+      if (String(next[key] || '').startsWith('data:')) next[key] = ''
+    }
+    return next
+  })
+  return { ...product, images, skus }
 }
 
 function firstNumber(...values) {
@@ -1669,7 +1724,7 @@ function fallbackAiJsonFromReport(report, visualBatchSummaries = []) {
   }
 }
 
-async function callArkResponsesRaw(content, { maxOutputTokens = 5000, timeoutMs = ARK_ANALYSIS_TIMEOUT_MS } = {}) {
+async function callArkResponsesRaw(content, { maxOutputTokens = 5000, timeoutMs = ARK_ANALYSIS_TIMEOUT_MS, extraBody = null } = {}) {
   const apiKey = process.env.ARK_API_KEY || process.env.OPENAI_API_KEY
   if (!apiKey) {
     throw new Error('缺少 ARK_API_KEY。请先在报告页的豆包 Ark 配置中填写并保存 API Key。')
@@ -1686,6 +1741,7 @@ async function callArkResponsesRaw(content, { maxOutputTokens = 5000, timeoutMs 
       model: currentModel(),
       input: [{ role: 'user', content }],
       max_output_tokens: maxOutputTokens,
+      ...(extraBody || {}),
     }),
   })
 
@@ -1705,11 +1761,129 @@ async function callArkResponsesRaw(content, { maxOutputTokens = 5000, timeoutMs 
 }
 
 async function callArkResponses(content, { maxOutputTokens = 5000, timeoutMs = ARK_ANALYSIS_TIMEOUT_MS } = {}) {
-  const result = await callArkResponsesRaw(content, { maxOutputTokens, timeoutMs })
+  const result = await callVisionAnalysis(content, { maxOutputTokens, timeoutMs })
   return {
     ...result,
     json: parseJsonFromText(result.text),
   }
+}
+
+// ── DeepSeek Harness 视觉分析：图片分析智能体走该桥接，失败/未配置回退豆包 Ark ──
+const __serverDir = path.dirname(fileURLToPath(import.meta.url))
+const DEEPSEEK_VENV_PYTHON = path.resolve(__serverDir, '../../../.venv-deepseek/bin/python')
+const DEEPSEEK_VISION_BRIDGE = path.resolve(__serverDir, 'deepseekVisionBridge.py')
+
+function deepseekVisionConfigured() {
+  if (String(process.env.VISION_PROVIDER || '').trim() === 'ark') return false
+  return Boolean(String(process.env.DEEPSEEK_API_KEY || '').trim()) && fs.existsSync(DEEPSEEK_VENV_PYTHON)
+}
+
+function callDeepSeekHarnessVision(content, { maxOutputTokens = 5000, timeoutMs = ARK_ANALYSIS_TIMEOUT_MS } = {}) {
+  const blocks = content
+    .map((item) => ({ type: 'text', text: String(item?.text || '') }))
+    .filter((block) => block.text.trim())
+  const payload = { content: blocks, max_tokens: maxOutputTokens }
+  const model = String(process.env.DEEPSEEK_MODEL || '').trim()
+  if (model) payload.model = model
+
+  return new Promise((resolve, reject) => {
+    const child = spawn(DEEPSEEK_VENV_PYTHON, [DEEPSEEK_VISION_BRIDGE], { env: process.env })
+    let stdout = ''
+    let stderr = ''
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL')
+      reject(new Error(`DeepSeek harness 分析超时（${timeoutMs}ms）`))
+    }, timeoutMs)
+    child.stdout.on('data', (chunk) => { stdout += String(chunk) })
+    child.stderr.on('data', (chunk) => { stderr += String(chunk) })
+    child.on('error', (error) => { clearTimeout(timer); reject(error) })
+    child.on('close', (code) => {
+      clearTimeout(timer)
+      let result = null
+      try {
+        result = JSON.parse(stdout.trim().split('\n').pop() || '{}')
+      } catch { /* 输出不可解析时走下方报错 */ }
+      if (result?.ok) {
+        resolve({
+          data: null,
+          text: String(result.text || ''),
+          responseId: null,
+          model: result.model || model || 'deepseek-harness',
+          usage: null,
+          provider: 'deepseek-harness',
+          finishReason: result.finish_reason,
+        })
+        return
+      }
+      reject(new Error(result?.error || `DeepSeek harness 异常退出（code=${code}）：${stderr.slice(-300)}`))
+    })
+    child.stdin.end(JSON.stringify(payload))
+  })
+}
+
+// 含图片的内容走混合链路：豆包 Ark 一次性读全部图 → 视觉描述交给 DeepSeek 综合分析；
+// 任一环节失败/未配置均回退豆包 Ark 直接分析；纯文本报告生成不受影响
+async function callVisionAnalysis(content, opts = {}) {
+  const hasImage = Array.isArray(content) && content.some((item) => item?.type === 'input_image')
+  if (hasImage && deepseekVisionConfigured()) {
+    try {
+      return await callHybridVisionAnalysis(content, opts)
+    } catch (error) {
+      console.error(`[vision] 豆包看图+DeepSeek 综合分析失败，回退豆包 Ark 直接分析：${error instanceof Error ? error.message : error}`)
+    }
+  }
+  return callArkResponsesRaw(content, opts)
+}
+
+// 混合链路：第一步豆包 Ark 视觉模型一次性读取全部图片输出逐图描述，
+// 第二步把描述替换图片块后交给 DeepSeek Harness 做最终综合分析
+async function callHybridVisionAnalysis(content, opts = {}) {
+  const imageCount = content.filter((item) => item?.type === 'input_image').length
+  const t0 = Date.now()
+
+  // 第一步：豆包看图（一次多图）；描述只保留卖点分析所需的关键信息，控制输出体量提速
+  const observeContent = [
+    {
+      type: 'input_text',
+      text: [
+        `你是电商图片观察员。下面按顺序给你 ${imageCount} 张竞品商品图，图前可能有标注说明归属。`,
+        '请逐张输出中文描述，每张 2~4 行，严格按此格式，不要其他内容：',
+        '【图N】图上全部可见文字（原文照抄，重点）；突出展示的卖点/数据/促销/价格信息；画面主体与视觉表达方式。',
+        '只描述图中真实可见的内容，不要推测和评价，不要重复套话。',
+      ].join('\n'),
+    },
+    ...content.filter((item) => item?.type === 'input_image'
+      || (item?.type === 'input_text' && /^竞品\d/.test(String(item.text || '').trim()))),
+  ]
+  const observe = await callArkResponsesRaw(observeContent, {
+    maxOutputTokens: Math.min(8000, 900 * imageCount + 1500),
+    timeoutMs: opts.timeoutMs || ARK_ANALYSIS_TIMEOUT_MS,
+    // 看图只需客观描述，关闭深度思考可提速数倍（实测 95s → 15s）
+    extraBody: { thinking: { type: 'disabled' } },
+  })
+  const observation = String(observe.text || '').trim()
+  if (!observation) throw new Error('豆包视觉观察未返回内容')
+  console.log(`[vision] 豆包看图完成：${imageCount} 张图、描述 ${observation.length} 字、耗时 ${((Date.now() - t0) / 1000).toFixed(1)}s`)
+
+  // 第二步：视觉描述替换图片块，交给 DeepSeek 综合分析
+  const textContent = []
+  let imageIndex = 0
+  for (const item of content) {
+    if (item?.type === 'input_image') {
+      imageIndex += 1
+      continue
+    }
+    const text = String(item?.text || '').trim()
+    if (text) textContent.push({ type: 'input_text', text })
+  }
+  textContent.splice(1, 0, {
+    type: 'input_text',
+    text: `以下是视觉模型对全部 ${imageCount} 张主图的逐图客观描述（按图序）：\n${observation}`,
+  })
+  const t1 = Date.now()
+  const result = await callDeepSeekHarnessVision(textContent, opts)
+  console.log(`[vision] DeepSeek 综合分析完成：输出 ${String(result.text || '').length} 字、耗时 ${((Date.now() - t1) / 1000).toFixed(1)}s，混合链路总耗时 ${((Date.now() - t0) / 1000).toFixed(1)}s`)
+  return { ...result, provider: 'ark-vision+deepseek' }
 }
 
 export async function testArkResponsesConnection({ imageUrl = '', text = '' } = {}) {
@@ -1743,7 +1917,7 @@ export async function testArkResponsesConnection({ imageUrl = '', text = '' } = 
 async function analyzeVisualBatch(batch, batchIndex) {
   try {
     const result = await callArkResponses(collectVisualBatchContent(batch, batchIndex), {
-      maxOutputTokens: 8000,
+      maxOutputTokens: VISION_BATCH_MAX_OUTPUT_TOKENS,
       timeoutMs: ARK_ANALYSIS_TIMEOUT_MS,
     })
     return {
@@ -1826,7 +2000,7 @@ async function callArkVision(report, onProgress) {
       imageCount: candidates.length,
     })
     finalResult = await callArkResponses(collectFinalReportContent(report, visualBatchSummaries).content, {
-      maxOutputTokens: 16000,
+      maxOutputTokens: OVERALL_REPORT_MAX_OUTPUT_TOKENS,
       timeoutMs: ARK_ANALYSIS_TIMEOUT_MS * 2,
     })
     finalJson = finalResult.json
@@ -1844,7 +2018,7 @@ async function callArkVision(report, onProgress) {
     })
     try {
       finalResult = await callArkResponses(collectFinalReportContent(report, compactVisualSummaries(visualBatchSummaries, 30)).content, {
-        maxOutputTokens: 12000,
+        maxOutputTokens: Math.min(OVERALL_REPORT_MAX_OUTPUT_TOKENS, 8000),
         timeoutMs: ARK_ANALYSIS_TIMEOUT_MS * 2,
       })
       finalJson = finalResult.json
@@ -2789,7 +2963,7 @@ const MARKET_SCHEMA_STATEMENTS = [
     image_type VARCHAR(64) NULL,
     product_id VARCHAR(64) NULL,
     sku_id VARCHAR(64) NULL,
-    image_url TEXT NULL,
+    image_url LONGTEXT NULL,
     image_path TEXT NULL,
     file_name VARCHAR(255) NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -2858,7 +3032,7 @@ const MARKET_SCHEMA_STATEMENTS = [
     product_id VARCHAR(64) NULL,
     sku_id VARCHAR(64) NULL,
     asset_type VARCHAR(64) NULL,
-    asset_url TEXT NULL,
+    asset_url LONGTEXT NULL,
     asset_path TEXT NULL,
     file_name VARCHAR(255) NULL,
     sort_no INT NOT NULL DEFAULT 0,
@@ -2958,10 +3132,14 @@ const MARKET_SCHEMA_STATEMENTS = [
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 ]
 
+let marketSchemaEnsured = false
+
 async function ensureMarketSchema(connection) {
+  if (marketSchemaEnsured) return
   for (const statement of MARKET_SCHEMA_STATEMENTS) {
     await connection.query(statement)
   }
+  marketSchemaEnsured = true
 }
 
 async function persistMarketReport(report) {
@@ -2996,6 +3174,7 @@ async function persistMarketReport(report) {
       for (const band of report.price_band_report || []) {
         const qa = band.qa_and_review || {}
         const display = band.display_images || {}
+        const persistImages = stripDataUrlImages(display.available_images || [])
         const [bandResult] = await connection.query(`
           INSERT INTO market_price_band_analysis (
             run_id, price_band, competitor_count, price_min, price_max, price_avg,
@@ -3017,7 +3196,7 @@ async function persistMarketReport(report) {
           jsonText(band.extracted_selling_points || []),
           jsonText(band.extracted_demands || []),
           jsonText(qa.qa_examples || []),
-          jsonText(display.available_images || []),
+          jsonText(persistImages),
           jsonText(band.profit_simulation),
           jsonText(band.image_prompts || {}),
         ])
@@ -3033,7 +3212,7 @@ async function persistMarketReport(report) {
           stats.competitors += 1
         }
 
-        for (const image of display.available_images || []) {
+        for (const image of persistImages) {
           await connection.query(`
             INSERT INTO market_price_band_image (
               run_id, price_band_id, price_band, image_type, product_id, sku_id, image_url, image_path, file_name
@@ -3054,6 +3233,7 @@ async function persistMarketReport(report) {
         }
 
         for (const product of band.product_analysis || []) {
+          const persistProduct = sanitizeProductForPersist(product)
           const [productResult] = await connection.query(`
             INSERT INTO market_price_band_product_analysis (
               run_id, price_band_id, price_band, source_job_id, product_id, product_title,
@@ -3066,34 +3246,34 @@ async function persistMarketReport(report) {
             runId,
             bandId,
             band.price_band,
-            toInt(product.job_id, null),
-            product.product_id,
-            product.product_title,
-            product.category_name,
-            product.product_link,
-            money(product.price),
-            money(product.price_min),
-            money(product.price_max),
-            toInt(product.sold_count, null),
-            money(product.sales_amount),
-            toInt(product.review_count, null),
-            toInt(product.favorite_count, null),
-            toInt(product.question_count, null),
-            toInt(product.sku_count),
-            toInt(product.qa_count),
-            toInt(product.image_count),
-            jsonText(product.skus || []),
-            jsonText(product.images || []),
-            jsonText(product.qa_examples || []),
-            jsonText(product.selling_points || []),
-            jsonText(product.demands || []),
-            jsonText(product.profit_simulation),
-            jsonText(product.image_prompts || {}),
+            toInt(persistProduct.job_id, null),
+            persistProduct.product_id,
+            persistProduct.product_title,
+            persistProduct.category_name,
+            persistProduct.product_link,
+            money(persistProduct.price),
+            money(persistProduct.price_min),
+            money(persistProduct.price_max),
+            toInt(persistProduct.sold_count, null),
+            money(persistProduct.sales_amount),
+            toInt(persistProduct.review_count, null),
+            toInt(persistProduct.favorite_count, null),
+            toInt(persistProduct.question_count, null),
+            toInt(persistProduct.sku_count),
+            toInt(persistProduct.qa_count),
+            toInt(persistProduct.image_count),
+            jsonText(persistProduct.skus || []),
+            jsonText(persistProduct.images || []),
+            jsonText(persistProduct.qa_examples || []),
+            jsonText(persistProduct.selling_points || []),
+            jsonText(persistProduct.demands || []),
+            jsonText(persistProduct.profit_simulation),
+            jsonText(persistProduct.image_prompts || {}),
           ])
           const productAnalysisId = Number(productResult.insertId)
           stats.products += 1
 
-          for (const [index, image] of (product.images || []).entries()) {
+          for (const [index, image] of (persistProduct.images || []).entries()) {
             await connection.query(`
               INSERT INTO market_product_asset (
                 run_id, price_band_id, product_analysis_id, price_band, product_id,
@@ -4066,7 +4246,7 @@ async function runMainImageAiReport(runId) {
     })
     content.push({ type: 'input_text', text: `以上是全部 ${analyzed.length} 个竞品共 ${totalImages} 张主图，请综合分析后只输出 JSON。` })
 
-    const aiResult = await callArkResponsesRaw(content, { maxOutputTokens: 16000, timeoutMs: 480000 })
+    const aiResult = await callVisionAnalysis(content, { maxOutputTokens: 16000, timeoutMs: 480000 })
     let aiJson = null
     try {
       aiJson = parseJsonFromText(aiResult.text)
@@ -4817,7 +4997,9 @@ function imageFeatureTerms(images, fallbackTerms = []) {
   for (const image of images || []) {
     const type = String(image.image_type || image.type || '').trim()
     if (!type) continue
-    const label = type.includes('detail')
+    const label = type.includes('detail_long')
+      ? '详情长图'
+      : type.includes('detail')
       ? '详情图'
       : type.includes('main')
         ? '主图'
@@ -5376,6 +5558,162 @@ export async function getAnalysisProductsView({ id = '', keyword = '' } = {}) {
   })
 }
 
+function compactAgentText(value, limit = 220) {
+  return String(value || '').replace(/\s+/g, ' ').trim().slice(0, limit)
+}
+
+function compactAgentMetrics(items, limit = 8) {
+  return safeArray(items)
+    .slice(0, limit)
+    .map((item) => ({
+      term: compactAgentText(item?.term || item?.keyword || item?.title, 40),
+      count: toInt(item?.count, null),
+      evidence: compactAgentText(item?.evidence || item?.reason || '', 120),
+    }))
+    .filter((item) => item.term)
+}
+
+function compactAgentProducts(products, limit = 20) {
+  return safeArray(products).slice(0, limit).map((product) => ({
+    id: product.id || product.productId || product.product_id,
+    title: compactAgentText(product.title || product.product_title, 120),
+    shop: compactAgentText(product.shopName || product.shop_name, 60),
+    price: product.price ?? product.priceRange ?? product.price_range,
+    sold: product.soldCount ?? product.sold_count,
+    salesAmount: product.salesAmount ?? product.sales_amount,
+    skuCount: product.skuCount ?? product.sku_count,
+    mainImageAnalyzed: Boolean(product.mainImageAnalysisId),
+  }))
+}
+
+function compactAgentReport(report) {
+  if (!report) return null
+  const bands = safeArray(report.priceBandProducts || report.price_band_report || report.priceBands)
+  const conclusions = report.marketCoreConclusions || report.market_core_conclusions || {}
+  return {
+    keyword: report.keyword || report.summary?.keyword || '',
+    title: report.reportTitle || report.title || '',
+    generatedAt: report.generatedAt || report.collectTime || '',
+    competitorCount: report.competitorCount || report.summary?.competitor_count,
+    priceRange: report.priceRange || '',
+    coreConclusions: {
+      summary: compactAgentText(conclusions.summary || conclusions.core_summary || report.summaryText, 500),
+      differentiationDirections: safeArray(conclusions.differentiation_directions || conclusions.differentiationDirections)
+        .slice(0, 6)
+        .map((item) => ({
+          direction: compactAgentText(item.direction || item.title || item.name, 120),
+          evidence: compactAgentText(item.evidence || item.score_reason || item.reason, 220),
+          score: item.opportunity_score?.overall_score ?? item.score,
+        })),
+    },
+    priceBands: bands.slice(0, 12).map((band) => ({
+      name: band.priceBand || band.price_band || band.name,
+      competitorCount: band.competitorCount || band.competitor_count,
+      priceRange: band.priceRange || [band.price_min, band.price_max].filter((v) => v != null).join('-'),
+      soldTotal: band.soldTotal || band.sold_count_total,
+      salesAmount: band.salesAmount || band.sales_amount_total,
+      sellingPoints: compactAgentMetrics(band.sellingPoints || band.extracted_selling_points, 6),
+      demands: compactAgentMetrics(band.demands || band.extracted_demands, 6),
+      products: compactAgentProducts(band.products || band.product_analysis, 8),
+    })),
+    keywordMatrix: {
+      coreKeywords: compactAgentMetrics(report.keywordMatrix?.coreKeywords, 10),
+      blueOceanKeywords: compactAgentMetrics(report.keywordMatrix?.blueOceanKeywords, 10),
+    },
+    recommendationActions: {
+      positiveSellingPoints: compactAgentMetrics(report.recommendationActions?.positiveSellingPoints, 8),
+      negativePainPoints: compactAgentMetrics(report.recommendationActions?.negativePainPoints, 8),
+    },
+    listingSellingPoints: compactAgentMetrics(report.listingSellingPoints, 8),
+    dataGaps: safeArray(report.dataGaps || report.data_gaps).slice(0, 8).map((item) => compactAgentText(item, 180)),
+  }
+}
+
+export async function listDataAgentDatasets({ keyword = '' } = {}) {
+  const payload = await listAnalysisReportRows({ keyword })
+  return {
+    ok: true,
+    datasets: safeArray(payload.rows).slice(0, 120).map((row) => ({
+      id: row.id,
+      source: row.source,
+      keyword: row.keyword,
+      title: row.reportTitle || `${row.keyword || '数据集'}${row.collectTime ? ` ${compactDateTime(row.collectTime)}` : ''}`,
+      priceRange: row.priceRange || '-',
+      competitorCount: row.competitorCount || 0,
+      collectTime: row.collectTime || '',
+      status: row.status || '',
+      description: `${row.status === 'generated' ? '已生成整体报告' : '原始采集数据'}，${row.competitorCount || 0} 个商品，价格 ${row.priceRange || '-'}`,
+    })),
+  }
+}
+
+export async function askDataAgent({ datasetId = '', keyword = '', question = '', history = [] } = {}) {
+  const cleanDatasetId = String(datasetId || '').trim()
+  const cleanKeyword = String(keyword || '').trim()
+  const cleanQuestion = String(question || '').trim()
+  if (!cleanDatasetId && !cleanKeyword) throw new Error('请先选择要问答的数据')
+  if (!cleanQuestion) throw new Error('请输入要问的问题')
+
+  const [reportPayload, productsPayload] = await Promise.all([
+    cleanDatasetId.startsWith('raw-')
+      ? Promise.resolve({ ok: true, hasReport: false, report: null })
+      : getAnalysisReportView({ id: cleanDatasetId, keyword: cleanKeyword }),
+    getAnalysisProductsView({ id: cleanDatasetId, keyword: cleanKeyword }),
+  ])
+
+  const context = {
+    selectedDataset: {
+      id: cleanDatasetId,
+      keyword: cleanKeyword || reportPayload.report?.keyword || productsPayload.collection?.keyword || '',
+      source: productsPayload.source || '',
+      title: productsPayload.collection?.keyword || reportPayload.report?.reportTitle || cleanKeyword,
+      productCount: productsPayload.products?.length || 0,
+      priceRange: productsPayload.collection?.priceRange || reportPayload.report?.priceRange || '',
+    },
+    report: compactAgentReport(reportPayload.report),
+    products: compactAgentProducts(productsPayload.products, 40),
+  }
+
+  const recentHistory = safeArray(history).slice(-8).map((item) => ({
+    role: item?.role === 'assistant' ? 'assistant' : 'user',
+    content: compactAgentText(item?.content, 500),
+  })).filter((item) => item.content)
+
+  const result = await callArkResponsesRaw([{
+    type: 'input_text',
+    text: [
+      '你是这个电商竞品分析系统里的数据问答智能体。用户会选择一个数据集后提问，你只能基于输入上下文回答。',
+      '回答要求：',
+      '1）直接回答问题，中文，结构清晰；',
+      '2）涉及结论时引用上下文中的销量、价格、商品数、价格区间、问大家/评价样本或报告结论作为依据；',
+      '3）如果数据不足，明确说数据不足，并说明还需要哪类数据；',
+      '4）不要编造未提供的销量、价格、品牌、评价或外部事实；',
+      '5）如果用户要求策略建议，要给可执行动作。',
+      '',
+      '最近对话：',
+      JSON.stringify(recentHistory, null, 2),
+      '',
+      '当前选中的数据上下文：',
+      JSON.stringify(context, null, 2),
+      '',
+      '用户问题：',
+      cleanQuestion,
+    ].join('\n'),
+  }], {
+    maxOutputTokens: DATA_AGENT_MAX_OUTPUT_TOKENS,
+    timeoutMs: ARK_ANALYSIS_TIMEOUT_MS,
+  })
+
+  return {
+    ok: true,
+    answer: result.text.trim(),
+    model: result.model,
+    responseId: result.responseId,
+    usage: result.usage || null,
+    dataset: context.selectedDataset,
+  }
+}
+
 function productMainImageReportSchema() {
   return {
     product_id: '商品ID',
@@ -5551,7 +5889,7 @@ export async function analyzeProductMainImageAndSave({ productId, keyword = '', 
     if (!product.main_image_url) throw new Error('该商品没有可读取的主图，无法进行主图分析')
 
     const aiResult = await callArkResponses(collectProductMainImageAnalysisContent(product), {
-      maxOutputTokens: 16000,
+      maxOutputTokens: PRODUCT_MAIN_IMAGE_MAX_OUTPUT_TOKENS,
       timeoutMs: ARK_ANALYSIS_TIMEOUT_MS,
     })
     const reportJson = {
@@ -5944,7 +6282,7 @@ async function generateAiPriceBands(products, { keyword = '', desiredCount = 3 }
       JSON.stringify(productList, null, 2),
     ].join('\n'),
   }], {
-    maxOutputTokens: 8000,
+    maxOutputTokens: PRICE_BAND_MAX_OUTPUT_TOKENS,
     timeoutMs: ARK_ANALYSIS_TIMEOUT_MS,
   })
   const bands = normalizePriceBandInput(result.json?.bands || result.json?.price_bands || [])
@@ -6197,10 +6535,6 @@ export async function generateOverallReportFromProductMainImageReports({
     `, [selectedProductIds, ...selectedProductIds])
     return result
   })
-  if (!rows.length) {
-    throw new Error('这一批商品还没有“主图分析入库”的单品报告。请先点“查看全部商品”，对商品做主图分析入库，再生成整体报告。')
-  }
-
   const costModel = {
     costPrice: costPrice == null || costPrice === '' ? null : toNumber(costPrice, null),
     shippingCost: toNumber(shippingCost, 0),
@@ -6235,7 +6569,13 @@ export async function generateOverallReportFromProductMainImageReports({
   const products = [...analyzedProducts, ...fallbackProducts]
   let selectedPriceBands = normalizePriceBandInput(manualPriceBands)
   let priceBandAiResult = null
-  const cleanGroupingMode = priceGroupingMode === 'ai' ? 'ai' : 'manual'
+  const skipAiPriceBands = process.env.DISABLE_AI_PRICE_BANDS === 'true'
+  const cleanGroupingMode = priceGroupingMode === 'ai' ? (skipAiPriceBands ? 'manual' : 'ai') : 'manual'
+  if (priceGroupingMode === 'ai' && skipAiPriceBands) {
+    onProgress?.({ stage: 'price_grouping', message: '提速模式：按本地价格分位划分区间（跳过 AI 划分）', current: 1, total: 1 })
+    selectedPriceBands = fallbackAiPriceBands(products, aiPriceBandCount)
+    priceBandAiResult = { model: 'local-price-quantile', responseId: '', usage: null, error: null }
+  }
   if (cleanGroupingMode === 'ai') {
     onProgress?.({ stage: 'price_grouping', message: '正在让 AI 根据价格和销量划分价格区间', current: 1, total: 3 })
     try {
@@ -6298,7 +6638,7 @@ export async function generateOverallReportFromProductMainImageReports({
   let reportJson
   try {
     const aiResult = await callArkResponses(collectOverallReportFromProductReportsContent(baseReport), {
-      maxOutputTokens: 16000,
+      maxOutputTokens: OVERALL_REPORT_MAX_OUTPUT_TOKENS,
       timeoutMs: ARK_ANALYSIS_TIMEOUT_MS * 2,
     })
     reportJson = mergeOverallProductReport(baseReport, aiResult)

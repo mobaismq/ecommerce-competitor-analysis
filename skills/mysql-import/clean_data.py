@@ -434,6 +434,7 @@ def clean_product_page_image_assets(sidecar_file: Path) -> list[dict[str, Any]]:
     images = payload.get("images") if isinstance(payload, dict) else []
     if not isinstance(images, list):
         return []
+    detail_image_mode = normalize_text(payload.get("detail_image_mode")) if isinstance(payload, dict) else None
     out = []
     for idx, row in enumerate(images, start=1):
         if not isinstance(row, dict):
@@ -444,6 +445,9 @@ def clean_product_page_image_assets(sidecar_file: Path) -> list[dict[str, Any]]:
             path = Path(storage_path)
             clean_storage_path = storage_path if path.is_absolute() else str(Path("..") / path)
         image_type = normalize_text(row.get("image_type")) or "product_page_image"
+        row_detail_mode = normalize_text(row.get("detail_image_mode")) or detail_image_mode
+        if image_type == "detail_image" and row_detail_mode == "detail_long_image":
+            image_type = "detail_long_image"
         out.append(
             {
                 "source_file": sidecar_file.name,
@@ -452,6 +456,7 @@ def clean_product_page_image_assets(sidecar_file: Path) -> list[dict[str, Any]]:
                 "product_id": normalize_text(row.get("product_id")) or normalize_text(payload.get("product_id")),
                 "sku_id": None,
                 "image_type": image_type,
+                "detail_image_mode": row_detail_mode,
                 "source_url": normalize_text(row.get("source_url")),
                 "storage_type": normalize_text(row.get("storage_type")) or "local_file",
                 "storage_path": clean_storage_path,

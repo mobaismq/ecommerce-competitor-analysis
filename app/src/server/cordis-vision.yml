@@ -1,0 +1,23 @@
+# DeepSeek 纯文本分析 cordis 配置（配合源码构建的 runtime 使用）：
+# DeepSeek 官方 API 仅支持文本输入（image_url 内容块会被拒收），
+# 图片由豆包 Ark 视觉模型先行识别成文字描述，这里只负责综合分析，
+# 因此不挂载任何工具，模型单轮直出。
+- id: sdk-jsonrpc-server
+  name: '@deepseek-ai/dsh-sdk-jsonrpc-server'
+
+- id: agent-core
+  name: '@deepseek-ai/dsh-agent-spine-demo'
+  config:
+    workspaceContext:
+      maxBytes: 65536
+
+- id: llm-deepseek
+  name: '@deepseek-ai/dsh-llm-deepseek'
+
+- id: sessions
+  name: '@deepseek-ai/dsh-session-persistence-jsonl'
+  config:
+    root: !!js process.env.DSH_SESSION_ROOT ?? './.sessions'
+
+- id: session-checkpoints
+  name: '@deepseek-ai/dsh-session-checkpoint-policy'

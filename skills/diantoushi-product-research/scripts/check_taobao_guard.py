@@ -12,38 +12,38 @@ CHECK_JS = r"""
   const isVisible = (el) => {
     const style = getComputedStyle(el);
     const rect = el.getBoundingClientRect();
-    return style.display !== "none" &&
-      style.visibility !== "hidden" &&
+    return style.display !== 'none' &&
+      style.visibility !== 'hidden' &&
       Number(style.opacity || 1) !== 0 &&
       rect.width > 0 &&
       rect.height > 0;
   };
-  const text = document.body ? document.body.innerText : "";
+  const text = document.body ? document.body.innerText : '';
   const dialogs = [...document.querySelectorAll('[role=dialog],.el-dialog,.el-message,.el-notification,.el-popper')]
     .filter(isVisible)
-    .map(e => (e.innerText || e.textContent || "").trim())
+    .map(e => (e.innerText || e.textContent || '').trim())
     .filter(Boolean);
-  const title = document.title || "";
-  const combined = [title, text, ...dialogs].join("\n");
+  const title = document.title || '';
+  const combined = [title, text, ...dialogs].join('\n');
   const guardPatterns = [
-    "淘宝验证",
-    "访问太频繁",
-    "请稍后重试",
-    "安全验证",
-    "验证码",
-    "滑块",
-    "人机验证"
+    '淘宝验证',
+    '访问太频繁',
+    '请稍后重试',
+    '安全验证',
+    '验证码',
+    '滑块',
+    '人机验证'
   ];
   const busyPatterns = [
-    "获取数据中",
-    "加载中",
-    "请稍候",
-    "正在导出"
+    '获取数据中',
+    '加载中',
+    '请稍候',
+    '正在导出'
   ];
   const controls = [...document.querySelectorAll('button,a,div,span')]
-    .map(e => (e.innerText || e.textContent || "").trim())
-    .filter(t => ["商品数据", "SKU预览", "问大家", "导出表格"].includes(t));
-  const itemId = new URL(location.href).searchParams.get("id") || (location.href.match(/[?&]id=(\d+)/) || [])[1] || null;
+    .map(e => (e.innerText || e.textContent || '').trim())
+    .filter(t => ['商品数据', 'SKU预览', '问大家', '导出表格'].includes(t));
+  const itemId = new URL(location.href).searchParams.get('id') || (location.href.match(/[?&]id=(\d+)/) || [])[1] || null;
   return JSON.stringify({
     href: location.href,
     title,
@@ -52,7 +52,7 @@ CHECK_JS = r"""
     busy_detected: busyPatterns.some(p => combined.includes(p)),
     matched_guard_terms: guardPatterns.filter(p => combined.includes(p)),
     matched_busy_terms: busyPatterns.filter(p => combined.includes(p)),
-    toolbar_present: combined.includes("diantoushi.com") || combined.includes("店透视"),
+    toolbar_present: combined.includes('diantoushi.com') || combined.includes('店透视'),
     export_controls: [...new Set(controls)],
     dialogs: dialogs.slice(0, 8).map(t => t.slice(0, 300))
   });
@@ -69,11 +69,13 @@ def run_chrome_js(js: str, window_id: Optional[int] = None) -> str:
   set targetWindow to window id {window_id}
   set index of targetWindow to 1
 '''
+    js_literal = json.dumps(re.sub(r"\s+", " ", js).strip(), ensure_ascii=False)
     script = f'''
 tell application "Google Chrome"
   if (count of windows) = 0 then make new window
   {target}
-  set jsResult to execute active tab of targetWindow javascript {json.dumps(js, ensure_ascii=False)}
+  set targetTab to active tab of targetWindow
+  set jsResult to execute targetTab javascript {js_literal}
 end tell
 return jsResult
 '''

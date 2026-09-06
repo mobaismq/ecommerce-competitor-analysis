@@ -328,11 +328,11 @@ export function AnalysisReport() {
       keyword: target.keyword,
       progress: {
         stage: "queued",
-        message: "任务已创建，准备自动补齐入库并生成整体报告",
+        message: "任务已创建，准备快速生成整体报告",
         current: 0,
         total: 3,
         steps: [
-          { key: "product_main_image_import", label: "单品主图分析入库", status: "pending", current: importedPreviewProducts.length, total: previewProducts.length },
+          { key: "product_main_image_import", label: "商品数据准备", status: "completed", current: previewProducts.length, total: previewProducts.length, message: "快速模式跳过单品主图分析入库" },
           {
             key: "price_grouping",
             label: "价格区间划分",
@@ -355,6 +355,7 @@ export function AnalysisReport() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           generationMode: "product_main_image_summary",
+          autoImportProductReports: false,
           collectionId: target.id,
           keyword: target.keyword,
           limit: target.competitorCount || 120,
@@ -408,7 +409,7 @@ export function AnalysisReport() {
 
   const pollGenerateJob = async (target: ReportRow) => {
     let attempts = 0;
-    while (attempts < 180) {
+    while (attempts < 600) {
       attempts += 1;
       await new Promise((resolve) => window.setTimeout(resolve, attempts === 1 ? 900 : 1800));
       const response = await fetch("/api/report/generate-status");
@@ -837,9 +838,9 @@ export function AnalysisReport() {
                 </div>
 
                 <div className="mb-5 rounded-xl border border-[#d8ebff] bg-[#f5faff] p-4">
-                  <p className="text-[13px]  text-[#0A1B39]">生成逻辑</p>
-                  <p className="mt-2 text-[13px]  leading-6 text-[#667085]">
-                    系统会先把未入库商品自动执行「单品主图分析入库」，再汇总该集合下所有单品报告生成整体竞品报告，包含共性卖点、图片规律、问大家需求、铺货建议和作图方向。
+                  <p className="text-[13px] font-extrabold text-[#0A1B39]">生成逻辑</p>
+                  <p className="mt-2 text-[13px] font-medium leading-6 text-[#667085]">
+                    快速模式会直接使用已采集的商品数据、SKU、销量、问大家和已有主图分析结果生成整体竞品报告；未入库的单品主图分析会先跳过，避免长时间等待。
                   </p>
                   <p className="mt-2 text-[12px]  text-[#3388ff]">
                     运行过程中会实时显示「入库进度」「价格区间划分」和「整体图片报告生成进度」。
@@ -1015,7 +1016,7 @@ export function AnalysisReport() {
                     disabled={previewLoading || previewProducts.length === 0}
                     className="h-11 flex-1 rounded-lg bg-[#3388ff] text-[14px]  text-white shadow-[0_8px_24px_rgba(47,130,255,.25)] transition-all hover:bg-[#1a6fe8] disabled:cursor-not-allowed disabled:bg-[#c9d2df] disabled:shadow-none"
                   >
-                    入库并生成整体报告
+                    快速生成整体报告
                   </button>
                 </div>
               </>

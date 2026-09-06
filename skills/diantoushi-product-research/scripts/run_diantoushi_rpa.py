@@ -39,6 +39,8 @@ SPEED_PROFILES: dict[str, dict[str, float]] = {
         "download_poll_interval": 2.0,
         "search_scroll_wait": 3.5,
         "diantoushi_click_settle": 0.8,
+        "diantoushi_dialog_settle": 0.8,
+        "diantoushi_hover_dwell_ms": 700.0,
         "diantoushi_poll_interval": 1.0,
         "diantoushi_download_idle": 4.0,
         "diantoushi_file_stable_wait": 0.35,
@@ -55,13 +57,16 @@ SPEED_PROFILES: dict[str, dict[str, float]] = {
         "download_poll_interval": 1.2,
         "search_scroll_wait": 2.5,
         "diantoushi_click_settle": 0.55,
+        "diantoushi_dialog_settle": 0.55,
+        "diantoushi_hover_dwell_ms": 500.0,
         "diantoushi_poll_interval": 0.6,
         "diantoushi_download_idle": 3.0,
         "diantoushi_file_stable_wait": 0.25,
     },
     "fast": {
+        # 只加速店透视侧等待；batch_delay/search_scroll_wait 与 balanced 保持一致，不改变淘宝页面节奏
         "export_cooldown": 8.0,
-        "batch_delay": 8.0,
+        "batch_delay": 30.0,
         "ask_ready_timeout": 28.0,
         "xlsx_first_timeout": 35.0,
         "xlsx_retry_timeout": 45.0,
@@ -69,8 +74,10 @@ SPEED_PROFILES: dict[str, dict[str, float]] = {
         "ask_export_timeout": 30.0,
         "review_timeout": 42.0,
         "download_poll_interval": 0.5,
-        "search_scroll_wait": 1.6,
-        "diantoushi_click_settle": 0.22,
+        "search_scroll_wait": 2.5,
+        "diantoushi_click_settle": 0.08,
+        "diantoushi_dialog_settle": 0.25,
+        "diantoushi_hover_dwell_ms": 180.0,
         "diantoushi_poll_interval": 0.22,
         "diantoushi_download_idle": 1.6,
         "diantoushi_file_stable_wait": 0.16,
@@ -87,7 +94,7 @@ def fs_stamp() -> str:
 
 
 def speed_value(args: Optional[argparse.Namespace], key: str) -> float:
-    profile_name = getattr(args, "speed_profile", "balanced") if args is not None else "balanced"
+    profile_name = getattr(args, "speed_profile", "fast") if args is not None else "fast"
     return float(SPEED_PROFILES.get(profile_name, SPEED_PROFILES["balanced"])[key])
 
 
@@ -111,7 +118,15 @@ def download_poll_interval(args: argparse.Namespace) -> float:
 
 
 def diantoushi_click_settle(args: Optional[argparse.Namespace] = None) -> float:
-    return max(0.15, speed_value(args, "diantoushi_click_settle"))
+    return max(0.08, speed_value(args, "diantoushi_click_settle"))
+
+
+def diantoushi_dialog_settle(args: Optional[argparse.Namespace] = None) -> float:
+    return max(0.25, speed_value(args, "diantoushi_dialog_settle"))
+
+
+def diantoushi_hover_dwell_ms(args: Optional[argparse.Namespace] = None) -> int:
+    return max(180, int(speed_value(args, "diantoushi_hover_dwell_ms")))
 
 
 def diantoushi_poll_interval(args: Optional[argparse.Namespace] = None) -> float:
@@ -423,11 +438,57 @@ def taobao_search_url(product_name: str) -> str:
     return f"https://s.taobao.com/search?q={quote(product_name)}"
 
 
+def wait_for_search_input_ready(logger: Logger, timeout: float = 35.0) -> dict[str, Any]:
+    deadline = time.time() + timeout
+    last_state: dict[str, Any] = {}
+    while time.time() < deadline:
+        state = json.loads(chrome_js(r"""
+(() => {
+  const visible = (e) => {
+    if (!e) return false;
+    const r = e.getBoundingClientRect();
+    const s = getComputedStyle(e);
+    return r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden';
+  };
+  const inputs = [...document.querySelectorAll('input')].filter(visible);
+  const searchInputs = inputs.filter((i) => {
+    const haystack = [
+      i.className || '',
+      i.placeholder || '',
+      i.getAttribute('aria-label') || '',
+      i.name || '',
+      i.id || ''
+    ].join(' ');
+    return /powerfulQuery|search-suggest|搜索|宝贝|商品|query|keyword|q/i.test(haystack);
+  });
+  return JSON.stringify({
+    title: document.title,
+    url: location.href,
+    ready: document.readyState,
+    bodyLength: document.body ? (document.body.innerText || '').length : 0,
+    inputCount: inputs.length,
+    searchInputCount: searchInputs.length,
+    firstInput: inputs[0] ? {
+      className: String(inputs[0].className || ''),
+      placeholder: inputs[0].placeholder || '',
+      name: inputs[0].name || '',
+      id: inputs[0].id || ''
+    } : null
+  });
+})()
+"""))
+        last_state = state
+        logger.log(json.dumps({"search_input_ready_probe": state}, ensure_ascii=False))
+        if int(state.get("searchInputCount") or 0) > 0 or int(state.get("inputCount") or 0) > 0:
+            return state
+        time.sleep(1.0)
+    return {"ok": False, "reason": "NO_SEARCH_INPUT_AFTER_WAIT", "last_state": last_state}
+
+
 def open_taobao_search_from_page(logger: Logger, product_name: str) -> dict[str, Any]:
     reset_chrome_target()
     chrome_set_url("https://s.taobao.com/search")
-    time.sleep(5.0)
-    before = chrome_title_url()
+    before = wait_for_search_input_ready(logger)
     logger.log(json.dumps({"search_base_page": before}, ensure_ascii=False, indent=2))
     js = r"""
 (() => {
@@ -523,14 +584,48 @@ import CoreGraphics
 import Foundation
 let point = CGPoint(x: {float(x)}, y: {float(y)})
 CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left)?.post(tap: .cghidEventTap)
-usleep(80000)
+usleep(30000)
 CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: point, mouseButton: .left)?.post(tap: .cghidEventTap)
-usleep(80000)
+usleep(30000)
 CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: point, mouseButton: .left)?.post(tap: .cghidEventTap)
 '''
     result = subprocess.run(["/usr/bin/swift", "-e", swift], text=True, capture_output=True)
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or "CoreGraphics click failed")
+
+
+def mac_move_screen(x: float, y: float, dwell_ms: int = 450) -> None:
+    last_error: Optional[Exception] = None
+    for _ in range(2):
+        window_id = ensure_chrome_target()
+        activate_script = f'''
+tell application "Google Chrome"
+  activate
+  if not (exists window id {window_id}) then error "Target Chrome window is closed"
+  set index of window id {window_id} to 1
+end tell
+'''
+        try:
+            run_osascript(activate_script)
+            break
+        except RuntimeError as exc:
+            last_error = exc
+            if is_stale_chrome_window_error(exc):
+                reset_chrome_target()
+                continue
+            raise
+    else:
+        raise RuntimeError(str(last_error) if last_error else "Could not activate Chrome target")
+    swift = f'''
+import CoreGraphics
+import Foundation
+let point = CGPoint(x: {float(x)}, y: {float(y)})
+CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left)?.post(tap: .cghidEventTap)
+usleep({max(0, int(dwell_ms)) * 1000})
+'''
+    result = subprocess.run(["/usr/bin/swift", "-e", swift], text=True, capture_output=True)
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or "CoreGraphics move failed")
 
 
 def dom_point_to_screen(x: float, y: float) -> tuple[float, float]:
@@ -553,6 +648,12 @@ def dom_point_to_screen(x: float, y: float) -> tuple[float, float]:
 def mac_click_dom_point(x: float, y: float) -> tuple[float, float]:
     screen_x, screen_y = dom_point_to_screen(x, y)
     mac_click_screen(screen_x, screen_y)
+    return screen_x, screen_y
+
+
+def mac_hover_dom_point(x: float, y: float, dwell_ms: int = 450) -> tuple[float, float]:
+    screen_x, screen_y = dom_point_to_screen(x, y)
+    mac_move_screen(screen_x, screen_y, dwell_ms=dwell_ms)
     return screen_x, screen_y
 
 
@@ -700,10 +801,12 @@ def classify_diantoushi_image_file(path: Path) -> Optional[str]:
         return None
     # 店透视会同时展示 `1:1主图`、`页面展示主图`、`主图视频`、`SKU图` 等类型。
     # Downstream analysis only wants the user-selected export types from 商品图自定义下载.
-    if any(token in text for token in ["页面展示主图", "主图视频", "sku图", "详情长图"]):
+    if any(token in text for token in ["页面展示主图", "主图视频", "sku图"]):
         return None
-    if any(token in text for token in ["详情图", "detail"]):
+    if any(token in text for token in ["详情长图", "detail_long", "detail-long"]):
         return "detail_image"
+    if any(token in text for token in ["详情图", "detail"]):
+        return None
     if any(token in text for token in ["1:1主图", "1比1主图"]):
         return "main_image"
     return None
@@ -721,7 +824,7 @@ def is_product_image_zip(path: Path) -> bool:
     image_names = [name for name in names if Path(name).suffix.lower() in IMAGE_FILE_EXTENSIONS]
     if not image_names:
         return False
-    return any(("1:1主图" in name or "1比1主图" in name or "详情图" in name) for name in image_names)
+    return any(("1:1主图" in name or "1比1主图" in name or "详情图" in name or "详情长图" in name) for name in image_names)
 
 
 def is_product_image_download_file(path: Path) -> bool:
@@ -770,7 +873,7 @@ def product_image_dialog_state() -> dict[str, Any]:
 JSON.stringify((()=>{
   const dialogs=[...document.querySelectorAll('.el-dialog')].filter(d=>d.getBoundingClientRect().width>100);
   const d=dialogs.find(x=>(x.innerText||'').includes('商品图自定义下载')) ||
-          dialogs.find(x=>(x.innerText||'').includes('1:1主图') && (x.innerText||'').includes('详情图'));
+          dialogs.find(x=>(x.innerText||'').includes('1:1主图') && ((x.innerText||'').includes('详情长图') || (x.innerText||'').includes('详情图')));
   if(!d) return {error:'NO_PRODUCT_IMAGE_DIALOG'};
   const text=(d.innerText||'').trim();
   const controls=[...d.querySelectorAll('button,label,.el-checkbox')].map((e,i)=>({
@@ -801,7 +904,7 @@ def wait_for_product_image_dialog_loaded(
         title = str(state.get("title") or "")
         counts = {
             label: int(count)
-            for label, count in re.findall(r"(1:1主图|1比1主图|详情图|全部)\((\d+)\)", title)
+            for label, count in re.findall(r"(1:1主图|1比1主图|详情图|详情长图|全部)\((\d+)\)", title)
         }
         loaded = (
             not state.get("error")
@@ -811,7 +914,8 @@ def wait_for_product_image_dialog_loaded(
                 counts.get("1:1主图", 0) > 0
                 or counts.get("1比1主图", 0) > 0
                 or counts.get("详情图", 0) > 0
-                or bool(re.search(r"(1比1主图|详情图)\s*下载\s*预览", title))
+                or counts.get("详情长图", 0) > 0
+                or bool(re.search(r"(1比1主图|详情图|详情长图)\s*下载\s*预览", title))
             )
         )
         logger.log(json.dumps({
@@ -825,7 +929,7 @@ def wait_for_product_image_dialog_loaded(
             logger.log(json.dumps(state, ensure_ascii=False, indent=2))
             return state
         time.sleep(max(0.25, poll_interval))
-    raise ProductImageExportError(f"商品图自定义下载弹窗加载超时或无主图/详情图数据: {last}")
+    raise ProductImageExportError(f"商品图自定义下载弹窗加载超时或无主图/详情长图数据: {last}")
 
 
 def click_visible_diantoushi_entry(label: str) -> dict[str, Any]:
@@ -870,7 +974,8 @@ def click_visible_diantoushi_entry(label: str) -> dict[str, Any]:
       const cls=String(node.className || '');
       const exact = aliases.includes(text);
       const menuish = /menu|dropdown|down|popover|popper|item|el-/i.test(cls);
-      const score = (exact ? 800 : 0) + (menuish ? 300 : 0) + Math.min(r.width, 180) + Math.min(r.height, 40) - depth * 10;
+      const dropdownish = label === '商品图' && /el-dropdown|plain-hover|downBox/i.test(cls);
+      const score = (exact ? 800 : 0) + (menuish ? 300 : 0) + (dropdownish ? 120 : 0) + Math.min(r.width, 180) + Math.min(r.height, 40) - depth * 10;
       candidates.push({{
         e: node,
         cls,
@@ -883,17 +988,22 @@ def click_visible_diantoushi_entry(label: str) -> dict[str, Any]:
   candidates.sort((a,b)=>a.score-b.score);
   const pick=candidates[candidates.length-1];
   if(!pick) return JSON.stringify({{ok:false, label, reason:'NO_VISIBLE_DIANTOUSHI_ENTRY'}});
-  const [x,y,w,h]=pick.rect;
-  const target=pick.e.closest('button,a,li,[role=menuitem],.el-dropdown-menu__item') || pick.e;
-  const cx=x+w/2, cy=y+h/2;
-  for (const type of ['pointerover','pointerenter','mouseover','mouseenter','mousemove']) {{
-    target.dispatchEvent(new MouseEvent(type, {{bubbles:true, clientX:cx, clientY:cy}}));
+  const target = label === '商品图'
+    ? (pick.e.closest('.el-dropdown-selfdefine,.el-dropdown,.plain-hover,.downBox') || pick.e)
+    : (pick.e.closest('button,a,li,[role=menuitem],.el-dropdown-menu__item') || pick.e);
+  const tr=target.getBoundingClientRect();
+  const cx=label === '商品图' ? tr.x + Math.max(8, tr.width - 10) : tr.x + tr.width / 2;
+  const cy=tr.y + tr.height / 2;
+  for (const node of [target, pick.e]) {{
+    for (const type of ['pointerover','pointerenter','mouseover','mouseenter','mousemove']) {{
+      node.dispatchEvent(new MouseEvent(type, {{bubbles:true, clientX:cx, clientY:cy}}));
+    }}
   }}
   for (const type of ['pointerdown','mousedown','pointerup','mouseup']) {{
     target.dispatchEvent(new MouseEvent(type, {{bubbles:true, clientX:cx, clientY:cy}}));
   }}
   target.click();
-  return JSON.stringify({{ok:true, clicked:label, count:candidates.length, text:pick.text, className:pick.cls, rect:pick.rect, score:pick.score}});
+  return JSON.stringify({{ok:true, clicked:label, count:candidates.length, text:pick.text, className:pick.cls, rect:pick.rect, targetClassName:String(target.className || ''), targetRect:[Math.round(tr.x),Math.round(tr.y),Math.round(tr.width),Math.round(tr.height)], clickPoint:[Math.round(cx),Math.round(cy)], score:pick.score}});
 }})()
 """
     return json.loads(chrome_js(js))
@@ -939,7 +1049,8 @@ def locate_visible_diantoushi_entry(label: str) -> dict[str, Any]:
       const cls=String(node.className || '');
       const exact = aliases.includes(text);
       const menuish = /menu|dropdown|down|popover|popper|item|el-/i.test(cls);
-      const score = (exact ? 800 : 0) + (menuish ? 300 : 0) + Math.min(r.width, 180) + Math.min(r.height, 40) - depth * 10;
+      const dropdownish = label === '商品图' && /el-dropdown|plain-hover|downBox/i.test(cls);
+      const score = (exact ? 800 : 0) + (menuish ? 300 : 0) + (dropdownish ? 120 : 0) + Math.min(r.width, 180) + Math.min(r.height, 40) - depth * 10;
       candidates.push({{
         text,
         className: cls,
@@ -967,7 +1078,7 @@ def diantoushi_menu_snapshot() -> dict[str, Any]:
     return r.width>0 && r.height>0 && s.display!=='none' && s.visibility!=='hidden';
   };
   const compact = (text) => String(text || '').trim().replace(/\s+/g, '');
-  const words = ['下载','商品图','自定义下载','1:1主图','1比1主图','详情图','按类型下载'];
+  const words = ['下载','商品图','自定义下载','1:1主图','1比1主图','详情图','详情长图','按类型下载'];
   const rows = [...document.querySelectorAll('button,a,li,div,span,label')].filter(visible).map((e) => {
     const text=compact(e.innerText || e.textContent || '');
     if (!text || !words.some(w => text.includes(w))) return null;
@@ -990,8 +1101,11 @@ def click_visible_diantoushi_entry_native(label: str) -> dict[str, Any]:
     if not located.get("ok"):
         return located
     rect = located["rect"]
+    click_x = rect[0] + rect[2] / 2
+    if label == "商品图":
+        click_x = rect[0] + max(8, rect[2] - 10)
     located["screen_point"] = list(
-        mac_click_dom_point(rect[0] + rect[2] / 2, rect[1] + rect[3] / 2)
+        mac_click_dom_point(click_x, rect[1] + rect[3] / 2)
     )
     located["native_clicked"] = True
     return located
@@ -1002,7 +1116,7 @@ def open_product_image_dialog(logger: Logger, args: Optional[argparse.Namespace]
     logger.section("open product image dialog")
     attempts: list[dict[str, Any]] = []
     settle = diantoushi_click_settle(args)
-    dialog_settle = max(0.8, settle * 2)
+    dialog_settle = diantoushi_dialog_settle(args)
 
     # Follow the visible 店透视 path shown by the user:
     # 下载 -> 商品图 -> 自定义下载 -> 商品图自定义下载 dialog.
@@ -1060,7 +1174,7 @@ def open_product_image_dialog(logger: Logger, args: Optional[argparse.Namespace]
 
 
 def configure_product_image_dialog_main_detail_only(logger: Logger, args: Optional[argparse.Namespace] = None) -> dict[str, Any]:
-    logger.section("select only 1:1 main image and detail image")
+    logger.section("select only 1:1 main image and detail long image")
     settle = diantoushi_click_settle(args)
     tiny_settle = min(0.35, max(0.18, settle / 2))
     read_js = r"""
@@ -1072,12 +1186,12 @@ def configure_product_image_dialog_main_detail_only(logger: Logger, args: Option
   };
   const dialogs=[...document.querySelectorAll('.el-dialog')].filter(visible);
   const dialog=dialogs.find(d=>(d.innerText||'').includes('商品图自定义下载')) ||
-    dialogs.find(d=>(d.innerText||'').includes('1:1主图') && (d.innerText||'').includes('详情图'));
+    dialogs.find(d=>(d.innerText||'').includes('1:1主图') && ((d.innerText||'').includes('详情长图') || (d.innerText||'').includes('详情图')));
   if(!dialog) return JSON.stringify({ok:false, reason:'NO_PRODUCT_IMAGE_DIALOG'});
   const normalize = (text) => String(text || '').trim().replace(/\s+/g, '').replace(/：/g, ':');
   const wanted = (text) => {
     const t=normalize(text);
-    return /^1:1主图/.test(t) || /^1比1主图/.test(t) || /^详情图/.test(t);
+    return /^1:1主图/.test(t) || /^1比1主图/.test(t) || /^详情长图/.test(t);
   };
   const isChecked = (label) => String(label.className || '').includes('is-checked') || !!label.querySelector('input:checked');
   const candidateLabels=[...dialog.querySelectorAll('label.el-checkbox,.el-checkbox')].filter(visible);
@@ -1166,12 +1280,12 @@ def configure_product_image_dialog_main_detail_only(logger: Logger, args: Option
     logger.log(json.dumps({"after_select": state}, ensure_ascii=False, indent=2))
     if not result.get("ok"):
         raise ProductImageExportError(
-            "商品图下载筛选校验失败：未能确认 1:1主图 与 详情图已选中，当前状态="
+            "商品图下载筛选校验失败：未能确认 1:1主图 与 详情长图已选中，当前状态="
             + json.dumps(result, ensure_ascii=False)
         )
     if result.get("fallback_filter_after_download"):
         logger.log(json.dumps({
-            "product_image_filter_warning": "店透视未取消全部/其他类型，将继续按类型下载，并在入库前只保留1:1主图与详情图",
+            "product_image_filter_warning": "店透视未取消全部/其他类型，将继续按类型下载，并在入库前只保留1:1主图与详情长图",
             "selected_other": result.get("selectedOther", []),
         }, ensure_ascii=False, indent=2))
     return result
@@ -1188,7 +1302,7 @@ def click_product_image_download_by_type(logger: Logger) -> dict[str, Any]:
   };
   const dialogs=[...document.querySelectorAll('.el-dialog')].filter(visible);
   const dialog=dialogs.find(d=>(d.innerText||'').includes('商品图自定义下载')) ||
-    dialogs.find(d=>(d.innerText||'').includes('1:1主图') && (d.innerText||'').includes('详情图'));
+    dialogs.find(d=>(d.innerText||'').includes('1:1主图') && ((d.innerText||'').includes('详情长图') || (d.innerText||'').includes('详情图')));
   if(!dialog) return JSON.stringify({ok:false, reason:'NO_PRODUCT_IMAGE_DIALOG'});
   const buttons=[...dialog.querySelectorAll('button,a,span,div')].filter(visible).map((e,i)=>({
     e,i,text:(e.innerText||e.textContent||'').trim().replace(/\s+/g,''),cls:String(e.className||''),disabled:!!e.disabled||String(e.className||'').includes('is-disabled'),rect:e.getBoundingClientRect()
@@ -1262,7 +1376,7 @@ def wait_for_product_image_download(
             }, ensure_ascii=False, indent=2))
             return latest_paths
         time.sleep(max(0.5, poll_interval))
-    raise ProductImageExportError("等待店透视 商品图下载超时：未发现本次点击产生的主图/详情图压缩包或图片")
+    raise ProductImageExportError("等待店透视 商品图下载超时：未发现本次点击产生的主图/详情长图压缩包或图片")
 
 
 def clear_product_image_output(target_dir: Path) -> None:
@@ -1342,6 +1456,7 @@ def build_product_page_image_payload_from_files(
     payload = {
         "ok": True,
         "source": "diantoushi_product_image_download",
+        "detail_image_mode": "detail_long_image",
         "product_id": product_id,
         "page_url": page_url,
         "main_image_count": sum(1 for row in records if row["image_type"] == "main_image"),
@@ -1355,6 +1470,7 @@ def build_product_page_image_payload_from_files(
     logger.log(json.dumps({
         "product_page_images": {
             "source": payload["source"],
+            "detail_image_mode": payload["detail_image_mode"],
             "main_image_count": payload["main_image_count"],
             "detail_image_count": payload["detail_image_count"],
             "failed_count": payload["failed_count"],
@@ -1390,8 +1506,8 @@ def download_product_page_images_from_diantoushi(logger: Logger, args: argparse.
     except Exception:
         pass
     payload = build_product_page_image_payload_from_files(logger, target_dir, product_id, downloaded)
-    if payload["main_image_count"] <= 0 and payload["detail_image_count"] <= 0:
-        raise ProductImageExportError(f"店透视商品图已下载但未识别到主图/详情图: {payload.get('raw_exports')}")
+    if payload["main_image_count"] <= 0 or payload["detail_image_count"] <= 0:
+        raise ProductImageExportError(f"店透视商品图已下载但未识别到主图/详情长图: {payload.get('raw_exports')}")
     return payload
 
 
@@ -2687,33 +2803,48 @@ def click_toolbar_control(label: str) -> dict[str, Any]:
     js = f"""
 (() => {{
   const label = {json.dumps(label, ensure_ascii=False)};
-  const compact = (text) => String(text || '').trim().replace(/\\s+/g, '');
+  const compact = (value) => {{
+    if (!value) return '';
+    if (typeof value === 'string') return value.trim().replace(/\\s+/g, '');
+    return String(value.innerText || value.textContent || '').trim().replace(/\\s+/g, '');
+  }};
   const visible = (e) => {{
+    if (!e) return false;
     const r=e.getBoundingClientRect();
     const s=getComputedStyle(e);
     return r.width>0 && r.height>0 && r.bottom>0 && r.right>0 &&
       r.top<window.innerHeight && r.left<window.innerWidth &&
       s.display!=='none' && s.visibility!=='hidden' && Number(s.opacity || 1) !== 0;
   }};
+  const clickNode = (e) => {{
+    const r=e.getBoundingClientRect();
+    const cx=r.x+r.width/2;
+    const cy=r.y+r.height/2;
+    for (const type of ['pointerover','pointerenter','mouseover','mouseenter','mousemove','pointerdown','mousedown','pointerup','mouseup']) {{
+      e.dispatchEvent(new MouseEvent(type, {{bubbles:true, cancelable:true, view:window, clientX:cx, clientY:cy}}));
+    }}
+    e.click();
+    return [Math.round(r.x),Math.round(r.y),Math.round(r.width),Math.round(r.height)];
+  }};
   const toolbarish = (e) => {{
     let node=e;
     for(let depth=0; node && depth<8; depth++, node=node.parentElement) {{
       const cls=String(node.className || '');
-      const text=compact(node.innerText || node.textContent || '');
+      const text=compact(node);
       if (/item-value|item-label|plain-hover|toolbar|dropdown|popover|popper|menu|diantoushi|el-dropdown|el-popper/i.test(cls)) return true;
       if (text.includes('SKU预览') || text.includes('商品数据') || text.includes('问大家') || text.includes('店透视')) return true;
     }}
     return false;
   }};
   const nodes = [...document.querySelectorAll('button,a,li,div,span,label,[role="button"]')].filter(e =>
-    visible(e) && compact(e.innerText || e.textContent) === label && toolbarish(e)
+    visible(e) && compact(e) === label && toolbarish(e)
   );
   const candidates=[];
   for (const e of nodes) {{
     let node=e;
     for (let depth=0; node && depth<6; depth++, node=node.parentElement) {{
       if (!visible(node)) continue;
-      const text=compact(node.innerText || node.textContent || '');
+      const text=compact(node);
       if (text !== label && !text.includes(label)) continue;
       const r=node.getBoundingClientRect();
       if (r.width < 30 || r.height < 14 || r.width > 360 || r.height > 96) continue;
@@ -2728,20 +2859,80 @@ def click_toolbar_control(label: str) -> dict[str, Any]:
   }}
   candidates.sort((a,b)=>a.score-b.score);
   const pick = candidates[candidates.length - 1];
-  if (!pick) return JSON.stringify({{error:'NOT_FOUND', label, count:nodes.length}});
-  const [x,y,w,h]=pick.rect;
-  const cx=x+w/2, cy=y+h/2;
-  for (const type of ['pointerover','pointerenter','mouseover','mouseenter','mousemove']) {{
-    pick.e.dispatchEvent(new MouseEvent(type, {{bubbles:true, clientX:cx, clientY:cy}}));
+  if (pick) {{
+    const rect = clickNode(pick.e);
+    return JSON.stringify({{clicked:label, method:'toolbar_candidate', count:candidates.length, text:pick.text, className:pick.className, rect, score:pick.score}});
   }}
-  for (const type of ['pointerdown','mousedown','pointerup','mouseup']) {{
-    pick.e.dispatchEvent(new MouseEvent(type, {{bubbles:true, clientX:cx, clientY:cy}}));
+
+  const overflow = [...document.querySelectorAll('*')].filter(e => {{
+    if (!visible(e)) return false;
+    const t=compact(e);
+    const r=e.getBoundingClientRect();
+    return t.includes(label) && t.length <= 20 && r.width > 10 && r.width < 120 && r.height > 10 && r.height < 60;
+  }}).pop();
+  if (overflow) {{
+    const r=overflow.getBoundingClientRect();
+    const cx=r.x+r.width/2;
+    const cy=r.y+r.height/2;
+    for (const type of ['pointerover','pointerenter','mouseover','mouseenter','mousemove']) {{
+      overflow.dispatchEvent(new MouseEvent(type, {{bubbles:true, cancelable:true, view:window, clientX:cx, clientY:cy}}));
+    }}
+    setTimeout(()=>{{}}, 0);
+    const popperNode = [...document.querySelectorAll('*')].filter(e =>
+      compact(e) === label &&
+      visible(e) &&
+      /item-value|plain-hover|popper-toolbar-item|popover|popper|menu/i.test(String(e.className||''))
+    ).pop();
+    if (popperNode) {{
+      const target = popperNode.closest('button,a,li,[role=menuitem],.item-value,.plain-hover,.popper-toolbar-item') || popperNode;
+      const rect = clickNode(target);
+      return JSON.stringify({{clicked:label, method:'hover_overflow_then_click', overflowText:compact(overflow), text:compact(target), className:String(target.className||''), rect}});
+    }}
+    return JSON.stringify({{error:'NOT_FOUND_AFTER_OVERFLOW_HOVER', label, overflowText:compact(overflow), overflowRect:[Math.round(r.x),Math.round(r.y),Math.round(r.width),Math.round(r.height)]}});
   }}
-  pick.e.click();
-  return JSON.stringify({{clicked:label, count:candidates.length, text:pick.text, className:pick.className, rect:pick.rect, score:pick.score}});
+  return JSON.stringify({{error:'NOT_FOUND', label, count:nodes.length}});
 }})()
 """
-    return json.loads(chrome_js(js))
+    result = json.loads(chrome_js(js))
+    if not result.get("error") or label not in {"SKU预览", "商品数据"}:
+        return result
+
+    reveal_js = f"""
+(() => {{
+  const label = {json.dumps(label, ensure_ascii=False)};
+  const visible = (e) => {{
+    if (!e) return false;
+    const r=e.getBoundingClientRect();
+    const s=getComputedStyle(e);
+    return r.width>0 && r.height>0 && s.display!=='none' && s.visibility!=='hidden';
+  }};
+  const compact = (e) => (e.innerText||e.textContent||'').trim().replace(/\\s+/g, '');
+  const overflow = [...document.querySelectorAll('*')].filter(e => {{
+    if (!visible(e)) return false;
+    const t=compact(e);
+    const r=e.getBoundingClientRect();
+    return t.includes(label) && t.length <= 20 && r.width > 10 && r.width < 140 && r.height > 10 && r.height < 60;
+  }}).pop();
+  if (!overflow) return JSON.stringify({{ok:false, reason:'NO_OVERFLOW_TRIGGER', label}});
+  const r=overflow.getBoundingClientRect();
+  return JSON.stringify({{ok:true, label, text:compact(overflow), rect:[Math.round(r.x),Math.round(r.y),Math.round(r.width),Math.round(r.height)], className:String(overflow.className||'')}});
+}})()
+"""
+    reveal = json.loads(chrome_js(reveal_js))
+    if reveal.get("ok"):
+        rect = reveal["rect"]
+        reveal["screen_point"] = list(mac_hover_dom_point(
+            rect[0] + rect[2] / 2,
+            rect[1] + rect[3] / 2,
+            dwell_ms=diantoushi_hover_dwell_ms(),
+        ))
+        time.sleep(diantoushi_click_settle())
+        retry = json.loads(chrome_js(js))
+        retry["overflow_reveal"] = reveal
+        retry["first_attempt"] = result
+        return retry
+    result["overflow_reveal"] = reveal
+    return result
 
 
 def stable_new_files(download_dir: Path, since: float, patterns: list[str]) -> list[Path]:
@@ -4625,6 +4816,7 @@ def collect_exports(logger: Logger, product_name: str, item_id: str, since_epoch
             str(since_epoch),
         ],
         logger,
+        check=False,
     )
     objects = extract_json_objects(result.stdout)
     if not objects:
@@ -4815,6 +5007,39 @@ def move_export_files_to_item_dir(
     return item_dir
 
 
+def copy_generated_export_files_to_target(
+    logger: Logger,
+    target_dir: Path,
+    product_file: Path,
+    ask_file: Optional[Path],
+) -> dict[str, Any]:
+    target_dir.mkdir(parents=True, exist_ok=True)
+    result: dict[str, Any] = {"ok": True, "files": {}, "missing": []}
+    for key, source in [("product_file", product_file), ("ask_file", ask_file)]:
+        if source is None:
+            continue
+        if not source.exists():
+            result["ok"] = False
+            result["missing"].append({"key": key, "source": str(source)})
+            continue
+        destination = target_dir / source.name
+        if source.resolve() == destination.resolve():
+            action = "already_in_target"
+        elif destination.exists() and destination.stat().st_size == source.stat().st_size:
+            action = "already_exists"
+        else:
+            destination = unique_path(destination) if destination.exists() else destination
+            shutil.copy2(source, destination)
+            action = "copied"
+        result["files"][key] = {
+            "action": action,
+            "source": str(source),
+            "destination": str(destination),
+        }
+    logger.log(json.dumps({"generated_exports_collected": result}, ensure_ascii=False, indent=2))
+    return result
+
+
 def move_product_page_images_to_target(logger: Logger, source_dir: Path, target_dir: Path) -> dict[str, Any]:
     source_json = source_dir / "product_page_images.json"
     source_images = source_dir / "product_page_images"
@@ -4875,6 +5100,453 @@ def move_review_comments_to_target(logger: Logger, source_dir: Path, target_dir:
     return result
 
 
+# ---------------------------------------------------------------------------
+# 店透视 DOM 直采模式（--scrape-mode dom，默认）
+# 不再点击「导出表格/下载」等 UI 下载流程，而是直接读取店透视面板/弹窗里
+# 已经渲染好的数据，本地生成与历史导出完全一致的 xlsx / review_comments.json。
+# 失败时自动回退到旧版下载流程，保证可用性。
+# ---------------------------------------------------------------------------
+
+
+def scrape_mode(args: argparse.Namespace) -> str:
+    return str(getattr(args, "scrape_mode", "dom") or "dom")
+
+
+def _xml_escape(value: str) -> str:
+    return (
+        str(value or "")
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+    )
+
+
+def write_xlsx(path: Path, sheet_name: str, headers: list[str], rows: list[list[str]]) -> Path:
+    """Minimal zero-dependency xlsx writer (inline strings, openpyxl-readable)."""
+    sheet_rows = [headers] + rows
+    sheet_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>'
+    )
+    for row in sheet_rows:
+        sheet_xml += "<row>"
+        for cell in row:
+            sheet_xml += f'<c t="inlineStr"><is><t xml:space="preserve">{_xml_escape(cell)}</t></is></c>'
+        sheet_xml += "</row>"
+    sheet_xml += "</sheetData></worksheet>"
+    content_types = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+        '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+        '<Default Extension="xml" ContentType="application/xml"/>'
+        '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+        '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+        "</Types>"
+    )
+    rels = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>'
+        "</Relationships>"
+    )
+    workbook = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+        f'<sheets><sheet name="{_xml_escape(sheet_name[:31])}" sheetId="1" r:id="rId1"/></sheets></workbook>'
+    )
+    wb_rels = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
+        "</Relationships>"
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("[Content_Types].xml", content_types)
+        zf.writestr("_rels/.rels", rels)
+        zf.writestr("xl/workbook.xml", workbook)
+        zf.writestr("xl/_rels/workbook.xml.rels", wb_rels)
+        zf.writestr("xl/worksheets/sheet1.xml", sheet_xml)
+    return path
+
+
+def _dialog_table_scrape_js(marker: str, header_needles: list[str]) -> str:
+    return (
+        r"""
+JSON.stringify((()=>{
+  const visible=(e)=>{ if(!e) return false; const r=e.getBoundingClientRect(); const s=getComputedStyle(e); return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden'; };
+  const textOf=(e)=>(e.innerText||e.textContent||'').replace(/\s+/g,' ').trim();
+  const dialog=[...document.querySelectorAll('.el-dialog')]
+    .find(d=>visible(d)&&(d.innerText||'').includes(__MARKER__));
+  if(!dialog) return {ok:false,error:'NO_DIALOG'};
+  const needles=__NEEDLES__;
+  const tables=[...dialog.querySelectorAll('.el-table')].filter(t=>{
+    const text=t.innerText||'';
+    return needles.every(n=>text.includes(n));
+  });
+  const candidates=tables.map((table,ti)=>{
+    const headers=[...table.querySelectorAll('.el-table__header-wrapper th')]
+      .map(th=>textOf(th)).filter(Boolean);
+    const rows=[...table.querySelectorAll('.el-table__body-wrapper tbody tr')]
+      .map((tr)=>{
+        const cells=[...tr.querySelectorAll('td')].map(td=>{
+          const img=td.querySelector('img');
+          return {text:textOf(td), img:(img&&img.src)||''};
+        });
+        return cells;
+      })
+      .filter(cells=>cells.some(c=>c.text||c.img));
+    return {ti,headers,rows,score:rows.length*10};
+  }).sort((a,b)=>b.score-a.score);
+  const best=candidates[0];
+  if(!best) return {ok:false,error:'NO_TABLE',tableCount:tables.length,dialogText:(dialog.innerText||'').slice(0,1500)};
+  if(!best.rows.length) return {ok:true,empty:true,headers:best.headers,rows:[],dialogText:(dialog.innerText||'').slice(0,1500)};
+  const pagination=[...dialog.querySelectorAll('.el-pagination .btn-next, .el-pagination button')].filter(visible)
+    .map(b=>({cls:String(b.className||''),disabled:b.disabled||String(b.className||'').includes('is-disabled')}));
+  return {ok:true,headers:best.headers,rows:best.rows,hasPagination:pagination.length>0};
+})())
+"""
+        .replace("__MARKER__", json.dumps(marker, ensure_ascii=False))
+        .replace("__NEEDLES__", json.dumps(header_needles, ensure_ascii=False))
+    )
+
+
+_DIALOG_NEXT_PAGE_JS = r"""
+JSON.stringify((()=>{
+  const visible=(e)=>{ if(!e) return false; const r=e.getBoundingClientRect(); const s=getComputedStyle(e); return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden'; };
+  const dialog=[...document.querySelectorAll('.el-dialog')]
+    .find(d=>visible(d)&&(d.innerText||'').includes(__MARKER__));
+  if(!dialog) return {clicked:false,error:'NO_DIALOG'};
+  const btns=[...dialog.querySelectorAll('.el-pagination .btn-next, .el-pagination button')]
+    .filter(visible)
+    .filter(b=>!b.disabled&&!String(b.className||'').includes('is-disabled'));
+  const next=btns.filter(b=>{
+    const cls=String(b.className||'');
+    const text=(b.innerText||b.getAttribute('aria-label')||'').trim();
+    return cls.includes('btn-next')||text.includes('下一页')||cls.includes('arrow-right');
+  }).pop();
+  if(!next) return {clicked:false,reason:'NO_NEXT_BUTTON'};
+  next.dispatchEvent(new MouseEvent('mouseover',{bubbles:true}));
+  next.dispatchEvent(new MouseEvent('mousedown',{bubbles:true}));
+  next.dispatchEvent(new MouseEvent('mouseup',{bubbles:true}));
+  next.click();
+  return {clicked:true};
+})())
+""".replace("__MARKER__", "{}")
+
+
+def _click_dialog_next_page(marker: str) -> dict[str, Any]:
+    js = _DIALOG_NEXT_PAGE_JS.replace("{}", json.dumps(marker, ensure_ascii=False), 1)
+    try:
+        return json.loads(chrome_js(js))
+    except Exception as exc:
+        return {"clicked": False, "error": str(exc)}
+
+
+def scrape_dialog_table_paginated(
+    logger: Logger,
+    marker: str,
+    header_needles: list[str],
+    max_pages: int = 30,
+) -> dict[str, Any]:
+    """Read all rows of an Element UI table inside a 店透视 dialog, following pagination."""
+    seen: dict[str, list[dict[str, str]]] = {}
+    headers: list[str] = []
+    last_result: dict[str, Any] = {}
+    for _ in range(max_pages):
+        result = json.loads(chrome_js(_dialog_table_scrape_js(marker, header_needles)))
+        last_result = result
+        if result.get("error"):
+            return {"ok": False, **result}
+        if not headers and result.get("headers"):
+            headers = [str(h) for h in result.get("headers") or []]
+        added = 0
+        for cells in result.get("rows") or []:
+            key = "|".join(str(c.get("text", "")) for c in cells)
+            if not key.strip("|"):
+                key = json.dumps(cells, ensure_ascii=False, sort_keys=True)
+            if key not in seen:
+                seen[key] = cells
+                added += 1
+        if not result.get("hasPagination"):
+            break
+        click = _click_dialog_next_page(marker)
+        if not click.get("clicked") or added == 0:
+            break
+        time.sleep(1.2)
+    return {
+        "ok": bool(seen),
+        "empty": not seen and not last_result.get("error"),
+        "headers": headers,
+        "rows": list(seen.values()),
+        "pages_seen": len(seen),
+        "last": last_result,
+    }
+
+
+_TOOLBAR_STATS_JS = r"""
+JSON.stringify((()=>{
+  const textOf=(e)=>(e.innerText||e.textContent||'').replace(/\s+/g,' ').trim();
+  const vis=(e)=>{const r=e.getBoundingClientRect();const s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden';};
+  const items=[...document.querySelectorAll('*')].filter(e=>{
+    if(!vis(e)) return false;
+    const r=e.getBoundingClientRect();
+    if(r.width>1300||r.height>260) return false;
+    const cls=String(e.className||'');
+    const t=textOf(e);
+    return /item-value|toolbar-component-slot|toolbar-track|plain-hover|goods-image-download/i.test(cls) ||
+      t==='商品数据' || t==='SKU预览' || t==='问大家' ||
+      (t.includes('SKU数')&&t.includes('已售')&&t.includes('销售额约')) ||
+      (t.includes('商品数据')&&t.includes('SKU预览')&&t.includes('问大家'));
+  });
+  let root=null;
+  for(const el of items){
+    let p=el;
+    for(let i=0;i<8&&p;i++){
+      if(!p) break;
+      const t=textOf(p);
+      if(
+        (t.includes('商品数据')&&t.includes('SKU预览')&&t.includes('问大家')) ||
+        (t.includes('SKU数')&&t.includes('已售')&&t.includes('销售额约'))
+      ){
+        if(!root||t.length<textOf(root).length) root=p;
+        break;
+      }
+      p=p.parentElement;
+    }
+  }
+  if(!root) return {ok:false,error:'NO_TOOLBAR',title:document.title||''};
+  const h1=document.querySelector('h1');
+  const shopSels=['.slogo-shopname','[class*="shopName"]','[class*="shop-name"]','.tb-shop-name','a[href*="shop"][class*="name"]'];
+  let shop='';
+  for(const sel of shopSels){
+    const e=document.querySelector(sel);
+    if(e&&textOf(e)){ shop=textOf(e).slice(0,60); break; }
+  }
+  return {
+    ok:true,
+    toolbarText:textOf(root).slice(0,3000),
+    title:(h1&&textOf(h1)?textOf(h1):document.title||'').slice(0,220),
+    shop
+  };
+})())
+"""
+
+_TOOLBAR_STAT_LABELS = ["已售", "销售额约", "评价", "收藏", "问大家", "付款人数", "月收货", "SKU数"]
+
+
+def _parse_toolbar_stats(text: str) -> dict[str, str]:
+    stats: dict[str, str] = {}
+    for label in _TOOLBAR_STAT_LABELS:
+        match = re.search(re.escape(label) + r"[：:\s]*¥?\s*([0-9][0-9.,万千+\-]*)", text)
+        if match:
+            stats[label] = match.group(1)
+    return stats
+
+
+def _clean_page_title(title: str) -> str:
+    text = str(title or "").strip()
+    for suffix in ("-淘宝网", "-tmall.com", "-天猫", "_淘宝网"):
+        if text.endswith(suffix):
+            text = text[: -len(suffix)].strip("-_ ")
+    return text
+
+
+def export_product_data_dom(logger: Logger, args: argparse.Namespace, item_id: str) -> Path:
+    """商品数据：直接读店透视工具栏统计 + 页面标题/店铺，生成与历史导出一致的 xlsx。"""
+    run_guard(logger, "before dom product scrape")
+    logger.section("dom scrape product data")
+    state = json.loads(chrome_js(_TOOLBAR_STATS_JS))
+    logger.log(json.dumps({"toolbar_scrape": state}, ensure_ascii=False, indent=2))
+    if not state.get("ok"):
+        raise RuntimeError(f"DOM scrape toolbar not found: {state}")
+    stats = _parse_toolbar_stats(str(state.get("toolbarText") or ""))
+    title = _clean_page_title(str(state.get("title") or ""))
+    shop = str(state.get("shop") or "")
+    category = ""
+    cat_match = re.search(r"([^\s]{2,40}(?:>[^\s]{2,40}){1,4})", str(state.get("toolbarText") or ""))
+    if cat_match:
+        category = cat_match.group(1)
+    headers = ["店铺名称", "店铺类型", "商品标题", "商品ID", "类目", "上架", "SKU数", "已售", "销售额约", "评价", "收藏", "问大家", "付款人数", "月收货"]
+    row = [
+        shop,
+        "",
+        title,
+        item_id,
+        category,
+        "",
+        stats.get("SKU数", ""),
+        stats.get("已售", ""),
+        stats.get("销售额约", ""),
+        stats.get("评价", ""),
+        stats.get("收藏", ""),
+        stats.get("问大家", ""),
+        stats.get("付款人数", ""),
+        stats.get("月收货", ""),
+    ]
+    if not title:
+        raise RuntimeError(f"DOM scrape product title empty: {state}")
+    target = logger.path.parent / f"商品数据ID_{item_id}_{datetime.now().strftime('%Y-%m-%d')}.xlsx"
+    write_xlsx(target, "商品数据", headers, [row])
+    logger.log(f"dom product xlsx written: {target}")
+    return target
+
+
+def export_sku_dom(logger: Logger, args: argparse.Namespace, item_id: str) -> tuple[Path, str, bool]:
+    """SKU：打开 SKU预览 弹窗后直接读表格，生成与历史导出一致的 xlsx。"""
+    open_sku_dialog(logger, args)
+    logger.section("dom scrape sku table")
+    # SKU 数据在弹窗打开后异步加载，轮询等待表格出现（最多 25 秒）
+    scraped: dict[str, Any] = {}
+    deadline = time.time() + 25.0
+    while time.time() < deadline:
+        scraped = scrape_dialog_table_paginated(logger, "SKU预览", ["价格"])
+        if scraped.get("ok") and not scraped.get("empty"):
+            break
+        time.sleep(2.5)
+    logger.log(json.dumps({"sku_scrape_rows": scraped.get("pages_seen", 0), "headers": scraped.get("headers")}, ensure_ascii=False))
+    if not scraped.get("ok"):
+        raise RuntimeError(f"DOM scrape SKU table failed: {scraped}")
+    headers = scraped.get("headers") or []
+    raw_rows = scraped.get("rows") or []
+
+    def col(cells: list[dict[str, str]], needles: list[str]) -> str:
+        for needle in needles:
+            for i, h in enumerate(headers):
+                if needle in h and i < len(cells):
+                    value = str(cells[i].get("text") or "").strip()
+                    if value:
+                        return value
+        return ""
+
+    def col_price(cells: list[dict[str, str]]) -> str:
+        for i, h in enumerate(headers):
+            if "价格" in h and "券后" not in h and i < len(cells):
+                value = str(cells[i].get("text") or "").strip()
+                if value:
+                    return value
+        return col(cells, ["价格", "售价", "单价"])
+
+    def first_img(cells: list[dict[str, str]]) -> str:
+        for cell in cells:
+            img = str(cell.get("img") or "").strip()
+            if img.startswith("http"):
+                return img
+        return ""
+
+    target_headers = ["SKU信息", "SKU图片", "SKUID", "商品ID", "价格", "券后价格", "颜色分类", "库存"]
+    rows: list[list[str]] = []
+    has_links = False
+    for cells in raw_rows:
+        sku_info = col(cells, ["SKU", "规格", "套餐", "颜色分类"]) or (str(cells[0].get("text") or "") if cells else "")
+        img = first_img(cells)
+        if img:
+            has_links = True
+        rows.append([
+            sku_info,
+            img,
+            "",
+            item_id,
+            col_price(cells),
+            col(cells, ["券后价格", "券后"]),
+            col(cells, ["颜色分类"]) or sku_info,
+            col(cells, ["库存"]),
+        ])
+    if not rows:
+        raise RuntimeError("DOM scrape SKU table returned no rows")
+    target = logger.path.parent / f"店透-SKU预览-表格-{item_id}-{datetime.now().strftime('%Y-%m-%d')}.xlsx"
+    write_xlsx(target, f"店透-SKU预览-表格-{item_id}-{datetime.now().strftime('%Y-%m-%d')}"[:31], target_headers, rows)
+    logger.log(f"dom sku xlsx written: {target} rows={len(rows)}")
+    return target, "dom", has_links
+
+
+def export_ask_dom(logger: Logger, args: argparse.Namespace, item_id: str) -> Path:
+    """问大家：打开弹窗后直接读表格（含分页），生成与历史导出一致的 xlsx。"""
+    close_dialog("SKU预览")
+    run_guard(logger, "before dom ask open")
+    logger.section("click ask (dom mode)")
+    logger.log(json.dumps(click_toolbar_control("问大家"), ensure_ascii=False))
+    state = wait_for_ask_dialog_ready(logger, ask_ready_timeout(args), poll_interval=diantoushi_poll_interval(args))
+    if state.get("error"):
+        raise RuntimeError(f"Could not open ask dialog: {state}")
+    logger.section("dom scrape ask table")
+    scraped = scrape_dialog_table_paginated(logger, "问大家分析", ["问题"])
+    logger.log(json.dumps({"ask_scrape_headers": scraped.get("headers"), "row_count": scraped.get("pages_seen", 0)}, ensure_ascii=False))
+    if not scraped.get("ok") and scraped.get("error"):
+        raise RuntimeError(f"DOM scrape ask table failed: {scraped}")
+    headers = scraped.get("headers") or []
+    raw_rows = scraped.get("rows") or []
+
+    def col(cells: list[dict[str, str]], needles: list[str]) -> str:
+        for needle in needles:
+            for i, h in enumerate(headers):
+                if needle in h and i < len(cells):
+                    value = str(cells[i].get("text") or "").strip()
+                    if value:
+                        return value
+        return ""
+
+    target_headers = ["昵称", "时间", "问题", "问答"]
+    rows: list[list[str]] = []
+    for cells in raw_rows:
+        rows.append([
+            col(cells, ["昵称"]),
+            col(cells, ["时间", "日期"]),
+            col(cells, ["问题"]),
+            col(cells, ["问答", "回答", "答案"]),
+        ])
+    rows = [row for row in rows if row[2]]
+    if not rows:
+        # 无问大家数据（弹窗显示 暂无数据/0条数据）：与旧版导出一致，生成仅表头的空 xlsx
+        empty_note = str((scraped.get("last") or {}).get("dialogText") or "")
+        if "暂无数据" in empty_note or "0/0条数据" in empty_note or scraped.get("empty"):
+            target = logger.path.parent / f"店透视-问大家分析-{item_id}-{datetime.now().strftime('%Y-%m-%d')}.xlsx"
+            write_xlsx(target, f"店透视-问大家分析-{item_id}-{datetime.now().strftime('%Y-%m-%d')}"[:31], target_headers, [])
+            logger.log(f"dom ask xlsx written (no ask data, headers only): {target}")
+            return target
+        raise RuntimeError("DOM scrape ask table returned no question rows")
+    target = logger.path.parent / f"店透视-问大家分析-{item_id}-{datetime.now().strftime('%Y-%m-%d')}.xlsx"
+    write_xlsx(target, f"店透视-问大家分析-{item_id}-{datetime.now().strftime('%Y-%m-%d')}"[:31], target_headers, rows)
+    logger.log(f"dom ask xlsx written: {target} rows={len(rows)}")
+    return target
+
+
+def export_review_comments_dom(logger: Logger, args: argparse.Namespace, item_id: str, target_dir: Path) -> dict[str, Any]:
+    """评价：打开弹窗后直接走 DOM 提取（跳过批量下载 UI 流程）。"""
+    if args.skip_reviews:
+        return {"ok": False, "status": "skipped_by_arg", "product_id": item_id, "time": now_stamp()}
+    open_review_dialog(logger, args)
+    filter_result = ensure_review_filter_default(logger, args)
+    logger.section("dom scrape review table")
+    extracted = extract_review_comments_table_dom(logger)
+    rows = extracted.get("rows") or []
+    payload = {
+        "ok": bool(extracted.get("ok") and rows),
+        "source": "diantoushi_review_comments_dom",
+        "product_id": item_id,
+        "fallback_reason": "",
+        "raw_files": [],
+        "extracted_files": [],
+        "workbook_files": [],
+        "raw_file_count": 0,
+        "workbook_count": 0,
+        "row_count": len(rows),
+        "declared_total": extracted.get("declaredTotal"),
+        "filter_default_review": bool(filter_result.get("ok")),
+        "filter_note": "dom_scrape",
+        "rows": rows,
+        "time": now_stamp(),
+    }
+    target_dir.mkdir(parents=True, exist_ok=True)
+    (target_dir / "review_comments.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    logger.log(f"dom review json written: rows={len(rows)} ok={payload['ok']}")
+    if not payload["ok"]:
+        raise RuntimeError(f"DOM scrape review table failed: {extracted.get('error')}")
+    return payload
+
+
 def export_current_product(
     logger: Logger,
     args: argparse.Namespace,
@@ -4900,14 +5572,28 @@ def export_current_product(
             "images": [],
         }
         logger.log(json.dumps({"product_page_images_error": product_page_images}, ensure_ascii=False, indent=2))
-    product_file = export_product_data(logger, args, item_id)
+    if scrape_mode(args) == "dom":
+        try:
+            product_file = export_product_data_dom(logger, args, item_id)
+        except Exception as exc:
+            logger.log(f"dom product scrape failed, fallback to legacy download: {exc}")
+            product_file = export_product_data(logger, args, item_id)
+    else:
+        product_file = export_product_data(logger, args, item_id)
     human_wait(logger, export_cooldown_seconds(args), "cooldown between product export and sku export")
     sku_file: Optional[Path] = None
     sku_variant = "missing"
     sku_has_links = False
     sku_status: dict[str, Any] = {"ok": True}
     try:
-        sku_file, sku_variant, sku_has_links = export_sku(logger, args, item_id)
+        if scrape_mode(args) == "dom":
+            try:
+                sku_file, sku_variant, sku_has_links = export_sku_dom(logger, args, item_id)
+            except Exception as dom_exc:
+                logger.log(f"dom sku scrape failed, fallback to legacy download: {dom_exc}")
+                sku_file, sku_variant, sku_has_links = export_sku(logger, args, item_id)
+        else:
+            sku_file, sku_variant, sku_has_links = export_sku(logger, args, item_id)
     except Exception as exc:
         sku_status = {
             "ok": False,
@@ -4919,7 +5605,14 @@ def export_current_product(
     ask_file: Optional[Path] = None
     ask_status: dict[str, Any] = {"ok": True}
     try:
-        ask_file = export_ask(logger, args, item_id)
+        if scrape_mode(args) == "dom":
+            try:
+                ask_file = export_ask_dom(logger, args, item_id)
+            except Exception as dom_exc:
+                logger.log(f"dom ask scrape failed, fallback to legacy download: {dom_exc}")
+                ask_file = export_ask(logger, args, item_id)
+        else:
+            ask_file = export_ask(logger, args, item_id)
     except Exception as exc:
         ask_status = {
             "ok": False,
@@ -4934,7 +5627,14 @@ def export_current_product(
         pass
     review_comments: dict[str, Any]
     try:
-        review_comments = export_review_comments(logger, args, item_id, image_target_dir)
+        if scrape_mode(args) == "dom":
+            try:
+                review_comments = export_review_comments_dom(logger, args, item_id, image_target_dir)
+            except Exception as dom_exc:
+                logger.log(f"dom review scrape failed, fallback to legacy download: {dom_exc}")
+                review_comments = export_review_comments(logger, args, item_id, image_target_dir)
+        else:
+            review_comments = export_review_comments(logger, args, item_id, image_target_dir)
     except Exception as exc:
         review_comments = {
             "ok": False,
@@ -4970,6 +5670,7 @@ def export_current_product(
         "sku_image_links_found": sku_has_links,
         "product_page_images": {
             "ok": product_page_images.get("ok"),
+            "detail_image_mode": product_page_images.get("detail_image_mode"),
             "main_image_count": product_page_images.get("main_image_count", 0),
             "detail_image_count": product_page_images.get("detail_image_count", 0),
             "failed_count": product_page_images.get("failed_count", 0),
@@ -5154,14 +5855,28 @@ def run_pipeline(args: argparse.Namespace, logger: Logger) -> dict[str, Any]:
             "images": [],
         }
         logger.log(json.dumps({"product_page_images_error": product_page_images}, ensure_ascii=False, indent=2))
-    product_file = export_product_data(logger, args, item_id)
+    if scrape_mode(args) == "dom":
+        try:
+            product_file = export_product_data_dom(logger, args, item_id)
+        except Exception as exc:
+            logger.log(f"dom product scrape failed, fallback to legacy download: {exc}")
+            product_file = export_product_data(logger, args, item_id)
+    else:
+        product_file = export_product_data(logger, args, item_id)
     human_wait(logger, export_cooldown_seconds(args), "cooldown between product export and sku export")
     sku_file: Optional[Path] = None
     sku_variant = "missing"
     sku_has_links = False
     sku_status: dict[str, Any] = {"ok": True}
     try:
-        sku_file, sku_variant, sku_has_links = export_sku(logger, args, item_id)
+        if scrape_mode(args) == "dom":
+            try:
+                sku_file, sku_variant, sku_has_links = export_sku_dom(logger, args, item_id)
+            except Exception as dom_exc:
+                logger.log(f"dom sku scrape failed, fallback to legacy download: {dom_exc}")
+                sku_file, sku_variant, sku_has_links = export_sku(logger, args, item_id)
+        else:
+            sku_file, sku_variant, sku_has_links = export_sku(logger, args, item_id)
     except Exception as exc:
         sku_status = {
             "ok": False,
@@ -5173,7 +5888,14 @@ def run_pipeline(args: argparse.Namespace, logger: Logger) -> dict[str, Any]:
     ask_file: Optional[Path] = None
     ask_status: dict[str, Any] = {"ok": True}
     try:
-        ask_file = export_ask(logger, args, item_id)
+        if scrape_mode(args) == "dom":
+            try:
+                ask_file = export_ask_dom(logger, args, item_id)
+            except Exception as dom_exc:
+                logger.log(f"dom ask scrape failed, fallback to legacy download: {dom_exc}")
+                ask_file = export_ask(logger, args, item_id)
+        else:
+            ask_file = export_ask(logger, args, item_id)
     except Exception as exc:
         ask_status = {
             "ok": False,
@@ -5188,7 +5910,14 @@ def run_pipeline(args: argparse.Namespace, logger: Logger) -> dict[str, Any]:
         pass
     review_target_dir = logger.path.parent / f"review-comments-{item_id}"
     try:
-        review_comments = export_review_comments(logger, args, item_id, review_target_dir)
+        if scrape_mode(args) == "dom":
+            try:
+                review_comments = export_review_comments_dom(logger, args, item_id, review_target_dir)
+            except Exception as dom_exc:
+                logger.log(f"dom review scrape failed, fallback to legacy download: {dom_exc}")
+                review_comments = export_review_comments(logger, args, item_id, review_target_dir)
+        else:
+            review_comments = export_review_comments(logger, args, item_id, review_target_dir)
     except Exception as exc:
         review_comments = {
             "ok": False,
@@ -5201,6 +5930,16 @@ def run_pipeline(args: argparse.Namespace, logger: Logger) -> dict[str, Any]:
         (review_target_dir / "review_comments.json").write_text(json.dumps(review_comments, ensure_ascii=False, indent=2), encoding="utf-8")
         logger.log(json.dumps({"review_comments_status": review_comments}, ensure_ascii=False, indent=2))
     target_dir = collect_exports(logger, args.product_name, item_id, start_epoch)
+    generated_exports_collected = copy_generated_export_files_to_target(logger, target_dir, product_file, ask_file)
+    copied_product = generated_exports_collected.get("files", {}).get("product_file", {}).get("destination")
+    copied_ask = generated_exports_collected.get("files", {}).get("ask_file", {}).get("destination")
+    if copied_product:
+        product_file = Path(copied_product)
+    if copied_ask:
+        ask_file = Path(copied_ask)
+    target_sku_files = sorted(target_dir.glob("店透-SKU预览-表格-*.xlsx"))
+    if target_sku_files:
+        sku_file = target_sku_files[0]
     product_page_images_collected = move_product_page_images_to_target(logger, image_target_dir, target_dir)
     review_comments_collected = move_review_comments_to_target(logger, review_target_dir, target_dir)
     if not ask_status.get("ok"):
@@ -5231,8 +5970,10 @@ def run_pipeline(args: argparse.Namespace, logger: Logger) -> dict[str, Any]:
         },
         "sku_export_variant": sku_variant,
         "sku_image_links_found": sku_has_links,
+        "generated_exports_collected": generated_exports_collected,
         "product_page_images": {
             "ok": product_page_images.get("ok"),
+            "detail_image_mode": product_page_images.get("detail_image_mode"),
             "main_image_count": product_page_images.get("main_image_count", 0),
             "detail_image_count": product_page_images.get("detail_image_count", 0),
             "failed_count": product_page_images.get("failed_count", 0),
@@ -5336,7 +6077,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--analysis-target-margin", type=float, default=0.30, help="Target gross margin for post-import profit simulation.")
     parser.add_argument("--top-n", type=int, default=1, help="Export the top N search results by visible sales/payment count. Use 100 for Top100 batch mode.")
     parser.add_argument("--master-dir", help="Batch output root directory. Defaults to Desktop/店透视批量导出-<product>-TopN-<timestamp>.")
-    parser.add_argument("--speed-profile", choices=sorted(SPEED_PROFILES), default="balanced", help="Download pacing profile. fast uses shorter 店透视 export cooldowns; conservative/balanced keep >=20s cooldown.")
+    parser.add_argument("--speed-profile", choices=sorted(SPEED_PROFILES), default="fast", help="Download pacing profile. Default fast shortens 店透视 export cooldowns/waits only; Taobao page pacing (batch_delay/search_scroll_wait) stays at balanced levels. Use conservative/balanced for >=20s export cooldowns.")
     parser.add_argument("--batch-delay", type=float, default=None, help="Seconds to wait between products in batch mode. Defaults by --speed-profile; MySQL import time counts toward this cooldown.")
     parser.add_argument("--export-cooldown", type=float, default=None, help="Minimum seconds between heavy 店透视 export actions. fast allows >=8s; conservative/balanced raise values below 20 to 20.")
     parser.add_argument("--ask-ready-timeout", type=float, default=None, help="Seconds to wait for 问大家 dialog readiness before marking it partial. Defaults by --speed-profile.")
@@ -5344,6 +6085,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--review-pages", type=int, default=10, help="Download 店透视评价分析 comments from page 1 through this page. Defaults to 10.")
     parser.add_argument("--review-timeout", type=int, default=None, help="Seconds to wait for 店透视评价分析 comment export to finish. Defaults by --speed-profile.")
     parser.add_argument("--skip-reviews", action="store_true", help="Skip 店透视评价分析 comment export.")
+    parser.add_argument("--scrape-mode", choices=["dom", "legacy"], default="dom", help="店透视数据获取方式：dom 直接读取面板已渲染数据并本地生成 xlsx/json（默认，更快更稳）；legacy 走旧版「下载 xlsx」流程。")
     parser.add_argument("--skip-product-images", action="store_true", help="Skip 店透视 商品图 main/detail image download attempt.")
     parser.add_argument("--prefetch-candidates-first", action="store_true", help="Old batch behavior: scan pages until enough candidates are collected before starting downloads. Default downloads page 1 first, then later pages only if needed.")
     parser.add_argument("--search-pages", type=int, default=5, help="Maximum Taobao search result pages to scan when collecting Top N candidates.")

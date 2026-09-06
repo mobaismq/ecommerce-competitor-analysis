@@ -116,7 +116,7 @@ PowerShell 示例见 `RUNBOOK.md`，默认示例值见 `.env.example`。
 - 每次正式导入都会先确保所需表存在，然后新建一条 `crawl_job`
 - 导入的是快照数据，不覆盖历史批次
 - 图片只导出为文件并保存元数据，不写入 Blob；如果 SKU 表含 `SKU图片` / `图片链接` / `SKU图片链接`，会同步写入 `product_sku_snapshot.sku_image_url`
-- 如果商品目录包含 `product_page_images.json`，会把商品详情页采集到的 `main_image` / `detail_image` 写入专表 `product_page_image_asset`，并同步合并到通用 `media_asset`
+- 如果商品目录包含 `product_page_images.json`，会把商品详情页采集到的 `main_image` / `detail_image` / `detail_long_image` 写入专表 `product_page_image_asset`，并同步合并到通用 `media_asset`
 - SKU 原始价格写入 `product_sku_snapshot.price` / `coupon_price`；导入时会同步汇总到 `product_snapshot.min_price`、`max_price`、`min_coupon_price`、`max_coupon_price`、`effective_min_price`、`effective_max_price`，方便按商品做价格带分析。
 
 ## Validation

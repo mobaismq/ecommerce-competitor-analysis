@@ -492,9 +492,8 @@ function localRpaApi() {
             const speedProfile = ['conservative', 'balanced', 'fast'].includes(String(body.speedProfile || ''))
               ? String(body.speedProfile)
               : 'fast'
-            const skipProductImages = body.skipProductImages == null
-              ? speedProfile === 'fast'
-              : body.skipProductImages !== false
+            // 商品图下载默认恢复开启，只有前端显式传 skipProductImages=true 才跳过（不再与 speed profile 耦合）
+            const skipProductImages = body.skipProductImages === true
 
             const args = [
               RPA_SCRIPT,
@@ -581,6 +580,10 @@ export default defineConfig({
   server: {
     proxy: {
       '/api/auth': {
+        target: BACKEND_TARGET,
+        changeOrigin: true,
+      },
+      '/api/agent': {
         target: BACKEND_TARGET,
         changeOrigin: true,
       },

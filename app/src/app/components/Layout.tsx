@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, type ReactNode } from "react";
 import { Link, Outlet, useLocation, useNavigate } from "react-router";
-import { ChevronDown, Copy, FileText, FolderOpen, Package, PanelLeftClose, PanelLeftOpen, Target, Cpu, FileBarChart, Video, WalletCards, ShoppingBag, Database, Image, Film, Sparkles, Globe, Settings, UserCog, Users, Store, User } from "lucide-react";
+import { Bot, ChevronDown, Copy, FileText, FolderOpen, Package, PanelLeftClose, PanelLeftOpen, Target, Cpu, FileBarChart, Video, WalletCards, ShoppingBag, Database, Image, Film, Sparkles, Globe, Settings, UserCog, Users, Store, User } from "lucide-react";
 import brandLogo from "@/imports/image-5.png";
 import { SidebarContext } from "./SidebarContext";
 
@@ -23,6 +23,7 @@ const nav: NavItem[] = [
         children: [
           { to: "/market/competitive/ai-collect", label: "AI数据采集", menuId: 1001, icon: <Cpu className="h-4 w-4 shrink-0" /> },
           { to: "/market/competitive/report", label: "分析报告", menuId: 1002, icon: <FileBarChart className="h-4 w-4 shrink-0" /> },
+          { to: "/market/competitive/agent", label: "智能问答", icon: <Bot className="h-4 w-4 shrink-0" /> },
         ],
       },
     ],

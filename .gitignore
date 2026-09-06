@@ -19,6 +19,15 @@ rpa_output/
 rpa_runs/
 *.log
 
+# DeepSeek Harness 本地运行时
+.venv-deepseek/
+vendor/
+.runtime-vision/
+.pnpm-store/
+.tools-pnpm/
+.sessions/
+app/.sessions/
+
 # Duplicate local media copies. The app uses app/public/videos/.
 app/*.mp4
 app/*.mov

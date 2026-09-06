@@ -17,6 +17,7 @@ import { DataDownload } from "./pages/DataDownload";
 import { DataDownloadRun } from "./pages/DataDownloadRun";
 import { MarketReport } from "./pages/MarketReport";
 import { AIDataCollection } from "./pages/AIDataCollection";
+import { DataAgentChat } from "./pages/DataAgentChat";
 import { AnalysisReport } from "./pages/AnalysisReport";
 import { AnalysisReportView } from "./pages/AnalysisReportView";
 import { AnalysisProductsView } from "./pages/AnalysisProductsView";
@@ -80,6 +81,7 @@ export const router = createBrowserRouter([
       { path: "data-download/run", Component: DataDownloadRun },
       { path: "market/competitive/ai-collect", Component: AIDataCollection },
       { path: "market/competitive/report", Component: AnalysisReport },
+      { path: "market/competitive/agent", Component: DataAgentChat },
       { path: "market/competitive/report/view", Component: AnalysisReportView },
       { path: "market/competitive/report/products", Component: AnalysisProductsView },
       { path: "market-report", Component: MarketReport },
