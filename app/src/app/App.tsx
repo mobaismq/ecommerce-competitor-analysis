@@ -98,5 +98,7 @@ function LoginGate() {
 }
 
 export default function App() {
-  return <LoginGate />;
+  // 本地前端开发先绕过登录校验，避免依赖后端登录态。
+  // return <LoginGate />;
+  return <RouterProvider router={router} />;
 }

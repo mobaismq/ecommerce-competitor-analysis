@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { Search, Plus, X, ChevronDown, ChevronRight, MoreHorizontal, Check } from "lucide-react";
+import { hasButtonPermission } from "@/app/utils/permission";
 
 // ── Types ──
 interface Department {
@@ -7,6 +8,49 @@ interface Department {
   name: string;
   parentId: string | null;
   children: Department[];
+}
+
+// ── 后端 /api/dept/list 返回的部门记录 ──
+interface DeptRecord {
+  deptId: string;
+  deptName: string;
+  deptLevel: number;
+  parentId: string;
+  deptStatus: number;
+  createdAt: string;
+  updatedAt: string;
+  createdBy: string;
+  updatedBy: string;
+  isDeleted: number;
+}
+
+// 把后端平铺部门列表组装成树（parentId='0' 为根）
+function buildDeptTree(rows: DeptRecord[]): Department[] {
+  const map = new Map<string, Department>();
+  rows.forEach((r) => {
+    map.set(r.deptId, {
+      id: r.deptId,
+      name: r.deptName,
+      parentId: r.parentId === "0" ? null : r.parentId,
+      children: [],
+    });
+  });
+  const roots: Department[] = [];
+  rows.forEach((r) => {
+    const node = map.get(r.deptId);
+    if (!node) return;
+    if (r.parentId === "0" || !map.has(r.parentId)) {
+      roots.push(node);
+    } else {
+      map.get(r.parentId)!.children.push(node);
+    }
+  });
+  return roots;
+}
+
+// 当前操作人：项目暂未接入登录态，先用默认值；登录态就绪后改为读取登录用户
+function currentOperator(): string {
+  return localStorage.getItem("current_user") || "admin";
 }
 
 interface Account {
@@ -17,90 +61,49 @@ interface Account {
   departmentName: string;
   roleIds: string[];
   roleNames: string[];
-  dataScope: string;
+  dataScope: number; // 0全部数据 1同部门创建数据 2仅自己创建数据
   status: "启用" | "停用";
   createTime: string;
+}
+
+// ── 后端 /api/account/list 返回的账号记录 ──
+interface AccountRecord {
+  accountId: string;
+  accountName: string;
+  phone: string;
+  accountStatus: number;
+  departmentId: string;
+  roleIds: string[];
+  dataScope: number;
+  createdAt: string;
+  updatedAt: string;
+  createdBy: string;
+  updatedBy: string;
+  isDeleted: number;
+}
+
+// 后端账号记录 → 页面 Account 结构（部门路径 + 角色名在此映射）
+function mapAccount(record: AccountRecord, departments: Department[], roleMap: Map<string, string>): Account {
+  const deptPath = getDeptPath(departments, record.departmentId);
+  const roleIds = Array.isArray(record.roleIds) ? record.roleIds : [];
+  return {
+    id: record.accountId,
+    name: record.accountName,
+    phone: record.phone,
+    departmentId: record.departmentId,
+    departmentName: deptPath ? deptPath.join("/") : record.departmentId,
+    roleIds,
+    roleNames: roleIds.map((rid) => roleMap.get(rid) ?? rid),
+    dataScope: record.dataScope,
+    status: record.accountStatus === 0 ? "停用" : "启用",
+    createTime: record.createdAt,
+  };
 }
 
 interface Role {
   id: string;
   name: string;
 }
-
-// ── Mock roles (from RoleManagement) ──
-const MOCK_ROLES: Role[] = [
-  { id: "1", name: "超级管理员" },
-  { id: "2", name: "运营专员" },
-  { id: "3", name: "数据分析师" },
-];
-
-// ── Mock departments ──
-const MOCK_DEPARTMENTS: Department[] = [
-  {
-    id: "d1",
-    name: "总部",
-    parentId: null,
-    children: [
-      {
-        id: "d1-1",
-        name: "技术部",
-        parentId: "d1",
-        children: [
-          { id: "d1-1-1", name: "前端组", parentId: "d1-1", children: [] },
-          { id: "d1-1-2", name: "后端组", parentId: "d1-1", children: [] },
-        ],
-      },
-      {
-        id: "d1-2",
-        name: "运营部",
-        parentId: "d1",
-        children: [
-          { id: "d1-2-1", name: "商品运营组", parentId: "d1-2", children: [] },
-        ],
-      },
-    ],
-  },
-];
-
-// ── Mock accounts ──
-const MOCK_ACCOUNTS: Account[] = [
-  {
-    id: "a1",
-    name: "张三",
-    phone: "13800138001",
-    departmentId: "d1-1-1",
-    departmentName: "总部/技术部/前端组",
-    roleIds: ["1"],
-    roleNames: ["超级管理员"],
-    dataScope: "全部数据",
-    status: "启用",
-    createTime: "2026-01-15 09:30:00",
-  },
-  {
-    id: "a2",
-    name: "李四",
-    phone: "13800138002",
-    departmentId: "d1-2-1",
-    departmentName: "总部/运营部/商品运营组",
-    roleIds: ["2"],
-    roleNames: ["运营专员"],
-    dataScope: "同部门创建数据",
-    status: "启用",
-    createTime: "2026-02-20 14:00:00",
-  },
-  {
-    id: "a3",
-    name: "王五",
-    phone: "13800138003",
-    departmentId: "d1-1-2",
-    departmentName: "总部/技术部/后端组",
-    roleIds: ["2", "3"],
-    roleNames: ["运营专员", "数据分析师"],
-    dataScope: "仅自己创建数据",
-    status: "停用",
-    createTime: "2026-03-10 11:20:00",
-  },
-];
 
 // ── Helper: get department path ──
 function getDeptPath(depts: Department[], targetId: string, path: string[] = []): string[] | null {
@@ -127,19 +130,33 @@ function collectSubDeptIds(dept: Department): string[] {
   return ids;
 }
 
+// ── Helper: 在部门树中按 id 找到部门，并返回该部门及全部子部门 id ──
+function collectDeptAndSubIds(depts: Department[], targetId: string): string[] {
+  for (const d of depts) {
+    if (d.id === targetId) return collectSubDeptIds(d);
+    const found = collectDeptAndSubIds(d.children, targetId);
+    if (found.length) return found;
+  }
+  return [];
+}
+
 // ── Department Tree Node Component ──
 function DeptTreeNode({
   dept,
   depth,
   expandedIds,
+  selectedId,
   onToggle,
+  onSelect,
   onAction,
   maxDepth,
 }: {
   dept: Department;
   depth: number;
   expandedIds: Set<string>;
+  selectedId: string | null;
   onToggle: (id: string) => void;
+  onSelect: (id: string) => void;
   onAction: (action: string, dept: Department) => void;
   maxDepth: number;
 }) {
@@ -160,7 +177,7 @@ function DeptTreeNode({
   return (
     <div>
       <div
-        className="flex items-center justify-between group hover:bg-[#f5f6f8] rounded-lg px-2 py-1.5 transition-colors"
+        className={`flex items-center justify-between group rounded-lg px-2 py-1.5 transition-colors ${selectedId === dept.id ? "bg-[#e8f3ff]" : "hover:bg-[#f5f6f8]"}`}
         style={{ paddingLeft: `${depth * 20 + 8}px` }}
       >
         <div className="flex items-center gap-1 min-w-0 flex-1">
@@ -171,7 +188,12 @@ function DeptTreeNode({
           ) : (
             <span className="w-3.5 shrink-0" />
           )}
-          <span className="text-[13px] text-[#0A1B39] truncate">{dept.name}</span>
+          <button
+            onClick={() => onSelect(dept.id)}
+            className={`text-[13px] truncate text-left ${selectedId === dept.id ? "text-[#3388ff] font-bold" : "text-[#0A1B39] hover:text-[#3388ff]"}`}
+          >
+            {dept.name}
+          </button>
         </div>
         {showActions && (
           <div className="relative shrink-0" ref={menuRef}>
@@ -183,24 +205,30 @@ function DeptTreeNode({
             </button>
             {showMenu && (
               <div className="absolute right-0 top-full mt-1 bg-white border border-[#e6e9ef] rounded-lg shadow-lg z-50 py-1 min-w-[120px]">
-                <button
-                  onClick={() => { onAction("createChild", dept); setShowMenu(false); }}
-                  className="w-full text-left px-3 py-1.5 text-[13px] text-[#0A1B39] hover:bg-[#f5f6f8]"
-                >
-                  创建子部门
-                </button>
-                <button
-                  onClick={() => { onAction("rename", dept); setShowMenu(false); }}
-                  className="w-full text-left px-3 py-1.5 text-[13px] text-[#0A1B39] hover:bg-[#f5f6f8]"
-                >
-                  重命名
-                </button>
-                <button
-                  onClick={() => { onAction("delete", dept); setShowMenu(false); }}
-                  className="w-full text-left px-3 py-1.5 text-[13px] text-[#ff4d4f] hover:bg-[#f5f6f8]"
-                >
-                  删除
-                </button>
+                {hasButtonPermission(2022) && (
+                  <button
+                    onClick={() => { onAction("createChild", dept); setShowMenu(false); }}
+                    className="w-full text-left px-3 py-1.5 text-[13px] text-[#0A1B39] hover:bg-[#f5f6f8]"
+                  >
+                    创建子部门
+                  </button>
+                )}
+                {hasButtonPermission(2023) && (
+                  <button
+                    onClick={() => { onAction("rename", dept); setShowMenu(false); }}
+                    className="w-full text-left px-3 py-1.5 text-[13px] text-[#0A1B39] hover:bg-[#f5f6f8]"
+                  >
+                    重命名
+                  </button>
+                )}
+                {hasButtonPermission(2024) && (
+                  <button
+                    onClick={() => { onAction("delete", dept); setShowMenu(false); }}
+                    className="w-full text-left px-3 py-1.5 text-[13px] text-[#ff4d4f] hover:bg-[#f5f6f8]"
+                  >
+                    删除
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -214,7 +242,9 @@ function DeptTreeNode({
               dept={child}
               depth={depth + 1}
               expandedIds={expandedIds}
+              selectedId={selectedId}
               onToggle={onToggle}
+              onSelect={onSelect}
               onAction={onAction}
               maxDepth={maxDepth}
             />
@@ -236,31 +266,37 @@ function DeptModal({
   title: string;
   parentPath?: string;
   initialValue?: string;
-  onConfirm: (name: string) => void;
+  onConfirm: (name: string) => Promise<void> | void;
   onCancel: () => void;
 }) {
   const [name, setName] = useState(initialValue ?? "");
   const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
   const handleChange = (val: string) => {
     setName(val);
-    if (val.length > 10) {
-      setError("最多10个字符");
-    } else if (error === "最多10个字符" || error === "请输入部门名称") {
+    if (val.length > 15) {
+      setError("部门名称最多15个字符");
+    } else if (error === "部门名称最多15个字符" || error === "部门名称不可为空") {
       setError("");
     }
   };
 
-  const handleConfirm = () => {
+  const handleConfirm = async () => {
     if (!name.trim()) {
-      setError("请输入部门名称");
+      setError("部门名称不可为空");
       return;
     }
-    if (name.length > 10) {
-      setError("最多10个字符");
+    if (name.length > 15) {
+      setError("部门名称最多15个字符");
       return;
     }
-    onConfirm(name.trim());
+    setSubmitting(true);
+    try {
+      await onConfirm(name.trim());
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -295,11 +331,11 @@ function DeptModal({
             {error && <p className="text-[12px] text-[#ff4d4f] mt-1">{error}</p>}
           </div>
           <div className="flex justify-end gap-3">
-            <button onClick={onCancel} className="h-9 px-5 rounded-lg border border-[#e6e9ef] bg-white text-[13px] font-bold text-[#0A1B39] hover:bg-[#f5f6f8] transition-colors">
+            <button onClick={onCancel} disabled={submitting} className="h-9 px-5 rounded-lg border border-[#e6e9ef] bg-white text-[13px] font-bold text-[#0A1B39] hover:bg-[#f5f6f8] transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
               取消
             </button>
-            <button onClick={handleConfirm} className="h-9 px-5 rounded-lg bg-[#409eff] text-[13px] font-bold text-white hover:bg-[#66b1ff] transition-colors">
-              确认
+            <button onClick={handleConfirm} disabled={submitting} className="h-9 px-5 rounded-lg bg-[#409eff] text-[13px] font-bold text-white hover:bg-[#66b1ff] transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+              {submitting ? "保存中…" : "确认"}
             </button>
           </div>
         </div>
@@ -524,7 +560,7 @@ function AccountForm({
   account: Account | null;
   departments: Department[];
   roles: Role[];
-  onSave: (data: Omit<Account, "id" | "createTime" | "status">) => void;
+  onSave: (data: Omit<Account, "id" | "createTime" | "status"> & { password?: string }) => Promise<void> | void;
   onCancel: () => void;
   isEdit: boolean;
 }) {
@@ -533,19 +569,20 @@ function AccountForm({
   const [password, setPassword] = useState("");
   const [departmentId, setDepartmentId] = useState(account?.departmentId ?? "");
   const [roleIds, setRoleIds] = useState<string[]>(account?.roleIds ?? []);
-  const [dataScope, setDataScope] = useState(account?.dataScope ?? "");
+  const [dataScope, setDataScope] = useState<number | "">(account?.dataScope ?? "");
   const [nameError, setNameError] = useState("");
   const [phoneError, setPhoneError] = useState("");
   const [passwordError, setPasswordError] = useState("");
   const [deptError, setDeptError] = useState("");
   const [roleError, setRoleError] = useState("");
   const [dataScopeError, setDataScopeError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
   const handleNameChange = (val: string) => {
     setName(val);
-    if (val.length > 20) {
-      setNameError("最多20个字符");
-    } else if (nameError === "最多20个字符" || nameError === "请输入账号名称") {
+    if (val.length > 15) {
+      setNameError("账号名称最多15个字符");
+    } else if (nameError === "账号名称最多15个字符" || nameError === "账号名称不可为空" || nameError === "账号名称已存在") {
       setNameError("");
     }
   };
@@ -554,61 +591,92 @@ function AccountForm({
     const digits = val.replace(/\D/g, "");
     setPhone(digits);
     if (digits.length > 11) {
-      setPhoneError("最多11个字符");
-    } else if (phoneError === "最多11个字符" || phoneError === "请输入手机号") {
+      setPhoneError("手机号格式错误");
+    } else if (phoneError === "手机号格式错误" || phoneError === "手机号不可为空" || phoneError === "手机号已存在") {
       setPhoneError("");
     }
   };
 
+  // 失焦校验账号名称是否重复（仅创建时）
+  const handleNameBlur = async () => {
+    if (isEdit) return;
+    const val = name.trim();
+    if (!val || val.length > 15) return;
+    try {
+      const response = await fetch(`/api/account/check-duplicate?accountName=${encodeURIComponent(val)}`);
+      const res = await response.json();
+      if (response.ok && res?.ok && res.accountNameExists) {
+        setNameError("账号名称已存在");
+      }
+    } catch {
+      // 忽略网络异常
+    }
+  };
+
+  // 失焦校验手机号是否重复（仅创建时）
+  const handlePhoneBlur = async () => {
+    if (isEdit) return;
+    const val = phone.trim();
+    if (!val || !/^\d{11}$/.test(val)) return;
+    try {
+      const response = await fetch(`/api/account/check-duplicate?phone=${encodeURIComponent(val)}`);
+      const res = await response.json();
+      if (response.ok && res?.ok && res.phoneExists) {
+        setPhoneError("手机号已存在");
+      }
+    } catch {
+      // 忽略网络异常
+    }
+  };
+
   const handlePasswordChange = (val: string) => {
-    const cleaned = val.replace(/[^a-zA-Z0-9]/g, "");
-    setPassword(cleaned);
-    if (cleaned.length > 0 && (cleaned.length < 6 || cleaned.length > 20)) {
-      setPasswordError("请输入6-20个字符");
-    } else if (passwordError === "请输入6-20个字符" || passwordError === "请输入密码") {
+    setPassword(val);
+    if (val.length > 0 && !/^[\x21-\x7E]{6,20}$/.test(val)) {
+      setPasswordError("密码格式错误");
+    } else if (passwordError === "密码格式错误" || passwordError === "密码不可为空") {
       setPasswordError("");
     }
   };
 
   const handleDeptChange = (val: string) => {
     setDepartmentId(val);
-    if (deptError === "请选择部门") setDeptError("");
+    if (deptError === "部门不可为空") setDeptError("");
   };
 
   const handleRoleChange = (val: string[]) => {
     setRoleIds(val);
-    if (roleError === "请选择角色") setRoleError("");
+    if (roleError === "角色不可为空") setRoleError("");
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     let valid = true;
 
     if (!name.trim()) {
-      setNameError("请输入账号名称");
+      setNameError("账号名称不可为空");
       valid = false;
-    } else if (name.length > 20) {
-      setNameError("最多20个字符");
+    } else if (name.length > 15) {
+      setNameError("账号名称最多15个字符");
       valid = false;
     } else {
       setNameError("");
     }
 
     if (!phone.trim()) {
-      setPhoneError("请输入手机号");
+      setPhoneError("手机号不可为空");
       valid = false;
-    } else if (phone.length > 11) {
-      setPhoneError("最多11个字符");
+    } else if (!/^\d{11}$/.test(phone)) {
+      setPhoneError("手机号格式错误");
       valid = false;
     } else {
       setPhoneError("");
     }
 
     if (!isEdit) {
-      if (!password.trim()) {
-        setPasswordError("请输入密码");
+      if (!password) {
+        setPasswordError("密码不可为空");
         valid = false;
-      } else if (password.length < 6 || password.length > 20) {
-        setPasswordError("请输入6-20个字符");
+      } else if (!/^[\x21-\x7E]{6,20}$/.test(password)) {
+        setPasswordError("密码格式错误");
         valid = false;
       } else {
         setPasswordError("");
@@ -616,21 +684,21 @@ function AccountForm({
     }
 
     if (!departmentId) {
-      setDeptError("请选择部门");
+      setDeptError("部门不可为空");
       valid = false;
     } else {
       setDeptError("");
     }
 
     if (roleIds.length === 0) {
-      setRoleError("请选择角色");
+      setRoleError("角色不可为空");
       valid = false;
     } else {
       setRoleError("");
     }
 
-    if (!dataScope) {
-      setDataScopeError("请选择数据范围");
+    if (dataScope === "") {
+      setDataScopeError("数据范围不可为空");
       valid = false;
     } else {
       setDataScopeError("");
@@ -639,15 +707,21 @@ function AccountForm({
     if (!valid) return;
 
     const deptPath = getDeptPath(departments, departmentId);
-    onSave({
-      name: name.trim(),
-      phone: phone.trim(),
-      departmentId,
-      departmentName: deptPath?.join("/") ?? "",
-      roleIds,
-      roleNames: roleIds.map((rid) => roles.find((r) => r.id === rid)?.name ?? ""),
-      dataScope,
-    });
+    setSubmitting(true);
+    try {
+      await onSave({
+        name: name.trim(),
+        phone: phone.trim(),
+        departmentId,
+        departmentName: deptPath?.join("/") ?? "",
+        roleIds,
+        roleNames: roleIds.map((rid) => roles.find((r) => r.id === rid)?.name ?? ""),
+        dataScope,
+        password: isEdit ? undefined : password,
+      });
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -671,6 +745,7 @@ function AccountForm({
             placeholder="请输入"
             value={name}
             onChange={(e) => handleNameChange(e.target.value)}
+            onBlur={handleNameBlur}
             className={`h-9 w-full rounded-lg border ${nameError ? "border-[#ff4d4f]" : "border-[#e6e9ef]"} bg-white px-3 text-[13px] outline-none focus:border-[#409eff]`}
           />
           {nameError && <p className="text-[12px] text-[#ff4d4f] mt-1">{nameError}</p>}
@@ -686,6 +761,7 @@ function AccountForm({
             placeholder="请输入"
             value={phone}
             onChange={(e) => handlePhoneChange(e.target.value)}
+            onBlur={handlePhoneBlur}
             readOnly={isEdit}
             className={`h-9 w-full rounded-lg border ${phoneError ? "border-[#ff4d4f]" : "border-[#e6e9ef]"} bg-white px-3 text-[13px] outline-none focus:border-[#409eff] ${isEdit ? "bg-[#f5f6f8] text-[#86909C] cursor-not-allowed" : ""}`}
           />
@@ -745,13 +821,13 @@ function AccountForm({
           <div className="relative">
             <select
               value={dataScope}
-              onChange={(e) => { setDataScope(e.target.value); if (dataScopeError === "请选择数据范围") setDataScopeError(""); }}
-              className={`h-9 w-full rounded-lg border ${dataScopeError ? "border-[#ff4d4f]" : "border-[#e6e9ef]"} bg-white px-3 pr-7 text-[13px] outline-none focus:border-[#409eff] appearance-none ${!dataScope ? "text-[#c0c4cc]" : "text-[#0A1B39]"}`}
+              onChange={(e) => { setDataScope(e.target.value === "" ? "" : Number(e.target.value)); if (dataScopeError === "数据范围不可为空") setDataScopeError(""); }}
+              className={`h-9 w-full rounded-lg border ${dataScopeError ? "border-[#ff4d4f]" : "border-[#e6e9ef]"} bg-white px-3 pr-7 text-[13px] outline-none focus:border-[#409eff] appearance-none ${dataScope === "" ? "text-[#c0c4cc]" : "text-[#0A1B39]"}`}
             >
               <option value="">请选择</option>
-              <option value="仅自己创建数据">仅自己创建数据</option>
-              <option value="同部门创建数据">同部门创建数据</option>
-              <option value="全部数据">全部数据</option>
+              <option value={0}>全部数据</option>
+              <option value={1}>同部门创建数据</option>
+              <option value={2}>仅自己创建数据</option>
             </select>
             <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[#c0c4cc] pointer-events-none" />
           </div>
@@ -762,13 +838,15 @@ function AccountForm({
         <div className="flex items-center justify-center gap-3 pt-2">
           <button
             onClick={handleSave}
-            className="h-9 rounded-lg bg-[#409eff] px-6 text-[13px] font-bold text-white hover:bg-[#66b1ff] transition-colors"
+            disabled={submitting}
+            className="h-9 rounded-lg bg-[#409eff] px-6 text-[13px] font-bold text-white hover:bg-[#66b1ff] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            确认
+            {submitting ? "保存中…" : "确认"}
           </button>
           <button
             onClick={onCancel}
-            className="h-9 rounded-lg border border-[#e6e9ef] bg-white px-6 text-[13px] font-bold text-[#0A1B39] hover:bg-[#f5f6f8] transition-colors"
+            disabled={submitting}
+            className="h-9 rounded-lg border border-[#e6e9ef] bg-white px-6 text-[13px] font-bold text-[#0A1B39] hover:bg-[#f5f6f8] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             取消
           </button>
@@ -787,10 +865,20 @@ function ModifyPermissionModal({
 }: {
   account: Account;
   roles: Role[];
-  onConfirm: (roleIds: string[]) => void;
+  onConfirm: (roleIds: string[]) => Promise<void> | void;
   onCancel: () => void;
 }) {
   const [roleIds, setRoleIds] = useState<string[]>(account.roleIds);
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleConfirm = async () => {
+    setSubmitting(true);
+    try {
+      await onConfirm(roleIds);
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={onCancel}>
@@ -813,11 +901,11 @@ function ModifyPermissionModal({
             />
           </div>
           <div className="flex justify-end gap-3">
-            <button onClick={onCancel} className="h-9 px-5 rounded-lg border border-[#e6e9ef] bg-white text-[13px] font-bold text-[#0A1B39] hover:bg-[#f5f6f8] transition-colors">
+            <button onClick={onCancel} disabled={submitting} className="h-9 px-5 rounded-lg border border-[#e6e9ef] bg-white text-[13px] font-bold text-[#0A1B39] hover:bg-[#f5f6f8] transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
               取消
             </button>
-            <button onClick={() => onConfirm(roleIds)} className="h-9 px-5 rounded-lg bg-[#409eff] text-[13px] font-bold text-white hover:bg-[#66b1ff] transition-colors">
-              确认
+            <button onClick={handleConfirm} disabled={submitting} className="h-9 px-5 rounded-lg bg-[#409eff] text-[13px] font-bold text-white hover:bg-[#66b1ff] transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+              {submitting ? "保存中…" : "确认"}
             </button>
           </div>
         </div>
@@ -828,16 +916,38 @@ function ModifyPermissionModal({
 
 // ── Main Account Management Page ──
 export function AccountManagement() {
-  const [departments, setDepartments] = useState<Department[]>(() => {
-    const saved = localStorage.getItem("account_departments");
-    return saved ? JSON.parse(saved) : MOCK_DEPARTMENTS;
-  });
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [reloadKey, setReloadKey] = useState(0);
+  const [selectedDeptId, setSelectedDeptId] = useState<string | null>(null);
 
+  // 对接 /api/dept/list：只拉取未删除部门并组装成树
   useEffect(() => {
-    localStorage.setItem("account_departments", JSON.stringify(departments));
-  }, [departments]);
-  const [accounts, setAccounts] = useState<Account[]>(MOCK_ACCOUNTS);
-  const [expandedDeptIds, setExpandedDeptIds] = useState<Set<string>>(new Set(["d1", "d1-1", "d1-2"]));
+    let cancelled = false;
+    async function loadDepts() {
+      try {
+        const response = await fetch("/api/dept/list?page=1&pageSize=100");
+        const data = await response.json();
+        if (cancelled) return;
+        if (response.ok && data.ok) {
+          setDepartments(buildDeptTree(Array.isArray(data.list) ? data.list : []));
+        } else {
+          setDepartments([]);
+        }
+      } catch {
+        if (!cancelled) setDepartments([]);
+      }
+    }
+    loadDepts();
+    return () => { cancelled = true; };
+  }, [reloadKey]);
+
+  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [accountTotal, setAccountTotal] = useState(0);
+  const [accountLoading, setAccountLoading] = useState(false);
+  const [roleMap, setRoleMap] = useState<Map<string, string>>(new Map());
+  const [roles, setRoles] = useState<Role[]>([]);
+  const [accountReloadKey, setAccountReloadKey] = useState(0);
+  const [expandedDeptIds, setExpandedDeptIds] = useState<Set<string>>(new Set());
 
   // Query state
   const [queryName, setQueryName] = useState("");
@@ -848,6 +958,72 @@ export function AccountManagement() {
   const [filterStatus, setFilterStatus] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 12;
+
+  // 对接 /api/role/list：拉取角色用于账号的 roleNames 映射和角色下拉
+  useEffect(() => {
+    let cancelled = false;
+    async function loadRoles() {
+      try {
+        const response = await fetch("/api/role/list?page=1&pageSize=100");
+        const data = await response.json();
+        if (cancelled) return;
+        if (response.ok && data.ok) {
+          const list = Array.isArray(data.list) ? data.list : [];
+          const map = new Map<string, string>();
+          const roleList: Role[] = [];
+          list.forEach((r: { roleId: string; roleName: string }) => {
+            map.set(r.roleId, r.roleName);
+            roleList.push({ id: r.roleId, name: r.roleName });
+          });
+          setRoleMap(map);
+          setRoles(roleList);
+        }
+      } catch {
+        // 忽略，roleNames 会退化为显示 roleId
+      }
+    }
+    loadRoles();
+    return () => { cancelled = true; };
+  }, []);
+
+  // 对接 /api/account/list：只拉取未删除账号，后端分页 + 后端查询
+  useEffect(() => {
+    let cancelled = false;
+    async function loadAccounts() {
+      setAccountLoading(true);
+      try {
+        const params = new URLSearchParams();
+        params.set("page", String(currentPage));
+        params.set("pageSize", String(pageSize));
+        if (filterName) params.set("accountName", filterName);
+        if (filterPhone) params.set("phone", filterPhone);
+        if (filterStatus) params.set("status", filterStatus === "启用" ? "1" : "0");
+        if (selectedDeptId) {
+          const deptIds = collectDeptAndSubIds(departments, selectedDeptId);
+          if (deptIds.length) params.set("departmentIds", deptIds.join(","));
+        }
+        const response = await fetch(`/api/account/list?${params.toString()}`);
+        const data = await response.json();
+        if (cancelled) return;
+        if (!response.ok || !data.ok) {
+          setAccounts([]);
+          setAccountTotal(0);
+          return;
+        }
+        setAccounts((Array.isArray(data.list) ? data.list : []).map((r) => mapAccount(r, departments, roleMap)));
+        setAccountTotal(Number(data.total) || 0);
+      } catch {
+        if (!cancelled) {
+          setAccounts([]);
+          setAccountTotal(0);
+        }
+      } finally {
+        if (!cancelled) setAccountLoading(false);
+      }
+    }
+    loadAccounts();
+    return () => { cancelled = true; };
+  }, [currentPage, filterName, filterPhone, filterStatus, departments, roleMap, accountReloadKey, selectedDeptId]);
 
   // Modal states
   const [showDeptModal, setShowDeptModal] = useState(false);
@@ -867,16 +1043,8 @@ export function AccountManagement() {
   const [view, setView] = useState<"list" | "create" | "edit">("list");
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
 
-  // Filtered accounts
-  const filteredAccounts = accounts.filter((a) => {
-    if (filterName && !a.name.includes(filterName)) return false;
-    if (filterPhone && !a.phone.includes(filterPhone)) return false;
-    if (filterStatus && a.status !== filterStatus) return false;
-    return true;
-  });
-
-  const totalPages = Math.ceil(filteredAccounts.length / pageSize);
-  const pagedAccounts = filteredAccounts.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const totalPages = Math.max(1, Math.ceil(accountTotal / pageSize));
+  const pagedAccounts = accounts;
 
   // ── Department handlers ──
   const toggleDeptExpand = (id: string) => {
@@ -886,6 +1054,12 @@ export function AccountManagement() {
       else next.add(id);
       return next;
     });
+  };
+
+  // 点击部门名：选中/取消选中，按部门过滤账号列表
+  const handleDeptSelect = (id: string) => {
+    setSelectedDeptId((prev) => (prev === id ? null : id));
+    setCurrentPage(1);
   };
 
   const handleDeptAction = (action: string, dept: Department) => {
@@ -910,80 +1084,69 @@ export function AccountManagement() {
     }
   };
 
-  const handleDeptConfirm = (name: string) => {
-    if (deptModalMode === "create") {
-      const newDept: Department = {
-        id: `d${Date.now()}`,
-        name,
-        parentId: null,
-        children: [],
-      };
-      setDepartments((prev) => [...prev, newDept]);
-    } else if (deptModalMode === "createChild" && editingDept) {
-      const newChild: Department = {
-        id: `d${Date.now()}`,
-        name,
-        parentId: editingDept.id,
-        children: [],
-      };
-      const addChild = (depts: Department[]): Department[] =>
-        depts.map((d) => {
-          if (d.id === editingDept.id) {
-            return { ...d, children: [...d.children, newChild] };
-          }
-          return { ...d, children: addChild(d.children) };
+  const handleDeptConfirm = async (name: string) => {
+    const operator = currentOperator();
+    try {
+      if (deptModalMode === "create") {
+        const response = await fetch("/api/dept/create", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ deptName: name, parentId: "0", createdBy: operator }),
         });
-      setDepartments((prev) => addChild(prev));
-      setExpandedDeptIds((prev) => new Set([...prev, editingDept.id]));
-    } else if (deptModalMode === "rename" && editingDept) {
-      const renameDept = (depts: Department[]): Department[] =>
-        depts.map((d) => {
-          if (d.id === editingDept.id) return { ...d, name };
-          return { ...d, children: renameDept(d.children) };
+        const res = await response.json();
+        if (!response.ok || !res.ok) throw new Error(res?.error || "新建部门失败");
+      } else if (deptModalMode === "createChild" && editingDept) {
+        const response = await fetch("/api/dept/create", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ deptName: name, parentId: editingDept.id, createdBy: operator }),
         });
-      setDepartments((prev) => renameDept(prev));
-      // Update account department names
-      const path = getDeptPath(departments, editingDept.id);
-      if (path) {
-        setAccounts((prev) =>
-          prev.map((a) => {
-            if (a.departmentId === editingDept.id) {
-              const newPath = getDeptPath(
-                departments.map((d) => {
-                  const rename = (ds: Department[]): Department[] =>
-                    ds.map((dd) => {
-                      if (dd.id === editingDept.id) return { ...dd, name };
-                      return { ...dd, children: rename(dd.children) };
-                    });
-                  return { ...d, children: rename(d.children) };
-                }),
-                editingDept.id
-              );
-              return { ...a, departmentName: newPath?.join("/") ?? a.departmentName };
-            }
-            return a;
-          })
-        );
+        const res = await response.json();
+        if (!response.ok || !res.ok) throw new Error(res?.error || "创建子部门失败");
+        setExpandedDeptIds((prev) => new Set([...prev, editingDept.id]));
+      } else if (deptModalMode === "rename" && editingDept) {
+        const response = await fetch("/api/dept/update", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ deptId: editingDept.id, deptName: name, updatedBy: operator }),
+        });
+        const res = await response.json();
+        if (!response.ok || !res.ok) throw new Error(res?.error || "编辑部门失败");
       }
+      setShowDeptModal(false);
+      setEditingDept(null);
+      setReloadKey((k) => k + 1);
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "操作失败");
     }
-    setShowDeptModal(false);
-    setEditingDept(null);
   };
 
-  const handleDeptDelete = () => {
+  const handleDeptDelete = async () => {
     if (!deletingDept) return;
     const subIds = collectSubDeptIds(deletingDept);
-    const removeDept = (depts: Department[]): Department[] =>
-      depts.filter((d) => !subIds.includes(d.id)).map((d) => ({ ...d, children: removeDept(d.children) }));
-    setDepartments((prev) => removeDept(prev));
     setShowDeleteConfirm(false);
     setDeletingDept(null);
+    try {
+      // 先删子部门再删父部门
+      for (const deptId of [...subIds].reverse()) {
+        const response = await fetch("/api/dept/delete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ deptId, updatedBy: currentOperator() }),
+        });
+        const res = await response.json();
+        if (!response.ok || !res.ok) throw new Error(res?.error || "删除部门失败");
+      }
+      setReloadKey((k) => k + 1);
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "操作失败");
+    }
   };
 
   // ── Query handlers ──
   const handleQuery = () => {
-    setFilterName(queryName);
-    setFilterPhone(queryPhone);
+    setFilterName(queryName.trim());
+    setFilterPhone(queryPhone.trim());
     setFilterStatus(queryStatus);
     setCurrentPage(1);
   };
@@ -1009,24 +1172,47 @@ export function AccountManagement() {
     setView("edit");
   };
 
-  const handleSaveAccount = (data: Omit<Account, "id" | "createTime" | "status">) => {
-    if (view === "create") {
-      const newAccount: Account = {
-        ...data,
-        id: `a${Date.now()}`,
-        status: "启用",
-        createTime: new Date().toLocaleString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" }).replace(/\//g, "-"),
-      };
-      setAccounts((prev) => [...prev, newAccount]);
-    } else if (view === "edit" && editingAccount) {
-      setAccounts((prev) =>
-        prev.map((a) =>
-          a.id === editingAccount.id ? { ...a, ...data } : a
-        )
-      );
+  const handleSaveAccount = async (data: Omit<Account, "id" | "createTime" | "status"> & { password?: string }) => {
+    const operator = currentOperator();
+    try {
+      if (view === "create") {
+        const response = await fetch("/api/account/create", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            accountName: data.name,
+            phone: data.phone,
+            password: data.password,
+            departmentId: data.departmentId,
+            roleIds: data.roleIds,
+            dataScope: data.dataScope,
+            createdBy: operator,
+          }),
+        });
+        const res = await response.json();
+        if (!response.ok || !res.ok) throw new Error(res?.error || "创建账号失败");
+      } else if (view === "edit" && editingAccount) {
+        const response = await fetch("/api/account/update", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            accountId: editingAccount.id,
+            accountName: data.name,
+            departmentId: data.departmentId,
+            roleIds: data.roleIds,
+            dataScope: data.dataScope,
+            updatedBy: operator,
+          }),
+        });
+        const res = await response.json();
+        if (!response.ok || !res.ok) throw new Error(res?.error || "编辑账号失败");
+      }
+      setView("list");
+      setEditingAccount(null);
+      setAccountReloadKey((k) => k + 1);
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "操作失败");
     }
-    setView("list");
-    setEditingAccount(null);
   };
 
   const handleCancelForm = () => {
@@ -1034,12 +1220,20 @@ export function AccountManagement() {
     setEditingAccount(null);
   };
 
-  const handleToggleStatus = (id: string) => {
-    setAccounts((prev) =>
-      prev.map((a) =>
-        a.id === id ? { ...a, status: a.status === "启用" ? "停用" : "启用" } : a
-      )
-    );
+  const handleToggleStatus = async (account: Account) => {
+    const nextStatus = account.status === "启用" ? 0 : 1;
+    try {
+      const response = await fetch("/api/account/update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accountId: account.id, status: nextStatus, updatedBy: currentOperator() }),
+      });
+      const res = await response.json();
+      if (!response.ok || !res.ok) throw new Error(res?.error || "更新账号状态失败");
+      setAccountReloadKey((k) => k + 1);
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "操作失败");
+    }
   };
 
   const handleDeleteAccount = (id: string) => {
@@ -1047,12 +1241,23 @@ export function AccountManagement() {
     setShowDeleteAccount(true);
   };
 
-  const confirmDeleteAccount = () => {
-    if (deletingAccountId) {
-      setAccounts((prev) => prev.filter((a) => a.id !== deletingAccountId));
-    }
+  const confirmDeleteAccount = async () => {
+    const accountId = deletingAccountId;
     setShowDeleteAccount(false);
     setDeletingAccountId(null);
+    if (!accountId) return;
+    try {
+      const response = await fetch("/api/account/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accountId, updatedBy: currentOperator() }),
+      });
+      const res = await response.json();
+      if (!response.ok || !res.ok) throw new Error(res?.error || "删除账号失败");
+      setAccountReloadKey((k) => k + 1);
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "操作失败");
+    }
   };
 
   const handleModifyPerm = (account: Account) => {
@@ -1060,22 +1265,23 @@ export function AccountManagement() {
     setShowModifyPerm(true);
   };
 
-  const confirmModifyPerm = (roleIds: string[]) => {
-    if (modifyingAccount) {
-      setAccounts((prev) =>
-        prev.map((a) =>
-          a.id === modifyingAccount.id
-            ? {
-                ...a,
-                roleIds,
-                roleNames: roleIds.map((rid) => MOCK_ROLES.find((r) => r.id === rid)?.name ?? ""),
-              }
-            : a
-        )
-      );
-    }
+  const confirmModifyPerm = async (roleIds: string[]) => {
+    const accountId = modifyingAccount?.id;
     setShowModifyPerm(false);
     setModifyingAccount(null);
+    if (!accountId) return;
+    try {
+      const response = await fetch("/api/account/update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accountId, roleIds, updatedBy: currentOperator() }),
+      });
+      const res = await response.json();
+      if (!response.ok || !res.ok) throw new Error(res?.error || "修改权限失败");
+      setAccountReloadKey((k) => k + 1);
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "操作失败");
+    }
   };
 
   // ── Create/Edit View ──
@@ -1084,7 +1290,7 @@ export function AccountManagement() {
       <AccountForm
         account={editingAccount}
         departments={departments}
-        roles={MOCK_ROLES}
+        roles={roles}
         onSave={handleSaveAccount}
         onCancel={handleCancelForm}
         isEdit={view === "edit"}
@@ -1106,13 +1312,15 @@ export function AccountManagement() {
         <div className="w-[280px] shrink-0 bg-white rounded-xl border border-[#e6e9ef] flex flex-col overflow-hidden">
           <div className="px-4 py-3 border-b border-[#e6e9ef] flex items-center justify-between">
             <span className="text-[14px] font-bold text-[#0A1B39]">部门管理</span>
-            <button
-              onClick={() => { setDeptModalMode("create"); setEditingDept(null); setShowDeptModal(true); }}
-              className="h-7 rounded-lg bg-[#409eff] px-3 text-[12px] font-bold text-white hover:bg-[#66b1ff] transition-colors flex items-center gap-1"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              新建部门
-            </button>
+            {hasButtonPermission(2021) && (
+              <button
+                onClick={() => { setDeptModalMode("create"); setEditingDept(null); setShowDeptModal(true); }}
+                className="h-7 rounded-lg bg-[#409eff] px-3 text-[12px] font-bold text-white hover:bg-[#66b1ff] transition-colors flex items-center gap-1"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                新建部门
+              </button>
+            )}
           </div>
           <div className="flex-1 overflow-y-auto p-2">
             {departments.map((dept) => (
@@ -1121,7 +1329,9 @@ export function AccountManagement() {
                 dept={dept}
                 depth={0}
                 expandedIds={expandedDeptIds}
+                selectedId={selectedDeptId}
                 onToggle={toggleDeptExpand}
+                onSelect={handleDeptSelect}
                 onAction={handleDeptAction}
                 maxDepth={9}
               />
@@ -1131,6 +1341,20 @@ export function AccountManagement() {
 
         {/* Right: Account List */}
         <div className="flex-1 flex flex-col min-w-0">
+          {selectedDeptId && (
+            <div className="mb-3 flex items-center gap-2 text-[13px]">
+              <span className="text-[#86909C]">当前部门：</span>
+              <span className="font-medium text-[#3388ff]">
+                {getDeptPath(departments, selectedDeptId)?.join("/") ?? selectedDeptId}
+              </span>
+              <button
+                onClick={() => { setSelectedDeptId(null); setCurrentPage(1); }}
+                className="text-[#409eff] hover:text-[#66b1ff]"
+              >
+                清除筛选
+              </button>
+            </div>
+          )}
           {/* Search */}
           <div className="mb-4 rounded-xl bg-white p-4">
             <div className="grid grid-cols-4 gap-3">
@@ -1193,13 +1417,13 @@ export function AccountManagement() {
               <div className="flex items-center gap-2">
                 <button
                   onClick={handleQuery}
-                  className="h-8 rounded-lg bg-[#409eff] px-5 text-[13px] font-bold text-white hover:bg-[#66b1ff] transition-colors"
+                  className="h-8 rounded-lg bg-[#409eff] px-5 text-[13px] font-bold text-white hover:bg-[#66b1ff] transition-colors shrink-0 whitespace-nowrap"
                 >
                   查询
                 </button>
                 <button
                   onClick={handleReset}
-                  className="h-8 rounded-lg border border-[#e6e9ef] bg-white px-5 text-[13px] font-bold text-[#0A1B39] hover:bg-[#f5f6f8] transition-colors"
+                  className="h-8 rounded-lg border border-[#e6e9ef] bg-white px-5 text-[13px] font-bold text-[#0A1B39] hover:bg-[#f5f6f8] transition-colors shrink-0 whitespace-nowrap"
                 >
                   重置
                 </button>
@@ -1209,66 +1433,80 @@ export function AccountManagement() {
 
           {/* Create Button */}
           <div className="mb-4 flex items-center justify-between">
-            <button
-              onClick={handleCreate}
-              className="h-9 rounded-lg bg-[#409eff] px-5 text-[13px] font-bold text-white hover:bg-[#66b1ff] transition-colors flex items-center gap-2"
-            >
-              <Plus className="h-4 w-4" />
-              创建账号
-            </button>
+            {hasButtonPermission(2010) && (
+              <button
+                onClick={handleCreate}
+                className="h-9 rounded-lg bg-[#409eff] px-5 text-[13px] font-bold text-white hover:bg-[#66b1ff] transition-colors flex items-center gap-2"
+              >
+                <Plus className="h-4 w-4" />
+                创建账号
+              </button>
+            )}
             <div />
           </div>
 
           {/* Account List Table */}
-          {pagedAccounts.length > 0 ? (
-            <div className="bg-white rounded-xl border border-[#e6e9ef] overflow-hidden flex-1">
-              <table className="w-full text-[13px]">
+          {accountLoading ? (
+            <div className="bg-white rounded-xl p-12 text-center text-[#86909C] text-[14px] flex-1">
+              加载中…
+            </div>
+          ) : pagedAccounts.length > 0 ? (
+            <div className="bg-white rounded-xl border border-[#e6e9ef] overflow-auto flex-1 min-h-0">
+              <table className="w-full min-w-[900px] text-[13px]">
                 <thead>
                   <tr className="bg-[#f5f6f8]">
-                    <th className="px-4 py-3 text-left font-medium text-[#86909C]">账号名称</th>
-                    <th className="px-4 py-3 text-left font-medium text-[#86909C]">手机号</th>
-                    <th className="px-4 py-3 text-left font-medium text-[#86909C]">部门</th>
-                    <th className="px-4 py-3 text-left font-medium text-[#86909C]">角色</th>
+                    <th className="px-4 py-3 text-left font-medium text-[#86909C] whitespace-nowrap">账号名称</th>
+                    <th className="px-4 py-3 text-left font-medium text-[#86909C] whitespace-nowrap">手机号</th>
+                    <th className="px-4 py-3 text-left font-medium text-[#86909C] whitespace-nowrap">部门</th>
+                    <th className="px-4 py-3 text-left font-medium text-[#86909C] whitespace-nowrap">角色</th>
                     <th className="px-4 py-3 text-left font-medium text-[#86909C] whitespace-nowrap">状态</th>
-                    <th className="px-4 py-3 text-left font-medium text-[#86909C]">创建时间</th>
-                    <th className="px-4 py-3 text-left font-medium text-[#86909C] w-[260px]">操作</th>
+                    <th className="px-4 py-3 text-left font-medium text-[#86909C] whitespace-nowrap">创建时间</th>
+                    <th className="px-4 py-3 text-left font-medium text-[#86909C] w-[260px] whitespace-nowrap">操作</th>
                   </tr>
                 </thead>
                 <tbody>
                   {pagedAccounts.map((account) => (
                     <tr key={account.id} className="border-t border-[#f0f2f5]">
-                      <td className="px-4 py-3 text-[#0A1B39]">{account.name}</td>
-                      <td className="px-4 py-3 text-[#0A1B39]">{account.phone}</td>
-                      <td className="px-4 py-3 text-[#86909C]">{account.departmentName}</td>
-                      <td className="px-4 py-3 text-[#86909C]">{account.roleNames.join("、")}</td>
+                      <td className="px-4 py-3 text-[#0A1B39] whitespace-nowrap">{account.name}</td>
+                      <td className="px-4 py-3 text-[#0A1B39] whitespace-nowrap">{account.phone}</td>
+                      <td className="px-4 py-3 text-[#86909C] whitespace-nowrap">{account.departmentName}</td>
+                      <td className="px-4 py-3 text-[#86909C] whitespace-nowrap">{account.roleNames.join("、")}</td>
                       <td className="px-4 py-3 text-[#0A1B39] whitespace-nowrap">{account.status}</td>
-                      <td className="px-4 py-3 text-[#86909C]">{account.createTime}</td>
+                      <td className="px-4 py-3 text-[#86909C] whitespace-nowrap">{account.createTime}</td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-4">
-                          <button
-                            onClick={() => handleModifyPerm(account)}
-                            className="text-[#409eff] hover:text-[#66b1ff] transition-colors"
-                          >
-                            修改权限
-                          </button>
-                          <button
-                            onClick={() => handleEdit(account)}
-                            className="text-[#409eff] hover:text-[#66b1ff] transition-colors"
-                          >
-                            编辑
-                          </button>
-                          <button
-                            onClick={() => handleToggleStatus(account.id)}
-                            className="text-[#409eff] hover:text-[#66b1ff] transition-colors"
-                          >
-                            {account.status === "启用" ? "停用" : "启用"}
-                          </button>
-                          <button
-                            onClick={() => handleDeleteAccount(account.id)}
-                            className="text-[#409eff] hover:text-[#66b1ff] transition-colors"
-                          >
-                            删除
-                          </button>
+                          {hasButtonPermission(2011) && (
+                            <button
+                              onClick={() => handleModifyPerm(account)}
+                              className="text-[#409eff] hover:text-[#66b1ff] transition-colors"
+                            >
+                              修改权限
+                            </button>
+                          )}
+                          {hasButtonPermission(2011) && (
+                            <button
+                              onClick={() => handleEdit(account)}
+                              className="text-[#409eff] hover:text-[#66b1ff] transition-colors"
+                            >
+                              编辑
+                            </button>
+                          )}
+                          {hasButtonPermission(2012) && (
+                            <button
+                              onClick={() => handleToggleStatus(account)}
+                              className="text-[#409eff] hover:text-[#66b1ff] transition-colors"
+                            >
+                              {account.status === "启用" ? "停用" : "启用"}
+                            </button>
+                          )}
+                          {hasButtonPermission(2013) && (
+                            <button
+                              onClick={() => handleDeleteAccount(account.id)}
+                              className="text-[#409eff] hover:text-[#66b1ff] transition-colors"
+                            >
+                              删除
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -1284,7 +1522,7 @@ export function AccountManagement() {
 
           {/* Pagination */}
           <div className="flex items-center justify-between px-4 py-3 border-t border-[#f0f2f5] bg-white rounded-b-xl">
-            <div className="text-[13px] text-[#86909C]">共 {filteredAccounts.length} 条</div>
+            <div className="text-[13px] text-[#86909C]">共 {accountTotal} 条</div>
             <div className="flex items-center gap-1">
               <button
                 onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
@@ -1344,7 +1582,7 @@ export function AccountManagement() {
       {showModifyPerm && modifyingAccount && (
         <ModifyPermissionModal
           account={modifyingAccount}
-          roles={MOCK_ROLES}
+          roles={roles}
           onConfirm={confirmModifyPerm}
           onCancel={() => { setShowModifyPerm(false); setModifyingAccount(null); }}
         />

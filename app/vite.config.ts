@@ -4,6 +4,11 @@ import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import fs from 'fs'
 import { spawn } from 'child_process'
+import { analyzeProductMainImageAndSave, deleteGeneratedMainImages, generateAiMarketReport, generateOverallReportFromProductMainImageReports, getAnalysisProductsView, getAnalysisReportView, getMainImageAiReport, getOpenAiSettings, getProductMainImageAnalysis, getSuiteMainImageDescriptions, listAnalysisReportRows, listGeneratedMainImages, listProductOptions, listSuitePriceBands, listSuiteProducts, previewMarketPriceBands, readLatestMarketReport, saveGeneratedMainImages, saveOpenAiSettings, testArkResponsesConnection } from './src/server/aiMarketAnalysis.js'
+import { generateProductSetImage } from './src/server/arkImageGeneration.js'
+import { expandProductSetPrompts, extractProductSetImageText, streamProductSetInformation } from './src/server/mainImagePromptExpansion.js'
+import { fetchTaobaoCategories, fetchTaobaoShops, getTaobaoConfigStatus } from './src/server/taobaoTopClient.js'
+
 
 function figmaAssetResolver() {
   return {
@@ -175,6 +180,283 @@ function localRpaApi() {
         if (!ENABLE_RPA_API) return sendJson(res, 404, { ok: false, error: 'RPA API 已关闭' })
 
         try {
+          if (req.method === 'GET' && req.url.startsWith('/api/taobao/status')) {
+            return sendJson(res, 200, { ok: true, ...getTaobaoConfigStatus() })
+          }
+
+          if (req.method === 'GET' && req.url.startsWith('/api/taobao/shops')) {
+            try {
+              const shops = await fetchTaobaoShops()
+              return sendJson(res, 200, { ok: true, shops })
+            } catch (error) {
+              return sendJson(res, 200, { ok: false, error: error instanceof Error ? error.message : String(error) })
+            }
+          }
+
+          if (req.method === 'GET' && req.url.startsWith('/api/taobao/categories')) {
+            const requestUrl = new URL(req.url, 'http://localhost')
+            const parentCid = Number(requestUrl.searchParams.get('parent_cid') || 0)
+            try {
+              const categories = await fetchTaobaoCategories(parentCid)
+              return sendJson(res, 200, { ok: true, categories })
+            } catch (error) {
+              return sendJson(res, 200, { ok: false, error: error instanceof Error ? error.message : String(error) })
+            }
+          }
+
+          if (req.method === 'GET' && req.url.startsWith('/api/product-sets/products')) {
+            const requestUrl = new URL(req.url, 'http://localhost')
+            const query = (requestUrl.searchParams.get('q') || '').trim()
+            const payload = await listSuiteProducts(query)
+            return sendJson(res, 200, payload)
+          }
+
+          if (req.method === 'GET' && req.url.startsWith('/api/product-sets/price-bands')) {
+            const requestUrl = new URL(req.url, 'http://localhost')
+            const keyword = (requestUrl.searchParams.get('keyword') || '').trim()
+            const payload = await listSuitePriceBands(keyword)
+            return sendJson(res, 200, payload)
+          }
+
+          if (req.method === 'GET' && req.url.startsWith('/api/product-sets/main-image-descriptions')) {
+            const requestUrl = new URL(req.url, 'http://localhost')
+            const keyword = (requestUrl.searchParams.get('keyword') || '').trim()
+            const priceBand = (requestUrl.searchParams.get('priceBand') || '').trim()
+            const runId = (requestUrl.searchParams.get('runId') || '').trim()
+            const payload = await getSuiteMainImageDescriptions({ keyword, priceBand, runId })
+            return sendJson(res, 200, payload)
+          }
+
+          if (req.method === 'POST' && req.url.startsWith('/api/product-sets/generate-image')) {
+            const body = await readBody(req)
+            const payload = await generateProductSetImage({
+              prompt: body.prompt,
+              image: body.image,
+              images: body.images,
+              size: body.size || '2K',
+              ratio: body.ratio || '',
+              watermark: body.watermark === true,
+            })
+            return sendJson(res, 200, payload)
+          }
+
+          if (req.method === 'POST' && req.url.startsWith('/api/product-sets/extract-image-text')) {
+            const body = await readBody(req)
+            const payload = await extractProductSetImageText({
+              image: body.image,
+            })
+            return sendJson(res, 200, payload)
+          }
+
+          if (req.method === 'POST' && req.url.startsWith('/api/product-sets/generated-images/delete')) {
+            const body = await readBody(req)
+            const payload = await deleteGeneratedMainImages({ ids: Array.isArray(body?.ids) ? body.ids : [] })
+            return sendJson(res, 200, payload)
+          }
+
+          if (req.method === 'POST' && req.url.startsWith('/api/product-sets/generated-images')) {
+            const body = await readBody(req)
+            const payload = await saveGeneratedMainImages(body || {})
+            return sendJson(res, 200, payload)
+          }
+
+          if (req.method === 'GET' && req.url.startsWith('/api/product-sets/generated-images')) {
+            const requestUrl = new URL(req.url, 'http://localhost')
+            const payload = await listGeneratedMainImages({
+              productName: (requestUrl.searchParams.get('productName') || '').trim(),
+            })
+            return sendJson(res, 200, payload)
+          }
+
+          if (req.method === 'POST' && req.url.startsWith('/api/product-sets/expand-prompts-stream')) {
+            const body = await readBody(req)
+            res.statusCode = 200
+            res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8')
+            res.setHeader('Cache-Control', 'no-cache, no-transform')
+            res.setHeader('Connection', 'keep-alive')
+            const writeEvent = (event: unknown) => {
+              res.write(`${JSON.stringify(event)}\n`)
+            }
+            try {
+              await streamProductSetInformation({
+                settings: body.settings,
+                baseText: body.baseText,
+                image: Array.isArray(body.images) && body.images.length ? body.images : body.image,
+                emit: writeEvent,
+              })
+            } catch (error) {
+              writeEvent({ type: 'error', error: error instanceof Error ? error.message : String(error) })
+            } finally {
+              res.end()
+            }
+            return
+          }
+
+          if (req.method === 'POST' && req.url.startsWith('/api/product-sets/expand-prompts')) {
+            const body = await readBody(req)
+            const payload = await expandProductSetPrompts({
+              product: body.product,
+              priceBand: body.priceBand,
+              settings: body.settings,
+              baseText: body.baseText,
+              image: body.image,
+              selectedSlots: body.selectedSlots,
+              informationOnly: body.informationOnly === true,
+            })
+            return sendJson(res, 200, payload)
+          }
+
+          if (req.method === 'GET' && req.url.startsWith('/api/report/openai-settings')) {
+            return sendJson(res, 200, getOpenAiSettings())
+          }
+
+          if (req.method === 'POST' && req.url.startsWith('/api/report/openai-settings/test')) {
+            const body = await readBody(req)
+            const payload = await testArkResponsesConnection({
+              imageUrl: body.imageUrl,
+              text: body.text,
+            })
+            return sendJson(res, 200, payload)
+          }
+
+          if (req.method === 'POST' && req.url.startsWith('/api/report/openai-settings')) {
+            const body = await readBody(req)
+            const payload = saveOpenAiSettings({
+              apiKey: body.apiKey,
+              model: body.model,
+            })
+            return sendJson(res, 200, payload)
+          }
+
+          if (req.method === 'GET' && req.url.startsWith('/api/report/analysis-list')) {
+            const requestUrl = new URL(req.url, 'http://localhost')
+            const payload = await listAnalysisReportRows({
+              keyword: (requestUrl.searchParams.get('keyword') || '').trim(),
+              startTime: (requestUrl.searchParams.get('startTime') || '').trim(),
+              endTime: (requestUrl.searchParams.get('endTime') || '').trim(),
+              status: (requestUrl.searchParams.get('status') || '').trim(),
+            })
+            return sendJson(res, 200, payload)
+          }
+
+          if (req.method === 'GET' && req.url.startsWith('/api/report/analysis-view')) {
+            const requestUrl = new URL(req.url, 'http://localhost')
+            const payload = await getAnalysisReportView({
+              id: (requestUrl.searchParams.get('id') || '').trim(),
+              keyword: (requestUrl.searchParams.get('keyword') || '').trim(),
+            })
+            return sendJson(res, 200, payload)
+          }
+
+          if (req.method === 'GET' && req.url.startsWith('/api/report/main-image-ai-report')) {
+            const requestUrl = new URL(req.url, 'http://localhost')
+            try {
+              const payload = await getMainImageAiReport({
+                id: (requestUrl.searchParams.get('id') || '').trim(),
+              })
+              return sendJson(res, 200, payload)
+            } catch (error) {
+              return sendJson(res, 200, {
+                ok: false,
+                source: 'fallback',
+                error: error instanceof Error ? error.message : String(error),
+              })
+            }
+          }
+
+          if (req.method === 'GET' && req.url.startsWith('/api/report/products-view')) {
+            const requestUrl = new URL(req.url, 'http://localhost')
+            const payload = await getAnalysisProductsView({
+              id: (requestUrl.searchParams.get('id') || '').trim(),
+              keyword: (requestUrl.searchParams.get('keyword') || '').trim(),
+            })
+            return sendJson(res, 200, payload)
+          }
+
+          if (req.method === 'POST' && req.url.startsWith('/api/report/product-main-image-analysis')) {
+            const body = await readBody(req)
+            const payload = await analyzeProductMainImageAndSave({
+              productId: body.productId,
+              keyword: body.keyword,
+              fallback: {
+                title: body.title,
+                productUrl: body.productUrl,
+                imageUrl: body.imageUrl,
+                price: body.price,
+                soldCount: body.soldCount,
+                skus: body.skus,
+              },
+            })
+            return sendJson(res, 200, payload)
+          }
+
+          if (req.method === 'GET' && req.url.startsWith('/api/report/product-main-image-analysis')) {
+            const requestUrl = new URL(req.url, 'http://localhost')
+            const payload = await getProductMainImageAnalysis({
+              id: (requestUrl.searchParams.get('id') || '').trim(),
+              productId: (requestUrl.searchParams.get('productId') || '').trim(),
+            })
+            return sendJson(res, 200, payload)
+          }
+
+          if (req.method === 'GET' && req.url.startsWith('/api/report/products')) {
+            const requestUrl = new URL(req.url, 'http://localhost')
+            const query = (requestUrl.searchParams.get('q') || '').trim()
+            const payload = await listProductOptions(query)
+            return sendJson(res, 200, payload)
+          }
+
+          if (req.method === 'GET' && req.url.startsWith('/api/report/price-bands-preview')) {
+            const requestUrl = new URL(req.url, 'http://localhost')
+            const payload = await previewMarketPriceBands({
+              keyword: (requestUrl.searchParams.get('keyword') || '').trim(),
+              limit: Number(requestUrl.searchParams.get('limit') || 120),
+              costPrice: requestUrl.searchParams.get('costPrice'),
+              shippingCost: Number(requestUrl.searchParams.get('shippingCost') || 0),
+              packagingCost: Number(requestUrl.searchParams.get('packagingCost') || 0),
+              laborCost: Number(requestUrl.searchParams.get('laborCost') || 0),
+              platformFeeRate: Number(requestUrl.searchParams.get('platformFeeRate') || 0),
+              adFeeRate: Number(requestUrl.searchParams.get('adFeeRate') || 0),
+              targetMargin: Number(requestUrl.searchParams.get('targetMargin') || 0.3),
+            })
+            return sendJson(res, 200, payload)
+          }
+
+          if (req.method === 'GET' && req.url.startsWith('/api/report/latest')) {
+            const requestUrl = new URL(req.url, 'http://localhost')
+            const keyword = (requestUrl.searchParams.get('keyword') || '').trim()
+            if (!currentReport) currentReport = readReportState()
+            const latestReport = keyword ? await readLatestMarketReport(keyword) : (currentReport?.reportJson ? currentReport : await readLatestMarketReport())
+            return sendJson(res, 200, {
+              ok: true,
+              hasReport: Boolean(latestReport?.reportJson),
+              report: latestReport,
+              reportJson: latestReport?.reportJson || null,
+              markdown: latestReport?.markdown || '',
+              jsonFile: null,
+              markdownFile: null,
+            })
+          }
+
+          if (req.method === 'GET' && req.url.startsWith('/api/report/generate-status')) {
+            return sendJson(res, 200, reportJobPayload())
+          }
+
+          if (req.method === 'POST' && req.url.startsWith('/api/report/generate')) {
+            const body = await readBody(req)
+            const request = reportRequestFromBody(body)
+            let job
+            try {
+              job = startReportJob(request)
+            } catch (error) {
+              if (error?.current) {
+                return sendJson(res, 409, { ok: false, error: error.message, current: error.current })
+              }
+              throw error
+            }
+            return sendJson(res, 202, { ok: true, queued: true, jobId: job.id, job })
+          }
+
           if (req.method === 'GET' && req.url.startsWith('/api/rpa/status')) {
             return sendJson(res, 200, statusPayload())
           }
@@ -311,6 +593,30 @@ export default defineConfig({
         changeOrigin: true,
       },
       '/api/taobao': {
+        target: BACKEND_TARGET,
+        changeOrigin: true,
+      },
+      '/api/role': {
+        target: BACKEND_TARGET,
+        changeOrigin: true,
+      },
+      '/api/dept': {
+        target: BACKEND_TARGET,
+        changeOrigin: true,
+      },
+      '/api/account': {
+        target: BACKEND_TARGET,
+        changeOrigin: true,
+      },
+      '/api/menu': {
+        target: BACKEND_TARGET,
+        changeOrigin: true,
+      },
+      '/api/platform': {
+        target: BACKEND_TARGET,
+        changeOrigin: true,
+      },
+      '/api/store': {
         target: BACKEND_TARGET,
         changeOrigin: true,
       },

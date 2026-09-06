@@ -21,32 +21,19 @@ function loadLocalEnv() {
 
 loadLocalEnv()
 
-const ARK_IMAGE_ENDPOINT = 'https://ark.cn-beijing.volces.com/api/v3/images/generations'
-const DEFAULT_MODEL = process.env.ARK_IMAGE_MODEL || 'doubao-seedream-5-0-260128'
-
-// 宽高比 → Ark size 像素值（长边 2048 的 2K 档，Seedream 支持 "宽x高" 格式）
-const RATIO_SIZE_MAP = {
-  '1:1': '2048x2048',
-  '3:4': '1536x2048',
-  '4:3': '2048x1536',
-  '9:16': '1152x2048',
-  '16:9': '2048x1152',
-}
-
-function resolveImageSize(size, ratio) {
-  const pixelSize = RATIO_SIZE_MAP[String(ratio || '').trim()]
-  if (pixelSize) return pixelSize
-  return String(size || '2K').trim() || '2K'
-}
+const OPENROUTER_IMAGE_ENDPOINT = 'https://openrouter.ai/api/v1/images'
+const DEFAULT_MODEL = process.env.OPENROUTER_IMAGE_MODEL || 'openai/gpt-image-2'
 
 function normalizeGeneratedImages(data) {
   const rawItems = Array.isArray(data?.data) ? data.data : []
   return rawItems
     .map((item) => ({
-      url: item.url || item.image_url || item.b64_json || '',
+      url: item.url || item.image_url || '',
+      b64Json: item.b64_json || '',
+      mediaType: item.media_type || 'image/png',
       revisedPrompt: item.revised_prompt || '',
     }))
-    .filter((item) => item.url)
+    .filter((item) => item.url || item.b64Json)
 }
 
 async function saveGeneratedImage(image, index) {
@@ -54,20 +41,22 @@ async function saveGeneratedImage(image, index) {
   fs.mkdirSync(outputDir, { recursive: true })
 
   let buffer
-  let contentType = 'image/png'
-  if (image.url.startsWith('data:')) {
+  let contentType = image.mediaType || 'image/png'
+  if (image.b64Json) {
+    buffer = Buffer.from(image.b64Json, 'base64')
+  } else if (image.url.startsWith('data:')) {
     const match = image.url.match(/^data:(image\/[a-z0-9.+-]+);base64,(.+)$/i)
-    if (!match) throw new Error('Ark 返回了无法识别的 base64 图片数据')
+    if (!match) throw new Error('OpenRouter 返回了无法识别的 base64 图片数据')
     contentType = match[1]
     buffer = Buffer.from(match[2], 'base64')
   } else {
     const response = await fetch(image.url)
-    if (!response.ok) throw new Error(`下载 Ark 图片失败：${response.status}`)
+    if (!response.ok) throw new Error(`下载 OpenRouter 图片失败：${response.status}`)
     contentType = response.headers.get('content-type')?.split(';')[0] || contentType
     buffer = Buffer.from(await response.arrayBuffer())
   }
 
-  const extension = ({ 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif' })[contentType] || 'png'
+  const extension = ({ 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif', 'image/svg+xml': 'svg' })[contentType] || 'png'
   const fileName = `image-${Date.now()}-${index}.${extension}`
   fs.writeFileSync(path.join(outputDir, fileName), buffer)
   return {
@@ -78,36 +67,44 @@ async function saveGeneratedImage(image, index) {
   }
 }
 
-export async function generateProductSetImage({ prompt, image, size = '2K', ratio = '', watermark = false }) {
+function normalizeReferenceImages({ image, images }) {
+  const rawImages = Array.isArray(images) ? images : [image]
+  return Array.from(new Set(rawImages.map((item) => String(item || '').trim()).filter(Boolean))).slice(0, 4)
+}
+
+export async function generateProductSetImage({ prompt, image, images, size = '2K', ratio = '', watermark = false }) {
   loadLocalEnv()
-  const apiKey = process.env.ARK_API_KEY
+  const apiKey = process.env.OPENROUTER_API_KEY
   if (!apiKey) {
-    throw new Error('后台未配置 ARK_API_KEY，请在服务端环境变量或 .env.local 中配置。')
+    throw new Error('后台未配置 OPENROUTER_API_KEY，请在服务端环境变量或 .env.local 中配置。')
   }
 
   const cleanPrompt = String(prompt || '').trim()
-  const cleanImage = String(image || '').trim()
+  const referenceImages = normalizeReferenceImages({ image, images })
   if (!cleanPrompt) throw new Error('请输入主图提示词')
-  if (!cleanImage) throw new Error('请先上传商品原图')
 
-  const resolvedSize = resolveImageSize(size, ratio)
+  const cleanRatio = String(ratio || '').trim()
+  const requestBody = {
+    model: DEFAULT_MODEL,
+    prompt: cleanPrompt,
+    quality: 'low',
+    n: 1,
+  }
+  if (cleanRatio) requestBody.aspect_ratio = cleanRatio
+  if (referenceImages.length) {
+    requestBody.input_references = referenceImages.map((url) => ({
+      type: 'image_url',
+      image_url: { url },
+    }))
+  }
 
-  const response = await fetch(ARK_IMAGE_ENDPOINT, {
+  const response = await fetch(OPENROUTER_IMAGE_ENDPOINT, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${apiKey}`,
     },
-    body: JSON.stringify({
-      model: DEFAULT_MODEL,
-      prompt: cleanPrompt,
-      image: cleanImage,
-      sequential_image_generation: 'disabled',
-      response_format: 'url',
-      size: resolvedSize,
-      stream: false,
-      watermark,
-    }),
+    body: JSON.stringify(requestBody),
   })
 
   const raw = await response.text()
@@ -118,16 +115,16 @@ export async function generateProductSetImage({ prompt, image, size = '2K', rati
     payload = { raw }
   }
   if (!response.ok) {
-    throw new Error(`Ark 图生图失败：${raw}`)
+    throw new Error(`OpenRouter 生图失败：${raw}`)
   }
 
-  const images = await Promise.all(normalizeGeneratedImages(payload).map(saveGeneratedImage))
+  const savedImages = await Promise.all(normalizeGeneratedImages(payload).map(saveGeneratedImage))
   return {
     ok: true,
     model: DEFAULT_MODEL,
-    size: resolvedSize,
-    ratio: String(ratio || '').trim() || null,
-    images,
+    size: String(size || '').trim() || null,
+    ratio: cleanRatio || null,
+    images: savedImages,
     raw: payload,
   }
 }

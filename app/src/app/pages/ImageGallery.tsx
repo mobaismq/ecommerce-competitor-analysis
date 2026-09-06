@@ -3,6 +3,7 @@ import { useNavigate } from "react-router";
 import { Search, RotateCcw, Eye, Download, Trash2, X, ChevronLeft, ChevronRight, ChevronDown, Calendar } from "lucide-react";
 import { createPortal } from "react-dom";
 import { PageHeader } from "@/app/components/PageHeader";
+import { usePlatforms } from "@/app/hooks/usePlatforms";
 
 function MultiSelect({
   options,
@@ -285,6 +286,7 @@ function buildGroupsFromDbRows(rows: DbGeneratedImage[]): ImageGroup[] {
 
 export function ImageGallery() {
   const navigate = useNavigate();
+  const { platforms } = usePlatforms();
   const [searchName, setSearchName] = useState("");
   const [searchType, setSearchType] = useState<string[]>([]);
   const [searchProduct, setSearchProduct] = useState<string[]>([]);
@@ -559,7 +561,8 @@ export function ImageGallery() {
   };
 
   const productNames = [...new Set(groups.map((g) => g.product).filter(Boolean))];
-  const platformOptions = [...new Set([...MOCK_PLATFORMS, ...groups.flatMap((g) => g.platforms)])];
+  // 平台筛选下拉只展示平台表里的平台，避免历史数据里的脏平台（如"淘宝天猫1688"）混入
+  const platformOptions = platforms.map((p) => p.platformName);
 
   return (
     <>

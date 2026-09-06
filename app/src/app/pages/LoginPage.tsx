@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
+import { Eye, EyeOff } from "lucide-react";
 
 export function LoginPage() {
   const navigate = useNavigate();
@@ -10,9 +11,12 @@ export function LoginPage() {
   const [countdown, setCountdown] = useState(0);
   const [accountError, setAccountError] = useState("");
   const [passwordError, setPasswordError] = useState("");
+  const [formError, setFormError] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
 
-  const handleLogin = () => {
+  const handleLogin = async () => {
     let hasError = false;
+    setFormError("");
 
     if (!account.trim()) {
       setAccountError("请输入账号名称或手机号");
@@ -30,7 +34,28 @@ export function LoginPage() {
 
     if (hasError) return;
 
-    navigate("/market/competitive/ai-collect");
+    try {
+      const response = await fetch("/api/account/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ account: account.trim(), password }),
+      });
+      const res = await response.json();
+      if (!response.ok || !res.ok) {
+        setFormError(res?.error || "账号或密码错误");
+        return;
+      }
+      // 登录成功：保存当前用户和权限，供菜单/按钮权限控制使用
+      localStorage.setItem("current_user", res.account?.accountName || account.trim());
+      localStorage.setItem("current_user_id", res.account?.accountId || "");
+      localStorage.setItem(
+        "user_permissions",
+        JSON.stringify(res.permissions || { menuPermissionIds: [], buttonPermissionIds: [], storePermissionIds: [] }),
+      );
+      navigate("/market/competitive/ai-collect");
+    } catch {
+      setFormError("网络异常，请稍后重试");
+    }
   };
 
   const handleSendSms = () => {
@@ -149,13 +174,22 @@ export function LoginPage() {
                     {accountError && <p className="mt-1 text-[12px] text-[#ff4d4f]">{accountError}</p>}
                   </div>
                   <div className="mb-4">
-                    <input
-                      type="password"
-                      value={password}
-                      onChange={(e) => { setPassword(e.target.value); setPasswordError(""); }}
-                      placeholder="请输入登录密码"
-                      className="w-full h-[44px] px-4 rounded-lg border border-[#dce3ee] bg-[#f8f9fb] text-[14px] text-[#0A1B39] outline-none transition-colors placeholder:text-[#98A2B3] focus:border-[#3388ff] focus:bg-white focus:ring-2 focus:ring-[#d8ebff]"
-                    />
+                    <div className="relative">
+                      <input
+                        type={showPassword ? "text" : "password"}
+                        value={password}
+                        onChange={(e) => { setPassword(e.target.value); setPasswordError(""); }}
+                        placeholder="请输入登录密码"
+                        className="w-full h-[44px] px-4 pr-10 rounded-lg border border-[#dce3ee] bg-[#f8f9fb] text-[14px] text-[#0A1B39] outline-none transition-colors placeholder:text-[#98A2B3] focus:border-[#3388ff] focus:bg-white focus:ring-2 focus:ring-[#d8ebff]"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-[#98A2B3] hover:text-[#3388ff] transition-colors"
+                      >
+                        {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
                     {passwordError && <p className="mt-1 text-[12px] text-[#ff4d4f]">{passwordError}</p>}
                   </div>
                   <div className="flex items-center gap-4 mb-6 text-[13px]">
@@ -200,6 +234,10 @@ export function LoginPage() {
                     </button>
                   </div>
                 </>
+              )}
+
+              {formError && (
+                <p className="mb-3 text-[12px] text-[#ff4d4f] text-center">{formError}</p>
               )}
 
               {/* Login Button */}

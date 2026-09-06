@@ -200,13 +200,7 @@ export function AIDataCollection() {
       <div className="grid grid-cols-[minmax(420px,1fr)_1fr] gap-5">
         <section className="rounded-2xl bg-white p-6 shadow-[0_8px_32px_rgba(29,38,52,.06)]">
           <div className="mb-5 flex items-center gap-3">
-            <div className="grid h-10 w-10 place-items-center rounded-lg bg-[#e4f3ff] text-[#3388ff]">
-              <Cpu className="h-5 w-5" />
-            </div>
-            <div>
-              <h2 className="text-[17px] font-extrabold text-[#0A1B39]">采集条件</h2>
-              <p className="text-[12px] font-medium text-[#86909C]">设置采集参数后点击「开始采集」</p>
-            </div>
+            <h2 className="text-[17px] font-extrabold text-[#0A1B39]">采集条件</h2>
           </div>
 
           <div className="space-y-5">
@@ -308,10 +302,7 @@ export function AIDataCollection() {
 
         <section className="min-w-0 rounded-2xl bg-white p-6 shadow-[0_8px_32px_rgba(29,38,52,.06)]">
           <div className="mb-5 flex items-center justify-between gap-3">
-            <div>
-              <h2 className="text-[17px] font-extrabold text-[#0A1B39]">采集进度</h2>
-              <p className="text-[12px] font-medium text-[#86909C]">实时展示真实店透视 RPA 采集状态与输出</p>
-            </div>
+            <h2 className="text-[17px] font-extrabold text-[#0A1B39]">采集进度</h2>
             <span className={`rounded-full px-3 py-1.5 text-[12px] font-bold ${statusConfig[status].className}`}>
               <span className={`mr-1.5 inline-block h-2 w-2 rounded-full align-middle ${statusConfig[status].dot}`} />
               {statusConfig[status].text}
