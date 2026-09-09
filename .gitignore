@@ -42,3 +42,8 @@ __MACOSX/
 # IDE
 .vscode/
 .idea/
+
+docs/*
+# !docs/需求与业务/
+.agents/
+.claude/
