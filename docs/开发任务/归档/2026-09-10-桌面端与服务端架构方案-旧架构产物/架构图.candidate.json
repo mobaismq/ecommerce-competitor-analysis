@@ -1,0 +1,335 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "电商竞品分析系统：桌面端 + 服务端架构",
+    "locale": "zh-CN",
+    "output": "架构图.html",
+    "quality_profile": "showcase",
+    "viewBox": [1280, 714],
+    "views": [
+      {
+        "id": "analysis-job",
+        "label": "全链路分析任务",
+        "focus": ["renderer", "nginx", "api", "bullmq", "agent", "python", "worker", "mysql", "storage", "ai-layer", "vendor-apis", "custom-api"],
+        "note": "桌面端发起任务，经 BullMQ FlowProducer 编排，桌面 RPA 采集后由服务端统一 AI 供应商层分析并持久化。"
+      },
+      {
+        "id": "desktop-rpa",
+        "label": "桌面 RPA",
+        "focus": ["main", "agent", "sqlite", "chrome", "python"],
+        "note": "主进程守护 RPA Agent，本地 SQLite 记录执行状态，系统 Chrome 经 CDP 附加并由内置 Python 采集。"
+      },
+      {
+        "id": "server-core",
+        "label": "服务端核心",
+        "focus": ["nginx", "api", "bullmq", "worker", "mysql", "storage", "ai-layer", "vendor-apis", "custom-api"],
+        "note": "核心数据、AI 密钥与存储凭据只在服务端，供应商按配置切换，开发环境走本地目录。"
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "main",
+      "type": "frontend",
+      "label": "Electron 主进程",
+      "sublabel": "窗口 / 登录态 / 自动更新",
+      "tag": "主进程守护",
+      "pos": [30, 110],
+      "size": [160, 66]
+    },
+    {
+      "id": "renderer",
+      "type": "frontend",
+      "label": "React UI",
+      "sublabel": "登录 / 报告 / 任务设置",
+      "tag": "渲染进程",
+      "brand": "react",
+      "pos": [250, 110],
+      "size": [160, 66]
+    },
+    {
+      "id": "sqlite",
+      "type": "database",
+      "label": "本地 SQLite",
+      "sublabel": "执行队列 / 采集暂存",
+      "tag": "桌面端 Prisma",
+      "brand": "sqlite",
+      "pos": [30, 270],
+      "size": [160, 66]
+    },
+    {
+      "id": "agent",
+      "type": "backend",
+      "label": "RPA Agent",
+      "sublabel": "HTTPS 领取 / 进程管理",
+      "tag": "desktop-rpa",
+      "pos": [250, 270],
+      "size": [170, 72]
+    },
+    {
+      "id": "chrome",
+      "type": "external",
+      "label": "系统 Chrome",
+      "sublabel": "RPA 专用 profile",
+      "tag": "CDP 端口契约",
+      "pos": [30, 430],
+      "size": [160, 66]
+    },
+    {
+      "id": "python",
+      "type": "backend",
+      "label": "Python 采集脚本",
+      "sublabel": "skills/ + 内置运行时",
+      "tag": "CDP 附加",
+      "brand": "python",
+      "pos": [250, 430],
+      "size": [170, 66]
+    },
+    {
+      "id": "nginx",
+      "type": "cloud",
+      "label": "Nginx",
+      "sublabel": "静态托管 + /api 反代",
+      "tag": "HTTPS :443",
+      "pos": [540, 110],
+      "size": [150, 66]
+    },
+    {
+      "id": "api",
+      "type": "backend",
+      "label": "API 服务",
+      "sublabel": "用户 / 权限 / 任务 / SSE",
+      "tag": "NestJS + Fastify",
+      "pos": [760, 110],
+      "size": [170, 72]
+    },
+    {
+      "id": "bullmq",
+      "type": "messagebus",
+      "label": "Redis / BullMQ",
+      "sublabel": "Queue + FlowProducer + 缓存",
+      "tag": "任务编排",
+      "pos": [1030, 110],
+      "size": [170, 72]
+    },
+    {
+      "id": "mysql",
+      "type": "database",
+      "label": "MySQL",
+      "sublabel": "用户 / 任务 / 报告 / 审计",
+      "tag": "Prisma ORM",
+      "brand": "mysql",
+      "pos": [500, 270],
+      "size": [160, 66]
+    },
+    {
+      "id": "storage",
+      "type": "cloud",
+      "label": "本地目录 / OSS",
+      "sublabel": "开发本地目录，线上 OSS",
+      "tag": "StorageDriver",
+      "pos": [1030, 270],
+      "size": [170, 66]
+    },
+    {
+      "id": "worker",
+      "type": "backend",
+      "label": "BullMQ Worker",
+      "sublabel": "AI / 报告 / 生图 / 发布 / 收尾",
+      "tag": "server 队列",
+      "pos": [760, 270],
+      "size": [170, 72]
+    },
+    {
+      "id": "ai-layer",
+      "type": "backend",
+      "label": "AI 供应商层",
+      "sublabel": "AiProvider 接口 + ProviderRegistry",
+      "tag": "text / vision / image",
+      "pos": [760, 430],
+      "size": [200, 72]
+    },
+    {
+      "id": "vendor-apis",
+      "type": "external",
+      "label": "豆包 Ark / OpenRouter",
+      "sublabel": "厂商 API",
+      "tag": "密钥集中服务端",
+      "pos": [500, 430],
+      "size": [160, 66]
+    },
+    {
+      "id": "custom-api",
+      "type": "external",
+      "label": "OpenAI 兼容端点",
+      "sublabel": "key + baseURL 自定义供应商",
+      "tag": "OpenAICompatibleProvider",
+      "pos": [1030, 430],
+      "size": [180, 66]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "桌面端 · 用户本机",
+      "wraps": ["main", "renderer", "sqlite", "agent", "chrome", "python"]
+    },
+    {
+      "kind": "region",
+      "label": "服务端 · 服务器",
+      "wraps": ["nginx", "api", "bullmq", "mysql", "storage", "worker", "ai-layer", "vendor-apis", "custom-api"]
+    },
+    {
+      "kind": "security-group",
+      "label": "公网接入层 · HTTPS :443",
+      "wraps": ["nginx", "api"]
+    }
+  ],
+  "connections": [
+    {
+      "id": "renderer-main",
+      "from": "renderer",
+      "to": "main",
+      "label": "IPC 桥接",
+      "variant": "emphasis"
+    },
+    {
+      "id": "main-agent",
+      "from": "main",
+      "to": "agent",
+      "label": "进程守护",
+      "fromSide": "right",
+      "toSide": "top"
+    },
+    {
+      "id": "agent-sqlite",
+      "from": "agent",
+      "to": "sqlite",
+      "label": "本地队列"
+    },
+    {
+      "id": "agent-chrome",
+      "from": "agent",
+      "to": "chrome",
+      "label": "启动 Chrome / CDP",
+      "variant": "emphasis"
+    },
+    {
+      "id": "agent-python",
+      "from": "agent",
+      "to": "python",
+      "label": "调度采集脚本",
+      "labelAt": [335, 356]
+    },
+    {
+      "id": "renderer-nginx",
+      "from": "renderer",
+      "to": "nginx",
+      "label": "HTTPS REST + SSE",
+      "variant": "emphasis"
+    },
+    {
+      "id": "agent-nginx",
+      "from": "agent",
+      "to": "nginx",
+      "label": "进度 / 结果上报",
+      "fromSide": "top"
+    },
+    {
+      "id": "nginx-api",
+      "from": "nginx",
+      "to": "api",
+      "label": "/api 反代"
+    },
+    {
+      "id": "api-bullmq",
+      "from": "api",
+      "to": "bullmq",
+      "label": "FlowProducer 投递",
+      "variant": "emphasis"
+    },
+    {
+      "id": "api-mysql",
+      "from": "api",
+      "to": "mysql",
+      "label": "Prisma SQL"
+    },
+    {
+      "id": "worker-bullmq",
+      "from": "worker",
+      "to": "bullmq",
+      "label": "领取任务",
+      "fromSide": "top"
+    },
+    {
+      "id": "worker-mysql",
+      "from": "worker",
+      "to": "mysql",
+      "label": "报告 / 资产记录",
+      "fromSide": "left",
+      "toSide": "right",
+      "labelAt": [700, 360]
+    },
+    {
+      "id": "worker-storage",
+      "from": "worker",
+      "to": "storage",
+      "label": "写入资产",
+      "labelAt": [980, 360]
+    },
+    {
+      "id": "worker-ai",
+      "from": "worker",
+      "to": "ai-layer",
+      "label": "统一 AiResult",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "variant": "emphasis"
+    },
+    {
+      "id": "ai-vendor",
+      "from": "ai-layer",
+      "to": "vendor-apis",
+      "label": "HTTP 调用",
+      "fromSide": "left",
+      "toSide": "right",
+      "labelAt": [650, 510]
+    },
+    {
+      "id": "ai-custom",
+      "from": "ai-layer",
+      "to": "custom-api",
+      "label": "HTTP 调用"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "桌面端 · 用户本机",
+      "items": [
+        "Electron 主进程守护 React 渲染进程与 RPA Agent",
+        "本地 SQLite 承担执行队列与采集暂存",
+        "系统 Chrome 专用 profile 经 CDP 启动，内置 Python 采集"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "服务端 · 核心数据与编排",
+      "items": [
+        "NestJS + Fastify 提供 API，Prisma + MySQL 保存业务事实",
+        "Redis / BullMQ FlowProducer 负责任务排队与阶段依赖",
+        "存储抽象 StorageDriver：开发本地目录，线上 OSS"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "AI 供应商层与安全",
+      "items": [
+        "AiProvider 按能力解耦 text / vision / image",
+        "ProviderRegistry 支持 Ark / OpenRouter / OpenAI 兼容端点切换",
+        "key 与 baseURL 只存服务端，审计走 attemptKey"
+      ]
+    }
+  ]
+}

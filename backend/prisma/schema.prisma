@@ -1,0 +1,169 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model Tenant {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  users     User[]
+}
+
+model User {
+  id           String    @id @default(cuid())
+  tenantId     String
+  tenant       Tenant    @relation(fields: [tenantId], references: [id])
+  username     String
+  passwordHash String
+  displayName  String?
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  userRoles    UserRole[]
+
+  @@unique([tenantId, username])
+}
+
+model Role {
+  id          String     @id @default(cuid())
+  code        String     @unique
+  name        String
+  description String?
+  userRoles   UserRole[]
+  permissions RolePermission[]
+}
+
+model Permission {
+  id              String             @id @default(cuid())
+  code            String             @unique
+  name            String
+  rolePermissions RolePermission[]
+}
+
+model UserRole {
+  userId String
+  roleId String
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role   Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+}
+
+model Department {
+  id       String   @id @default(cuid())
+  tenantId String
+  name     String
+  parentId String?
+}
+
+model Store {
+  id        String   @id @default(cuid())
+  tenantId  String
+  platform  Platform @relation(fields: [platformId], references: [id])
+  platformId String
+  name      String
+  externalId String?
+}
+
+model Platform {
+  id        String  @id @default(cuid())
+  code      String  @unique
+  name      String
+  enabled   Boolean @default(true)
+  stores    Store[]
+}
+
+model AnalysisRun {
+  id          String   @id @default(cuid())
+  tenantId    String
+  jobId       String   @unique
+  storeId     String?
+  keyword     String?
+  analysisType String
+  reportJson  String?  @db.LongText
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  jobs        AnalysisJob[]
+}
+
+model AnalysisJob {
+  id            String   @id @default(cuid())
+  tenantId      String
+  runId         String
+  run           AnalysisRun @relation(fields: [runId], references: [id])
+  businessKey   String   @unique
+  status        String   @default("queued")
+  errorCode     String?
+  errorMessage  String?
+  retryCount    Int      @default(0)
+  startedAt     DateTime?
+  finishedAt    DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  events        JobEvent[]
+}
+
+model JobEvent {
+  id        String      @id @default(cuid())
+  jobId     String
+  job       AnalysisJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  type      String
+  data      String?     @db.Text
+  createdAt DateTime    @default(now())
+}
+
+model GeneratedAsset {
+  id           String   @id @default(cuid())
+  tenantId     String
+  storageKey   String   @unique
+  mimeType     String
+  size         Int
+  originalName String?
+  createdAt    DateTime @default(now())
+}
+
+model AiUsageLog {
+  id         String   @id @default(cuid())
+  tenantId   String
+  jobId      String?
+  provider   String
+  model      String?
+  status     String
+  tokenIn    Int?
+  tokenOut   Int?
+  durationMs Int?
+  error      String?  @db.Text
+  createdAt  DateTime @default(now())
+}
+
+model SystemConfig {
+  key       String   @id
+  value     String?
+  updatedAt DateTime @updatedAt
+}
+
+model RpaTask {
+  id         String   @id @default(cuid())
+  tenantId   String
+  jobId      String?
+  status     String
+  pid        Int?
+  startedAt  DateTime?
+  finishedAt DateTime?
+  createdAt  DateTime @default(now())
+}

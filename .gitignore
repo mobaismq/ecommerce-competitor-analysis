@@ -43,7 +43,9 @@ __MACOSX/
 .vscode/
 .idea/
 
-docs/*
+# docs/*
 # !docs/需求与业务/
 .agents/
 .claude/
+backend/logs/
+skills-lock.json

@@ -1,0 +1,93 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "电商竞品分析 · 完整任务流程",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "happy-path",
+        "label": "主流程",
+        "focus": ["user", "api", "workflow", "agent", "chrome", "ai", "report", "sse", "result"],
+        "note": "从提交分析请求到桌面端展示报告的完整链路。"
+      },
+      {
+        "id": "recovery",
+        "label": "失败与恢复",
+        "focus": ["workflow", "retry", "agent", "sqlite"],
+        "note": "Temporal 重试、断点续传与 Agent 恢复。"
+      }
+    ],
+    "output": "docs/开发任务/2026-09-10-桌面端与服务端架构方案/完整任务流程.html"
+  },
+  "lanes": [
+    { "id": "ui", "label": "桌面端 UI" },
+    { "id": "server", "label": "服务端 NestJS" },
+    { "id": "orchestration", "label": "Temporal 编排" },
+    { "id": "agent", "label": "RPA Agent（桌面端）" },
+    { "id": "data", "label": "数据与资产" }
+  ],
+  "phases": [
+    { "id": "intake", "label": "提交与鉴权", "fromCol": 0, "toCol": 1 },
+    { "id": "orchestrate", "label": "工作流编排", "fromCol": 2, "toCol": 2, "variant": "emphasis" },
+    { "id": "collect", "label": "RPA 采集", "fromCol": 3, "toCol": 3 },
+    { "id": "produce", "label": "AI 与报告", "fromCol": 4, "toCol": 4, "variant": "emphasis" },
+    { "id": "deliver", "label": "推送与展示", "fromCol": 5, "toCol": 5 }
+  ],
+  "groups": [
+    { "id": "agent_work", "label": "Agent 执行层", "lane": "agent", "fromCol": 3, "toCol": 3, "variant": "emphasis" },
+    { "id": "recovery_path", "label": "失败恢复路径", "lane": "orchestration", "fromCol": 4, "toCol": 5, "variant": "security" }
+  ],
+  "mainPath": ["user", "api", "workflow", "agent", "chrome", "workflow", "ai", "report", "sse", "result"],
+  "nodes": [
+    { "id": "user", "lane": "ui", "col": 0, "type": "external", "label": "用户", "sublabel": "提交分析请求", "width": 132 },
+    { "id": "result", "lane": "ui", "col": 5, "type": "frontend", "label": "报告展示", "sublabel": "桌面端刷新", "width": 132 },
+    { "id": "api", "lane": "server", "col": 1, "type": "backend", "label": "NestJS API", "sublabel": "鉴权 / DTO 校验", "width": 132 },
+    { "id": "workflow", "lane": "orchestration", "col": 2, "type": "backend", "label": "Temporal Workflow", "sublabel": "幂等 ID · 步骤编排", "tag": "持久化执行", "width": 132 },
+    { "id": "retry", "lane": "orchestration", "col": 5, "type": "security", "label": "失败恢复", "sublabel": "重试 / 超时 / 取消", "width": 132 },
+    { "id": "sqlite", "lane": "agent", "col": 2, "type": "database", "label": "本地 SQLite", "sublabel": "队列 / 断点续传", "width": 132 },
+    { "id": "agent", "lane": "agent", "col": 3, "type": "backend", "label": "RPA Agent", "sublabel": "Temporal Worker", "tag": "desktop-rpa-queue", "width": 132 },
+    { "id": "chrome", "lane": "agent", "col": 4, "type": "external", "label": "系统 Chrome + Python", "sublabel": "用户登录态采集", "width": 132 },
+    { "id": "ai", "lane": "server", "col": 4, "type": "cloud", "label": "AI 分析", "sublabel": "豆包 / OpenRouter", "tag": "server-ai-queue", "width": 132 },
+    { "id": "report", "lane": "data", "col": 4, "type": "database", "label": "报告与资产", "sublabel": "MySQL + OSS", "width": 132 },
+    { "id": "sse", "lane": "data", "col": 5, "type": "messagebus", "label": "SSE 推送", "sublabel": "进度与终态", "width": 132 },
+    { "id": "mysql", "lane": "data", "col": 1, "type": "database", "label": "MySQL 任务快照", "sublabel": "pending → 终态", "width": 132 }
+  ],
+  "edges": [
+    { "id": "submit-request", "from": "user", "to": "api", "label": "HTTPS", "variant": "emphasis" },
+    { "id": "start-workflow", "from": "api", "to": "workflow", "label": "启动 Workflow", "variant": "emphasis" },
+    { "id": "write-snapshot", "from": "api", "to": "mysql", "label": "任务快照", "variant": "dashed" },
+    { "id": "rpa-activity", "from": "workflow", "to": "agent", "label": "RPA Activity", "variant": "emphasis" },
+    { "id": "enqueue-local", "from": "agent", "to": "sqlite", "label": "写入本地队列", "variant": "dashed", "role": "async" },
+    { "id": "launch-chrome", "from": "agent", "to": "chrome", "label": "唤起浏览器", "variant": "default" },
+    { "id": "collect-done", "from": "chrome", "to": "workflow", "label": "采集结果返回", "variant": "default", "role": "return" },
+    { "id": "ai-activity", "from": "workflow", "to": "ai", "label": "AI Activity", "variant": "emphasis" },
+    { "id": "write-report", "from": "ai", "to": "report", "label": "生成报告/资产", "variant": "default" },
+    { "id": "notify-sse", "from": "report", "to": "sse", "label": "终态事件", "variant": "default" },
+    { "id": "push-ui", "from": "sse", "to": "result", "label": "实时推送", "variant": "emphasis", "role": "return" },
+    { "id": "fail-retry", "from": "workflow", "to": "retry", "label": "失败/超时", "variant": "security", "role": "error" },
+    { "id": "recover-agent", "from": "retry", "to": "agent", "label": "重试/恢复", "variant": "dashed", "role": "branch" },
+    { "id": "snapshot-terminal", "from": "retry", "to": "mysql", "label": "收敛终态", "variant": "dashed", "role": "branch" }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "主链路",
+      "items": [
+        "桌面端提交 → 服务端鉴权建任务快照",
+        "Temporal 幂等编排，Activity 分工执行",
+        "Agent 本地采集 → AI 分析 → 报告落库 → SSE 展示"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "可靠性",
+      "items": [
+        "Workflow ID = 业务唯一键，重复提交幂等",
+        "本地 SQLite 断点续传，Temporal 失败重试",
+        "取消/超时联动回收 Agent 子进程并收敛终态"
+      ]
+    }
+  ]
+}

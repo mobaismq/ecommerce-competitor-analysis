@@ -1,0 +1,317 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "电商竞品分析系统：桌面端 + 服务端架构",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "viewBox": [1700, 980],
+    "views": [
+      {
+        "id": "analysis-job",
+        "label": "分析任务主链路",
+        "focus": ["renderer", "nginx", "api", "temporal", "agent", "python", "worker", "mysql", "oss"],
+        "note": "从桌面端提交任务，经 Temporal 编排、RPA 采集，直到报告与资产落库。"
+      },
+      {
+        "id": "desktop-rpa",
+        "label": "桌面 RPA 执行",
+        "focus": ["main", "agent", "sqlite", "chrome", "python", "temporal"],
+        "note": "Agent 领取 Activity，唤起本机 Chrome 并持久化断点。"
+      },
+      {
+        "id": "server-ai-data",
+        "label": "服务端数据与 AI",
+        "focus": ["api", "worker", "mysql", "redis", "oss", "ai"],
+        "note": "AI 密钥集中在服务端，核心数据只落在 MySQL 与 OSS。"
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "renderer",
+      "type": "frontend",
+      "label": "React UI",
+      "sublabel": "登录 / 报告 / 设置",
+      "tag": "渲染进程",
+      "pos": [80, 210],
+      "size": [150, 66]
+    },
+    {
+      "id": "main",
+      "type": "frontend",
+      "label": "Electron 主进程",
+      "sublabel": "窗口 / 登录态 / 更新",
+      "tag": "主进程",
+      "pos": [300, 210],
+      "size": [150, 66]
+    },
+    {
+      "id": "agent",
+      "type": "backend",
+      "label": "RPA Agent",
+      "sublabel": "Temporal Worker · 进程管理",
+      "tag": "desktop-rpa-queue",
+      "pos": [300, 400],
+      "size": [180, 78]
+    },
+    {
+      "id": "sqlite",
+      "type": "database",
+      "label": "本地 SQLite",
+      "sublabel": "队列 / 采集暂存 / 断点",
+      "tag": "agent prisma",
+      "pos": [80, 400],
+      "size": [150, 66]
+    },
+    {
+      "id": "chrome",
+      "type": "external",
+      "label": "系统 Chrome",
+      "sublabel": "用户登录态 profile",
+      "tag": "playwright",
+      "pos": [80, 610],
+      "size": [150, 66]
+    },
+    {
+      "id": "python",
+      "type": "backend",
+      "label": "Python 采集脚本",
+      "sublabel": "skills/ 采集工具",
+      "tag": "子进程",
+      "pos": [310, 610],
+      "size": [150, 66]
+    },
+    {
+      "id": "nginx",
+      "type": "cloud",
+      "label": "Nginx",
+      "sublabel": "静态 + /api 反代",
+      "tag": "HTTPS :443",
+      "pos": [750, 210],
+      "size": [140, 66]
+    },
+    {
+      "id": "api",
+      "type": "backend",
+      "label": "API 服务",
+      "sublabel": "用户 / 权限 / 任务 / AI / 报告",
+      "tag": "NestJS + Fastify",
+      "pos": [970, 210],
+      "size": [160, 74]
+    },
+    {
+      "id": "temporal",
+      "type": "cloud",
+      "label": "Temporal Server",
+      "sublabel": "工作流持久化 / 重试 / 超时",
+      "tag": "自托管",
+      "pos": [1210, 210],
+      "size": [160, 66]
+    },
+    {
+      "id": "mysql",
+      "type": "database",
+      "label": "MySQL",
+      "sublabel": "用户 / 任务 / 报告 / 审计",
+      "tag": "Prisma",
+      "pos": [750, 430],
+      "size": [150, 72]
+    },
+    {
+      "id": "worker",
+      "type": "backend",
+      "label": "Temporal Worker",
+      "sublabel": "AI / 报告 / 资产",
+      "tag": "server-ai / report",
+      "pos": [970, 430],
+      "size": [160, 72]
+    },
+    {
+      "id": "redis",
+      "type": "database",
+      "label": "Redis",
+      "sublabel": "缓存 / 限流 / 短期事件",
+      "tag": "可选",
+      "pos": [1230, 430],
+      "size": [140, 64]
+    },
+    {
+      "id": "oss",
+      "type": "cloud",
+      "label": "OSS",
+      "sublabel": "图片资产",
+      "tag": "私有 Bucket",
+      "pos": [750, 630],
+      "size": [150, 64]
+    },
+    {
+      "id": "ai",
+      "type": "external",
+      "label": "豆包 Ark / OpenRouter",
+      "sublabel": "文本 / 视觉 / 图片生成",
+      "tag": "密钥在服务端",
+      "pos": [1270, 820],
+      "size": [170, 84]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "桌面端 · 用户本机",
+      "wraps": ["renderer", "main", "agent", "sqlite", "chrome", "python"]
+    },
+    {
+      "kind": "region",
+      "label": "服务端 · 服务器",
+      "wraps": ["nginx", "api", "temporal", "worker", "mysql", "redis", "oss"]
+    },
+    {
+      "kind": "security-group",
+      "label": "公网入口 · HTTPS :443",
+      "wraps": ["nginx", "api"]
+    }
+  ],
+  "connections": [
+    {
+      "id": "renderer-ipc",
+      "from": "renderer",
+      "to": "main",
+      "label": "IPC",
+      "variant": "emphasis"
+    },
+    {
+      "id": "main-agent",
+      "from": "main",
+      "to": "agent",
+      "label": "进程管理"
+    },
+    {
+      "id": "agent-sqlite",
+      "from": "agent",
+      "to": "sqlite",
+      "label": "队列 / 断点"
+    },
+    {
+      "id": "agent-chrome",
+      "from": "agent",
+      "to": "chrome",
+      "label": "唤起 Chrome",
+      "variant": "emphasis"
+    },
+    {
+      "id": "agent-python",
+      "from": "agent",
+      "to": "python",
+      "label": "调用脚本"
+    },
+    {
+      "id": "renderer-server",
+      "from": "renderer",
+      "to": "nginx",
+      "label": "HTTPS REST + SSE",
+      "variant": "emphasis"
+    },
+    {
+      "id": "agent-temporal",
+      "from": "temporal",
+      "to": "agent",
+      "label": "Activity 投递 / 结果返回"
+    },
+    {
+      "id": "agent-report",
+      "from": "agent",
+      "to": "nginx",
+      "label": "进度 / 结果上报"
+    },
+    {
+      "id": "nginx-api",
+      "from": "nginx",
+      "to": "api",
+      "label": "/api 反代"
+    },
+    {
+      "id": "api-mysql",
+      "from": "api",
+      "to": "mysql",
+      "label": "Prisma SQL"
+    },
+    {
+      "id": "api-redis",
+      "from": "api",
+      "to": "redis",
+      "label": "缓存 / 限流"
+    },
+    {
+      "id": "api-temporal",
+      "from": "api",
+      "to": "temporal",
+      "label": "启动 Workflow"
+    },
+    {
+      "id": "worker-temporal",
+      "from": "worker",
+      "to": "temporal",
+      "label": "Task Queue 领取"
+    },
+    {
+      "id": "worker-mysql",
+      "from": "worker",
+      "to": "mysql",
+      "label": "报告 / 资产记录"
+    },
+    {
+      "id": "worker-redis",
+      "from": "worker",
+      "to": "redis",
+      "label": "状态 / 限流"
+    },
+    {
+      "id": "worker-oss",
+      "from": "worker",
+      "to": "oss",
+      "label": "写入图片"
+    },
+    {
+      "id": "api-ai",
+      "from": "api",
+      "to": "ai",
+      "label": "文本 / 视觉分析"
+    },
+    {
+      "id": "worker-ai",
+      "from": "worker",
+      "to": "ai",
+      "label": "图片生成 / 分析"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "桌面端",
+      "items": [
+        "Electron 三进程：渲染 / 主进程 / RPA Agent",
+        "Agent 本地 SQLite 队列，重启不丢断点",
+        "Chrome + Python 只在本机执行"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "服务端",
+      "items": [
+        "NestJS + Fastify，Prisma + MySQL 核心数据",
+        "Temporal 编排与重试，Redis 仅缓存 / 限流",
+        "OSS 存图片，AI 密钥只留在服务端"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "任务与安全",
+      "items": [
+        "幂等 Workflow → desktop-rpa-queue，SSE 推送进度",
+        "桌面端不直连 MySQL / Redis / OSS",
+        "JWT + 权限守卫 + 数据范围隔离"
+      ]
+    }
+  ]
+}

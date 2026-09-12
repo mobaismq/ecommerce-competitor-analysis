@@ -1,0 +1,29 @@
+{
+  "name": "ecommerce-competitor-analysis",
+  "private": true,
+  "packageManager": "pnpm@10.33.4",
+  "scripts": {
+    "setup": "docker compose up -d mysql redis && pnpm install && pnpm --filter backend db:migrate && pnpm --filter backend db:seed",
+    "dev": "concurrently -k -n api,worker,frontend -c blue,magenta,green \"pnpm --filter backend start:dev\" \"pnpm --filter backend worker:dev\" \"pnpm --filter frontend dev\"",
+    "dev:backend": "pnpm --filter backend start:dev",
+    "dev:worker": "pnpm --filter backend worker:dev",
+    "dev:frontend": "pnpm --filter frontend dev",
+    "infra:up": "docker compose up -d mysql redis",
+    "infra:down": "docker compose down",
+    "build": "pnpm -r build"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@parcel/watcher",
+      "@prisma/client",
+      "@prisma/engines",
+      "esbuild",
+      "msgpackr-extract",
+      "prisma",
+      "unrs-resolver"
+    ]
+  }
+}
