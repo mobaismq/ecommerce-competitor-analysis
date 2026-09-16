@@ -4,6 +4,7 @@ import { Prisma } from '@prisma/client'
 import { buildAttemptKey } from '../ai/ai.types'
 import { ProviderRouter } from '../ai/provider-router.service'
 import { PrismaService } from '../prisma.service'
+import { computePriceBands as buildPriceBands, type PriceBand } from './report-price-bands'
 
 export interface RunReportInput {
   jobId: string
@@ -17,13 +18,6 @@ export interface RunReportResult {
   reportHash?: string
   competitorCount?: number
   status: string
-}
-
-interface PriceBand {
-  bandName: string
-  priceMin: number
-  priceMax: number
-  productCount: number
 }
 
 function buildReportNo() {
@@ -156,18 +150,8 @@ export class ReportService {
       select: { price: true },
       orderBy: { price: 'asc' },
     })
-    const prices = rows.map((row) => Number(row.price)).filter((value) => Number.isFinite(value))
-    if (prices.length === 0) return []
-    const min = prices[0]
-    const max = prices[prices.length - 1]
-    if (min === max) return [{ bandName: '统一价', priceMin: min, priceMax: max, productCount: prices.length }]
-    const width = (max - min) / 3
-    return Array.from({ length: 3 }, (_, index) => {
-      const lower = min + index * width
-      const upper = index === 2 ? max : min + (index + 1) * width
-      const count = prices.filter((price) => (index === 2 ? price >= lower && price <= upper : price >= lower && price < upper)).length
-      return { bandName: `价格带${index + 1}`, priceMin: lower, priceMax: upper, productCount: count }
-    })
+    const prices = rows.map((row) => Number(row.price))
+    return buildPriceBands(prices)
   }
 
   private buildInsights(text?: string) {
