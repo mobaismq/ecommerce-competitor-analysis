@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma.service'
 import { QUEUE_NAMES } from '../queue/queue-names'
 import { buildAttemptKey } from './ai.types'
 import { ProviderRouter } from './provider-router.service'
+import { buildImagePromptGenerationPrompt, DEFAULT_SLOT_CONFIGS } from '../images/image-prompt'
 
 @Processor(QUEUE_NAMES.serverAi)
 export class AiWorker extends WorkerHost {
@@ -33,12 +34,17 @@ export class AiWorker extends WorkerHost {
 
     if (row.type === 'image-gen' || row.type === 'image_gen') {
       const promptKey = buildAttemptKey({ jobId, capability: 'text', attempt: row.attempt, suffix: 'prompt' })
+      // 用迁移的提示词引擎生成主图 5 图位的结构化提示词请求（无商品文本时用默认图位/内联规则）。
+      const workflowPrompt = buildImagePromptGenerationPrompt({
+        settings: {},
+        promptSlots: DEFAULT_SLOT_CONFIGS,
+      })
       const prompt = await this.router.execute(
         'text',
         {
-          prompt: `为任务 ${jobId} 生成商品主图提示词，包含构图、背景、卖点与合规要求。`,
-          system: '你是电商主图提示词专家。',
-          maxTokens: 2000,
+          prompt: workflowPrompt,
+          system: '你是电商主图提示词专家，严格按给定的图位规范输出一个可直接用于生图的综合主图提示词。',
+          maxTokens: Number(process.env.IMAGE_PROMPT_MAX_TOKENS ?? 2000),
         },
         { tenantId, jobId, attemptKey: promptKey },
       )
