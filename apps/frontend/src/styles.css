@@ -30,5 +30,6 @@ button:disabled { opacity: 0.6; cursor: default; }
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
 th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid #edf0f3; }
 th { color: #6b7280; font-weight: 500; }
+th.right, td.right { text-align: right; }
 .preview { display: flex; gap: 12px; align-items: center; margin-bottom: 14px; }
 .preview img { max-height: 180px; border: 1px solid #e3e6ea; border-radius: 6px; }

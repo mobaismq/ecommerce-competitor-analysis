@@ -9,6 +9,7 @@ import { AssetsPage } from './pages/AssetsPage'
 import { AdminProviderProfilesPage, AdminRolesPage, AdminStoresPage, AdminTenantsPage, AdminUsersPage } from './pages/AdminListsPage'
 import { StubPage } from './pages/StubPages'
 import { VideoGalleryPage, VideoReplicatePage } from './pages/VideoPages'
+import { DataAnalyticsPage } from './pages/DataAnalyticsPage'
 import { LoginPage } from './pages/LoginPage'
 import { useAuth } from './store/auth'
 import './styles.css'
@@ -34,14 +35,14 @@ createRoot(document.getElementById('root')!).render(
             <Route path="analysis/reports/:id/products" element={<StubPage title="报告商品" />} />
             <Route path="analysis/agent" element={<StubPage title="数据 Agent" />} />
             <Route path="analysis/market-reports" element={<StubPage title="市场报告" />} />
-            <Route path="analytics" element={<StubPage title="数据看板" />} />
+            <Route path="analytics" element={<DataAnalyticsPage />} />
             <Route path="data/downloads" element={<StubPage title="数据下载" />} />
             <Route path="data/downloads/:id" element={<StubPage title="数据下载详情" />} />
             <Route path="content/product-sets" element={<StubPage title="图片生成" />} />
             <Route path="content/aplus" element={<StubPage title="详情图" />} />
             <Route path="content/replicate" element={<StubPage title="一键复刻" />} />
             <Route path="content/video-replicate" element={<VideoReplicatePage />} />
-            <Route path="content/one-click-replicate" element={<StubPage title="一键复刻视频" />} />
+            <Route path="content/one-click-replicate" element={<VideoReplicatePage />} />
             <Route path="products/master-data" element={<StubPage title="商品主档" />} />
             <Route path="products/management" element={<StubPage title="平台商品" />} />
             <Route path="products/management/manual" element={<StubPage title="手动发布" />} />
