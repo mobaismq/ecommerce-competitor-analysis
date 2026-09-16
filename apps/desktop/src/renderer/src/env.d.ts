@@ -27,6 +27,32 @@ declare global {
           deletedCapFiles: number
         }>
       }
+      collection: {
+        start: (input?: {
+          productName?: string
+          productUrl?: string
+          mode?: string
+          downloadScript?: string
+          fake?: boolean
+        }) => Promise<{ jobId: string; mode: string }>
+        cancel: () => Promise<{ cancelled: boolean; reason: string }>
+        status: (jobId?: string) => Promise<{
+          jobId: string
+          status: string
+          type: string | null
+          createdAt: string
+          finishedAt: string | null
+          errorMessage: string | null
+          resultJson: unknown
+          stages: unknown[]
+          sync: unknown[]
+        } | null>
+        probe: () => Promise<{
+          python: string
+          hasDownloadScript: boolean
+          downloadScript: string
+        }>
+      }
     }
   }
 }

@@ -15,4 +15,16 @@ contextBridge.exposeInMainWorld('desktop', {
     getStats: () => ipcRenderer.invoke('local:get-stats'),
     runCleanup: () => ipcRenderer.invoke('local:run-cleanup'),
   },
+  collection: {
+    start: (input: {
+      productName?: string
+      productUrl?: string
+      mode?: string
+      downloadScript?: string
+      fake?: boolean
+    }) => ipcRenderer.invoke('collection:start', input),
+    cancel: () => ipcRenderer.invoke('collection:cancel'),
+    status: (jobId?: string) => ipcRenderer.invoke('collection:status', jobId),
+    probe: () => ipcRenderer.invoke('collection:probe'),
+  },
 })

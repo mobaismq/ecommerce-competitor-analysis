@@ -66,7 +66,10 @@ function mimeForFile(filePath: string): string {
 async function defaultDownloader(context: CollectionRunContext): Promise<CollectionDownloadResult> {
   const script = context.input.downloadScript
   if (!script) throw new Error('download mode requires input.downloadScript or a runDownload injector')
-  const args = [context.input.productName ?? '', context.input.productUrl ?? '']
+  // 店透视采集脚本(run_diantoushi_rpa_cdp.py)使用 --product-name/--product-url 命名参数。
+  const args: string[] = []
+  if (context.input.productName) args.push('--product-name', context.input.productName)
+  if (context.input.productUrl) args.push('--product-url', context.input.productUrl)
   const result = await runPython(script, args, { cwd: context.workDir })
   if (result.exitCode !== 0) {
     throw new Error(`download script failed (${result.exitCode}): ${result.stderr.trim()}`)

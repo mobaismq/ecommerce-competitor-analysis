@@ -1,7 +1,8 @@
 import { app, BrowserWindow } from 'electron'
 import { join } from 'node:path'
+import { registerCollectionHandlers } from './collection-handlers'
 import { registerStoreHandlers } from './store'
-import { registerLocalHandlers, startLocalCleanup } from './local-db'
+import { registerLocalHandlers, startLocalCleanup, getLocalClient } from './local-db'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -33,7 +34,9 @@ function createWindow() {
 
 app.whenReady().then(() => {
   registerStoreHandlers()
+  const prisma = getLocalClient()
   registerLocalHandlers()
+  registerCollectionHandlers(prisma)
   startLocalCleanup()
   createWindow()
 

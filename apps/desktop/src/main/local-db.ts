@@ -14,13 +14,14 @@ export function getLocalDbUrl() {
   return `file:${file}`
 }
 
-function getClient() {
+/** 桌面端本地 SQLite 的单例 client，采集/清理/查询共用。 */
+export function getLocalClient() {
   if (!client) client = createLocalClient(getLocalDbUrl())
   return client
 }
 
 export function startLocalCleanup() {
-  const prisma = getClient()
+  const prisma = getLocalClient()
 
   const run = async () => {
     try {
@@ -37,7 +38,7 @@ export function startLocalCleanup() {
 }
 
 export function registerLocalHandlers() {
-  const prisma = getClient()
+  const prisma = getLocalClient()
 
   ipcMain.handle('local:get-stats', async () => {
     const store = new Store({ name: 'local-config' })
