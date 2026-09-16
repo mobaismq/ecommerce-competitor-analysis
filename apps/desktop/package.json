@@ -1,0 +1,48 @@
+{
+  "name": "desktop",
+  "private": true,
+  "version": "0.1.0",
+  "main": "out/main/index.js",
+  "description": "桌面端电商竞品分析工具",
+  "author": "Ecommerce Competitor Analysis",
+  "scripts": {
+    "predev": "node scripts/apply-local-migration.mjs && prisma generate --schema prisma/schema.prisma",
+    "prebuild": "prisma generate --schema prisma/schema.prisma",
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "db:generate": "prisma generate --schema prisma/schema.prisma",
+    "db:init": "prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script > prisma/migrations/20260912120000_init/migration.sql && node scripts/apply-local-migration.mjs",
+    "prepare-python": "node scripts/prepare-python.mjs",
+    "build:package": "pnpm build && pnpm prepare-python && node scripts/package.mjs",
+    "smoke": "electron scripts/shell-smoke.mjs",
+    "store-smoke": "electron scripts/store-smoke.mjs",
+    "agent-contract-smoke": "node scripts/agent-contract-smoke.mjs",
+    "chrome-cdp-smoke": "tsx scripts/chrome-cdp-smoke.ts",
+    "python-runner-smoke": "tsx scripts/python-runner-smoke.ts",
+    "agent-runtime-smoke": "tsx scripts/agent-runtime-smoke.ts",
+    "skill-cdp-smoke": "tsx scripts/skill-cdp-smoke.ts",
+    "local-db-smoke": "tsx scripts/local-db-smoke.ts",
+    "collection-modes-smoke": "tsx scripts/collection-modes-smoke.ts",
+    "local-sync-switch-smoke": "tsx scripts/local-sync-switch-smoke.ts"
+    ,"image-tools-smoke": "tsx scripts/image-tools-smoke.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.16.2",
+    "electron-store": "^10.1.0",
+    "electron-updater": "^6.6.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "@types/react": "^18.3.23",
+    "@types/react-dom": "^18.3.7",
+    "electron": "^37.3.1",
+    "electron-builder": "^26.0.12",
+    "electron-vite": "^4.0.1",
+    "prisma": "^6.16.2",
+    "tsx": "^4.23.13",
+    "typescript": "^5.9.2"
+  }
+}

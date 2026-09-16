@@ -1,0 +1,48 @@
+generator client {
+  provider     = "prisma-client-js"
+  output       = "../src/generated/prisma"
+  moduleFormat = "esm"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DESKTOP_DB_URL")
+}
+
+model LocalJob {
+  id           String          @id
+  jobId        String          @unique
+  type         String
+  status       String
+  pid          Int?
+  inputJson    String?
+  resultJson   String?
+  errorCode    String?
+  errorMessage String?
+  startedAt    DateTime?
+  finishedAt   DateTime?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  events       LocalJobEvent[]
+  tempFiles    TempFile[]
+}
+
+model LocalJobEvent {
+  id        String    @id
+  jobId     String
+  type      String
+  data      String?
+  createdAt DateTime  @default(now())
+  job       LocalJob  @relation(fields: [jobId], references: [id], onDelete: Cascade)
+}
+
+model TempFile {
+  id        String    @id
+  jobId     String?
+  kind      String
+  path      String    @unique
+  size      Int
+  status    String
+  createdAt DateTime  @default(now())
+  job       LocalJob? @relation(fields: [jobId], references: [id], onDelete: Cascade)
+}
