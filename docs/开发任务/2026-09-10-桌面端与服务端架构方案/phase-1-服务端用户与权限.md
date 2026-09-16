@@ -1,7 +1,7 @@
 # Phase 1：服务端用户与权限
 
 - [x] 1.1 调整 Prisma schema 并按服务端职责落地迁移
-      现状: `backend/prisma/schema.prisma` 已有重构前初版模型（资产之一），需按 design 数据库全景完整重建；当前 `AnalysisJob/RpaTask` 等命名不能作为最终事实源
+      现状: `apps/backend/prisma/schema.prisma` 已有重构前初版模型（资产之一），需按 design 数据库全景完整重建；当前 `AnalysisJob/RpaTask` 等命名不能作为最终事实源
       依据: 图1-D1、design.md「三、数据库全景」
       验证: `pnpm --filter backend db:migrate` ➔ 预期: 迁移应用成功；design 中每张新表都有 Prisma model，包含通用 Job/Agent/ProviderProfile/资产/采集快照/分析/审核/AI 审计模型；旧表映射表核对完成（不迁移数据）；seed 创建默认租户/管理员/角色/平台/菜单权限
       证据: (2026-09-13, 实测通过: schema 含 35 个业务模型并通过 `prisma validate`；`20260913000000_rebuild_database` 迁移 SQL 已应用，`prisma migrate status` 输出 Database schema is up to date，开发库共 36 张表（含 _prisma_migrations）；seed 输出 `租户 default，管理员 admin，权限 7 个，平台 4 个`；`pnpm --filter backend build` 通过。开发库按“不迁移旧数据”原则重置重建；因 Node 25 下 migrate dev 报 schema engine undefined，使用 migrate diff + db execute + migrate resolve 记录迁移)

@@ -12,7 +12,7 @@
 | 领域 | 选型 | 本轮边界 |
 |---|---|---|
 | 桌面框架 | Electron + electron-vite + electron-builder | 桌面端只做 UI 与 RPA Agent，不承担核心数据 |
-| 桌面 UI | React 18 + Vite + TanStack Query + Zustand | 渲染进程，复用原 `frontend/` |
+| 桌面 UI | React 18 + Vite + TanStack Query + Zustand | 渲染进程，复用原 `apps/frontend/` |
 | 服务端 | NestJS + Fastify + Prisma + MySQL | 用户/权限/任务/报告/AI 审计 |
 | 工作流编排 | 轻量业务状态机 + Redis/BullMQ（FlowProducer） | 先覆盖任务的排队、阶段依赖、执行、进度、成功/失败/重试；不引入重型工作流平台 |
 | 本地执行层 | SQLite + Prisma（桌面端） | Agent 本地队列/采集暂存，不存核心数据；失败后由用户重新执行 |
@@ -31,13 +31,13 @@
 ```text
 ecommerce-competitor-analysis/
 ├── package.json              # 根级统一命令（setup/dev/build/desktop）
-├── pnpm-workspace.yaml       # workspace: apps/*（聚合 frontend/backend/desktop）
+├── pnpm-workspace.yaml       # workspace: apps/*（聚合 apps/frontend/apps/backend/desktop）
 ├── docker-compose.yml        # 开发期 MySQL + Redis（仅开发调试）
 ├── .env.example
 ├── apps/
-│   ├── frontend/             # React + Vite（桌面渲染进程 + 网页管理后台共用）
-│   ├── backend/              # NestJS + Fastify + Prisma + BullMQ Worker（服务端）
-│   ├── desktop/              # Electron 壳（electron-vite + SQLite + RPA Agent Worker）
+│   ├── apps/frontend/             # React + Vite（桌面渲染进程 + 网页管理后台共用）
+│   ├── apps/backend/              # NestJS + Fastify + Prisma + BullMQ Worker（服务端）
+│   ├── apps/desktop/              # Electron 壳（electron-vite + SQLite + RPA Agent Worker）
 │   └── legacy/               # 旧版单体应用（cleanup 清理目标，迁移参考）
 ├── skills/                   # Python/RPA/数据处理工具（原有资产，保留）
 └── docs/
@@ -82,7 +82,7 @@ ecommerce-competitor-analysis/
 
 ### 桌面端本地优先与服务端管理边界（2026-09-14 确认）
 
-- 桌面端是唯一产品形态，网页版不作为首版目标；`frontend/` 仅作为桌面渲染进程提供 UI。
+- 桌面端是唯一产品形态，网页版不作为首版目标；`apps/frontend/` 仅作为桌面渲染进程提供 UI。
 - 采集数据、报告、图片默认存本地（SQLite + 本地文件目录），服务端不强制上传。
 - 服务端仍是管理核心：多用户、角色权限、平台超级管理员、AI 配置与审计、可选同步/导出后端。
 - 数据同步采用开关配置：`collection/report/asset` 各自独立开关，默认 `local-only`；服务端上传/同步接口提前开发，后续按需启用。
@@ -91,7 +91,7 @@ ecommerce-competitor-analysis/
 
 ### 重构前未提交骨架的处理原则（2026-09-12）
 
-- 当前工作区中的 `frontend/`、NestJS `backend/`、Prisma 初版、Docker Compose 与 workspace 是 2026-09-07 方案留下的通用地基，不因桌面端重构整体删除；旧 `apps/legacy/`（原 `app/`）与 `apps/backend/server.js` 继续保留到 Phase 7 迁移收口。
+- 当前工作区中的 `apps/frontend/`、NestJS `apps/backend/`、Prisma 初版、Docker Compose 与 workspace 是 2026-09-07 方案留下的通用地基，不因桌面端重构整体删除；旧 `apps/legacy/`（原 `app/`）与 `apps/backend/server.js` 继续保留到 Phase 7 迁移收口。
 - 这批骨架不能直接视为新方案的最终实现：提交前先修复 backend 构建与日志落盘问题；健康检查、CORS、环境变量加载方式按本方案统一；Prisma schema/migration 按数据库全景在 Phase 1 重建。
 - `AnalysisJob`、`RpaTask` 等初版命名和模型只作为现状参考，不作为最终业务事实源；最终以通用 `Job`、`AgentAssignment`、`ProviderProfile`、资产与审核模型为准。
 - 根目录与 `apps/backend/` 的环境变量示例必须明确唯一加载入口。新架构最终收敛到服务端 `apps/backend/.env`；旧 `apps/legacy/.env.local` 只在迁移期间兼容，不作为新业务入口。
@@ -402,7 +402,7 @@ POST /api/collection-jobs/:id/results 桌面端提交清洗后的导入数据
 
 ### 第一版环境变量参考值（旧项目同事提供，2026-09-12 录入）
 
-> 以下为旧项目实际使用的 AI/模型环境变量初值，已同步录入 `app/.env.example`（原有）与 `backend/.env.example`（2026-09-12 补齐）。`OPENROUTER_API_KEY` 仍为占位符；新架构 Phase 4 迁移为 ProviderProfile 配置，Phase 7 收敛到 backend `.env`。模型名、超时、限额均属参考初值，实现前以 SDK 与本地实测为准。
+> 以下为旧项目实际使用的 AI/模型环境变量初值，已同步录入 `apps/legacy/.env.example`（原有）与 `apps/backend/.env.example`（2026-09-12 补齐）。`OPENROUTER_API_KEY` 仍为占位符；新架构 Phase 4 迁移为 ProviderProfile 配置，Phase 7 收敛到 backend `.env`。模型名、超时、限额均属参考初值，实现前以 SDK 与本地实测为准。
 
 | 变量 | 参考值 | 用途 |
 |---|---|---|
@@ -424,7 +424,7 @@ POST /api/collection-jobs/:id/results 桌面端提交清洗后的导入数据
 ## 十、日志与可观测性
 
 - 服务端：`nestjs-pino`，终端全量输出；落盘 `app.log`（业务关键逻辑 + 人工埋点）、`error.log`（warn/error + 4xx/5xx 请求）；线上不产生 debug.log；单文件 5 MB、只保留当前文件；
-- 桌面端：本地日志落到系统应用数据目录（app/error/debug），开发期 debug 仅终端；
+- 桌面端：本地日志落盘 log 文件（app.log、error.log、debug.log），开发期 debug 仅终端；
 - 三类日志均带 requestId/jobId/tenantId，可按 ID 串联；
 - `Authorization`、密码、API Key 一律脱敏；`.gitignore` 忽略日志目录；
 - 服务端部署由 PM2 守护，`/api/health/live` 与 `/api/health/ready` 存活/就绪探测，最低限度监控（进程、CPU/内存/磁盘、error.log 人工检查、任务失败与队列积压可查）。

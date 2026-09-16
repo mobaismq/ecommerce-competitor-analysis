@@ -10,14 +10,14 @@
 |---|---|---|
 | 根级 pnpm workspace 与统一脚本 | 已有 | 根 `package.json`、`pnpm-workspace.yaml` |
 | Docker 编排（MySQL/Redis，开发期） | 已有 | `docker-compose.yml`（3308/6380） |
-| backend NestJS+Fastify 骨架与健康检查 | 已有 | `backend/` + `GET /api/health/live`、`/api/health/ready` 200 |
-| backend Prisma MySQL schema/migration/seed | 已有 | `backend/prisma/`，migration 已应用 |
-| backend 日志底座（app/error/debug） | 已有 | `backend/src/log-streams.ts` |
-| frontend React+Vite 骨架 | 已有 | `frontend/` builds 通过 |
-| 旧代码（`backend/server.js`、`app/`） | 已有但替换 | 未被新代码引用，随重构移除 |
-| desktop Electron 壳 | 已有 | `desktop/` electron-vite 可构建，DMG 已产出 |
+| backend NestJS+Fastify 骨架与健康检查 | 已有 | `apps/backend/` + `GET /api/health/live`、`/api/health/ready` 200 |
+| backend Prisma MySQL schema/migration/seed | 已有 | `apps/backend/prisma/`，migration 已应用 |
+| backend 日志底座（log/error/debug，即 app.log、error.log、debug.log） | 已有 | `apps/backend/src/log-streams.ts` |
+| frontend React+Vite 骨架 | 已有 | `apps/frontend/` builds 通过 |
+| 旧代码（`apps/backend/server.js`、`apps/legacy/`） | 已有但替换 | 未被新代码引用，随重构移除 |
+| desktop Electron 壳 | 已有 | `apps/desktop/` electron-vite 可构建，DMG 已产出 |
 | RPA Agent（HTTPS 领取/Chrome唤起/采集） | 缺失 | 需新建 |
-| Python 运行时内置（安装包） | 已有 | `desktop/resources/python` Python 3.12.14，已打进 DMG |
+| Python 运行时内置（安装包） | 已有 | `apps/desktop/resources/python` Python 3.12.14，已打进 DMG |
 | 依赖安装与运行环境探测（Node/pnpm/Electron/Chrome/Python/Prisma/Docker） | 已有 | 根 `scripts/check-env.mjs`，`pnpm check-env` 9/9 |
 | Redis/BullMQ 队列与 Worker 接入 | 部分已有 | `@nestjs/bullmq` 已接入，Phase 2 2.1-2.5 已完成 |
 | 服务端用户/权限/任务/AI/报告/OSS | 缺失 | 需在骨架上补齐 |
@@ -31,27 +31,27 @@
 
 | 项目 | 处理建议 | 归属 | 状态 |
 |---|---|---|---|
-| backend 构建失败 | 修正 `backend/src/log-streams.ts` 中 `pino.transport()` 与 `multistream` 的类型组合；`pnpm --filter backend build` 必须先恢复通过 | Phase 0 | done（2026-09-13） |
-| 日志目录落盘 | 启动日志流前递归创建 `backend/logs/`；单个日志文件超过 5 MB 后按既定策略处理，首次启动不能因目录不存在失败 | Phase 0 | done（2026-09-13） |
+| backend 构建失败 | 修正 `apps/backend/src/log-streams.ts` 中 `pino.transport()` 与 `multistream` 的类型组合；`pnpm --filter backend build` 必须先恢复通过 | Phase 0 | done（2026-09-13） |
+| 日志目录落盘 | 启动日志流前递归创建 `apps/backend/logs/`；单个日志文件超过 5 MB 后按既定策略处理，首次启动不能因目录不存在失败 | Phase 0 | done（2026-09-13） |
 | 健康检查契约 | 从仅有 `/api/health` 调整为 `/api/health/live` 与 `/api/health/ready`；ready 需要检查 MySQL/Redis 等实际依赖 | Phase 0/6 | done（Phase 0） |
 | CORS 配置 | 从单个 `FRONTEND_ORIGIN` 调整为集中白名单：生产允许 `app://` 与线上管理后台域名，开发环境追加 `http://127.0.0.1:5173`；`file://` 仅临时兼容 | Phase 1 | done（2026-09-13） |
-| 环境变量事实源 | 补齐 `backend/.env.example` 的完整服务端配置，明确 backend `.env` 为新架构加载入口；根 `.env.example` 与旧 `app/.env.local` 只保留清晰的迁移/开发说明 | Phase 0/6/7 | done（Phase 0，Phase 6/7 继续收敛） |
+| 环境变量事实源 | 补齐 `apps/backend/.env.example` 的完整服务端配置，明确 backend `.env` 为新架构加载入口；根 `.env.example` 与旧 `apps/legacy/.env.local` 只保留清晰的迁移/开发说明 | Phase 0/6/7 | done（Phase 0，Phase 6/7 继续收敛） |
 | Prisma 初版模型 | 不把当前 migration 当最终模型；按 design 数据库全景重建，重点处理通用 `Job`、Agent、ProviderProfile、MediaAsset、采集快照、审核记录、`attemptKey` 等 | Phase 1 | done（2026-09-13） |
-| 提交边界 | 旧 `app/`、`backend/server.js` 暂不删除，保留到 Phase 7；新骨架可复用，但旧入口不得继续作为新系统正式执行入口 | Phase 7 | pending |
+| 提交边界 | 旧 `apps/legacy/`、`apps/backend/server.js` 暂不删除，保留到 Phase 7；新骨架可复用，但旧入口不得继续作为新系统正式执行入口 | Phase 7 | pending |
 | 文档是否入仓 | 当前 `.gitignore` 的 `docs/*` 会忽略架构方案；提交前确认是否取消该忽略规则或对正式方案目录增加反向匹配 | 仓库治理 | done（已取消忽略并入库） |
 
 ## 历史代码迁移与功能收口
 
 | 旧资产 | 迁移/收口方式 | 归属 |
 |---|---|---|
-| `app/src/server/taobaoTopClient.js` | Phase 4.3 建新适配器，Phase 7 迁移旧类目/店铺/开放平台配置能力 | Phase 7 |
-| `app/src/server/mainImagePromptExpansion.js`、`arkImageGeneration.js` | Phase 4.5 建新流程，Phase 7 迁移旧提示词/生图逻辑 | Phase 7 |
+| `apps/legacy/src/server/taobaoTopClient.js` | Phase 4.3 建新适配器，Phase 7 迁移旧类目/店铺/开放平台配置能力 | Phase 7 |
+| `apps/legacy/src/server/mainImagePromptExpansion.js`、`arkImageGeneration.js` | Phase 4.5 建新流程，Phase 7 迁移旧提示词/生图逻辑 | Phase 7 |
 | `skills/diantoushi-product-research`、`mysql-import`、`market-analysis-report` | Phase 3/4 建调用基础，Phase 7 全量适配为 Agent 技能与服务端输入 | Phase 7 |
-| `app/src/server` 的用户/角色/菜单/按钮/店铺/部门/账号/平台管理等 | Phase 1 建新服务，Phase 7 迁移旧逻辑 | Phase 7 |
+| `apps/legacy/src/server` 的用户/角色/菜单/按钮/店铺/部门/账号/平台管理等 | Phase 1 建新服务，Phase 7 迁移旧逻辑 | Phase 7 |
 | 旧 MySQL 表（`sys_user`、`sys_role`、`product_snapshot`、`market_analysis_run` 等） | 从 0 建新库；旧表只作字段语义参考，不迁移数据 | 不迁移 |
-| `app/public/generated/product-sets` 等本地资产生成物 | Phase 5 建存储能力，Phase 7 迁移到 OSS 或转为旧数据引用并清理 | Phase 7 |
-| `app/src/app/pages`（报告、主图/详情图、图库、平台商品、数据下载、看板、视频复刻等） | 全部迁移至新 frontend/desktop，按新架构改造 | Phase 0 输出矩阵、Phase 7 全量迁移 |
-| 旧环境变量（`OPENROUTER_*`、`ARK_ANALYSIS_*`、`TAOBAO_*`、`MYSQL_*` 等） | 2026-09-12 已录入同事提供的 AI/模型参考值（`app/.env.example` 已有，`backend/.env.example` 同步补齐）；Phase 6 建部署配置，Phase 7 收敛到 backend `.env` 并逐项校验 | Phase 6/7 |
+| `apps/legacy/public/generated/product-sets` 等本地资产生成物 | Phase 5 建存储能力，Phase 7 迁移到 OSS 或转为旧数据引用并清理 | Phase 7 |
+| `apps/legacy/src/app/pages`（报告、主图/详情图、图库、平台商品、数据下载、看板、视频复刻等） | 全部迁移至新 apps/frontend/desktop，按新架构改造 | Phase 0 输出矩阵、Phase 7 全量迁移 |
+| 旧环境变量（`OPENROUTER_*`、`ARK_ANALYSIS_*`、`TAOBAO_*`、`MYSQL_*` 等） | 2026-09-12 已录入同事提供的 AI/模型参考值（`apps/legacy/.env.example` 已有，`apps/backend/.env.example` 同步补齐）；Phase 6 建部署配置，Phase 7 收敛到 backend `.env` 并逐项校验 | Phase 6/7 |
 | 旧服务进程与端口 | 新服务上线后旧进程停止、域名/端口切换、回滚预案演练 | Phase 7 |
 
 > 说明：旧 MySQL 数据不迁移；上表所有旧能力最终统一由 Phase 7 全量迁移与收口；Phase 0-6 中的相关任务只负责在新方案中建立对应基础能力，不视为迁移完成。
@@ -66,7 +66,7 @@
 | 3 | RPA Agent | Phase 0、Phase 2 | Agent 注册/claim/心跳/complete、唤起 Chrome、提交结果、数据导入通道 | ✅ 已完成 |
 | 4 | AI、报告与下游工作流 | Phase 2（OSS/平台先用 mock） | 报告完整，图片生成（含结果 review）与平台发布流程树可跑通 | 进行中（4.1-4.6、4.8-4.12 已完成；4.7 待真实 Key 实测后回填） |
 | 5 | 资产与 StorageDriver | Phase 1 | StorageDriver 接口 + mock 通过；OSS 厂商补齐后只改实现 | ✅ 已完成 |
-| 7 | 历史功能全量迁移与收口 | Phase 0-5 | 旧 app/ 功能全部迁移或按新方案改造；旧资产、配置、服务收口（不迁旧数据） | 进行中（7.1-7.6、7.8-7.10 完成；7.7 待人工验收后直接删除旧代码） |
+| 7 | 历史功能全量迁移与收口 | Phase 0-5 | 旧 apps/legacy/ 功能全部迁移或按新方案改造；旧资产、配置、服务收口（不迁旧数据） | 进行中（7.1-7.6、7.8-7.10 完成；7.7 待人工验收后直接删除旧代码） |
 | 6 | 打包更新与服务端部署 | Phase 0-5、Phase 7 | 安装包可安装（含 Python）、GitHub Actions 多平台产物、GitHub Releases 更新可用、阿里云部署 | 进行中（6.0/6.7/6.8 完成，6.5 配置已落地；6.1-6.4、6.6 待外部资源） |
 | 8 | 测试与最终验收 | Phase 0-7 | 单测/E2E/端到端联调与检查点续跑验收通过 | pending |
 
@@ -87,12 +87,12 @@
 
 ## 方案待修订项
 
-- [ ] 旧代码删除前人工验收（2026-09-15）：本地起项目验证核心流程通过后，执行 `pnpm legacy:cleanup --apply` 直接删除旧 `app/` 与 `backend/server.js`（不归档保留），动作记录在待办清单与 Phase 7.7。
+- [ ] 旧代码删除前人工验收（2026-09-15）：本地起项目验证核心流程通过后，执行 `pnpm legacy:cleanup --apply` 直接删除旧 `apps/legacy/` 与 `apps/backend/server.js`（不归档保留），动作记录在待办清单与 Phase 7.7。
 - [x] 平台超级管理员账号改名（2026-09-15）：账号统一为 `super_admin`（env `SUPER_ADMIN_USERNAME`/`SUPER_ADMIN_PASSWORD`），seed 已清理旧 `platform_admin` 并重建，显示名“超级管理员”。
 - [ ] AI/淘宝 SDK 参数、超时、限流在 Phase 4 前回填 `[待实测]` 结论。
 - [x] Phase 6 执行顺序后置（2026-09-15）：本地功能 0-5 与历史迁移 7 完成后再做打包部署；已更新阶段表与 phase-6 文档。
 - [x] 线上/人工事项清单（2026-09-15）：OSS、域名证书、签名证书、Actions secrets、更新源、Windows 虚拟机、正式 Key 等已集中记录到 phase-6「本地做/线上做清单」与待办清单第四节。
-- [x] 环境变量字段盘点与占位（2026-09-15）：`backend/.env.example` 与 `desktop/.env.example` 已按开发/生产注释补齐并清理弃用项；真实值待各平台账号回填，发布前逐项对照。
+- [x] 环境变量字段盘点与占位（2026-09-15）：`apps/backend/.env.example` 与 `apps/desktop/.env.example` 已按开发/生产注释补齐并清理弃用项；真实值待各平台账号回填，发布前逐项对照。
 - [ ] 本机 Node 25 下 Prisma CLI `migrate dev/db push` 报 `Schema engine error: undefined`；Phase 0.4 已用 `migrate diff + db execute` 落地，待 Node/Prisma 升级后回归标准 migrate 流程。
 - [~] AI/模型环境变量参考值（2026-09-12/16）：`OPENROUTER_*` 已统一为唯一供应商（Ark 停用），`OPENROUTER_API_KEY` 仍为占位符；真实 Key 回填后做 4.7 限流/超时实测。
 - [x] BullMQ 队列名称、并发数、任务保留时间与有限重试策略：初稿默认值已落地（design.md「第一版参数默认值」），Phase 2/4 按实测调整。
@@ -110,7 +110,7 @@
 - [x] AI Key 混合方案：平台统一 Key 走服务端代理，桌面端不落明文；BYOK 本地 safeStorage 第一版后做，边界已记录（4.12）。
 - [ ] 自动更新源：GitHub Releases / 阿里云静态源待专门讨论（2026-09-12 记录）；Phase 0/6 只做配置占位和可替换适配，不视为最终选型。
 - [ ] Windows 冒烟验收：优先在 mac 上安装 Windows 虚拟机；虚拟机就绪后再验证安装、启动、登录与 RPA（CDP），未就绪前暂不验证，不阻塞开发。
-- [ ] 旧 `app/` 功能全部迁移：Phase 0.6 输出页面/模块迁移矩阵，Phase 7 全量迁移与收口。
+- [ ] 旧 `apps/legacy/` 功能全部迁移：Phase 0.6 输出页面/模块迁移矩阵，Phase 7 全量迁移与收口。
 - [x] Agent 领取/心跳/租约默认参数：已给初稿默认值并落地（claimDeadline 60s、leaseTtlMs 120s、heartbeatIntervalMs 15s，Phase 2.9）。
 - [x] 结果 review 的“重新生成”次数上限：已落地为 3 次（4.5），超限任务 failure。
 - [x] 平台超级管理员（开发方）：已确认采用独立 `system` 租户 + `system:tenant:manage` 权限，开发方账号不归属业务租户，负责创建租户/租户管理员/初始权限；已排入 Phase 1.11。
@@ -137,7 +137,7 @@
 - [x] 业务范围对齐（2026-09-13）：第一版业务闭环 = 账号权限 + RPA 采集/下载 + 导入 + AI 报告 + 生图/图片编辑 + 发布 + 看板/下载 + 数据 Agent + 资产库；多租户/系统管理员保留，视频复刻以 Mock/外部服务扩展为主。
 - [x] 桌面端本地优先与服务端管理边界（2026-09-14）：桌面端唯一产品形态；数据本地优先、服务端管理核心、同步开关与 AI Key 混合方案已确认。
 - [x] 双轨打包节奏（2026-09-15）：先本地内测包（人工分发、确认用户意向、不接自动更新），确认后再配置线上正式包（Actions + Releases + 自动更新 + 阿里云部署）；Phase 6 后置于本地功能与迁移收口之后。
-- [x] 环境变量分层（2026-09-15）：服务端配置事实源为 `backend/.env`（示例 `backend/.env.example`），桌面端配置示例为 `desktop/.env.example`，根 `.env.example` 仅保留指向说明；Key 类只占位，不提交 git。
+- [x] 环境变量分层（2026-09-15）：服务端配置事实源为 `apps/backend/.env`（示例 `apps/backend/.env.example`），桌面端配置示例为 `apps/desktop/.env.example`，根 `.env.example` 仅保留指向说明；Key 类只占位，不提交 git。
 
 ## 阻塞登记
 

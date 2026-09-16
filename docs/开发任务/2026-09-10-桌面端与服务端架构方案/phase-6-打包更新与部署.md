@@ -51,16 +51,16 @@
       证据:
 
 - [ ] 6.4 完成旧环境变量与旧服务切换准备
-      现状: 旧 `.env` 配置与旧服务进程切换未安排；新服务仍存在根 `.env.example` 与 `backend/.env.example` 双示例，加载入口未唯一化
+      现状: 旧 `.env` 配置与旧服务进程切换未安排；新服务仍存在根 `.env.example` 与 `apps/backend/.env.example` 双示例，加载入口未唯一化
       依据: tasks.md「历史代码迁移与功能收口」
-      验证: 新服务上线后旧服务停止、域名/端口切换成功；新服务统一从 `backend/.env` 加载配置，环境变量示例只有一份事实源；旧 `app/.env.local` 仅作迁移期兼容；旧环境变量逐项校验（不迁移旧 MySQL 数据）
+      验证: 新服务上线后旧服务停止、域名/端口切换成功；新服务统一从 `apps/backend/.env` 加载配置，环境变量示例只有一份事实源；旧 `apps/legacy/.env.local` 仅作迁移期兼容；旧环境变量逐项校验（不迁移旧 MySQL 数据）
       证据:
 
 - [x] 6.7 补齐 dev/prod 环境变量注释与线上配置对照
-      现状: `backend/.env.example` 已有初值，但本地地址、线上地址、AI Key 获取方式等缺少逐项说明；桌面端无独立示例
+      现状: `apps/backend/.env.example` 已有初值，但本地地址、线上地址、AI Key 获取方式等缺少逐项说明；桌面端无独立示例
       依据: 2026-09-15 人工确认：本地开发地址写 env 并注释，线上照着配置；正式 Key 不提交 git
-      验证: `backend/.env.example` 与 `desktop/.env.example` 逐项含开发/生产对照注释（含 AI/淘宝/OSS/更新源/同步开关/本地目录/对外地址）；线上部署按注释可直接生成各自 `.env`；Key 类仅占位符；根 `.env.example` 仅作指向说明
-      证据: (2026-09-15, 已完成：`backend/.env.example`、`desktop/.env.example` 已补齐 dev/prod 注释，根 `.env.example` 仅保留指向；`single-implementation-smoke` 校验 rootIsPointerOnly/rootHasNoDuplicate/desktopEnvHasSync 通过)
+      验证: `apps/backend/.env.example` 与 `apps/desktop/.env.example` 逐项含开发/生产对照注释（含 AI/淘宝/OSS/更新源/同步开关/本地目录/对外地址）；线上部署按注释可直接生成各自 `.env`；Key 类仅占位符；根 `.env.example` 仅作指向说明
+      证据: (2026-09-15, 已完成：`apps/backend/.env.example`、`apps/desktop/.env.example` 已补齐 dev/prod 注释，根 `.env.example` 仅保留指向；`single-implementation-smoke` 校验 rootIsPointerOnly/rootHasNoDuplicate/desktopEnvHasSync 通过)
 
 - [x] 6.8 盘点线上/人工事项并逐项回填
       现状: OSS、域名证书、签名证书、Actions secrets、更新源、Windows 虚拟机、正式 Key 等线上/人工事项分散在文档，未集中成清单
@@ -72,7 +72,7 @@
       现状: 只有 macOS 开发机，无 Windows 机器；electron-builder 未配置 CI 矩阵
       依据: design.md「十一、桌面端打包与更新」；electron-builder 官方 GitHub Actions 文档、`Zettlr`/`marktext`/`electron-vite-vue` 真实案例
       验证: 推送 tag 后 Actions 矩阵按 os/arch（macOS arm64/x64、Windows x64）产出 `dmg` 与 Windows `exe`（含 `latest.yml`/`blockmap`），且各产物内置对应架构的 standalone Python 资产；发布 GitHub Releases；Windows 冒烟优先在 mac 的 Windows 虚拟机上验证，虚拟机就绪前暂不验证；免费额度可支持低频发版
-      证据: (2026-09-15, 配置已落地：新增 `.github/workflows/release-desktop.yml`，矩阵 macos-14(arm64)/macos-13(x64)/windows-latest(x64)，构建 backend/frontend/desktop、prepare-python、electron-builder 发布（tag 自动 publish，dispatch 仅 artifact），Ruby YAML 校验通过；真实 Actions 运行需推送仓库 + `UPDATE_URL` secret，Windows 冒烟待虚拟机，任务保持 `[~]`)
+      证据: (2026-09-15, 配置已落地：新增 `.github/workflows/release-desktop.yml`，矩阵 macos-14(arm64)/macos-13(x64)/windows-latest(x64)，构建 apps/backend/apps/frontend/desktop、prepare-python、electron-builder 发布（tag 自动 publish，dispatch 仅 artifact），Ruby YAML 校验通过；真实 Actions 运行需推送仓库 + `UPDATE_URL` secret，Windows 冒烟待虚拟机，任务保持 `[~]`)
 
 - [ ] 6.6 接入正式应用图标与签名资源
       现状: 当前使用 Electron 默认图标，无正式签名证书；设计师交付清单见 `桌面端图标设计规格.md`

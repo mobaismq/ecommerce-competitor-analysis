@@ -28,7 +28,7 @@
       现状: `skills/diantoushi-product-research`（CDP 脚本需 playwright）、`mysql-import`（旧直连路径需 pymysql）等旧工具未接入新 Agent 调用方式
       依据: `skills/`、design.md「六、RPA Agent」「三、数据库全景」
       验证: `node test_agent_skills.js` ➔ 预期: Agent 可在离线样本上调用迁移后的 CDP 采集技能；内置 Python 依赖按锁定清单复现（含 playwright wheel，不含 pymysql/旧直连路径）；mac AppleScript/Swift 路径收口为 CDP
-      证据: (2026-09-14, 实测通过: `desktop/requirements.txt` 锁定 `playwright==1.62.0`，`prepare-python` 自动安装；`pnpm --filter desktop skill-cdp-smoke` 返回 `{"playwrightVersion":"1.62.0","playwrightOk":true,"noPymysql":true,"cdpModuleLoadable":true}`；CDP 脚本可用内置 Python 加载，不包含 pymysql 旧依赖)
+      证据: (2026-09-14, 实测通过: `apps/desktop/requirements.txt` 锁定 `playwright==1.62.0`，`prepare-python` 自动安装；`pnpm --filter desktop skill-cdp-smoke` 返回 `{"playwrightVersion":"1.62.0","playwrightOk":true,"noPymysql":true,"cdpModuleLoadable":true}`；CDP 脚本可用内置 Python 加载，不包含 pymysql 旧依赖)
 
 - [x] 3.6 实现数据导入通道（mysql-import 清洗 → 服务端导入 API）
       现状: 旧 `mysql-import` 直连 MySQL 建表写库
@@ -46,7 +46,7 @@
       现状: 旧系统有“仅下载”和“下载后自动入库”两种入口，新任务类型未明确区分
       依据: design.md「业务范围对齐（2026-09-13）」
       验证: `node test_collection_modes.js` ➔ 预期: `download-only` 只产出本地文件并提交文件索引；`download-and-import` 下载后走导入通道；`import-only` 仅处理已有导出文件；三种模式任务状态、进度与结果清晰区分
-      证据: (2026-09-14, 实测通过: `pnpm --filter desktop collection-modes-smoke` 返回 `{"downloadOnlyStages":"download,collect-files,sync","downloadAndImportStages":"download,collect-files,import,sync","importOnlyStages":"collect-files,import,sync","downloadOnlyFiles":2,"downloadOnlyCounts":{},"downloadAndImportCounts":{"productCount":2,"skuCount":1,"fileCount":2},"importOnlyCounts":{"productCount":2,"skuCount":1,"fileCount":1},"invalidRejected":true}`；新增 `desktop/src/main/collection-modes.ts`（模式白名单/校验/阶段计划）与 `collection-runner.ts`（runLocalCollection：按模式区分 download/collect-files/import/sync 阶段并写入本地 LocalJob/TempFile/事件；download-only 不导入、import-only 不启动下载、非法模式拒绝；`pnpm --filter desktop build` 通过)
+      证据: (2026-09-14, 实测通过: `pnpm --filter desktop collection-modes-smoke` 返回 `{"downloadOnlyStages":"download,collect-files,sync","downloadAndImportStages":"download,collect-files,import,sync","importOnlyStages":"collect-files,import,sync","downloadOnlyFiles":2,"downloadOnlyCounts":{},"downloadAndImportCounts":{"productCount":2,"skuCount":1,"fileCount":2},"importOnlyCounts":{"productCount":2,"skuCount":1,"fileCount":1},"invalidRejected":true}`；新增 `apps/desktop/src/main/collection-modes.ts`（模式白名单/校验/阶段计划）与 `collection-runner.ts`（runLocalCollection：按模式区分 download/collect-files/import/sync 阶段并写入本地 LocalJob/TempFile/事件；download-only 不导入、import-only 不启动下载、非法模式拒绝；`pnpm --filter desktop build` 通过)
 
 - [x] 3.9 落地本地采集默认存储与可选同步开关
       现状: 数据同步边界已确认，但本地持久化与服务端上传接口尚未按开关隔离

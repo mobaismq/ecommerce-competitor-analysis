@@ -40,7 +40,7 @@
       现状: RPM/TPM/QPS、超时、错误码与可重试类型未实测
       依据: design.md「九、外部依赖边界」「参数与执行位置」
       验证: `node test_provider_limits.js` ➔ 预期: ark/openrouter/openai-compatible/taobao 的限流、超时、错误码与可重试类型写入对应 ProviderProfile；Worker 内限流生效，不触发超额调用；健康状态和最近错误可供 ProviderRouter 使用
-      证据: (2026-09-15, 阻塞待实测：需要真实 OpenRouter/Ark 平台 Key 与淘宝开放平台 AppKey/AppSecret 后才能真实调用并量出 RPM/TPM/QPS、超时、错误码与可重试类型；占位字段已写入 `backend/.env.example`（OPENROUTER_API_KEY、ARK_API_KEY、TAOBAO_APP_KEY/APP_SECRET/SESSION）并登记在 phase-6「本地做/线上做清单」；待账号回填后执行，不阻塞 4.8-4.12 开发)
+      证据: (2026-09-15, 阻塞待实测：需要真实 OpenRouter/Ark 平台 Key 与淘宝开放平台 AppKey/AppSecret 后才能真实调用并量出 RPM/TPM/QPS、超时、错误码与可重试类型；占位字段已写入 `apps/backend/.env.example`（OPENROUTER_API_KEY、ARK_API_KEY、TAOBAO_APP_KEY/APP_SECRET/SESSION）并登记在 phase-6「本地做/线上做清单」；待账号回填后执行，不阻塞 4.8-4.12 开发)
 
 - [x] 4.8 实现 ProviderRouter 与自定义端点安全校验
       现状: 多 Profile 路由、连接测试和自定义 baseURL SSRF 防护缺失
@@ -63,7 +63,7 @@
 - [x] 4.11 实现视频复刻业务能力（Mock/外部服务扩展）
       现状: 旧视频复刻/视频图库页面存在，新方案未覆盖
       依据: design.md「业务范围对齐（2026-09-13）」
-      验证: `node test_video_replication.js` ➔ 预期: 视频资产可登记、任务状态可见；第一版以 Mock/手动导入资产为主，外部 AI 视频服务通过统一 Adapter 扩展；页面与资产迁移到新 frontend/desktop
+      验证: `node test_video_replication.js` ➔ 预期: 视频资产可登记、任务状态可见；第一版以 Mock/手动导入资产为主，外部 AI 视频服务通过统一 Adapter 扩展；页面与资产迁移到新 apps/frontend/desktop
       证据: (2026-09-15, 实测通过: `pnpm --filter backend video-replication-smoke` 返回 `{"replicate":{"status":"success","provider":"mock"},"source":{"sourceType":"video_source","storageKey":"video-sources/...mp4"},"output":{"sourceType":"video_replication","storageKey":"mock-videos/...mp4","mimeType":"video/mp4"},"job":{"status":"success","stage":"success","eventCount":1},"missingRejected":true}`；`POST /api/videos/replicate` 经 VideoProviderRegistry(Mock/后续外部服务) 创建 video_source 资产 → 视频复刻任务 → video_replication 输出资产，任务状态与事件可查；缺 sourceUrl/sourceStorageKey 拦截；`pnpm --filter backend build` 通过)
 
 - [x] 4.12 落地 AI Key 混合方案边界

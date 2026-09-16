@@ -31,10 +31,10 @@
       证据: (2026-09-15, 实测通过: `pnpm --filter backend storage-env-routing-smoke` 返回 `{"local":{"isLocal":true,"fileExists":true,"cleanupScanned":1},"asset":{"runId":"env-run","storageKey":"env/assets/local.png","mimeType":"image/png","sourceUrl":"https://example.com/local.png"},"oss":{"isOss":true,"putRejected":true,"assetRejected":true,"dirWritten":false}}`；`STORAGE_DRIVER=local` 时业务入口（driver/AssetService/Cleanup）全部落本地目录且不触碰 OSS；`STORAGE_DRIVER=oss` 时走 OssStorageDriver 占位（写入/资产读取均抛“待接入”），OSS 目录不被写入；资产元数据格式（runId/storageKey/mimeType/sourceUrl）不随驱动变化；`pnpm --filter backend build` 通过)
 
 - [x] 5.5 迁移旧本地资产生成物（public/generated 等）
-      现状: 旧 `app/public/generated/product-sets` 等本地文件未纳入新资产体系
+      现状: 旧 `apps/legacy/public/generated/product-sets` 等本地文件未纳入新资产体系
       依据: design.md「八、图片与文件资产」
       验证: `node test_storage_legacy_migration.js` ➔ 预期: 旧本地资产可标记迁移/引用或清理，迁移过程幂等可校验
-      证据: (2026-09-15, 实测通过: `pnpm --filter backend storage-legacy-migration-smoke` 返回 `{"first":{"scanned":2,"migrated":2,"skipped":0,"errors":0},"assets":{"count":2,"keys":["legacy/3efb469ca2c73f33/old1.png","legacy/ab360113aeab2e69/old2.jpg"]},"originalsKept":true,"storedFilesExist":true,"second":{"migrated":0,"skipped":2},"assetCountAfter":2}`；`LegacyAssetMigrationService` 扫描 `LEGACY_ASSET_DIRS`（默认 `app/public/generated/product-sets`）图片文件，按 sha256 内容寻址复制到新存储并登记 GeneratedAsset（runId=legacy-migration、sha256、sourceUrl 保留原路径），原文件保留；重复迁移幂等（同内容跳过）；`pnpm --filter backend build` 通过)
+      证据: (2026-09-15, 实测通过: `pnpm --filter backend storage-legacy-migration-smoke` 返回 `{"first":{"scanned":2,"migrated":2,"skipped":0,"errors":0},"assets":{"count":2,"keys":["legacy/3efb469ca2c73f33/old1.png","legacy/ab360113aeab2e69/old2.jpg"]},"originalsKept":true,"storedFilesExist":true,"second":{"migrated":0,"skipped":2},"assetCountAfter":2}`；`LegacyAssetMigrationService` 扫描 `LEGACY_ASSET_DIRS`（默认 `apps/legacy/public/generated/product-sets`）图片文件，按 sha256 内容寻址复制到新存储并登记 GeneratedAsset（runId=legacy-migration、sha256、sourceUrl 保留原路径），原文件保留；重复迁移幂等（同内容跳过）；`pnpm --filter backend build` 通过)
 
 - [x] 5.7 落地本地存储默认与可选同步开关
       现状: 存储抽象已有，但本地存储默认与 OSS 同步开关未落地
