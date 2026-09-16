@@ -23,7 +23,7 @@ describe('LeaseSweeper', () => {
       expect.objectContaining({
         where: expect.objectContaining({
           status: { in: ['claimed', 'running'] },
-          leaseUntil: expect.any(Date),
+          leaseUntil: { lt: expect.any(Date) },
         }),
       }),
     )
@@ -43,9 +43,9 @@ describe('LeaseSweeper', () => {
       where: { id: 'j1' },
       data: { status: 'failure', stage: 'failure', errorMessage: 'agent lease expired' },
     })
-    expect(prisma.jobEvent.create).toHaveBeenCalledWith(
-      expect.objectContaining({ jobId: 'j1', type: 'lease-expired', data: {} }),
-    )
+    expect(prisma.jobEvent.create).toHaveBeenCalledWith({
+      data: { jobId: 'j1', type: 'lease-expired', data: {} },
+    })
   })
 
   it('多个过期 assignment 各自触发一次事务', async () => {

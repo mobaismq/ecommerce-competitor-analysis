@@ -60,3 +60,11 @@ __MACOSX/
 .zcode
 apps/backend/logs/
 skills-lock.json
+
+# Knowledge Graph Artifacts & Caches
+graphify-out/
+.codebase-memory/
+.code-review-graph/
+AGENTS.md
+CLAUDE.md
+

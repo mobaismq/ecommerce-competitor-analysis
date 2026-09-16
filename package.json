@@ -11,8 +11,11 @@
     "dev:desktop": "pnpm --filter desktop dev",
     "infra:up": "docker compose up -d mysql redis",
     "infra:down": "docker compose down",
-    "build": "pnpm -r build"
-    ,"check-env": "node scripts/check-env.mjs",
+    "build": "pnpm -r build",
+    "test": "pnpm --filter backend test && pnpm --filter frontend test",
+    "test:backend": "pnpm --filter backend test",
+    "test:frontend": "pnpm --filter frontend test",
+    "check-env": "node scripts/check-env.mjs",
     "build:local-package": "node scripts/build-local-package.mjs",
     "legacy:cleanup": "node scripts/cleanup-legacy.mjs --apply",
     "legacy:cleanup:dry": "node scripts/cleanup-legacy.mjs --dry-run"
