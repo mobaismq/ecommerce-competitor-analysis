@@ -5,7 +5,7 @@ import crypto from 'crypto'
 import { fileURLToPath } from 'url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const APP_DIR = path.resolve(__dirname, '../app')
+const APP_DIR = path.resolve(__dirname, '../legacy')
 const REPORT_STATE_FILE = path.resolve(APP_DIR, '.analysis-report-state.json')
 
 function loadEnvFile(filePath) {
@@ -74,8 +74,8 @@ const {
   saveGeneratedMainImages,
   saveOpenAiSettings,
   testArkResponsesConnection,
-} = await import('../app/src/server/aiMarketAnalysis.js')
-const { generateProductSetImage } = await import('../app/src/server/arkImageGeneration.js')
+} = await import('../legacy/src/server/aiMarketAnalysis.js')
+const { generateProductSetImage } = await import('../legacy/src/server/arkImageGeneration.js')
 const {
   expandProductSetPrompts,
   extractProductSetImageText,
@@ -83,14 +83,14 @@ const {
   generateProductSetImagePrompts,
   generateProductSetRetouchPrompt,
   streamProductSetInformation,
-} = await import('../app/src/server/mainImagePromptExpansion.js')
+} = await import('../legacy/src/server/mainImagePromptExpansion.js')
 const {
   fetchTaobaoCategories,
   fetchTaobaoShops,
   getTaobaoConfigStatus,
-} = await import('../app/src/server/taobaoTopClient.js')
-const { createRole, deleteRole, listRoles, updateRole } = await import('../app/src/server/roleManagement.js')
-const { createDept, deleteDept, listDepts, updateDept } = await import('../app/src/server/deptManagement.js')
+} = await import('../legacy/src/server/taobaoTopClient.js')
+const { createRole, deleteRole, listRoles, updateRole } = await import('../legacy/src/server/roleManagement.js')
+const { createDept, deleteDept, listDepts, updateDept } = await import('../legacy/src/server/deptManagement.js')
 const {
   changeAccountPassword,
   checkAccountDuplicate,
@@ -100,10 +100,10 @@ const {
   listAccounts,
   loginAccount,
   updateAccount,
-} = await import('../app/src/server/accountManagement.js')
-const { listMenus } = await import('../app/src/server/menuManagement.js')
-const { createPlatform, deletePlatform, listPlatforms, updatePlatform } = await import('../app/src/server/platformManagement.js')
-const { createStore, deleteStore, listStores, updateStore } = await import('../app/src/server/storeManagement.js')
+} = await import('../legacy/src/server/accountManagement.js')
+const { listMenus } = await import('../legacy/src/server/menuManagement.js')
+const { createPlatform, deletePlatform, listPlatforms, updatePlatform } = await import('../legacy/src/server/platformManagement.js')
+const { createStore, deleteStore, listStores, updateStore } = await import('../legacy/src/server/storeManagement.js')
 
 let currentReport = readReportState()
 let currentReportJob = null

@@ -1,0 +1,54 @@
+name: release-desktop
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            artifact: mac-arm64
+            py_arch: arm64
+          - os: macos-13
+            artifact: mac-x64
+            py_arch: x64
+          - os: windows-latest
+            artifact: win-x64
+            py_arch: x64
+    runs-on: ${{ matrix.os }}
+    env:
+      UPDATE_URL: ${{ secrets.UPDATE_URL }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      PUBLIC_ARCH: ${{ matrix.py_arch }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter backend build
+      - run: pnpm --filter frontend build
+      - run: pnpm --filter desktop db:generate
+      - run: pnpm --filter desktop build
+      - run: pnpm --filter desktop local-db-smoke
+      - run: pnpm --filter desktop prepare-python
+      - run: pnpm --filter desktop exec electron-builder -- --config electron-builder.yml ${{ startsWith(github.ref, 'refs/tags/') && '--publish always' || '--publish never' }}
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          if-no-files-found: error
+          path: |
+            desktop/dist/*.dmg
+            desktop/dist/*.exe
+            desktop/dist/latest*.yml

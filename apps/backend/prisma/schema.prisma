@@ -1,0 +1,469 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model Tenant {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Department {
+  id        String   @id @default(cuid())
+  tenantId  String
+  name      String
+  parentId  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId])
+}
+
+model User {
+  id           String    @id @default(cuid())
+  tenantId     String
+  username     String
+  passwordHash String
+  displayName  String?
+  phone        String?
+  email        String?
+  avatarUrl    String?
+  departmentId String?
+  dataScope    String?
+  isActive     Boolean   @default(true)
+  deletedAt    DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@unique([tenantId, username])
+  @@index([tenantId, isActive])
+}
+
+model Role {
+  id          String   @id @default(cuid())
+  tenantId    String
+  code        String
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([tenantId, code])
+}
+
+model Permission {
+  id   String @id @default(cuid())
+  code String @unique
+  name String
+  type String?
+}
+
+model UserRole {
+  userId String
+  roleId String
+
+  @@id([userId, roleId])
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+
+  @@id([roleId, permissionId])
+}
+
+model RoleStore {
+  roleId  String
+  storeId String
+
+  @@id([roleId, storeId])
+}
+
+model Platform {
+  id      String   @id @default(cuid())
+  code    String   @unique
+  name    String
+  enabled Boolean  @default(true)
+  stores  Store[]
+}
+
+model Store {
+  id            String    @id @default(cuid())
+  tenantId      String
+  platformId    String
+  platform      Platform  @relation(fields: [platformId], references: [id])
+  name          String
+  externalId    String?
+  status        String?
+  authExpiresAt DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([tenantId, platformId])
+}
+
+model Job {
+  id                String    @id @default(cuid())
+  tenantId          String
+  type              String
+  businessKey       String    @unique
+  status            String
+  stage             String?
+  attempt           Int       @default(0)
+  checkpointStage   String?
+  parentJobId       String?
+  agentId           String?
+  providerProfileId String?
+  errorCode         String?
+  errorMessage      String?
+  retryCount        Int       @default(0)
+  claimDeadline     DateTime?
+  startedAt         DateTime?
+  finishedAt        DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([tenantId, status, type])
+  @@index([tenantId, createdAt])
+}
+
+model JobEvent {
+  id        String   @id @default(cuid())
+  jobId     String
+  type      String
+  data      Json?
+  createdAt DateTime @default(now())
+
+  @@index([jobId, createdAt])
+}
+
+model CollectionJob {
+  id            String   @id @default(cuid())
+  tenantId      String
+  jobId         String   @unique
+  type          String
+  status        String
+  storeId       String?
+  keyword       String?
+  rawResultJson Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([tenantId, status])
+}
+
+model SourceFileRecord {
+  id             String  @id @default(cuid())
+  tenantId       String
+  collectionJobId String?
+  storageKey     String  @unique
+  mimeType       String
+  size           Int
+  originalName   String?
+  sha256         String?
+  sourceUrl      String?
+  createdAt      DateTime @default(now())
+
+  @@index([tenantId, collectionJobId])
+}
+
+model ProductSnapshot {
+  id               String   @id @default(cuid())
+  tenantId         String
+  collectionJobId  String
+  externalProductId String
+  title            String?
+  price            Decimal? @db.Decimal(12, 2)
+  shopId           String?
+  shopName         String?
+  snapshotTime     DateTime
+  dataSnapshotDate String
+  rawJson          Json?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([collectionJobId, externalProductId])
+  @@index([tenantId, snapshotTime])
+}
+
+model ProductSkuSnapshot {
+  id                String  @id @default(cuid())
+  productSnapshotId String
+  skuId             String
+  name              String?
+  price             Decimal? @db.Decimal(12, 2)
+  imageUrl          String?
+  createdAt         DateTime @default(now())
+
+  @@index([productSnapshotId])
+}
+
+model ProductQaSnapshot {
+  id                String  @id @default(cuid())
+  productSnapshotId String
+  question          String?
+  answer            String?
+  createdAt         DateTime @default(now())
+
+  @@index([productSnapshotId])
+}
+
+model ProductReviewSnapshot {
+  id                String  @id @default(cuid())
+  productSnapshotId String
+  content           String?
+  rating            Int?
+  createdAt         DateTime @default(now())
+
+  @@index([productSnapshotId])
+}
+
+model AnalysisRun {
+  id             String   @id @default(cuid())
+  tenantId       String
+  jobId          String   @unique
+  storeId        String?
+  keyword        String?
+  analysisType   String
+  reportNo       String?
+  reportHash     String?
+  status         String
+  competitorCount Int?
+  costModelJson  Json?
+  reportJson     Json?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([tenantId, status])
+}
+
+model AnalysisPriceBand {
+  id            String @id @default(cuid())
+  analysisRunId String
+  bandName      String
+  priceMin      Decimal? @db.Decimal(12, 2)
+  priceMax      Decimal? @db.Decimal(12, 2)
+  productCount  Int
+  createdAt     DateTime @default(now())
+
+  @@index([analysisRunId])
+}
+
+model AnalysisBandProduct {
+  id                String  @id @default(cuid())
+  priceBandId       String
+  productSnapshotId String?
+  externalProductId String?
+  title             String?
+  price             Decimal? @db.Decimal(12, 2)
+  imageUrl          String?
+  createdAt         DateTime @default(now())
+
+  @@index([priceBandId])
+}
+
+model AnalysisBandImage {
+  id          String  @id @default(cuid())
+  priceBandId String
+  imageUrl    String?
+  storageKey  String?
+  createdAt   DateTime @default(now())
+
+  @@index([priceBandId])
+}
+
+model AnalysisProductAnalysis {
+  id                String @id @default(cuid())
+  analysisRunId     String
+  productSnapshotId String?
+  productTitle      String?
+  analysisJson      Json?
+  createdAt         DateTime @default(now())
+
+  @@index([analysisRunId])
+}
+
+model AnalysisInsight {
+  id            String @id @default(cuid())
+  analysisRunId String
+  type          String
+  title         String?
+  content       String?
+  createdAt     DateTime @default(now())
+
+  @@index([analysisRunId])
+}
+
+model MainImageAnalysis {
+  id            String @id @default(cuid())
+  analysisRunId String
+  productId     String?
+  imageUrl      String?
+  storageKey    String?
+  visionModel   String?
+  prompt        String?
+  resultJson    Json?
+  createdAt     DateTime @default(now())
+
+  @@index([analysisRunId])
+}
+
+model ListingDraft {
+  id            String  @id @default(cuid())
+  tenantId      String
+  jobId         String  @unique
+  analysisRunId String?
+  platformId    String?
+  title         String?
+  contentJson   Json?
+  status        String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([tenantId, status])
+}
+
+model MediaAsset {
+  id         String   @id @default(cuid())
+  tenantId   String
+  sourceType String
+  storageKey String   @unique
+  mimeType   String
+  size       Int
+  sha256     String?
+  sourceUrl  String?
+  originalName String?
+  createdAt  DateTime @default(now())
+
+  @@index([tenantId, createdAt])
+}
+
+model GeneratedAsset {
+  id           String   @id @default(cuid())
+  tenantId     String
+  jobId        String?
+  analysisRunId String?
+  storageKey   String   @unique
+  mimeType     String
+  size         Int
+  sha256       String?
+  originalName String?
+  sourceUrl    String?
+  runId        String?
+  createdAt    DateTime @default(now())
+
+  @@index([tenantId, createdAt])
+}
+
+model Agent {
+  id               String   @id @default(cuid())
+  tenantId         String
+  name             String?
+  platform         String?
+  version          String?
+  capabilitiesJson Json?
+  deviceSecretHash String?
+  status           String
+  lastSeenAt       DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([tenantId, status])
+}
+
+model AgentAssignment {
+  id         String    @id @default(cuid())
+  agentId    String
+  jobId      String
+  status     String
+  leaseUntil DateTime?
+  heartbeatAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@unique([agentId, jobId])
+  @@unique([jobId])
+  @@index([jobId])
+}
+
+model ReviewRecord {
+  id         String   @id @default(cuid())
+  tenantId   String
+  jobId      String
+  assetId    String?
+  reviewType String
+  decision   String
+  comment    String?
+  reviewerId String?
+  reviewedAt DateTime?
+  createdAt  DateTime @default(now())
+
+  @@index([tenantId, decision])
+}
+
+model AiUsageLog {
+  id                String   @id @default(cuid())
+  tenantId          String
+  jobId             String?
+  attemptKey        String   @unique
+  providerProfileId String?
+  providerType      String
+  model             String?
+  status            String
+  tokenIn           Int?
+  tokenOut          Int?
+  durationMs        Int?
+  error             String?
+  createdAt         DateTime @default(now())
+
+  @@index([tenantId, createdAt])
+}
+
+model AiCallCache {
+  id           String   @id @default(cuid())
+  tenantId     String
+  requestHash  String   @unique
+  providerType String
+  model        String?
+  resultJson   Json?
+  status       String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([tenantId])
+}
+
+model SystemConfig {
+  key       String   @id
+  value     String?
+  updatedAt DateTime @updatedAt
+}
+
+model ProviderProfile {
+  id               String   @id @default(cuid())
+  tenantId         String?
+  storeId          String?
+  name             String
+  type             String
+  baseUrl          String?
+  apiKeyRef        String
+  capabilitiesJson Json?
+  modelConfigJson  Json?
+  timeoutMs        Int?
+  retryPolicyJson  Json?
+  limitsJson       Json?
+  enabled          Boolean  @default(true)
+  priority         Int      @default(0)
+  healthStatus     String?
+  lastError        String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([tenantId, enabled])
+}

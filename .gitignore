@@ -3,6 +3,12 @@ node_modules/
 
 # Build output
 dist/
+# electron-vite build output
+apps/desktop/out/
+apps/desktop/src/generated/
+apps/desktop/data/
+apps/desktop/*.db
+apps/desktop/resources/python/
 
 # Local environment files
 .env
@@ -11,6 +17,10 @@ dist/
 
 # Keep sanitized examples
 !.env.example
+
+# Python runtime cache
+__pycache__/
+*.pyc
 
 # Runtime state and generated data
 .rpa-run-state.json
@@ -26,13 +36,13 @@ vendor/
 .pnpm-store/
 .tools-pnpm/
 .sessions/
-app/.sessions/
+apps/legacy/.sessions/
 
-# Duplicate local media copies. The app uses app/public/videos/.
-app/*.mp4
-app/*.mov
-app/src/imports/*.mp4
-app/src/imports/*.mov
+# Duplicate local media copies. The app uses apps/legacy/public/videos/.
+apps/legacy/*.mp4
+apps/legacy/*.mov
+apps/legacy/src/imports/*.mp4
+apps/legacy/src/imports/*.mov
 
 # macOS metadata
 .DS_Store
@@ -47,5 +57,6 @@ __MACOSX/
 # !docs/需求与业务/
 .agents/
 .claude/
-backend/logs/
+.zcode
+apps/backend/logs/
 skills-lock.json

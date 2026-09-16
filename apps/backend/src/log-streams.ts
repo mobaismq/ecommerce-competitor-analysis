@@ -1,7 +1,7 @@
 import { Writable } from 'stream'
-import { existsSync, statSync, openSync, closeSync, writeSync, renameSync, unlinkSync } from 'fs'
+import { existsSync, mkdirSync, statSync, openSync, closeSync, writeSync, renameSync, unlinkSync } from 'fs'
 import { join } from 'path'
-import { multistream, transport } from 'pino'
+import { multistream, transport, type DestinationStream, type Level } from 'pino'
 
 const MAX_BYTES = 5 * 1024 * 1024
 
@@ -35,14 +35,15 @@ class RotatingFileStream extends Writable {
 
 export function buildPinoStream(dev: boolean) {
   const logDir = join(process.cwd(), 'logs')
+  mkdirSync(logDir, { recursive: true })
   const app = new RotatingFileStream(join(logDir, 'app.log'))
   const error = new RotatingFileStream(join(logDir, 'error.log'))
-  const streams = [
+  const streams: Array<{ stream: DestinationStream; level: Level }> = [
     { stream: app, level: 'info' },
     { stream: error, level: 'warn' },
   ]
   if (dev) {
-    streams.push({ stream: transport({ target: 'pino-pretty', options: { colorize: true, translateTime: 'SYS:HH:MM:ss' } }), level: 'debug' })
+    streams.push({ stream: transport({ target: 'pino-pretty', options: { colorize: true, translateTime: 'SYS:HH:MM:ss' } }) as unknown as DestinationStream, level: 'debug' })
     streams.push({ stream: new RotatingFileStream(join(logDir, 'debug.log')), level: 'debug' })
   } else {
     streams.push({ stream: process.stdout, level: 'info' })

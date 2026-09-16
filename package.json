@@ -3,14 +3,19 @@
   "private": true,
   "packageManager": "pnpm@10.33.4",
   "scripts": {
-    "setup": "docker compose up -d mysql redis && pnpm install && pnpm --filter backend db:migrate && pnpm --filter backend db:seed",
+    "setup": "docker compose up -d mysql redis && pnpm install && pnpm --filter backend db:migrate && pnpm --filter backend db:seed && pnpm --filter desktop db:init && pnpm check-env",
     "dev": "concurrently -k -n api,worker,frontend -c blue,magenta,green \"pnpm --filter backend start:dev\" \"pnpm --filter backend worker:dev\" \"pnpm --filter frontend dev\"",
     "dev:backend": "pnpm --filter backend start:dev",
     "dev:worker": "pnpm --filter backend worker:dev",
     "dev:frontend": "pnpm --filter frontend dev",
+    "dev:desktop": "pnpm --filter desktop dev",
     "infra:up": "docker compose up -d mysql redis",
     "infra:down": "docker compose down",
     "build": "pnpm -r build"
+    ,"check-env": "node scripts/check-env.mjs",
+    "build:local-package": "node scripts/build-local-package.mjs",
+    "legacy:cleanup": "node scripts/cleanup-legacy.mjs --apply",
+    "legacy:cleanup:dry": "node scripts/cleanup-legacy.mjs --dry-run"
   },
   "devDependencies": {
     "concurrently": "^9.2.1"
@@ -21,6 +26,7 @@
       "@prisma/client",
       "@prisma/engines",
       "esbuild",
+      "electron",
       "msgpackr-extract",
       "prisma",
       "unrs-resolver"
