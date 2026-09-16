@@ -3,6 +3,8 @@ name: market-analysis-report
 description: 基于已入库的店透视竞品数据（product_snapshot / product_sku_snapshot / product_qa_snapshot / product_review_snapshot / media_asset 等表），调用豆包 Ark 生成《竞品市场分析与 Listing 图片生成策略报告》并落库 market_analysis_run.report_json。Use when 需要生成或重新生成竞品市场分析报告、执行单品主图 Vision 分析，或排查报告页三个动态区块（关键词矩阵 / 建议动作 / 主图卖点）的计算逻辑。
 ---
 
+> ⚠️ 迁移状态：本 skill 仅作**迁移参考**，不作为新系统正式执行入口；报告逻辑唯一归属新 backend（`backend/src/reports/` + `backend/src/ai/`），正式任务只调用新服务端 API。
+
 # market-analysis-report
 
 这个 skill 是"电商竞品分析"四层流水线的**第三层（AI 分析生成）**，负责把前两层（`diantoushi-product-research` 采集 → `mysql-import` 入库）沉淀的数据，转成一份可直接用于 Listing 图片生成的策略报告。

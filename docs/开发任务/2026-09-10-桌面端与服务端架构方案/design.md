@@ -31,37 +31,70 @@
 ```text
 ecommerce-competitor-analysis/
 ├── package.json              # 根级统一命令（setup/dev/build/desktop）
-├── pnpm-workspace.yaml       # workspace: frontend, backend, desktop
+├── pnpm-workspace.yaml       # workspace: apps/*（聚合 frontend/backend/desktop）
 ├── docker-compose.yml        # 开发期 MySQL + Redis（仅开发调试）
 ├── .env.example
-├── frontend/                 # React + Vite（桌面渲染进程 + 网页管理后台共用）
-├── backend/                  # NestJS + Fastify + Prisma + BullMQ Worker（服务端）
-├── desktop/                  # Electron 壳（electron-vite + SQLite + RPA Agent Worker）
+├── apps/
+│   ├── frontend/             # React + Vite（桌面渲染进程 + 网页管理后台共用）
+│   ├── backend/              # NestJS + Fastify + Prisma + BullMQ Worker（服务端）
+│   ├── desktop/              # Electron 壳（electron-vite + SQLite + RPA Agent Worker）
+│   └── legacy/               # 旧版单体应用（cleanup 清理目标，迁移参考）
 ├── skills/                   # Python/RPA/数据处理工具（原有资产，保留）
 └── docs/
 ```
 
 职责边界：
 
-- `backend/`：唯一业务服务端 + BullMQ Worker（任务/AI/报告/资产）；
-- `desktop/`：Electron 主进程、preload、SQLite 本地层、RPA Agent Worker；
-- `frontend/`：渲染进程 UI，同时可作为纯网页管理后台复用；
+- `apps/backend/`：唯一业务服务端 + BullMQ Worker（任务/AI/报告/资产）；
+- `apps/desktop/`：Electron 主进程、preload、SQLite 本地层、RPA Agent Worker；
+- `apps/frontend/`：渲染进程 UI，同时可作为纯网页管理后台复用；
+- `apps/legacy/`：旧版单体，仅迁移参考，`legacy:cleanup --apply` 后删除；
 - `skills/`：Python/Chrome/RPA 工具，由 Agent 按需调用，不作为 Node 包。
 
 依赖与运行环境：
 
-- `pnpm-workspace.yaml` 增加 `desktop` 包；根级 `setup` 覆盖 `pnpm install --frozen-lockfile`、Prisma generate、内置 Python、系统 Chrome 探测、Docker MySQL/Redis 健康；
+- `pnpm-workspace.yaml` 以 `apps/*` 聚合 `desktop` 等应用包，后续抽共享代码新增 `packages/*` 也无需改配置；根级 `setup` 覆盖 `pnpm install --frozen-lockfile`、Prisma generate、内置 Python、系统 Chrome 探测、Docker MySQL/Redis 健康；
 - Electron/electron-vite/electron-builder/electron-updater、SQLite 本地层、playwright 等桌面依赖统一由 workspace lockfile 锁定；
 - Python 依赖清单：`diantoushi-product-research` 清洗/检查脚本仅用标准库，CDP 采集脚本需 `playwright`（仅 wheel，不随包下载浏览器）；旧 `mysql-import/load_to_mysql.py` 的 `pymysql` 属旧直连 MySQL 路径，新导入通道不再内置；依赖在 CI 构建期用 uv 按 os/arch 安装并锁定版本，禁止运行时 `pip install`；
 - Python 依赖统一收口在桌面端内置运行时，不做桌面端/服务端分头维护；业务需要新增 Python 工具（包括报告分析用 pandas 等）按统一清单内置；Python 运行时版本全平台统一锁 3.12.x（具体版本 + standalone 发布 tag），不按平台分版本；新增原生 C 扩展库按准入规则：仅进依赖清单（锁版本 + hash）、优先纯 Python 替代、mac arm64/x64 与 Windows x64 全平台探针验收 + 干净机器安装冒烟通过后才合入；
 - 新增根级 `check-env` 脚本，全新环境首次安装后逐项验证 Node/pnpm/Chrome/Python/Prisma/Docker 可用。
 
+### 技术选型与方案对比原则（2026-09-13 确认）
+
+- 遇到“自封装 vs 现成成熟方案”时，必须先做方案对比，优先采用官方/Nest 生态标准解（如 `@nestjs/bullmq`、Prisma），不得为了少一个依赖或短期省事而自建半套框架；
+- 对比至少覆盖：生态成熟度、官方维护、版本兼容、长期扩展、可测试性、运维成本、团队认知成本；
+- 对比结论与最终选择记录到 `design.md` 与 `tasks.md`，后续重构不得悄悄退回简化方案。
+
+### 业务范围对齐（2026-09-13 确认）
+
+第一版业务闭环以旧系统主线为准，覆盖：账号权限、RPA 采集/下载、Excel 清洗导入、AI 报告、主图/详情图生成、图片编辑、平台发布、数据看板、数据下载、数据 Agent 对话、资产库。
+
+边界决策：
+
+- 多租户与平台超级管理员：保留 `system` 租户 + `system:tenant:manage`；普通租户不跨租户管理；
+- 采集模式：支持 `download-only`（仅下载不入库）、`download-and-import`（下载后自动导入）、`import-only`（仅导入已有导出文件）；任务类型与状态机区分这三种模式；
+- 数据看板与数据下载：纳入服务端聚合接口，不在前端直连数据库；
+- 数据 Agent 对话：纳入第一版，作为基于报告/数据的问答能力；
+- 报告导出：第一版支持 JSON、Markdown/HTML 导出；Excel 等格式后续按需扩展；
+- 图片编辑：改字、改尺寸、拼接长图等保留为桌面端本地内容工具，不占服务端 AI 资源；
+- 视频复刻：作为内容生成扩展，Phase 7 迁移页面入口与资产归集；AI 视频生成依赖外部服务，第一版以 Mock/手动导入资产为主；
+- 取消/重试：任务取消与从 checkpoint 重试的 UI 操作纳入业务闭环。
+
+### 桌面端本地优先与服务端管理边界（2026-09-14 确认）
+
+- 桌面端是唯一产品形态，网页版不作为首版目标；`frontend/` 仅作为桌面渲染进程提供 UI。
+- 采集数据、报告、图片默认存本地（SQLite + 本地文件目录），服务端不强制上传。
+- 服务端仍是管理核心：多用户、角色权限、平台超级管理员、AI 配置与审计、可选同步/导出后端。
+- 数据同步采用开关配置：`collection/report/asset` 各自独立开关，默认 `local-only`；服务端上传/同步接口提前开发，后续按需启用。
+- AI Key 采用混合方案：平台统一管理的 Key 只存服务端，桌面端经服务端代理调用；个人自配 Key（BYOK）后续可走本地 safeStorage，第一版不做。
+- RPA 任务默认本地执行并记录本地状态；服务端 claim/heartbeat 契约保留为可选同步/多机管理能力。
+
 ### 重构前未提交骨架的处理原则（2026-09-12）
 
-- 当前工作区中的 `frontend/`、NestJS `backend/`、Prisma 初版、Docker Compose 与 workspace 是 2026-09-07 方案留下的通用地基，不因桌面端重构整体删除；旧 `app/` 与 `backend/server.js` 继续保留到 Phase 7 迁移收口。
+- 当前工作区中的 `frontend/`、NestJS `backend/`、Prisma 初版、Docker Compose 与 workspace 是 2026-09-07 方案留下的通用地基，不因桌面端重构整体删除；旧 `apps/legacy/`（原 `app/`）与 `apps/backend/server.js` 继续保留到 Phase 7 迁移收口。
 - 这批骨架不能直接视为新方案的最终实现：提交前先修复 backend 构建与日志落盘问题；健康检查、CORS、环境变量加载方式按本方案统一；Prisma schema/migration 按数据库全景在 Phase 1 重建。
 - `AnalysisJob`、`RpaTask` 等初版命名和模型只作为现状参考，不作为最终业务事实源；最终以通用 `Job`、`AgentAssignment`、`ProviderProfile`、资产与审核模型为准。
-- 根目录与 `backend/` 的环境变量示例必须明确唯一加载入口。新架构最终收敛到服务端 `backend/.env`；旧 `app/.env.local` 只在迁移期间兼容，不作为新业务入口。
+- 根目录与 `apps/backend/` 的环境变量示例必须明确唯一加载入口。新架构最终收敛到服务端 `apps/backend/.env`；旧 `apps/legacy/.env.local` 只在迁移期间兼容，不作为新业务入口。
 - 当前骨架修正属于必要收口，不代表提前实现桌面端业务；desktop workspace、内置 Python、Chrome 探测和 BullMQ Worker 仍按 Phase 0-2 落地。
 
 ## 三、数据库全景（服务端 MySQL）
@@ -148,10 +181,13 @@ Agent 与审核：agents, agent_assignments, review_records
 - 管理员在服务端管理用户/角色/租户/店铺范围；
 - CORS 白名单集中配置：生产环境允许 `app://`（Electron 本地壳）与线上管理后台域名；开发环境追加 `http://127.0.0.1:5173`；`file://` 只作 Phase 0 临时兼容，不作为正式白名单；
 - 生产服务端加固：HTTPS、CORS 白名单、登录限流、密钥只存服务端环境变量；不引入 Refresh Token 等额外机制。
+- 平台超级管理员（开发方）与租户管理员分离：开发方账号不归属某个业务租户（建议 `tenantId = null` 或专用 `system` 租户），负责创建租户、创建租户管理员、分配初始权限，权限使用 `system:tenant:manage`；普通租户管理员只能管理本租户，不提供跨租户管理能力（2026-09-13 待确认后落地）。
 
 ## 五、任务队列与轻量业务工作流
 
 第一版不使用重型工作流平台；使用 Redis/BullMQ（含 FlowProducer）负责任务投递、阶段依赖与执行并发，MySQL 保存业务事实，业务状态机负责约束任务的步骤和状态：
+
+- 队列接入统一使用官方 `@nestjs/bullmq`（v12，适配 Nest 11）管理 BullMQ v5 的 Queue/Worker/FlowProducer；不自行封装连接生命周期或事件监听（2026-09-13 确认）。
 
 ```text
 分析任务（Job: analysis）
