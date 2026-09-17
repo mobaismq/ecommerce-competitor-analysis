@@ -1,0 +1,171 @@
+import { Injectable, NotFoundException } from '@nestjs/common'
+import { buildAttemptKey } from '../ai/ai.types'
+import { ProviderRouter } from '../ai/provider-router.service'
+import { PrismaService } from '../prisma.service'
+import {
+  buildDetailImagePromptGenerationPrompt,
+  buildImagePromptGenerationPrompt,
+  buildImageRetouchPromptGenerationPrompt,
+  normalizeDetailPromptSlots,
+  normalizeGeneratedImagePrompts,
+  normalizeRequestedPromptSlots,
+  normalizeSelectedSlots,
+  parseJsonFromText,
+  type PromptSettings,
+} from './image-prompt'
+import { storeMockImage } from './mock-image-storage'
+
+export interface GeneratePromptsInput {
+  settings?: PromptSettings
+  baseText?: string
+  reportText?: string
+  information?: string
+  promptSlots?: unknown[]
+  selectedSlots?: unknown[]
+}
+
+@Injectable()
+export class ProductSetsService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly router: ProviderRouter,
+  ) {}
+
+  async generatePrompts(input: GeneratePromptsInput) {
+    const selected = normalizeSelectedSlots(input.selectedSlots ?? [])
+    const slots = selected.length ? selected : normalizeRequestedPromptSlots(input.promptSlots ?? [])
+    const prompt = buildImagePromptGenerationPrompt({
+      settings: input.settings,
+      information: input.information,
+      designPlan: input.reportText,
+      promptSlots: slots,
+    })
+    const attemptKey = buildAttemptKey({ jobId: 'product-sets', capability: 'text', suffix: 'generate-prompts' })
+    const ai = await this.router.execute(
+      'text',
+      { prompt, system: '只输出 JSON，不要输出多余文字。', maxTokens: 4000 },
+      { tenantId: 'local', jobId: 'product-sets', attemptKey },
+    )
+    const parsed = ai.text ? parseJsonFromText(ai.text) : null
+    const prompts = normalizeGeneratedImagePrompts(parsed ?? {}, slots)
+    return { ok: true, prompts, model: ai.model }
+  }
+
+  async generateImage(input: { prompt: string; size?: string; count?: number; jobId?: string; tenantId: string }) {
+    const attemptKey = buildAttemptKey({ jobId: input.jobId ?? 'product-sets', capability: 'image', suffix: 'generate' })
+    const ai = await this.router.execute(
+      'image',
+      { prompt: input.prompt, count: input.count ?? 1, size: input.size ?? '1024x1024' },
+      { tenantId: input.tenantId, jobId: input.jobId ?? 'product-sets', attemptKey },
+    )
+    const stored = storeMockImage(input.jobId ?? 'product-sets', 0)
+    const urls = ai.images?.length ? ai.images : [`mock://${stored.storageKey}`]
+    const asset = await this.prisma.generatedAsset.create({
+      data: {
+        tenantId: input.tenantId,
+        jobId: input.jobId ?? null,
+        storageKey: stored.storageKey,
+        mimeType: stored.mimeType,
+        size: stored.size,
+        sourceUrl: urls[0],
+      },
+    })
+    return { ok: true, images: urls.map((u) => ({ url: u, dataUrl: u })), assetId: asset.id }
+  }
+
+  async listGenerated(tenantId: string) {
+    const rows = await this.prisma.generatedAsset.findMany({
+      where: { tenantId },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+    })
+    return { ok: true, generatedImages: rows }
+  }
+
+  async removeGenerated(tenantId: string, id: string) {
+    const asset = await this.prisma.generatedAsset.findFirst({ where: { id, tenantId } })
+    if (!asset) throw new NotFoundException('图片不存在')
+    await this.prisma.generatedAsset.delete({ where: { id } })
+    return { ok: true, id }
+  }
+
+  async mainImageDescriptions(runId: string) {
+    const run = await this.prisma.analysisRun.findFirst({
+      where: { OR: [{ id: runId }, { jobId: runId }, { reportNo: runId }] },
+    })
+    const reportJson = (run?.reportJson ?? null) as { summary?: string; priceBands?: unknown[] } | null
+    return {
+      ok: true,
+      source: run ? 'ai' : 'none',
+      summary: reportJson?.summary ?? null,
+      promptText: reportJson?.summary ?? '',
+    }
+  }
+
+  /** 详情图（APlus）工作流：按模块顺序生成提示词 */
+  async generateDetailWorkflow(input: { settings?: PromptSettings; baseText?: string; reportText?: string; promptSlots?: unknown[] }) {
+    const slots = normalizeDetailPromptSlots(input.promptSlots ?? [])
+    const prompt = buildDetailImagePromptGenerationPrompt({
+      settings: input.settings,
+      information: input.baseText,
+      designPlan: input.reportText,
+      promptSlots: slots,
+    })
+    const attemptKey = buildAttemptKey({ jobId: 'product-sets', capability: 'text', suffix: 'detail-workflow' })
+    const ai = await this.router.execute(
+      'text',
+      { prompt, system: '只输出 JSON，不要输出多余文字。', maxTokens: 4000 },
+      { tenantId: 'local', jobId: 'product-sets', attemptKey },
+    )
+    const parsed = ai.text ? parseJsonFromText(ai.text) : null
+    const detailWorkflowPrompt = normalizeGeneratedImagePrompts(parsed ?? {}, slots)
+    return { ok: true, data: detailWorkflowPrompt, detailStrategyPlan: parsed, model: ai.model }
+  }
+
+  /** 改图：根据用户方向重写某图位的提示词 */
+  async generateRetouchPrompt(input: { settings?: PromptSettings; slot?: Record<string, unknown>; originalPrompt?: string; userDirection?: string }) {
+    const prompt = buildImageRetouchPromptGenerationPrompt({
+      settings: input.settings,
+      slot: input.slot,
+      originalPrompt: input.originalPrompt,
+      userDirection: input.userDirection,
+    })
+    const attemptKey = buildAttemptKey({ jobId: 'product-sets', capability: 'text', suffix: 'retouch' })
+    const ai = await this.router.execute(
+      'text',
+      { prompt, system: '你是电商主图改图提示词助手。', maxTokens: 2000 },
+      { tenantId: 'local', jobId: 'product-sets', attemptKey },
+    )
+    return { ok: true, prompt: ai.text ?? prompt, model: ai.model }
+  }
+
+  /** OCR：提取图片文字（走视觉能力，Mock 下返回占位） */
+  async extractImageText(input: { imageUrl: string; tenantId: string }) {
+    const attemptKey = buildAttemptKey({ jobId: 'product-sets', capability: 'vision', suffix: 'ocr' })
+    const ai = await this.router.execute(
+      'vision',
+      { prompt: '请提取这张图片中的所有文字，原样输出。', images: [input.imageUrl], maxTokens: 1500 },
+      { tenantId: input.tenantId, jobId: 'product-sets', attemptKey },
+    )
+    return { ok: true, text: ai.text ?? '', model: ai.model }
+  }
+
+  /** AI 帮写提示词（SSE 流式数据源） */
+  async expandPrompts(input: GeneratePromptsInput) {
+    const selected = normalizeSelectedSlots(input.selectedSlots ?? [])
+    const slots = selected.length ? selected : normalizeRequestedPromptSlots(input.promptSlots ?? [])
+    const prompt = buildImagePromptGenerationPrompt({
+      settings: input.settings,
+      information: input.information,
+      designPlan: input.reportText,
+      promptSlots: slots,
+    })
+    const attemptKey = buildAttemptKey({ jobId: 'product-sets', capability: 'text', suffix: 'expand-stream' })
+    const ai = await this.router.execute(
+      'text',
+      { prompt, system: '你是电商主图提示词策划，请输出详细可执行的各图位提示词。', maxTokens: 3000 },
+      { tenantId: 'local', jobId: 'product-sets', attemptKey },
+    )
+    return { text: ai.text ?? '', model: ai.model }
+  }
+}

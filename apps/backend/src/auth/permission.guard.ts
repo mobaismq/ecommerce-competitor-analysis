@@ -5,10 +5,16 @@ import { PERMISSIONS_KEY } from './permission.decorator'
 
 @Injectable()
 export class PermissionGuard implements CanActivate {
+  private readonly reflector: Reflector
+  private readonly prisma: PrismaService
+
   constructor(
-    private readonly reflector: Reflector,
-    private readonly prisma: PrismaService,
-  ) {}
+    reflector?: Reflector,
+    prisma?: PrismaService,
+  ) {
+    this.reflector = reflector ?? new Reflector()
+    this.prisma = prisma ?? new PrismaService()
+  }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const required = this.reflector.getAllAndOverride<string[]>(PERMISSIONS_KEY, [

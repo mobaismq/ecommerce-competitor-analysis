@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common'
+import { Body, Controller, Get, NotFoundException, Param, Post, Req, UseGuards } from '@nestjs/common'
 import { JwtAuthGuard } from '../auth/jwt-auth.guard'
 import { RequirePermission } from '../auth/permission.decorator'
 import { PermissionGuard } from '../auth/permission.guard'
@@ -9,10 +9,16 @@ import { ReportExportService } from './report-export.service'
 @Controller('reports')
 @UseGuards(JwtAuthGuard, PermissionGuard)
 export class ReportExportController {
+  private readonly reportExportService: ReportExportService
+  private readonly prisma: PrismaService
+
   constructor(
-    private readonly reportExportService: ReportExportService,
-    private readonly prisma: PrismaService,
-  ) {}
+    reportExportService?: ReportExportService,
+    prisma?: PrismaService,
+  ) {
+    this.prisma = prisma ?? new PrismaService()
+    this.reportExportService = reportExportService ?? new ReportExportService(this.prisma)
+  }
 
   @Get()
   @RequirePermission('market:report:view')
@@ -22,6 +28,23 @@ export class ReportExportController {
       orderBy: { updatedAt: 'desc' },
       take: 100,
     })
+  }
+
+  @Get(':id')
+  @RequirePermission('market:report:view')
+  async getById(@Req() request: { user: { tenantId: string } }, @Param('id') id: string) {
+    const report = await this.prisma.analysisRun.findFirst({
+      where: {
+        OR: [{ id }, { jobId: id }, { reportNo: id }],
+        tenantId: request.user.tenantId,
+      },
+    })
+    if (!report) throw new NotFoundException('报告不存在')
+    const priceBands = await this.prisma.analysisPriceBand.findMany({
+      where: { analysisRunId: report.id },
+      orderBy: { priceMin: 'asc' },
+    })
+    return { ...report, priceBands }
   }
 
   @Post(':runId/export')

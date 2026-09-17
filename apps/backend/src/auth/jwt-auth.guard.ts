@@ -3,7 +3,15 @@ import { JwtService } from '@nestjs/jwt'
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
-  constructor(private readonly jwtService: JwtService) {}
+  private readonly jwtService: JwtService
+
+  constructor(jwtService?: JwtService) {
+    this.jwtService =
+      jwtService ??
+      new JwtService({
+        secret: process.env.JWT_SECRET || 'replace-with-at-least-32-random-characters',
+      })
+  }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<{ headers: Record<string, string | undefined>; user?: unknown }>()

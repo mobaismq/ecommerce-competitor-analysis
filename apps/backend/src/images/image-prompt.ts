@@ -93,25 +93,42 @@ export const DETAIL_WORKFLOW_SPEC_FILES: Record<string, string> = {
 export const MAIN_IMAGE_SPEC_DIR = process.env.MAIN_IMAGE_SPEC_DIR ?? join(dirname(process.cwd()), 'guidelines/main-image-workflow')
 export const DETAIL_IMAGE_SPEC_DIR = process.env.DETAIL_IMAGE_SPEC_DIR ?? join(dirname(process.cwd()), 'guidelines/detail-workflow')
 
-/** 读取主图 spec 文件（缺失时返回空字符串）。 */
+/** 记录已告警过的缺失 spec，避免重复刷屏。 */
+const warnedMissing = new Set<string>()
+
+/** 读取主图 spec 文件（缺失时返回空字符串，但会告警，杜绝静默兜底）。 */
 export function readWorkflowSpec(key: string, specDir = MAIN_IMAGE_SPEC_DIR): string {
   const fileName = WORKFLOW_SPEC_FILES[key]
   if (!fileName) return ''
   const filePath = join(specDir, fileName)
   try {
-    return existsSync(filePath) ? readFileSync(filePath, 'utf8').trim() : ''
+    if (!existsSync(filePath)) {
+      if (!warnedMissing.has(filePath)) {
+        warnedMissing.add(filePath)
+        console.warn(`[image-prompt] 主图 spec 缺失，将使用兜底口径: ${filePath}`)
+      }
+      return ''
+    }
+    return readFileSync(filePath, 'utf8').trim()
   } catch {
     return ''
   }
 }
 
-/** 读取详情图 spec 文件（缺失时返回空字符串）。 */
+/** 读取详情图 spec 文件（缺失时返回空字符串，但会告警，杜绝静默兜底）。 */
 export function readDetailWorkflowSpec(key: string, specDir = DETAIL_IMAGE_SPEC_DIR): string {
   const fileName = DETAIL_WORKFLOW_SPEC_FILES[key]
   if (!fileName) return ''
   const filePath = join(specDir, fileName)
   try {
-    return existsSync(filePath) ? readFileSync(filePath, 'utf8').trim() : ''
+    if (!existsSync(filePath)) {
+      if (!warnedMissing.has(filePath)) {
+        warnedMissing.add(filePath)
+        console.warn(`[image-prompt] 详情图 spec 缺失，将使用兜底口径: ${filePath}`)
+      }
+      return ''
+    }
+    return readFileSync(filePath, 'utf8').trim()
   } catch {
     return ''
   }

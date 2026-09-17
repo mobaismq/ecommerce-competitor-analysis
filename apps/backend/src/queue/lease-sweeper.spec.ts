@@ -55,4 +55,20 @@ describe('LeaseSweeper', () => {
     expect(prisma.$transaction).toHaveBeenCalledTimes(3)
     expect(prisma.agentAssignment.update).toHaveBeenCalledWith({ where: { jobId: 'j3' }, data: { status: 'expired' } })
   })
+
+  it('生命周期钩子能正确启动与清理定时器', () => {
+    jest.useFakeTimers()
+    const prisma = makePrismaMock([])
+    const sweeper = new LeaseSweeper(prisma as unknown as PrismaService)
+    const runSpy = jest.spyOn(sweeper, 'run').mockResolvedValue()
+
+    sweeper.onApplicationBootstrap()
+    jest.advanceTimersByTime(5000)
+    expect(runSpy).toHaveBeenCalledTimes(1)
+
+    sweeper.onModuleDestroy()
+    jest.advanceTimersByTime(5000)
+    expect(runSpy).toHaveBeenCalledTimes(1)
+    jest.useRealTimers()
+  })
 })

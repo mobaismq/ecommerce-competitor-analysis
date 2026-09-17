@@ -6,8 +6,11 @@ const SWEEP_INTERVAL_MS = 5000
 @Injectable()
 export class LeaseSweeper implements OnApplicationBootstrap, OnModuleDestroy {
   private timer?: NodeJS.Timeout
+  private readonly prisma: PrismaService
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(prisma?: PrismaService) {
+    this.prisma = prisma ?? new PrismaService()
+  }
 
   onApplicationBootstrap() {
     this.timer = setInterval(() => void this.run(), SWEEP_INTERVAL_MS)

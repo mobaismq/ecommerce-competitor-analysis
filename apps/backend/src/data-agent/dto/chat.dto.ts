@@ -8,4 +8,8 @@ export class DataAgentChatDto {
   @IsOptional()
   @IsString()
   jobId?: string
+
+  @IsOptional()
+  @IsString()
+  datasetId?: string
 }

@@ -2,7 +2,7 @@ import { UnauthorizedException } from '@nestjs/common'
 import type { JwtService } from '@nestjs/jwt'
 import type { PrismaService } from '../prisma.service'
 import { AuthService } from './auth.service'
-import { hashPassword } from './password'
+import { hashPassword, verifyPassword } from './password'
 
 function makeMockPrisma(user: unknown) {
   return {
@@ -67,5 +67,41 @@ describe('AuthService', () => {
     expect(prisma.user.findFirst).toHaveBeenCalledWith({
       where: { username: 'admin', isActive: true, deletedAt: null },
     })
+  })
+})
+
+describe('AuthService 个人中心接口 (changePassword / changePhone)', () => {
+  const jwtService = { signAsync: jest.fn() } as unknown as JwtService
+
+  it('changePassword：原密码正确时更新为新哈希（旧密码失效）', async () => {
+    const old = 'old-pass-123456'
+    const user = { id: 'u1', tenantId: 't1', username: 'alice', displayName: null, passwordHash: hashPassword(old) }
+    const update = jest.fn(async ({ data }) => ({ ...user, passwordHash: String(data.passwordHash) }))
+    const prisma = {
+      user: { findUnique: jest.fn(async () => user), update },
+    } as unknown as PrismaService
+    const svc = new AuthService(jwtService, prisma)
+    const res = await svc.changePassword('u1', old, 'new-pass-654321')
+    expect(res.ok).toBe(true)
+    const newHash = update.mock.calls[0][0].data.passwordHash as string
+    expect(verifyPassword('new-pass-654321', newHash)).toBe(true)
+    expect(verifyPassword(old, newHash)).toBe(false)
+  })
+
+  it('changePassword：原密码错误时抛 UnauthorizedException', async () => {
+    const user = { id: 'u1', tenantId: 't1', username: 'alice', displayName: null, passwordHash: hashPassword('correct-123456') }
+    const prisma = { user: { findUnique: jest.fn(async () => user), update: jest.fn() } } as unknown as PrismaService
+    const svc = new AuthService(jwtService, prisma)
+    await expect(svc.changePassword('u1', 'wrong-password', 'new-123456')).rejects.toBeInstanceOf(UnauthorizedException)
+  })
+
+  it('changePhone：更新用户手机号', async () => {
+    const user = { id: 'u1', tenantId: 't1', username: 'alice', displayName: null, passwordHash: 'hash' }
+    const update = jest.fn(async ({ data }) => ({ ...user, ...data }))
+    const prisma = { user: { findUnique: jest.fn(async () => user), update } } as unknown as PrismaService
+    const svc = new AuthService(jwtService, prisma)
+    const res = await svc.changePhone('u1', '13800000001')
+    expect(res.ok).toBe(true)
+    expect(update.mock.calls[0][0].data.phone).toBe('13800000001')
   })
 })
