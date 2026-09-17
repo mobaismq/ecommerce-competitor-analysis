@@ -18,6 +18,8 @@ interface RoleRow {
 interface TenantRow {
   id: string
   name: string
+  code?: string
+  status?: string
 }
 
 interface ProviderRow {

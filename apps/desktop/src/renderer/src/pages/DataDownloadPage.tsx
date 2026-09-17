@@ -71,7 +71,7 @@ interface CollectionStatus {
   finishedAt: string | null
   errorMessage: string | null
   resultJson: unknown
-  stages: Array<{ status?: string; detail?: string }>
+  stages: Array<{ status?: string; detail?: string }> | unknown[]
   sync: unknown[]
 }
 
@@ -288,7 +288,7 @@ export function DataDownloadPage() {
       dataIndex: 'jobId',
       render: (jobId: string) => (
         <Space>
-          <Typography.Text copyable={{ orientation: 'right' }} style={{ fontSize: 12 }}>
+          <Typography.Text copyable style={{ fontSize: 12 }}>
             {jobId.replace('local-collection-', '')}
           </Typography.Text>
         </Space>
@@ -605,7 +605,7 @@ export function DataDownloadPage() {
                   <div style={{ background: '#f8fafc', padding: '10px 12px', borderRadius: 6, border: '1px solid #edf1f6' }}>
                     <div style={{ fontSize: 12, color: '#86909c', marginBottom: 2 }}>价格区间</div>
                     <div style={{ fontWeight: 700, fontSize: 14, color: '#1d2129' }}>
-                      {currentParams.minPrice ?? '—'} ~ {currentParams.maxPrice ?? '—'} 元
+                      {String(currentParams.minPrice ?? '—')} ~ {String(currentParams.maxPrice ?? '—')} 元
                     </div>
                   </div>
                 </Col>
@@ -643,7 +643,7 @@ export function DataDownloadPage() {
                 </div>
                 <Progress
                   percent={progress.percent ?? (isRunning ? 15 : 0)}
-                  status={status?.status === 'failure' ? 'error' : progress.percent === 100 ? 'success' : 'active'}
+                  status={status?.status === 'failure' ? 'error' : progress.percent === 100 ? 'success' : 'normal'}
                   animation
                 />
               </div>

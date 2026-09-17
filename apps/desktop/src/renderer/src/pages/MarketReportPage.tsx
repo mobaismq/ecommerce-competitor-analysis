@@ -164,7 +164,7 @@ export function MarketReportPage() {
     try {
       const params = new URLSearchParams()
       if (currentKeyword) params.set('keyword', currentKeyword)
-      const costFields: Array<[string, number | undefined]> = [
+      const costFields: Array<[string, number | string | undefined | null]> = [
         ['costPrice', values.costPrice],
         ['shippingCost', values.shippingCost],
         ['packagingCost', values.packagingCost],

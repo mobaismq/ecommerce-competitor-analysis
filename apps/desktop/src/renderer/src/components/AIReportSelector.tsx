@@ -94,7 +94,7 @@ export function AIReportSelector({ value, onChange }: AIReportSelectorProps) {
         }}
         renderFormat={(option) => {
           const item = reports.find((it) => it.value === option?.value)
-          return item ? `${item.label} (${item.keyword} · ${item.count}个竞品)` : option?.label
+          return item ? `${item.label} (${item.keyword} · ${item.count}个竞品)` : ((option as any)?.label ?? '')
         }}
       >
         {reports.map((r) => (

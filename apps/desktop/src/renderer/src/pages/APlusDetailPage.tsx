@@ -728,8 +728,7 @@ export function APlusDetailPage() {
         visible={Boolean(previewModalUrl)}
         onCancel={() => setPreviewModalUrl(null)}
         footer={null}
-        width={800}
-        style={{ textAlign: 'center' }}
+        style={{ width: 800, textAlign: 'center' }}
       >
         {previewModalUrl && (
           <div>

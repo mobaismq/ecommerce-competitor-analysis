@@ -28,7 +28,7 @@ export function ChangePhonePage() {
           <Form.Item
             label="新手机号"
             field="newPhone"
-            rules={[{ required: true, message: '请输入新手机号' }, { pattern: /^1\d{10}$/, message: '手机号格式不正确' }]}
+            rules={[{ required: true, message: '请输入新手机号' }, { match: /^1\d{10}$/, message: '手机号格式不正确' }]}
           >
             <Input placeholder="请输入 11 位手机号" />
           </Form.Item>

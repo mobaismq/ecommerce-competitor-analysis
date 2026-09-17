@@ -46,7 +46,6 @@ import {
   IconCommon,
   IconStar,
   IconTag,
-  IconTruck,
   IconUpload,
 } from '@arco-design/web-react/icon'
 import { useLocation, useNavigate } from 'react-router-dom'
@@ -1015,7 +1014,7 @@ export function ManualListingPage() {
         visible={batchModalVisible}
         onCancel={() => setBatchModalVisible(false)}
         onOk={handleApplyBatch}
-        width={420}
+        style={{ width: 420 }}
       >
         <Space direction="vertical" style={{ width: '100%' }} size="medium">
           <div>

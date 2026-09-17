@@ -467,7 +467,7 @@ export function ProductMasterDataPage() {
         visible={modalVisible}
         onCancel={() => setModalVisible(false)}
         onOk={() => void handleSave()}
-        width={680}
+        style={{ width: 680 }}
         unmountOnExit
       >
         <Form form={form} layout="vertical">
@@ -621,7 +621,7 @@ export function ProductMasterDataPage() {
         visible={galleryVisible}
         onCancel={() => setGalleryVisible(false)}
         footer={null}
-        width={680}
+        style={{ width: 680 }}
       >
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 14 }}>
           {galleryImages.map((src, i) => (

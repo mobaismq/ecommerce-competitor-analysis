@@ -222,7 +222,7 @@ export function OneClickReplicatePage() {
             </Space>
           }
         >
-        <Space direction="vertical" orientation="left" style={{ width: '100%' }} size="large">
+        <Space direction="vertical" style={{ width: '100%' }} size="large">
           {/* ① 选择商品 */}
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, alignItems: 'center' }}>

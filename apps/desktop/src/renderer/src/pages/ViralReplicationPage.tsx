@@ -180,7 +180,7 @@ export function ViralReplicationPage() {
             </Space>
           }
         >
-          <Space direction="vertical" orientation="left" style={{ width: '100%' }} size="medium">
+          <Space direction="vertical" style={{ width: '100%' }} size="medium">
             {/* ① 产品原图 (可选) */}
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, alignItems: 'center' }}>
@@ -631,7 +631,7 @@ export function ViralReplicationPage() {
                         </Tag>
                       </div>
                       <div style={{ marginTop: 10 }}>
-                        <div style={{ fontWeight: 600, fontSize: 14, color: '#1d2129', truncate: true }}>
+                        <div style={{ fontWeight: 600, fontSize: 14, color: '#1d2129', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {item.title}
                         </div>
                         <div style={{ fontSize: 12, color: '#86909c', marginTop: 4 }}>

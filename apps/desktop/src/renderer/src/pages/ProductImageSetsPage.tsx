@@ -677,8 +677,7 @@ export function ProductImageSetsPage() {
         visible={Boolean(previewModalUrl)}
         onCancel={() => setPreviewModalUrl(null)}
         footer={null}
-        width={720}
-        style={{ textAlign: 'center' }}
+        style={{ width: 720, textAlign: 'center' }}
       >
         {previewModalUrl && (
           <div>

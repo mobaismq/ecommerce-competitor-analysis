@@ -10,8 +10,8 @@ import { resolveEmbeddedPython } from './python-runner'
 export interface CollectionStartInput {
   productName?: string
   productUrl?: string
-  minPrice?: number | null
-  maxPrice?: number | null
+  minPrice?: number | string | null
+  maxPrice?: number | string | null
   topN?: number
   searchPages?: number
   speedProfile?: string
