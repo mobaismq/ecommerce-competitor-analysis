@@ -68,3 +68,6 @@ graphify-out/
 AGENTS.md
 CLAUDE.md
 
+# 内部技术栈与架构规范手册（本地私有，不推远端）
+docs/技术栈与架构规范/
+
