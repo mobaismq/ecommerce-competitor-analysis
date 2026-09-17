@@ -13,7 +13,7 @@ modules:
     description: "Monorepo 全局结构树状图，apps/desktop、apps/backend、skills、scripts 的职责分布"
 
   - file: "03-前端技术栈与UI规范.md"
-    description: "React 18、TypeScript、Arco Design 官方规范、三大图标库（Arco/lucide/morphicons）用法、Tailwind CSS v4、状态管理，以及关键的 Arco vs Antd 踩坑对照表"
+    description: "React 18、TypeScript、Arco Design 官方规范、三大图标库（Arco/lucide/morphicons）用法、Motion 动画库、Tailwind CSS v4、状态管理，以及关键的 Arco vs Antd 踩坑对照表"
 
   - file: "04-桌面端与运行时架构.md"
     description: "Electron 37、IPC 通信契约（window.desktop）、本地 SQLite 数据库、Python 运行时与店透视 RPA 爬虫驱动机制"
