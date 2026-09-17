@@ -77,10 +77,16 @@ export function AppLayout() {
       </aside>
       <main className="content">
         <header className="topbar">
-          <span>{user?.displayName ?? user?.username}</span>
-          <button className="ghost" onClick={() => { logout(); navigate('/login', { replace: true }) }}>退出</button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span style={{ fontSize: 13, color: '#4e5969', fontWeight: 500 }}>
+              {user?.displayName ?? user?.username}
+            </span>
+            <button className="ghost" onClick={() => { logout(); navigate('/login', { replace: true }) }}>
+              退出
+            </button>
+          </div>
         </header>
-        <div className="page">
+        <div className="content-body">
           <Outlet />
         </div>
       </main>
