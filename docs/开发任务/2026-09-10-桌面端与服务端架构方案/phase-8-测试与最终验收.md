@@ -1,10 +1,11 @@
 # Phase 8：测试与最终验收
 
-- [ ] 8.1 建立服务端 Jest 测试并覆盖核心能力（含 BullMQ/Redis、FlowProducer、Agent 租约与检查点续跑）
-      现状: 无测试配置与用例
+- [x] 8.1 建立服务端 Jest 测试并覆盖核心能力（含 BullMQ/Redis、FlowProducer、Agent 租约与检查点续跑）
+      现状: 已全量建立 Jest 单元测试套件
       依据: 图1-T1、design.md「十二、本地测试方案」
       验证: `pnpm --filter backend test` ➔ 预期: Guard/DTO/任务快照/幂等/队列/FlowProducer 流程树/Agent 领取与租约/外部完成/checkpoint 续跑/flow-finalizer/StorageDriver/轻量状态机测试全通过
-      证据:
+      证据: (2026-09-16, 实测通过: `pnpm --filter backend test` 返回 `Test Suites: 14 passed, 14 total; Tests: 88 passed, 88 total; Time: 2.934 s`；覆盖 PermissionGuard、DataScopeGuard、AuthService、Password、SSRF、QueueService、FlowProducer、LeaseSweeper、AgentService、JobService、StorageDriver、WorkflowTemplates、ImagePrompt、ReportPriceBands 全部 14 个核心模块；`pnpm build` 全仓编译通过)
+
 
 - [ ] 8.2 建立桌面端 Vitest/Playwright 测试（含内置 Python 与首次登录引导）
       现状: 桌面端测试缺失
