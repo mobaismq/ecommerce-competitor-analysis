@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
     "start": "node dist/src/main.js",
     "worker": "node dist/src/worker.js",
     "start:dev": "node --watch -r ts-node/register src/main.ts",

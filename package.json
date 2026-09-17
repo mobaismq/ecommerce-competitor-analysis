@@ -11,6 +11,7 @@
     "infra:up": "docker compose up -d mysql redis",
     "infra:down": "docker compose down",
     "build": "pnpm -r build",
+    "typecheck": "pnpm -r --parallel exec tsc --noEmit",
     "test": "pnpm --filter backend test && pnpm --filter desktop test",
     "test:backend": "pnpm --filter backend test",
     "test:desktop": "pnpm --filter desktop test",
