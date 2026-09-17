@@ -16,6 +16,7 @@ import { ReportsApiModule } from './reports/reports-api.module'
 import { VideosApiModule } from './videos/videos-api.module'
 import { StorageModule } from './storage/storage.module'
 import { AssetsApiModule } from './assets/assets-api.module'
+import { ProductsApiModule } from './products/products-api.module'
 import { HealthController } from './health.controller'
 import { buildPinoStream } from './log-streams'
 
@@ -36,6 +37,7 @@ import { buildPinoStream } from './log-streams'
     VideosApiModule,
     StorageModule,
     AssetsApiModule,
+    ProductsApiModule,
     ConfigModule.forRoot({ isGlobal: true, envFilePath: ['.env'] }),
     LoggerModule.forRoot({
       pinoHttp: {

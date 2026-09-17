@@ -467,3 +467,33 @@ model ProviderProfile {
 
   @@index([tenantId, enabled])
 }
+
+model Product {
+  id           String   @id @default(cuid())
+  tenantId     String
+  productCode  String
+  productName  String
+  brand        String?
+  productImage String?
+  status       String   @default("enabled")
+  skus         ProductSku[]
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([tenantId, productCode])
+  @@index([tenantId, status])
+}
+
+model ProductSku {
+  id           String   @id @default(cuid())
+  productId    String
+  product      Product  @relation(fields: [productId], references: [id])
+  skuCode      String
+  specName     String?
+  specImage    String?
+  costPrice    Decimal? @db.Decimal(12, 2)
+  standardPrice Decimal? @db.Decimal(12, 2)
+  createdAt     DateTime @default(now())
+
+  @@index([productId])
+}
