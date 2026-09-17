@@ -208,4 +208,17 @@ export class ReportProductsService {
     })
     return { ok: true, priceBands, profitSimulation, collection: { id: collectionJob.id, keyword: collectionJob.keyword, productCount: rows.length } }
   }
+
+  async getMainImageAnalysis(runId: string, productId: string, tenantId: string) {
+    const run = await this.resolveRun(runId, tenantId)
+    const analysis = await this.prisma.mainImageAnalysis.findFirst({
+      where: { analysisRunId: run.id, productId },
+      orderBy: { createdAt: 'desc' },
+    })
+    return {
+      ok: true,
+      productId,
+      analysis: analysis ?? null,
+    }
+  }
 }

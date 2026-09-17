@@ -8,8 +8,8 @@ import { ReportsListPage } from './pages/ReportsListPage'
 import { AssetsPage } from './pages/AssetsPage'
 import { ImageGalleryPage } from './pages/ImageGalleryPage'
 import { AdminProviderProfilesPage, AdminRolesPage, AdminStoresPage, AdminTenantsPage, AdminUsersPage } from './pages/AdminListsPage'
-import { StubPage } from './pages/StubPages'
-import { VideoGalleryPage, VideoReplicatePage } from './pages/VideoPages'
+import { VideoGalleryPage } from './pages/VideoGalleryPage'
+import { ViralVideoReplicationPage } from './pages/ViralVideoReplicationPage'
 import { DataAnalyticsPage } from './pages/DataAnalyticsPage'
 import { DataAgentChatPage } from './pages/DataAgentChatPage'
 import { AnalysisReportViewPage } from './pages/AnalysisReportViewPage'
@@ -66,7 +66,7 @@ createRoot(document.getElementById('root')!).render(
             <Route path="content/aplus" element={<APlusDetailPage />} />
             <Route path="content/image-edit" element={<ImageEditPage />} />
             <Route path="content/replicate" element={<OneClickReplicatePage />} />
-            <Route path="content/video-replicate" element={<VideoReplicatePage />} />
+            <Route path="content/video-replicate" element={<ViralVideoReplicationPage />} />
             <Route path="content/one-click-replicate" element={<OneClickReplicatePage />} />
             <Route path="products/master-data" element={<ProductMasterDataPage />} />
             <Route path="products/management" element={<ProductManagementPage />} />

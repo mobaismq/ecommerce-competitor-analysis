@@ -33,6 +33,16 @@ export class ReportProductsController {
     })
   }
 
+  @Get(':id/main-image-analysis/:productId')
+  @RequirePermission('market:report:view')
+  getMainImageAnalysis(
+    @Req() request: { user: { tenantId: string } },
+    @Param('id') id: string,
+    @Param('productId') productId: string,
+  ) {
+    return this.service.getMainImageAnalysis(id, productId, request.user.tenantId)
+  }
+
   @Get(':id/price-bands-preview')
   @RequirePermission('market:report:view')
   priceBandsPreview(
