@@ -59,20 +59,15 @@ export function AppLayout() {
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <div className="brand" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div className="brand">
           <span>电商竞品分析</span>
-          {isDesktop && (
-            <span style={{ fontSize: '11px', background: '#238636', color: '#fff', padding: '2px 6px', borderRadius: '10px', fontWeight: 'normal' }}>
-              桌面端
-            </span>
-          )}
         </div>
         <nav className="nav">
           {navGroups.map((group) => (
             <section key={group.label}>
               <div className="nav-group">{group.label}</div>
               {group.items.map((item) => (
-                <NavLink key={item.to} to={item.to} className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}>
+                <NavLink key={item.to} to={item.to} end className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}>
                   {item.label}
                 </NavLink>
               ))}

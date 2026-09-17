@@ -6,6 +6,7 @@ import { AppLayout } from './layouts/AppLayout'
 import { AnalysisCollectPage } from './pages/AnalysisCollectPage'
 import { ReportsListPage } from './pages/ReportsListPage'
 import { AssetsPage } from './pages/AssetsPage'
+import { ImageGalleryPage } from './pages/ImageGalleryPage'
 import { AdminProviderProfilesPage, AdminRolesPage, AdminStoresPage, AdminTenantsPage, AdminUsersPage } from './pages/AdminListsPage'
 import { StubPage } from './pages/StubPages'
 import { VideoGalleryPage, VideoReplicatePage } from './pages/VideoPages'
@@ -71,7 +72,7 @@ createRoot(document.getElementById('root')!).render(
             <Route path="products/management" element={<ProductManagementPage />} />
             <Route path="products/management/manual" element={<ManualListingPage />} />
             <Route path="assets" element={<AssetsPage />} />
-            <Route path="assets/images" element={<AssetsPage />} />
+            <Route path="assets/images" element={<ImageGalleryPage />} />
             <Route path="assets/videos" element={<VideoGalleryPage />} />
             <Route path="settings/accounts" element={<SuperProtected><AdminUsersPage /></SuperProtected>} />
             <Route path="settings/roles" element={<SuperProtected><AdminRolesPage /></SuperProtected>} />
