@@ -39,35 +39,37 @@ export function ImageEditPage() {
 
   const canRun = useMemo(() => (tool === 'concat' ? files.length >= 2 : files.length >= 1), [files.length, tool])
   return (
-    <section className="panel" style={{ marginTop: 24 }}>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-        <button className={tool === 'resize' ? 'active' : 'ghost'} onClick={() => setTool('resize')}>改尺寸</button>
-        <button className={tool === 'text' ? 'active' : 'ghost'} onClick={() => setTool('text')}>改字</button>
-        <button className={tool === 'concat' ? 'active' : 'ghost'} onClick={() => setTool('concat')}>拼接长图</button>
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, alignItems: 'end' }}>
-        <button className="ghost" onClick={() => inputRef.current?.click()}>选择图片</button>
-        <input ref={inputRef} type="file" accept="image/*" multiple hidden onChange={(event) => setFiles(Array.from(event.target.files ?? []))} />
-        {tool === 'resize' && (
-          <label>
-            目标宽度
-            <input type="number" value={maxWidth} onChange={(event) => setMaxWidth(Number(event.target.value))} />
-          </label>
-        )}
-        {tool !== 'resize' && (
-          <label>
-            文案
-            <input value={text} onChange={(event) => setText(event.target.value)} />
-          </label>
-        )}
-        <button disabled={!canRun} onClick={() => void run()}>处理</button>
-      </div>
-      {previewUrl && (
-        <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginTop: 14 }}>
-          <img src={previewUrl} alt="处理结果" style={{ maxHeight: 200, border: '1px solid #ddd', borderRadius: 6 }} />
-          <a href={previewUrl} download="result.png"><button className="ghost">下载</button></a>
+    <div className="page-container">
+      <section className="panel">
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+          <button className={tool === 'resize' ? 'active' : 'ghost'} onClick={() => setTool('resize')}>改尺寸</button>
+          <button className={tool === 'text' ? 'active' : 'ghost'} onClick={() => setTool('text')}>改字</button>
+          <button className={tool === 'concat' ? 'active' : 'ghost'} onClick={() => setTool('concat')}>拼接长图</button>
         </div>
-      )}
-    </section>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, alignItems: 'end' }}>
+          <button className="ghost" onClick={() => inputRef.current?.click()}>选择图片</button>
+          <input ref={inputRef} type="file" accept="image/*" multiple hidden onChange={(event) => setFiles(Array.from(event.target.files ?? []))} />
+          {tool === 'resize' && (
+            <label>
+              目标宽度
+              <input type="number" value={maxWidth} onChange={(event) => setMaxWidth(Number(event.target.value))} />
+            </label>
+          )}
+          {tool !== 'resize' && (
+            <label>
+              文案
+              <input value={text} onChange={(event) => setText(event.target.value)} />
+            </label>
+          )}
+          <button disabled={!canRun} onClick={() => void run()}>处理</button>
+        </div>
+        {previewUrl && (
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginTop: 14 }}>
+            <img src={previewUrl} alt="处理结果" style={{ maxHeight: 200, border: '1px solid #ddd', borderRadius: 6 }} />
+            <a href={previewUrl} download="result.png"><button className="ghost">下载</button></a>
+          </div>
+        )}
+      </section>
+    </div>
   )
 }

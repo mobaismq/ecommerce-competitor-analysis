@@ -39,7 +39,7 @@ export function ReportsListPage() {
   })
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+    <div className="page-container" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <Card style={{ borderRadius: 8 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>

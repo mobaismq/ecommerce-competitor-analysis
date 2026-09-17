@@ -88,7 +88,7 @@ export function ProductManagementPage() {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+    <div className="page-container" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       {/* 头部标题与新建按钮 */}
       <Card style={{ borderRadius: 8 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

@@ -118,7 +118,7 @@ export function AnalysisReportViewPage() {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16, paddingBottom: 40 }}>
+    <div className="page-container" style={{ display: 'flex', flexDirection: 'column', gap: 16, paddingBottom: 40 }}>
       {/* 顶部操作与标题 */}
       <Card style={{ borderRadius: 8 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

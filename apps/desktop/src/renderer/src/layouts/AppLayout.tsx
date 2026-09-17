@@ -31,6 +31,7 @@ function buildNavGroups(isSuper: boolean) {
       items: [
         { to: '/content/product-sets', label: '图片生成' },
         { to: '/content/aplus', label: '详情图' },
+        { to: '/content/replicate', label: '图文复刻' },
         { to: '/content/video-replicate', label: '视频复刻' },
         { to: '/content/one-click-replicate', label: '一键复刻' },
       ],

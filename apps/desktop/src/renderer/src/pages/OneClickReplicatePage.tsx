@@ -210,17 +210,18 @@ export function OneClickReplicatePage() {
   }
 
   return (
-    <div style={{ display: 'flex', gap: 16, minHeight: 'calc(100vh - 120px)' }}>
-      {/* ─── 左侧配置面板 ─── */}
-      <Card
-        style={{ width: 380, flexShrink: 0, borderRadius: 8 }}
-        title={
-          <Space>
-            <IconCopy style={{ color: 'rgb(var(--primary-6))' }} />
-            <span style={{ fontWeight: 600 }}>一键复刻配置</span>
-          </Space>
-        }
-      >
+    <div className="page-container">
+      <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+        {/* ─── 左侧配置面板 ─── */}
+        <Card
+          style={{ width: 380, flexShrink: 0, borderRadius: 8, boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}
+          title={
+            <Space>
+              <IconCopy style={{ color: 'rgb(var(--primary-6))' }} />
+              <span style={{ fontWeight: 600 }}>一键复刻配置</span>
+            </Space>
+          }
+        >
         <Space direction="vertical" orientation="left" style={{ width: '100%' }} size="large">
           {/* ① 选择商品 */}
           <div>
@@ -623,6 +624,7 @@ export function OneClickReplicatePage() {
             ))}
           </Row>
         )}
+      </div>
       </div>
 
       {/* ─── 商品选择弹窗 ─── */}

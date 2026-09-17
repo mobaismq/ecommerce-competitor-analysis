@@ -141,7 +141,7 @@ export function ImageGalleryPage() {
   }
 
   return (
-    <div style={{ padding: '4px' }}>
+    <div className="page-container">
       {/* 头部区 */}
       <Card bordered={false} style={{ marginBottom: 16 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>

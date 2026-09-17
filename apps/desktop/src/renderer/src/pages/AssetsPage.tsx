@@ -153,7 +153,7 @@ export function AssetsPage() {
   ]
 
   return (
-    <div style={{ padding: '4px' }}>
+    <div className="page-container">
       <Card bordered={false} style={{ marginBottom: 16 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>

@@ -53,8 +53,9 @@ export function DataAnalyticsPage() {
   const ConvRateBar = ({ rate }: { rate: number }) => <div style={{ width: `${(rate / 3) * 100}%`, height: '100%', background: '#2e7d32', borderRadius: 4 }} />
 
   return (
-    <section className="panel">
-      <div className="panel-head">
+    <div className="page-container">
+      <section className="panel">
+        <div className="panel-head">
         <h2>数据看板</h2>
         <div style={{ display: 'flex', gap: 8 }}>
           <select value={platform} onChange={(e) => setPlatform(e.target.value)} style={{ padding: 6 }}>
@@ -135,6 +136,7 @@ export function DataAnalyticsPage() {
         </tbody>
       </table>
       <p className="muted" style={{ marginTop: 12 }}>提示：当前为示例数据，后端 analytics 接口待接入。</p>
-    </section>
+      </section>
+    </div>
   )
 }

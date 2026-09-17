@@ -150,9 +150,21 @@ export function DataAgentChatPage() {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 110px)', gap: 16 }}>
+    <div className="studio-container">
       {/* 头部导航与标题 */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: 16,
+          background: '#fff',
+          padding: '14px 20px',
+          borderRadius: 8,
+          boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
+          flexShrink: 0,
+        }}
+      >
         <div>
           <Title heading={5} style={{ margin: 0 }}>
             数据智能体（AI 对话分析）
@@ -171,12 +183,12 @@ export function DataAgentChatPage() {
       </div>
 
       {/* 主体两栏布局 */}
-      <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: 16, flex: 1, minHeight: 0 }}>
+      <div className="studio-body">
         {/* 左侧：数据集选择 */}
         <Card
           title="选择数据集"
           extra={<Tag color="arcoblue">{datasets.length} 个</Tag>}
-          style={{ display: 'flex', flexDirection: 'column', height: '100%' }}
+          style={{ width: 340, flexShrink: 0, display: 'flex', flexDirection: 'column', height: '100%', borderRadius: 8, boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}
           bodyStyle={{ display: 'flex', flexDirection: 'column', flex: 1, padding: 12, minHeight: 0 }}
         >
           <Input
@@ -189,7 +201,7 @@ export function DataAgentChatPage() {
             allowClear
           />
 
-          <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div className="custom-scrollbar" style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
             {loadingDatasets ? (
               <div style={{ textAlign: 'center', padding: '40px 0' }}>
                 <Spin dot />
@@ -236,7 +248,7 @@ export function DataAgentChatPage() {
 
         {/* 右侧：聊天主视窗 */}
         <Card
-          style={{ display: 'flex', flexDirection: 'column', height: '100%' }}
+          style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', height: '100%', borderRadius: 8, boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}
           bodyStyle={{ display: 'flex', flexDirection: 'column', flex: 1, padding: 0, minHeight: 0 }}
         >
           {/* 对话窗口顶部信息 */}
@@ -282,7 +294,7 @@ export function DataAgentChatPage() {
           </div>
 
           {/* 消息滚动流 */}
-          <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div className="custom-scrollbar" style={{ flex: 1, overflowY: 'auto', padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
             {messages.length === 0 ? (
               <div style={{ margin: 'auto', textAlign: 'center', maxWidth: 540 }}>
                 <div

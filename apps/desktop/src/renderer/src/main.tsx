@@ -28,6 +28,7 @@ import { ProductImageSetsPage } from './pages/ProductImageSetsPage'
 import { APlusDetailPage } from './pages/APlusDetailPage'
 import { MarketReportPage } from './pages/MarketReportPage'
 import { OneClickReplicatePage } from './pages/OneClickReplicatePage'
+import { ViralReplicationPage } from './pages/ViralReplicationPage'
 import { useAuth } from './store/auth'
 import '@arco-design/web-react/dist/css/arco.css'
 import './styles.css'
@@ -65,7 +66,7 @@ createRoot(document.getElementById('root')!).render(
             <Route path="content/product-sets" element={<ProductImageSetsPage />} />
             <Route path="content/aplus" element={<APlusDetailPage />} />
             <Route path="content/image-edit" element={<ImageEditPage />} />
-            <Route path="content/replicate" element={<OneClickReplicatePage />} />
+            <Route path="content/replicate" element={<ViralReplicationPage />} />
             <Route path="content/video-replicate" element={<ViralVideoReplicationPage />} />
             <Route path="content/one-click-replicate" element={<OneClickReplicatePage />} />
             <Route path="products/master-data" element={<ProductMasterDataPage />} />
