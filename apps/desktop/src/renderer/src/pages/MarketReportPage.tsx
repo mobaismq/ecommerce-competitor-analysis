@@ -157,7 +157,7 @@ export function MarketReportPage() {
   }, [])
 
   // 价格带预览计算与生成逻辑
-  const executePreview = async (kw = keyword) => {
+  const executePreview = async (kw = keyword, showToast = false) => {
     const values = await form.validate().catch(() => ({}))
     const currentKeyword = kw || values.keyword || '智能手表'
     setLoading(true)
@@ -288,16 +288,20 @@ export function MarketReportPage() {
         costPrice: values.costPrice,
         updatedAt: new Date().toLocaleString(),
       })
-      Message.success(`价格带测算完成，共聚类出 ${fetchedBands.length} 个价格区间`)
+      if (showToast) {
+        Message.success(`价格带测算完成，共聚类出 ${fetchedBands.length} 个价格区间`)
+      }
     } catch {
-      Message.error('价格带测算遇到异常')
+      if (showToast) {
+        Message.error('价格带测算遇到异常')
+      }
     } finally {
       setLoading(false)
     }
   }
 
   useEffect(() => {
-    executePreview(initialKeyword)
+    executePreview(initialKeyword, false)
   }, [initialKeyword])
 
   // 启动大模型深度分析生成报告流程
@@ -570,7 +574,7 @@ export function MarketReportPage() {
                 type="primary"
                 icon={<IconThunderbolt />}
                 loading={loading}
-                onClick={() => executePreview(keyword)}
+                onClick={() => executePreview(keyword, true)}
               >
                 价格带与利润预览
               </Button>
