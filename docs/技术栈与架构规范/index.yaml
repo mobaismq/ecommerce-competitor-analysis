@@ -1,0 +1,28 @@
+# 电商竞品分析系统 - 架构与技术栈模块化索引清单
+# 供 AI Agent 与开发者按需快速检索与加载
+
+project:
+  name: "ecommerce-competitor-analysis"
+  description: "电商竞品分析系统（Electron 桌面端 + NestJS 服务端架构）"
+
+modules:
+  - file: "01-全局架构与设计思想.md"
+    description: "系统混合架构形态、客户端与服务端职责边界划分、系统 Mermaid 进程通信拓扑图"
+
+  - file: "02-项目目录结构全景.md"
+    description: "Monorepo 全局结构树状图，apps/desktop、apps/backend、skills、scripts 的职责分布"
+
+  - file: "03-前端技术栈与UI规范.md"
+    description: "React 18、TypeScript、Arco Design 官方规范、三大图标库（Arco/lucide/morphicons）用法、Tailwind CSS v4、状态管理，以及关键的 Arco vs Antd 踩坑对照表"
+
+  - file: "04-桌面端与运行时架构.md"
+    description: "Electron 37、IPC 通信契约（window.desktop）、本地 SQLite 数据库、Python 运行时与店透视 RPA 爬虫驱动机制"
+
+  - file: "05-后端服务端架构.md"
+    description: "NestJS 10 + Fastify 高性能 HTTP 引擎、MySQL 8.0 + Prisma ORM（35+ 张表）、Redis + BullMQ 异步长任务队列、大模型网关（Provider Router）"
+
+  - file: "06-工程命令与质量门禁.md"
+    description: "启动命令、全仓防标红类型检查命令（pnpm typecheck）、自动化测试（pnpm test）、全仓构建（pnpm build）、环境连通性自检（pnpm check-env）"
+
+  - file: "07-AI编码红线与行为守则.md"
+    description: "唯一权威判据铁律、防爬虫封号与防 Token 消耗红线、客观命令测验取证、Arco 组件库纯洁性守则"
