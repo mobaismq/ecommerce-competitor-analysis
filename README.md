@@ -2,6 +2,17 @@
 
 桌面端（Electron + RPA Agent）+ 服务端（NestJS + MySQL + Redis/BullMQ）架构。桌面端负责登录、RPA 采集、本地结果存储与图片内容工具；服务端负责账号权限、任务队列、AI 报告、资产存储与可选同步。
 
+## 目录结构
+
+- `apps/backend/`：NestJS 服务端（API + BullMQ Worker），配置入口 `apps/backend/.env`
+- `apps/desktop/`：Electron 桌面应用（主进程 + preload + 渲染层）。**业务 UI 全量在 `apps/desktop/src/renderer/`**（原 `apps/frontend` 已合并于此），UI 组件用 [Arco Design React](https://arco.design/react/docs/start)，样式入口 `apps/desktop/src/renderer/src/main.tsx`；含本地 SQLite、内置 Python、RPA Chrome 控制
+- `apps/legacy/`：旧版单体应用（`legacy:cleanup` 清理目标，仅供迁移参考）
+- `skills/`：采集/清洗/旧报告脚本，旧报告 skill 仅作迁移参考
+- `scripts/`：环境检查、旧应用归档脚本
+- `docs/开发任务/2026-09-10-桌面端与服务端架构方案/`：任务清单与设计文档（先读 `待办事项清单.md`）
+
+根目录为 pnpm monorepo，`pnpm-workspace.yaml` 以 `apps/*` 聚合各应用包；后续如抽共享代码可新增 `packages/` 层（workspace 已按 glob 聚合，无需改配置）。
+
 ## 本地启动
 
 ### 1. 前置要求
