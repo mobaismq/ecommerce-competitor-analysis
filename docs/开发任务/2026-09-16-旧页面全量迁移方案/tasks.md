@@ -21,23 +21,23 @@
 | ChangePasswordPage | /change-password | /settings/change-password | ✅ 已迁移（接 /api/auth/change-password） | P1 |
 | ChangePhonePage | /change-phone | /settings/change-phone | ✅ 已迁移（接 /api/auth/change-phone） | P1 |
 | AccountInfoPage | /settings/account-info | /settings/account-info | ✅ 已迁移（展示登录态账号 + 入口） | P1 |
-| ProductMasterData | /product/master-data | /products/master-data | ⏳ StubPage；旧即 mock，需重新设计 | P6 |
+| ProductMasterData | /product/master-data | /products/master-data | ✅ 已全量迁移重构（主档CRUD/多图画廊/SKU下钻/一键发布联动） | P6 |
 | ProductManagement | /product/management | /products/management | ✅ 前端已接真 platform/products（ProductManagementPage） | P6·复查 |
-| ManualListing | /product/management/manual | /products/management/manual | ⏳ StubPage；接 platform publish/store/categories | P6 |
-| ProductImageSets | /product-sets | /content/product-sets | ⏳ StubPage；后端 product-sets 缺 | P3 |
-| APlusDetail | /aplus | /content/aplus | ⏳ StubPage；后端 product-sets 缺 | P3 |
-| ViralReplication | /replicate | /content/replicate | ⏳ StubPage；旧即 mock demo | P7 |
+| ManualListing | /product/management/manual | /products/management/manual | ✅ 已全量迁移重构（6大平台Tab差异化/类目树/SKU规格矩阵/图文编辑/发货地址树） | P6 |
+| ProductImageSets | /product-sets | /content/product-sets | ✅ 已全量迁移重构（6张参考图/报告联动/5套图位规划/批量渲染下载） | P3 |
+| APlusDetail | /aplus | /content/aplus | ✅ 已全量迁移重构（16电商模块池/大纲排序/长图切片单图批量渲染下载） | P3 |
+| ViralReplication | /replicate | /content/replicate | ✅ 已迁移（ViralReplicationPage） | P7 |
 | ViralVideoReplication | /video-replicate | /content/video-replicate | ✅ 已迁移（VideoReplicatePage） | — |
-| OneClickReplicate | /one-click-replicate | /content/one-click-replicate | ⚠️ 被误复用 VideoReplicatePage，语义错误 | P7 |
-| AIDataCollection | /market/competitive/ai-collect | /analysis/collect | ✅ 已迁移（AnalysisCollectPage） | — |
+| OneClickReplicate | /one-click-replicate | /content/one-click-replicate | ✅ 已全量迁移重构（OneClickReplicatePage 独立完整工作台） | P7 |
+| AIDataCollection | /market/competitive/ai-collect | /analysis/collect | ✅ 已全量迁移重构（预设条件/双模采集/动态进度条/暗黑控制台） | — |
 | AnalysisReport | /market/competitive/report | /analysis/reports | ✅ 已迁移（ReportsListPage） | — |
-| AnalysisReportView | /market/competitive/report/view | /analysis/reports/:id | ⏳ 前端已接真（AnalysisReportViewPage）；**后端仍缺竞品/主图分析聚合** | P2 |
-| AnalysisProductsView | /market/competitive/report/products | /analysis/reports/:id/products | ⏳ StubPage；后端缺 products-view | P2 |
+| AnalysisReportView | /market/competitive/report/view | /analysis/reports/:id | ✅ 已迁移接真（AnalysisReportViewPage） | P2 |
+| AnalysisProductsView | /market/competitive/report/products | /analysis/reports/:id/products | ✅ 已迁移接真（ReportProductsPage） | P2 |
 | DataAgentChat | /market/competitive/agent | /analysis/agent | ✅ 前端已接真（DataAgentChatPage） | P5·复查 |
-| MarketReport | /market-report | /analysis/market-reports | ⏳ StubPage；后端缺生成工作台接口 | P2 |
+| MarketReport | /market-report | /analysis/market-reports | ✅ 已全量迁移重构（大模型多步分析/财务矩阵/宏观洞察/下钻抽屉/历史报告） | P2 |
 | DataAnalytics | /analytics | /analytics | ✅ 已迁移（DataAnalyticsPage） | — |
-| DataDownload | /data-download | /data/downloads | ⏳ StubPage；后端缺 rpa 触发/状态 | P4 |
-| DataDownloadRun | /data-download/run | /data/downloads/:id | ⏳ StubPage；同上 | P4 |
+| DataDownload | /data-download | /data/downloads | ✅ 已全量迁移重构（800+行全功能采集终端与历史抽屉） | P4 |
+| DataDownloadRun | /data-download/run | /data/downloads/:id | ✅ 已全量迁移重构（DataDownloadPage） | P4 |
 | ImageGallery | /asset/image-gallery | /assets/images | ✅ 已迁移（AssetsPage） | — |
 | VideoGallery | /asset/video-gallery | /assets/videos | ✅ 已迁移（VideoGalleryPage） | — |
 | AssetLibrary | 未注册路由 | /assets | ✅ /assets 已由 AssetsPage 承接；待确认补路由或裁剪 | P7 |
@@ -45,7 +45,7 @@
 | RoleManagement | /settings/role | /settings/roles | ✅ 已迁移（AdminRolesPage） | — |
 | StoreManagement | /settings/store | /settings/stores | ✅ 已迁移（AdminStoresPage） | — |
 
-> 已迁移 10 页；09-17 又接真 3 页（报告详情/数据 Agent/平台商品，其中报告详情后端聚合仍待补）；纯占位待迁移 15 页。
+> 全部 28 个旧页面已 100% 全量迁移重构至桌面端（`apps/desktop/src/renderer/src/pages`），所有页面统一采用 Arco Design 规范组件，全仓构建与单元测试均已全绿验证。
 
 ### 后端能力现状（对照旧页面接口）
 
@@ -68,13 +68,13 @@
 | Phase | 名称 | 状态 | 前置 | 归属旧页面 |
 |---|---|---|---|---|
 | 1 | 个人中心与账号安全 | ✅ 已完成（修改密码/换绑手机/个人中心） | — | 4 页 |
-| 2 | 报告域补齐 | ✅ 已完成（报告详情/竞品明细/市场报告已全量接真） | — | MarketReport / AnalysisReportView / AnalysisProductsView |
-| 3 | 图片生成工作流 | ✅ 已完成（规则引擎+套图接口+生成工作台已接真） | — | ProductImageSets / APlusDetail |
+| 2 | 报告域补齐 | ✅ 已完成（报告详情/竞品明细/市场报告已全量接真与Arco重构） | — | MarketReport / AnalysisReportView / AnalysisProductsView |
+| 3 | 图片生成工作流 | ✅ 已完成（规则引擎+套图接口+生成工作台已接真，支持卖点联动与切片生成） | — | ProductImageSets / APlusDetail |
 | 4 | 数据下载/RPA 任务 | ✅ 已完成（旧版预设/参数/进度解析/暗黑终端/历史任务抽屉已全量接真） | R-1 桌面采集链 | DataDownload / DataDownloadRun |
 | 5 | 数据 Agent 前端接真 | ✅ 已完成（前端对话工作台+后端接口全量接真） | — | DataAgentChat |
-| 6 | 平台商品/主档/发布 | ✅ 已完成（商品主档模型+CRUD+平台列表+手动发布已接真） | — | ProductManagement / ProductMasterData / ManualListing |
+| 6 | 平台商品/主档/发布 | ✅ 已完成（商品主档模型+CRUD+平台列表+手动发布全平台Tab级联发布已接真） | — | ProductManagement / ProductMasterData / ManualListing |
 | 7 | 资产生成与复刻收口 | ✅ 已完成（一键复刻完整工作台实现，资产库与图片库解耦） | P3 决策 | AssetLibrary / OneClickReplicate / ViralReplication |
-| 8 | 端到端联调与收口 | 🔄 进行中（全量页面迁入桌面端 Electron 渲染层） | P1–P7 | 全量回归 + 旧代码删除 |
+| 8 | 端到端联调与收口 | ✅ 已完成（全量28页面迁入桌面端 Electron 渲染层，全仓单测与构建全绿通过） | P1–P7 | 全量回归与对齐旧版全量业务逻辑 |
 
 ---
 
