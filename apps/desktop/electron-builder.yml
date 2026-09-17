@@ -28,9 +28,6 @@ mac:
 win:
   target:
     - nsis
-linux:
-  target:
-    - AppImage
 publish:
   provider: generic
   url: ${env.UPDATE_URL}

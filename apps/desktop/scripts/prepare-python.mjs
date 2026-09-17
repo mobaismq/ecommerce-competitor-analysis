@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { createWriteStream, existsSync, mkdirSync, rmSync } from 'node:fs'
+import { createWriteStream, existsSync, mkdirSync, rmSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { Readable } from 'node:stream'
@@ -8,11 +8,12 @@ import { arch, platform } from 'node:process'
 
 const root = resolve(new URL('..', import.meta.url).pathname)
 const pythonDir = join(root, 'resources/python')
-const version = '3.12.14'
-const tag = '20260901'
-const baseUrl = `https://github.com/astral-sh/python-build-standalone/releases/download/${tag}`
 
-const assets = {
+// 版本锁清单：优先读 resources/python/platforms.json，缺失时用内联兜底
+const manifestPath = join(pythonDir, 'platforms.json')
+let version = '3.12.14'
+let tag = '20260901'
+let assets: Record<string, Record<string, string>> = {
   darwin: {
     arm64: `cpython-${version}+${tag}-aarch64-apple-darwin-install_only_stripped.tar.gz`,
     x64: `cpython-${version}+${tag}-x86_64-apple-darwin-install_only_stripped.tar.gz`,
@@ -21,6 +22,13 @@ const assets = {
     x64: `cpython-${version}+${tag}-x86_64-pc-windows-msvc-install_only_stripped.tar.gz`,
   },
 }
+if (existsSync(manifestPath)) {
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+  version = manifest.version
+  tag = manifest.releaseTag
+  assets = manifest.assets
+}
+const baseUrl = `https://github.com/astral-sh/python-build-standalone/releases/download/${tag}`
 
 const asset = assets[platform]?.[arch]
 if (!asset) {

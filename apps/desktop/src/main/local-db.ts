@@ -1,5 +1,5 @@
 import { app, ipcMain } from 'electron'
-import Store from 'electron-store'
+import { localStore } from './store'
 import { statSync } from 'node:fs'
 import { join } from 'node:path'
 import { createLocalClient, runLocalCleanup } from './local-db-core'
@@ -41,8 +41,7 @@ export function registerLocalHandlers() {
   const prisma = getLocalClient()
 
   ipcMain.handle('local:get-stats', async () => {
-    const store = new Store({ name: 'local-config' })
-    const retentionDays = Number(store.get('config.localRetentionDays') ?? 7)
+    const retentionDays = Number(localStore.get('config.localRetentionDays') ?? 7)
     const aggregate = await prisma.tempFile.aggregate({ _sum: { size: true }, _count: true })
     const dbPath = getLocalDbUrl().replace(/^file:/, '')
     let dbBytes = 0
@@ -58,8 +57,7 @@ export function registerLocalHandlers() {
   })
 
   ipcMain.handle('local:run-cleanup', async () => {
-    const store = new Store({ name: 'local-config' })
-    const retentionDays = Number(store.get('config.localRetentionDays') ?? 7)
+    const retentionDays = Number(localStore.get('config.localRetentionDays') ?? 7)
     return runLocalCleanup(prisma, { fileRetentionDays: retentionDays })
   })
 }

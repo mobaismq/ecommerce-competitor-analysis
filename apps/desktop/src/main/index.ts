@@ -8,21 +8,23 @@ let mainWindow: BrowserWindow | null = null
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 820,
-    minWidth: 960,
-    minHeight: 640,
+    width: 1440,
+    height: 900,
+    minWidth: 1024,
+    minHeight: 700,
+    title: '电商竞品分析 - 桌面客户端',
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true,
+      sandbox: false,
       preload: join(__dirname, '../preload/index.cjs'),
     },
   })
 
-  const rendererUrl = process.env.ELECTRON_RENDERER_URL
-  if (rendererUrl) {
-    void mainWindow.loadURL(rendererUrl)
+  // 渲染层即业务 UI（已并入 src/renderer，原独立前端包已删除）。
+  // dev 由 electron-vite 注入 ELECTRON_RENDERER_URL；prod 加载本地构建产物 out/renderer/index.html。
+  if (!app.isPackaged && process.env['ELECTRON_RENDERER_URL']) {
+    void mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
   } else {
     void mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }

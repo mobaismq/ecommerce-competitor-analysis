@@ -1,5 +1,9 @@
 import { ipcMain, safeStorage } from 'electron'
-import Store from 'electron-store'
+import RawStore from 'electron-store'
+
+const Store = ((RawStore as any)?.default || RawStore) as typeof RawStore
+
+export const localStore = new Store({ name: 'local-config' })
 
 const CONFIG_KEYS = new Set(['localRetentionDays', 'syncCollection', 'syncReport', 'syncAsset'])
 
@@ -18,7 +22,7 @@ function requireEncryption() {
 }
 
 export function registerStoreHandlers() {
-  const store = new Store({ name: 'local-config' })
+  const store = localStore
 
   ipcMain.handle('store:get-token', () => {
     const encrypted = store.get('auth.token')
