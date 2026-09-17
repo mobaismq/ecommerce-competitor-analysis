@@ -41,8 +41,20 @@ import { buildPinoStream } from './log-streams'
     ConfigModule.forRoot({ isGlobal: true, envFilePath: ['.env'] }),
     LoggerModule.forRoot({
       pinoHttp: {
-        level: process.env.NODE_ENV === 'development' ? 'debug' : 'info',
-        autoLogging: true,
+        level: process.env.LOG_LEVEL || (process.env.NODE_ENV === 'development' ? 'info' : 'info'),
+        autoLogging: {
+          ignore: (req) => req.method === 'OPTIONS' || (typeof req.url === 'string' && req.url.includes('/health')),
+        },
+        customLogLevel: (_req, res, err) => {
+          if (res.statusCode >= 500 || err) {
+            return 'error'
+          }
+          if (res.statusCode >= 400) {
+            return 'warn'
+          }
+          // 默认静默：仅在错误（>=400）时记录请求日志；若显式配置 LOG_AUTO_REQUESTS=true 则记录正常请求
+          return process.env.LOG_AUTO_REQUESTS === 'true' ? 'info' : 'silent'
+        },
         redact: ['req.headers.authorization', 'password', 'apiKey', 'token'],
         stream: buildPinoStream(process.env.NODE_ENV === 'development'),
       },

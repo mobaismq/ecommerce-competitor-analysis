@@ -43,7 +43,8 @@ export function buildPinoStream(dev: boolean) {
     { stream: error, level: 'warn' },
   ]
   if (dev) {
-    streams.push({ stream: transport({ target: 'pino-pretty', options: { colorize: true, translateTime: 'SYS:HH:MM:ss' } }) as unknown as DestinationStream, level: 'debug' })
+    const consoleLevel = (process.env.CONSOLE_LOG_LEVEL as Level) || (process.env.LOG_LEVEL as Level) || 'info'
+    streams.push({ stream: transport({ target: 'pino-pretty', options: { colorize: true, translateTime: 'SYS:HH:MM:ss' } }) as unknown as DestinationStream, level: consoleLevel })
     streams.push({ stream: new RotatingFileStream(join(logDir, 'debug.log')), level: 'debug' })
   } else {
     streams.push({ stream: process.stdout, level: 'info' })
