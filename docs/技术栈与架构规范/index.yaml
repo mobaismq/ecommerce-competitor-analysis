@@ -5,6 +5,10 @@ project:
   name: "ecommerce-competitor-analysis"
   description: "电商竞品分析系统（Electron 桌面端 + NestJS 服务端架构）"
 
+maintenance:
+  policy: "动态演进与实时同步"
+  description: "本知识体系并非一次性静态文档，必须随项目实际情况持续动态维护。当发生技术栈更迭、引入新库、架构调整、踩坑避坑经验沉淀或规范演进时，AI 与开发者须同步修改对应模块文档，或在此目录下新增切片并在本清单中登记。"
+
 modules:
   - file: "01-全局架构与设计思想.md"
     description: "系统混合架构形态、客户端与服务端职责边界划分、系统 Mermaid 进程通信拓扑图"
