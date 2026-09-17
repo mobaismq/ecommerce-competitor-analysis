@@ -15,6 +15,7 @@
     "test:backend": "pnpm --filter backend test",
     "test:desktop": "pnpm --filter desktop test",
     "check-env": "node scripts/check-env.mjs",
+    "assets-smoke": "pnpm --filter backend guidelines-smoke && pnpm --filter desktop runtime-smoke",
     "build:local-package": "node scripts/build-local-package.mjs",
     "legacy:cleanup": "node scripts/cleanup-legacy.mjs --apply",
     "legacy:cleanup:dry": "node scripts/cleanup-legacy.mjs --dry-run"
