@@ -10,16 +10,12 @@ function run(command, args, cwd = root) {
 }
 
 run('pnpm', ['--filter', 'backend', 'build'])
-run('pnpm', ['--filter', 'frontend', 'build'])
 run('pnpm', ['--filter', 'desktop', 'build'])
 run('pnpm', ['--filter', 'desktop', 'build:package'])
 
 rmSync(out, { recursive: true, force: true })
 mkdirSync(out, { recursive: true })
 
-if (existsSync(join(root, 'apps/frontend', 'dist'))) {
-  cpSync(join(root, 'apps/frontend', 'dist'), join(out, 'web'), { recursive: true })
-}
 if (existsSync(join(root, 'apps/backend', 'dist'))) {
   cpSync(join(root, 'apps/backend', 'dist'), join(out, 'server'), { recursive: true })
 }
@@ -29,9 +25,8 @@ if (existsSync(join(root, 'apps/desktop', 'dist'))) {
 
 const summary = {
   output: out,
-  web: existsSync(join(out, 'web', 'index.html')),
   server: existsSync(join(out, 'server', 'src', 'main.js')),
   installers: existsSync(join(out, 'installer')) ? readdirSync(join(out, 'installer')).filter((name) => name.endsWith('.dmg') || name.endsWith('.exe')) : [],
 }
 console.log(JSON.stringify(summary))
-if (!summary.web || !summary.server || summary.installers.length === 0) process.exit(1)
+if (!summary.server || summary.installers.length === 0) process.exit(1)
