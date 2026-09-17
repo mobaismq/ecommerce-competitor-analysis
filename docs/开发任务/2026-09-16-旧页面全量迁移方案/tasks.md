@@ -70,7 +70,7 @@
 | 1 | 个人中心与账号安全 | ✅ 已完成（修改密码/换绑手机/个人中心） | — | 4 页 |
 | 2 | 报告域补齐 | ✅ 已完成（报告详情/竞品明细/市场报告已全量接真） | — | MarketReport / AnalysisReportView / AnalysisProductsView |
 | 3 | 图片生成工作流 | ✅ 已完成（规则引擎+套图接口+生成工作台已接真） | — | ProductImageSets / APlusDetail |
-| 4 | 数据下载/RPA 任务 | 🔄 闭环中（桌面端采集链路已通，下载中心落位） | R-1 桌面采集链 | DataDownload / DataDownloadRun |
+| 4 | 数据下载/RPA 任务 | ✅ 已完成（旧版预设/参数/进度解析/暗黑终端/历史任务抽屉已全量接真） | R-1 桌面采集链 | DataDownload / DataDownloadRun |
 | 5 | 数据 Agent 前端接真 | ✅ 已完成（前端对话工作台+后端接口全量接真） | — | DataAgentChat |
 | 6 | 平台商品/主档/发布 | ✅ 已完成（商品主档模型+CRUD+平台列表+手动发布已接真） | — | ProductManagement / ProductMasterData / ManualListing |
 | 7 | 资产生成与复刻收口 | ✅ 已完成（一键复刻完整工作台实现，资产库与图片库解耦） | P3 决策 | AssetLibrary / OneClickReplicate / ViralReplication |

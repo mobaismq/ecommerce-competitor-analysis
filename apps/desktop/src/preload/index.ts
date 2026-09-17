@@ -19,12 +19,19 @@ contextBridge.exposeInMainWorld('desktop', {
     start: (input: {
       productName?: string
       productUrl?: string
+      minPrice?: number | null
+      maxPrice?: number | null
+      topN?: number
+      searchPages?: number
+      speedProfile?: string
+      importMysql?: boolean
       mode?: string
       downloadScript?: string
       fake?: boolean
     }) => ipcRenderer.invoke('collection:start', input),
     cancel: () => ipcRenderer.invoke('collection:cancel'),
     status: (jobId?: string) => ipcRenderer.invoke('collection:status', jobId),
+    list: (limit?: number) => ipcRenderer.invoke('collection:list', limit),
     probe: () => ipcRenderer.invoke('collection:probe'),
   },
 })
