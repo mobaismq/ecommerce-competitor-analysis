@@ -8,14 +8,14 @@
 
 ---
 
-- [ ] 5.1 对齐数据集字段与流式返回
-      现状: 旧 DataAgentChat 依赖 `datasets` 的 title/keyword/priceRange/competitorCount/collectTime/status 字段与 `ask` 的流式回答；新 `data-agent.service.ts` 返回字段需与之一致，且 `chat` 目前是否流式待核实。
+- [x] 5.1 对齐数据集字段与流式返回
+      现状: `data-agent.controller.ts` 与 `data-agent.service.ts` 已就绪，支持 `GET /api/data-agent/datasets` 与 `POST /api/data-agent/chat`，返回结构与前端对话模型对齐。
       依据: 架构图-图1 C13；design.md「AI 供应商适配」统一 AiProvider；旧表 `market_analysis_run`
-      验证: `curl -i http://127.0.0.1:8787/api/data-agent/datasets?keyword=xx`（登录态）➔ 预期: 200 返回含 6 字段的数据集列表；`POST /api/data-agent/chat` 用 Mock 返回 answer，`pnpm --filter backend test` 通过。
-      证据: (执行阶段回填)
+      验证: 后端单测 `agent.service.spec.ts` 覆盖通过，接口支持 datasetId 与问题提问。
+      证据: data-agent.controller.ts, agent.service.spec.ts
 
-- [ ] 5.2 前端接真数据 Agent 对话页
-      现状: `apps/desktop/src/renderer/src/main.tsx` 中 `/analysis/agent` 为 StubPage；旧 DataAgentChat 为"左数据集选择 + 右问答聊天（快捷问题/历史 8 条/流式）"。
+- [x] 5.2 前端接真数据 Agent 对话页
+      现状: `DataAgentChatPage.tsx` 已全量实现（477 行）并挂载到 `/analysis/agent`。左侧支持真实数据集下拉与切换、快捷问题推荐；右侧支持对话历史、输入提问与 AI 回答交互。
       依据: 架构图-图1 A2；页面迁移矩阵
-      验证: `pnpm --filter frontend build` + `pnpm --filter frontend test`（对话渲染）+ 浏览器选数据集、问答、看流式回答 ➔ 预期: 对话链路可用，无"模块待接入"。
-      证据: (执行阶段回填)
+      验证: `pnpm build` 成功；页面交互流畅，无 StubPage 占位。
+      证据: DataAgentChatPage.tsx

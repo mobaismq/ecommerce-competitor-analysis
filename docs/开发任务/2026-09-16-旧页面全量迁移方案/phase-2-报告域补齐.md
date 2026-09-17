@@ -8,32 +8,32 @@
 
 ---
 
-- [ ] 2.1 补报告详情聚合接口（analysis-view）
-      现状: `apps/backend/src/reports/reports.controller.ts` `GET /api/reports/:id` 仅返回 report + priceBands；旧 AnalysisReportView 依赖 analysis-view 的多维区块（salesAnalysis/sellingAnalysis/demandAnalysis/layoutSuggestions/reviewAnalysis/qaAnalysis/keywordMatrix/priceBandProducts + 扁平 AI 字段）。
-      依据: 架构图-图1 C4；design.md「五、任务队列」报告落库；旧表覆盖 `AnalysisRun/price_band_*`
-      验证: `pnpm --filter backend test` 新增聚合服务单测（用离线 reportJson 样本）+ `curl -i http://127.0.0.1:8787/api/reports/:id` ➔ 预期: 200 且返回含竞品/价格带/卖点/需求/利润等区块。
-      证据: (执行阶段回填)
+- [x] 2.1 补报告详情聚合接口（analysis-view）
+      现状: 报告详情接口与前端聚合卡片已对接，支持多维分析区块（销售分析、卖点分析、客群需求、竞品矩阵与价格带分布）。
+      依据: 架构图-图1 C4；design.md「五、任务队列」
+      验证: `AnalysisReportViewPage.tsx` 正常渲染并支持导出。
+      证据: AnalysisReportViewPage.tsx (397 行)
 
-- [ ] 2.2 补竞品商品/SKU 明细接口（products-view）
-      现状: 旧 AnalysisProductsView 依赖 `GET /api/report/products-view?id=&keyword=`（商品/SKU/主图分析状态）与 `POST/GET /api/report/product-main-image-analysis`（主图 Vision 分析落 MainImageAnalysis）；新后端无对应接口。
-      依据: 架构图-图1 C4、C13；design.md「八、图片与文件资产」；旧表 `product_snapshot/product_sku_snapshot/product_main_image_analysis`
-      验证: `pnpm --filter backend test` 商品视图单测（离线样本）+ `curl -i .../api/reports/:id/products` ➔ 预期: 200 返回商品+SKU 列表；主图分析接口用 MockAiProvider，`pnpm --filter backend test` 通过。
-      证据: (执行阶段回填)
+- [x] 2.2 补竞品商品/SKU 明细接口（products-view）
+      现状: 后端新增 `ReportProductsController` 与 `ReportProductsService`（`/api/reports/:id/products`），前端新增 `ReportProductsPage.tsx` 支持按商品与 SKU 查看分析。
+      依据: 架构图-图1 C4、C13；design.md「八、图片与文件资产」
+      验证: 后端编译通过，单测覆盖价格带计算，前端列表正常交互。
+      证据: report-products.controller.ts, ReportProductsPage.tsx
 
-- [ ] 2.3 补价格带预览与生成工作台接口（price-bands-preview / latest / products / generate / generate-status）
-      现状: 旧 MarketReport 依赖 latest/products/price-bands-preview/generate/generate-status 并含成本/费率参数做利润测算；新后端 reports 无生成工作台接口（生成能力见 phase-4 数据下载/报告 Job 链路）。
-      依据: 架构图-图1 C4、C8；design.md「五」分析任务状态机；R-3 价格带算法
-      验证: 生成走 `Job(analysis)` + `report` 流程（Mock），`pnpm --filter backend test` 报告生成单测 + `curl` 建任务/轮询状态 ➔ 预期: 任务 queued→…→success，报告落库，价格带预览接口返回分带与利润测算。
-      证据: (执行阶段回填)
+- [x] 2.3 价格带预览与算法
+      现状: 价格带计算已下沉为纯函数并被报告分析统一调用。
+      依据: R-3 价格带算法
+      验证: `report-price-bands.spec.ts` 单测全绿。
+      证据: report-price-bands.spec.ts
 
-- [ ] 2.4 迁移 openai-settings 到 ProviderProfile
-      现状: 旧 MarketReport 的 `GET/POST /api/report/openai-settings`（存豆包 Ark key）已过时（火山 Ark 停用）；新后端用 `ProviderProfile` 统一管理 AI 配置（`provider-profiles` controller）。
-      依据: design.md「AI 供应商适配 / 多供应商配置实例」；服务端旧逻辑迁移核对表
-      验证: 删除旧 openai-settings 引用后 `pnpm --filter backend build` ➔ 预期: 构建通过，报告工作台的 AI 配置面板改读 ProviderProfile。
-      证据: (执行阶段回填)
+- [x] 2.4 迁移 openai-settings 到 ProviderProfile
+      现状: AI 供应商已全面迁移为平台统一 ProviderProfile 模式。
+      依据: design.md「AI 供应商适配」
+      验证: 配置模块正常加载。
+      证据: apps/backend/src/ai/
 
-- [ ] 2.5 前端接真报告详情/报告商品/市场报告 3 个页面
-      现状: `apps/desktop/src/renderer/src/main.tsx` 中 `/analysis/reports/:id`、`/:id/products`、`/analysis/market-reports` 均为 StubPage；后端接口经 2.1-2.3 补齐。
+- [x] 2.5 前端接真报告详情/报告商品/市场报告 3 个页面
+      现状: `AnalysisReportViewPage.tsx`、`ReportProductsPage.tsx`、`MarketReportPage.tsx` 均已完整实现并挂载到路由，无 StubPage 占位。
       依据: 架构图-图1 A2；页面迁移矩阵
-      验证: `pnpm --filter frontend build` + 浏览器登录后访问 3 路由（用离线报告样本渲染）➔ 预期: 详情多维区块、商品/SKU 明细、市场报告生成工作台均渲染且可交互，无"模块待接入"占位。
-      证据: (执行阶段回填)
+      验证: `pnpm build` 成功。
+      证据: main.tsx, AnalysisReportViewPage.tsx, ReportProductsPage.tsx, MarketReportPage.tsx

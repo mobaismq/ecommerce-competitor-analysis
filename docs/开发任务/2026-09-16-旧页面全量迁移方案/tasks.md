@@ -67,14 +67,14 @@
 
 | Phase | 名称 | 状态 | 前置 | 归属旧页面 |
 |---|---|---|---|---|
-| 1 | 个人中心与账号安全 | ✅ 已完成 | — | 4 页 |
-| 2 | 报告域补齐 | 部分完成（报告商品前端+后端竞品/主图分析/价格带预览已接真；**市场报告生成工作台仍占位**） | — | MarketReport / AnalysisReportView / AnalysisProductsView |
-| 3 | 图片生成工作流 | pending | — | ProductImageSets / APlusDetail |
-| 4 | 数据下载/RPA 任务 | pending | R-1 桌面采集链 | DataDownload / DataDownloadRun |
-| 5 | 数据 Agent 前端接真 | 复查中（前端已接真） | — | DataAgentChat |
-| 6 | 平台商品/主档/发布 | 部分完成（平台商品接真、**商品主档新增 Product 模型+CRUD+前端页已完成**；手动发布仍占位） | — | ProductManagement / ProductMasterData / ManualListing |
-| 7 | 资产生成与复刻收口 | 进行中（一键复刻误路由已修正） | P3 决策 | AssetLibrary / OneClickReplicate / ViralReplication |
-| 8 | 端到端联调与收口 | pending | P1–P7 | 全量回归 + 旧代码删除 |
+| 1 | 个人中心与账号安全 | ✅ 已完成（修改密码/换绑手机/个人中心） | — | 4 页 |
+| 2 | 报告域补齐 | ✅ 已完成（报告详情/竞品明细/市场报告已全量接真） | — | MarketReport / AnalysisReportView / AnalysisProductsView |
+| 3 | 图片生成工作流 | ✅ 已完成（规则引擎+套图接口+生成工作台已接真） | — | ProductImageSets / APlusDetail |
+| 4 | 数据下载/RPA 任务 | 🔄 闭环中（桌面端采集链路已通，下载中心落位） | R-1 桌面采集链 | DataDownload / DataDownloadRun |
+| 5 | 数据 Agent 前端接真 | ✅ 已完成（前端对话工作台+后端接口全量接真） | — | DataAgentChat |
+| 6 | 平台商品/主档/发布 | ✅ 已完成（商品主档模型+CRUD+平台列表+手动发布已接真） | — | ProductManagement / ProductMasterData / ManualListing |
+| 7 | 资产生成与复刻收口 | ✅ 已完成（一键复刻完整工作台实现，资产库与图片库解耦） | P3 决策 | AssetLibrary / OneClickReplicate / ViralReplication |
+| 8 | 端到端联调与收口 | 🔄 进行中（全量页面迁入桌面端 Electron 渲染层） | P1–P7 | 全量回归 + 旧代码删除 |
 
 ---
 

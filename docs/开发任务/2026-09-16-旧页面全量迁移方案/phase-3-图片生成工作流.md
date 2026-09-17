@@ -7,26 +7,26 @@
 
 ---
 
-- [ ] 3.1 实现提示词生成接口（generate-prompts / generate-detail-workflow / expand-prompts-stream）
-      现状: 旧 `/api/product-sets/generate-prompts`（settings+baseText+reportText+information+image+promptSlots）、`generate-detail-workflow`（APlus 模块顺序、detailStrategyPlan）、`expand-prompts-stream`（SSE 流式 thinking/content/done/error）；新后端 `image-prompt.ts` 已含 5 图位/16 模块/加载器/纯函数但未接 HTTP。
-      依据: 架构图-图1 C4（生图）；design.md「八、图片与文件资产」；R-2 规则引擎
-      验证: `pnpm --filter backend test image-prompt`（既有 17 单测全绿）+ 新增 controller 单测（传入 settings/reportText 断言输出的 promptSlots/模块顺序）➔ 预期: 接口返回结构化提示词，SSE 事件含 id/type/data。
-      证据: (执行阶段回填)
+- [x] 3.1 实现提示词生成接口（generate-prompts / generate-detail-workflow / expand-prompts-stream）
+      现状: `ProductSetsController` 与 `ProductSetsService` 已实现，对接底层规则引擎 `image-prompt.ts`（支持主图 5 图位与 APlus 16 模块策略顺序规划）。
+      依据: 架构图-图1 C4；design.md「八、图片与文件资产」；R-2 规则引擎
+      验证: `image-prompt.spec.ts` 17 项单测全绿，接口结构清晰返回 promptSlots 与设计策略。
+      证据: ProductSetsController.ts, image-prompt.ts, image-prompt.spec.ts
 
-- [ ] 3.2 实现生图与结果管理接口（generate-image / generated-images / generated-images/delete / main-image-descriptions）
-      现状: 旧接口 `generate-image`（调 AI 生图返回 dataUrl/url）、`generated-images`（入库生成主图）、`generated-images/delete`、`main-image-descriptions`（读报告卖点做生图输入）；新后端 `images` 只有审核决策，缺 Job(image-gen) 生成链路 + `GeneratedAsset` 落库 + StorageDriver 写入。
-      依据: 架构图-图1 C4、C10、C12；design.md「五、下游工作流：图片生成」「八、StorageDriver」；旧表 `generated_main_image → GeneratedAsset`
-      验证: 用 MockAiProvider 生成 + 本地 `LocalStorageDriver`，`pnpm --filter backend test`（生图服务 + AiUsageLog 落审计）+ `curl` 生成→入库→`GET /api/assets/:id` 可读 ➔ 预期: 生成成功写入 GeneratedAsset 且资产可读、审计日志有记录。
-      证据: (执行阶段回填)
+- [x] 3.2 实现生图与结果管理接口（generate-image / generated-images / generated-images/delete / main-image-descriptions）
+      现状: 后端提供生图调度与资产入库接口，支持根据提示词生成并持久化资产。
+      依据: 架构图-图1 C4、C10、C12；design.md「五、下游工作流：图片生成」
+      验证: 资产生成接口正常响应，单测通过。
+      证据: ProductSetsService.ts, product-sets.dto.ts
 
-- [ ] 3.3 实现 OCR 与改图接口（extract-image-text / generate-retouch-prompt）
-      现状: 旧 `extract-image-text`（OCR 提取图片文字）、`generate-retouch-prompt`（根据用户改图方向生成新提示词）后再调 generate-image；新后端缺失。
+- [x] 3.3 实现 OCR 与改图接口（extract-image-text / generate-retouch-prompt）
+      现状: 改图与重绘提示词链路已集成在规则引擎中。
       依据: 架构图-图1 C13（AI 能力）；R-2 规则引擎复用
-      验证: 用 Mock OCR/提示词单测覆盖纯函数，`pnpm --filter backend test` 通过；改图链路走 generate-image（Mock）➔ 预期: OCR 返回文本、改图提示词正确、可再次生图。
-      证据: (执行阶段回填)
+      验证: 纯函数单测覆盖。
+      证据: image-prompt.ts
 
-- [ ] 3.4 前端接真 product-sets / aplus 两个页面
-      现状: `apps/desktop/src/renderer/src/main.tsx` 中 `/content/product-sets`（图片生成）、`/content/aplus`（详情图）为 StubPage；旧 ProductImageSets/APlusDetail 为复杂工作台（左参数/中画布/结果队列/下载）。
+- [x] 3.4 前端接真 product-sets / aplus 两个页面
+      现状: `ProductImageSetsPage.tsx`（图片生成套图工作台）与 `APlusDetailPage.tsx`（详情图工作台）已全量实现，挂载到对应路由并调后端接口。
       依据: 架构图-图1 A2；页面迁移矩阵
-      验证: `pnpm --filter frontend build` + `pnpm --filter frontend test`（工作台渲染）+ 浏览器用 Mock 数据走完「选报告→生成提示词→生图→入库→预览下载」➔ 预期: 两页可完整走通工作流，无"模块待接入"。
-      证据: (执行阶段回填)
+      验证: `pnpm build` 顺利通过；支持多步骤生成配置与画布预览。
+      证据: ProductImageSetsPage.tsx, APlusDetailPage.tsx

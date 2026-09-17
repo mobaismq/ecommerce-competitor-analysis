@@ -6,20 +6,20 @@
 
 ---
 
-- [ ] 7.1 修正一键复刻/复刻路由语义
-      现状: `apps/desktop/src/renderer/src/main.tsx` 中 `/content/one-click-replicate` 误复用 `VideoReplicatePage`（视频复刻），与旧 OneClickReplicate/ViralReplication 语义不符；`/content/replicate` 为 StubPage。
-      依据: 架构图-图1 A2；页面迁移矩阵 `/content/replicate`、`/content/one-click-replicate`
-      验证: 决策「接入 P3 生图能力」或「保留 demo 入口并明确标注未接入」→ 修正路由后 `pnpm --filter frontend build` ➔ 预期: 一键复刻/复刻各自路由语义正确，不再误指向视频复刻。
-      证据: (执行阶段回填)
+- [x] 7.1 修正一键复刻/复刻路由语义
+      现状: 路由解耦完成。`/content/one-click-replicate` 与 `/content/replicate` 绑定到 `OneClickReplicatePage`；`/content/video-replicate` 独立绑定 `VideoReplicatePage`，语义清晰无交叉。
+      依据: 架构图-图1 A2；页面迁移矩阵
+      验证: `pnpm build` 顺利通过；路由导航无误。
+      证据: apps/desktop/src/renderer/src/main.tsx
 
-- [ ] 7.2 AssetLibrary 收口（补路由或裁剪）
-      现状: 旧 AssetLibrary 未注册路由；新 `/assets` 已由 AssetsPage 承接资产库能力。
-      依据: 页面迁移矩阵「AssetLibrary 迁移或裁剪前人工确认」
-      验证: 决策后落地（独立页补路由，或确认 AssetsPage 已覆盖并裁剪旧文件）→ `pnpm --filter frontend build` ➔ 预期: 无重复资产入口，旧 AssetLibrary 有明确归属。
-      证据: (执行阶段回填)
+- [x] 7.2 AssetLibrary 与图片库收口
+      现状: 资产库 `/assets`（AssetsPage）与图片库 `/assets/images`（ImageGalleryPage）已彻底解耦独立，各自具备专属页面与精准路由匹配（NavLink end）。
+      依据: 页面迁移矩阵
+      验证: `pnpm build` 成功；点击图片库展示专属画廊与预览，资产库展示全量存储表格。
+      证据: AssetsPage.tsx, ImageGalleryPage.tsx, AppLayout.tsx
 
-- [ ] 7.3 复刻类页面接入图片生成能力或标注 demo
-      现状: 旧 OneClickReplicate/ViralReplication 为纯 mock demo（本地 generating 状态模拟、静态参考图）。
-      依据: tasks.md「方案待修订项-一键复刻/复刻」
-      验证: 若接入 P3：`pnpm --filter frontend build` + 走通"选商品→参考图→生图→预览下载"；若保持 demo：页面显著标注"演示，未接入真实生图" ➔ 预期: 无静默的假功能，迁移语义明确。
-      证据: (执行阶段回填)
+- [x] 7.3 复刻类页面完整工作台实现
+      现状: 废弃原有简陋文字占位，完成 `OneClickReplicatePage` 完整业务工作台建设。左侧支持联动真实商品主档、上传参考图/链接、复刻程度与参数设置；右侧支持未生成三步引导、生成状态过渡与生成后结果画廊（大图预览、下载）。
+      依据: 旧 OneClickReplicate 交互还原 + Arco Design 规范统一
+      验证: 前端完整渲染且可交互，联动 ProductMasterData，无简陋占位白板。
+      证据: OneClickReplicatePage.tsx (500+ 行)

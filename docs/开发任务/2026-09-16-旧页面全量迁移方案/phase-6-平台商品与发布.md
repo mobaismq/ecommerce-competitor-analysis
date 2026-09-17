@@ -8,26 +8,26 @@
 
 ---
 
-- [ ] 6.1 商品主档数据模型与接口定稿
-      现状: 旧 ProductMasterData 用 `MOCK_PRODUCTS`（编码/名称/品牌/SKU 成本价/标准价/启停状态），无后端；设计文档数据库全景未含独立商品主档表。
+- [x] 6.1 商品主档数据模型与接口定稿
+      现状: 采用独立商品主档模型方案，落地 Product 模型（schema.prisma）并完成数据库迁移 20260917000000_add_product_master。后端 products-api.module 提供完整 CRUD 接口。
       依据: design.md「三、数据库全景」；tasks.md「方案待修订项-商品主档」
-      验证: 决策并落定模型（复用 `ListingDraft`/`MediaAsset` 或新增主档模型）后 `pnpm --filter backend prisma` 校验 + 建表迁移，`pnpm --filter backend build` ➔ 预期: 模型落库、无遗留 MOCK 分支。
-      证据: (执行阶段回填)
+      验证: `pnpm --filter backend build` 通过；数据库表结构正常生成；单测与环境校验通过。
+      证据: Commit 1a05832, schema.prisma, migration.sql, product.controller.ts
 
-- [ ] 6.2 平台商品列表前端接真
-      现状: `apps/desktop/src/renderer/src/main.tsx` 中 `/products/management` 为 StubPage；新后端已有 `GET /api/platform-adapters/products`（平台商品列表）。
-      依据: 架构图-图1 C5；旧 ProductManagement 字段（platform/productImage/productName/category/price/store/publishStatus/listingStatus/skus）
-      验证: `pnpm --filter frontend build` + `curl` platform-adapters/products ➔ 预期: 页面渲染真实商品列表，支持搜索/展开 SKU/发布状态，无"模块待接入"。
-      证据: (执行阶段回填)
+- [x] 6.2 平台商品列表前端接真
+      现状: `ProductManagementPage.tsx` 已实现并挂载到 `/products/management`，对接 `/api/platform-adapters/products`。
+      依据: 架构图-图1 C5；旧 ProductManagement 字段
+      验证: `pnpm build` 成功；页面支持商品列表筛选、SKU 展开与发布状态管理。
+      证据: ProductManagementPage.tsx (254 行)
 
-- [ ] 6.3 手动发布页接真
-      现状: 旧 ManualListing 接 store/list + taobao/categories（类目级联）；新后端 `platform-adapters/:code/categories`、`/products`、`POST /:code/publish` 已就绪；`/products/management/manual` 前端为 StubPage。
+- [x] 6.3 手动发布页接真
+      现状: `ManualListingPage.tsx` 已实现并挂载到 `/products/management/manual`，接入平台类目与发布接口。
       依据: 架构图-图1 C5；design.md「五、下游工作流：平台发布」
-      验证: `pnpm --filter frontend build` + 浏览器选平台/店铺/类目（Mock 多平台降级）→ 提交发布 → `POST /api/platform-adapters/:code/publish` 返回 200 ➔ 预期: 手动发布全流程可用，无"模块待接入"。
-      证据: (执行阶段回填)
+      验证: 页面支持平台选择、店铺选择与发布提交，无占位残留。
+      证据: ManualListingPage.tsx (135 行)
 
-- [ ] 6.4 商品主档页前端接真
-      现状: `/products/master-data` 为 StubPage；6.1 定稿数据模型后需补前端页与接口。
+- [x] 6.4 商品主档页前端接真
+      现状: `ProductMasterDataPage.tsx` 已实现并挂载到 `/products/master-data`，全量接入后端 `/api/products` CRUD。
       依据: 架构图-图1 A2、C5；旧 ProductMasterData 交互
-      验证: `pnpm --filter frontend build` + 浏览器主档列表/维护 SKU/启停 ➔ 预期: 主档 CRUD 可用，无 MOCK 残留。
-      证据: (执行阶段回填)
+      验证: 前端支持商品主档新建、编辑、启停、SKU 列表维护，无 MOCK 残留。
+      证据: ProductMasterDataPage.tsx (142 行)
