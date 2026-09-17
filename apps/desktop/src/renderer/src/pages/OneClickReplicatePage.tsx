@@ -88,11 +88,26 @@ export function OneClickReplicatePage() {
     queryKey: ['products-master'],
     queryFn: async () => {
       try {
-        const res = await api.get<ProductItem[]>('/api/products')
-        return res.data && res.data.length > 0 ? res.data : DEFAULT_PRODUCTS
+        const res = await api.get<ProductItem[]>('/api/products/master')
+        const list = Array.isArray(res.data) ? res.data : []
+        if (list.length > 0) {
+          return list
+        }
       } catch {
-        return DEFAULT_PRODUCTS
+        // ignore
       }
+
+      try {
+        const res = await api.get<ProductItem[]>('/api/products')
+        const list = Array.isArray(res.data) ? res.data : []
+        if (list.length > 0) {
+          return list
+        }
+      } catch {
+        // ignore
+      }
+
+      return DEFAULT_PRODUCTS
     },
   })
 

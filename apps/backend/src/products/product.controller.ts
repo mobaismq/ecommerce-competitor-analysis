@@ -9,6 +9,11 @@ import { ProductService } from './product.service'
 export class ProductController {
   constructor(private readonly productService: ProductService) {}
 
+  @Get()
+  listRoot(@Req() request: { user: { tenantId: string } }, @Query('keyword') keyword?: string) {
+    return this.productService.list(request.user.tenantId, keyword)
+  }
+
   @Get('master')
   list(@Req() request: { user: { tenantId: string } }, @Query('keyword') keyword?: string) {
     return this.productService.list(request.user.tenantId, keyword)

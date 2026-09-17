@@ -55,6 +55,25 @@ import { buildPinoStream } from './log-streams'
           // 默认静默：仅在错误（>=400）时记录请求日志；若显式配置 LOG_AUTO_REQUESTS=true 则记录正常请求
           return process.env.LOG_AUTO_REQUESTS === 'true' ? 'info' : 'silent'
         },
+        serializers: {
+          req: (req) => ({
+            method: req.method,
+            url: req.url,
+          }),
+          res: (res) => ({
+            statusCode: res.statusCode,
+          }),
+          err: (err) => ({
+            type: err?.type,
+            message: err?.message,
+          }),
+        },
+        customSuccessMessage: (req, res, responseTime) => {
+          return `[${res.statusCode}] ${req.method} ${req.url} (${responseTime}ms)`
+        },
+        customErrorMessage: (req, res, err) => {
+          return `[${res.statusCode}] ${req.method} ${req.url} - ${err?.message || 'Error'}`
+        },
         redact: ['req.headers.authorization', 'password', 'apiKey', 'token'],
         stream: buildPinoStream(process.env.NODE_ENV === 'development'),
       },
