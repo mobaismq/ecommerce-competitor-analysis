@@ -1,34 +1,10 @@
-import React, { useState, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import {
-  Button,
-  Card,
-  DatePicker,
-  Divider,
-  Empty,
-  Form,
-  Grid,
-  Input,
-  Select,
-  Space,
-  Table,
-  Tag,
-  Typography,
-} from '@arco-design/web-react'
-import {
-  IconEye,
-  IconPlus,
-  IconRefresh,
-  IconRobot,
-  IconSearch,
-  IconThunderbolt,
-} from '@arco-design/web-react/icon'
+import { Calendar, ChevronLeft, ChevronRight, FileBarChart, Loader2, Search, X } from 'lucide-react'
 import { api } from '../api/client'
 import { formatDateTime } from '../utils/format'
-
-const { Title, Text } = Typography
-const { RangePicker } = DatePicker
+import { PageHeader } from '../components/PageHeader'
 
 interface AnalysisRun {
   id: string
@@ -41,266 +17,372 @@ interface AnalysisRun {
   updatedAt: string
 }
 
+type StatusView = { text: string; className: string }
+
+// 状态徽章配色对照旧版 AnalysisReport.tsx STATUS_CONFIG
+function statusView(status: string): StatusView {
+  if (status === 'completed' || status === 'success') return { text: '已生成', className: 'bg-[#e8f5e9] text-[#2e7d32]' }
+  if (status === 'running') return { text: '生成中', className: 'bg-[#fff3e0] text-[#f57c00]' }
+  if (status === 'failed') return { text: '生成失败', className: 'bg-[#ffEBEE] text-[#c62828]' }
+  return { text: '未生成', className: 'bg-[#f2f4f7] text-[#86909C]' }
+}
+
+const PAGE_SIZE = 10
+
+function DateRangePicker({
+  startDate,
+  endDate,
+  onStartChange,
+  onEndChange,
+  placeholder = '请选择日期范围',
+}: {
+  startDate: string
+  endDate: string
+  onStartChange: (val: string) => void
+  onEndChange: (val: string) => void
+  placeholder?: string
+}) {
+  const [open, setOpen] = useState(false)
+  const hasValue = Boolean(startDate || endDate)
+  const displayText = startDate && endDate ? `${startDate} 至 ${endDate}` : placeholder
+
+  return (
+    <div className="relative min-w-0 flex-1">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="flex h-8 w-full min-w-0 cursor-pointer items-center justify-between rounded-lg border border-[#e6e9ef] bg-white px-2.5 text-left text-[13px] outline-none focus:border-[#409eff]"
+      >
+        <span className={`truncate ${hasValue ? 'text-[#0A1B39]' : 'text-[#c0c4cc]'}`} title={displayText}>
+          {displayText}
+        </span>
+        <div className="flex shrink-0 items-center gap-1">
+          {hasValue && (
+            <span
+              onClick={(e) => {
+                e.stopPropagation()
+                onStartChange('')
+                onEndChange('')
+              }}
+              className="text-[#c0c4cc] hover:text-[#86909C]"
+            >
+              <X className="h-3.5 w-3.5" />
+            </span>
+          )}
+          <Calendar className="h-3.5 w-3.5 text-[#c0c4cc]" />
+        </div>
+      </button>
+      {open && (
+        <div className="absolute left-0 top-full z-50 mt-2 w-80 rounded-lg border border-[#e6e9ef] bg-white p-4 shadow-lg">
+          <div className="mb-3 flex items-center gap-2">
+            <div className="flex-1">
+              <label className="mb-1 block text-[12px] text-[#86909C]">开始日期</label>
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => onStartChange(e.target.value)}
+                className="h-8 w-full rounded-lg border border-[#e6e9ef] bg-white px-2 text-[13px] outline-none focus:border-[#409eff]"
+              />
+            </div>
+            <span className="mt-4 text-[12px] text-[#86909C]">至</span>
+            <div className="flex-1">
+              <label className="mb-1 block text-[12px] text-[#86909C]">结束日期</label>
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => onEndChange(e.target.value)}
+                className="h-8 w-full rounded-lg border border-[#e6e9ef] bg-white px-2 text-[13px] outline-none focus:border-[#409eff]"
+              />
+            </div>
+          </div>
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                onStartChange('')
+                onEndChange('')
+              }}
+              className="h-7 cursor-pointer rounded-lg border border-[#e6e9ef] bg-white px-3 text-[13px] text-[#0A1B39] hover:bg-[#f5f6f8]"
+            >
+              清除
+            </button>
+            <button
+              type="button"
+              onClick={() => setOpen(false)}
+              className="h-7 cursor-pointer rounded-lg border-0 bg-[#409eff] px-3 text-[13px] text-white hover:bg-[#66b1ff]"
+            >
+              确定
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function ReportsListPage() {
   const navigate = useNavigate()
-  const [form] = Form.useForm()
 
-  const [filterKeyword, setFilterKeyword] = useState('')
-  const [filterStatus, setFilterStatus] = useState<string>('all')
-
-  const { data, isLoading, refetch } = useQuery<AnalysisRun[]>({
+  // 数据流保持桌面端现状：GET /api/reports + react-query
+  const { data, isLoading } = useQuery<AnalysisRun[]>({
     queryKey: ['analysis-runs'],
     queryFn: async () => (await api.get<AnalysisRun[]>('/api/reports')).data,
   })
 
-  // 过滤后的列表
-  const filteredData = useMemo(() => {
-    if (!data) return []
-    return data.filter((item) => {
+  // 查询条件（对照旧版：输入态 + 查询后应用态）
+  const [searchKeyword, setSearchKeyword] = useState('')
+  const [startTime, setStartTime] = useState('')
+  const [endTime, setEndTime] = useState('')
+  const [reportStatus, setReportStatus] = useState('')
+  const [appliedKeyword, setAppliedKeyword] = useState('')
+  const [appliedStartTime, setAppliedStartTime] = useState('')
+  const [appliedEndTime, setAppliedEndTime] = useState('')
+  const [appliedStatus, setAppliedStatus] = useState('')
+  const [currentPage, setCurrentPage] = useState(1)
+
+  const rows = data || []
+
+  const filteredRows = useMemo(() => {
+    return rows.filter((row) => {
+      const kw = appliedKeyword.trim().toLowerCase()
       const matchKeyword =
-        !filterKeyword ||
-        (item.reportNo && item.reportNo.toLowerCase().includes(filterKeyword.toLowerCase())) ||
-        item.jobId.toLowerCase().includes(filterKeyword.toLowerCase()) ||
-        item.id.toLowerCase().includes(filterKeyword.toLowerCase())
-
+        !kw ||
+        (row.reportNo && row.reportNo.toLowerCase().includes(kw)) ||
+        row.jobId.toLowerCase().includes(kw) ||
+        row.id.toLowerCase().includes(kw)
+      const matchStart = !appliedStartTime || row.updatedAt >= appliedStartTime
+      const matchEnd = !appliedEndTime || row.updatedAt <= appliedEndTime + ' 23:59:59'
       const matchStatus =
-        filterStatus === 'all' ||
-        item.status === filterStatus ||
-        (filterStatus === 'completed' && (item.status === 'completed' || item.status === 'success'))
-
-      return matchKeyword && matchStatus
+        !appliedStatus ||
+        row.status === appliedStatus ||
+        (appliedStatus === 'completed' && (row.status === 'completed' || row.status === 'success'))
+      return matchKeyword && matchStart && matchEnd && matchStatus
     })
-  }, [data, filterKeyword, filterStatus])
+  }, [rows, appliedKeyword, appliedStartTime, appliedEndTime, appliedStatus])
 
-  // 统计数值
-  const totalReports = data?.length || 0
-  const completedReports = data?.filter((r) => r.status === 'completed' || r.status === 'success').length || 0
-  const totalCompetitors = data?.reduce((acc, curr) => acc + (curr.competitorCount || 0), 0) || 0
+  const totalPages = Math.ceil(filteredRows.length / PAGE_SIZE) || 1
+  const safePage = Math.min(currentPage, totalPages)
+  const pageRows = filteredRows.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [appliedKeyword, appliedStartTime, appliedEndTime, appliedStatus])
+
+  const applySearch = () => {
+    setAppliedKeyword(searchKeyword)
+    setAppliedStartTime(startTime)
+    setAppliedEndTime(endTime)
+    setAppliedStatus(reportStatus)
+  }
+
+  const resetSearch = () => {
+    setSearchKeyword('')
+    setStartTime('')
+    setEndTime('')
+    setReportStatus('')
+    setAppliedKeyword('')
+    setAppliedStartTime('')
+    setAppliedEndTime('')
+    setAppliedStatus('')
+  }
+
+  const renderPageNumbers = () => {
+    const pages: number[] = []
+    const maxVisible = 5
+    let start = Math.max(1, safePage - Math.floor(maxVisible / 2))
+    const end = Math.min(totalPages, start + maxVisible - 1)
+    if (end - start + 1 < maxVisible) start = Math.max(1, end - maxVisible + 1)
+    for (let i = start; i <= end; i++) pages.push(i)
+    return pages
+  }
 
   return (
-    <div className="h-full overflow-y-auto p-6 bg-[#f4f7fb] flex flex-col gap-4">
-      {/* 顶部标题区与统计 */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold text-gray-900 m-0 flex items-center gap-2">
-            <span>竞品分析报告大盘</span>
-            <Tag color="arcoblue">多维透视</Tag>
-          </h1>
-          <p className="text-xs text-gray-500 mt-1 mb-0">
-            基于真实竞品数据聚类算法与大模型生成的价格带切分、卖点挖掘与差评痛点看板
-          </p>
-        </div>
-        <Space>
-          <Button icon={<IconRefresh />} loading={isLoading} onClick={() => void refetch()}>
-            刷新数据
-          </Button>
-          <Button
-            type="primary"
-            icon={<IconPlus />}
-            onClick={() => navigate('/market/competitive/ai-collect')}
-          >
-            新建采集任务
-          </Button>
-        </Space>
-      </div>
+    <div className="h-full overflow-y-auto bg-[#f4f7fb] p-6 custom-scrollbar">
+      <PageHeader breadcrumbs={[{ label: '市场' }, { label: '竞品分析' }, { label: '分析报告' }]} />
 
-      {/* 概览统计指标卡片 (模式 3 标配) */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card bordered className="rounded-lg shadow-sm bg-white">
-          <div className="flex items-center justify-between">
-            <div>
-              <Text type="secondary" style={{ fontSize: 12 }}>累计生成报告</Text>
-              <div className="text-2xl font-bold text-gray-900 font-mono mt-1">{totalReports} 份</div>
-            </div>
-            <div className="w-10 h-10 rounded-lg bg-blue-50 text-[#165dff] flex items-center justify-center font-bold text-lg">
-              📊
-            </div>
-          </div>
-        </Card>
-
-        <Card bordered className="rounded-lg shadow-sm bg-white">
-          <div className="flex items-center justify-between">
-            <div>
-              <Text type="secondary" style={{ fontSize: 12 }}>分析就绪成功率</Text>
-              <div className="text-2xl font-bold text-green-600 font-mono mt-1">
-                {totalReports > 0 ? `${Math.round((completedReports / totalReports) * 100)}%` : '100%'}
-              </div>
-            </div>
-            <div className="w-10 h-10 rounded-lg bg-green-50 text-green-600 flex items-center justify-center font-bold text-lg">
-              ✅
-            </div>
-          </div>
-        </Card>
-
-        <Card bordered className="rounded-lg shadow-sm bg-white">
-          <div className="flex items-center justify-between">
-            <div>
-              <Text type="secondary" style={{ fontSize: 12 }}>累计覆盖竞品样本</Text>
-              <div className="text-2xl font-bold text-purple-600 font-mono mt-1">
-                {totalCompetitors.toLocaleString()} 款
-              </div>
-            </div>
-            <div className="w-10 h-10 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center font-bold text-lg">
-              🎯
-            </div>
-          </div>
-        </Card>
-      </div>
-
-      {/* 顶部全宽筛选卡片 (模式 3 标配) */}
-      <Card bordered className="rounded-lg shadow-sm bg-white">
-        <Form
-          form={form}
-          layout="inline"
-          className="flex flex-wrap items-center gap-y-3"
-        >
-          <Form.Item label="报告关键词 / ID">
-            <Input
-              placeholder="搜索报告编号或任务ID"
-              value={filterKeyword}
-              onChange={setFilterKeyword}
-              allowClear
-              prefix={<IconSearch />}
-              style={{ width: 220 }}
-            />
-          </Form.Item>
-
-          <Form.Item label="报告状态">
-            <Select
-              value={filterStatus}
-              onChange={setFilterStatus}
-              style={{ width: 140 }}
-            >
-              <Select.Option value="all">全部状态</Select.Option>
-              <Select.Option value="completed">已完成</Select.Option>
-              <Select.Option value="running">生成中</Select.Option>
-              <Select.Option value="failed">生成失败</Select.Option>
-            </Select>
-          </Form.Item>
-
-          <Form.Item>
-            <Space>
-              <Button
-                type="outline"
-                onClick={() => {
-                  setFilterKeyword('')
-                  setFilterStatus('all')
-                }}
-              >
-                重置
-              </Button>
-              <Button type="primary" icon={<IconSearch />} onClick={() => void refetch()}>
-                查询
-              </Button>
-            </Space>
-          </Form.Item>
-        </Form>
-      </Card>
-
-      {/* 下部数据大表 (模式 3 标配) */}
-      <Card bordered className="rounded-lg shadow-sm bg-white">
-        <Table<AnalysisRun>
-          rowKey="id"
-          loading={isLoading}
-          data={filteredData}
-          pagination={{
-            pageSize: 10,
-            showTotal: true,
-            sizeCanChange: true,
-          }}
-          noDataElement={
-            <Empty
-              description="暂无符合条件的竞品分析报告，请点击右上角新建采集"
-              style={{ padding: '40px 0' }}
-            />
-          }
-          columns={[
-            {
-              title: '报告编号 / 任务关联',
-              render: (_, record) => (
-                <div>
-                  <div className="font-semibold text-gray-900">
-                    {record.reportNo || `REP-${record.id.slice(0, 10).toUpperCase()}`}
-                  </div>
-                  <div className="text-xs text-gray-400 font-mono mt-0.5">
-                    任务: {record.jobId}
-                  </div>
-                </div>
-              ),
-            },
-            {
-              title: '分析状态',
-              dataIndex: 'status',
-              render: (status: string) => (
-                <Tag
-                  color={
-                    status === 'completed' || status === 'success'
-                      ? 'green'
-                      : status === 'running'
-                      ? 'arcoblue'
-                      : 'red'
-                  }
-                  size="small"
+      {/* 查询条件卡 */}
+      <div className="mb-4 rounded-xl bg-white p-4">
+        <div className="grid grid-cols-4 gap-3">
+          <div className="flex items-center gap-2">
+            <label className="shrink-0 text-[12px] text-[#86909C]">关键词</label>
+            <div className="relative min-w-0 flex-1">
+              <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#c0c4cc]" />
+              <input
+                type="text"
+                value={searchKeyword}
+                onChange={(e) => setSearchKeyword(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && applySearch()}
+                placeholder="请输入"
+                className="h-8 w-full rounded-lg border border-[#e6e9ef] bg-white pl-8 pr-7 text-[13px] outline-none focus:border-[#409eff]"
+              />
+              {searchKeyword && (
+                <button
+                  type="button"
+                  onClick={() => setSearchKeyword('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 cursor-pointer border-0 bg-transparent p-0 text-[#c0c4cc] hover:text-[#86909C]"
                 >
-                  {status === 'completed' || status === 'success'
-                    ? '已就绪'
-                    : status === 'running'
-                    ? '分析中'
-                    : status}
-                </Tag>
-              ),
-            },
-            {
-              title: '竞品样本数',
-              dataIndex: 'competitorCount',
-              render: (val: number | null) => (
-                <span className="font-medium text-gray-700">
-                  {val ? `${val} 款商品` : '-'}
-                </span>
-              ),
-            },
-            {
-              title: '核心覆盖价格带',
-              render: (_, record) => (
-                <span className="font-mono text-gray-700">
-                  {record.priceMin != null && record.priceMax != null
-                    ? `¥${record.priceMin} ~ ¥${record.priceMax}`
-                    : '-'}
-                </span>
-              ),
-            },
-            {
-              title: '最近更新时间',
-              dataIndex: 'updatedAt',
-              render: (time: string) => (
-                <span className="text-xs text-gray-500">{formatDateTime(time)}</span>
-              ),
-            },
-            {
-              title: '操作',
-              render: (_, record) => (
-                <Space size="small">
-                  <Button
-                    type="primary"
-                    size="mini"
-                    icon={<IconEye />}
-                    onClick={() => navigate(`/market/competitive/report/${record.id}`)}
-                  >
-                    查看大屏
-                  </Button>
-                  <Button
-                    size="mini"
-                    icon={<IconRobot />}
-                    onClick={() => navigate(`/market/competitive/agent?reportId=${record.id}`)}
-                  >
-                    AI 问答
-                  </Button>
-                </Space>
-              ),
-            },
-          ]}
-        />
-      </Card>
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <label className="shrink-0 text-[12px] text-[#86909C]">更新时间</label>
+            <DateRangePicker startDate={startTime} endDate={endTime} onStartChange={setStartTime} onEndChange={setEndTime} />
+          </div>
+
+          <div className="flex items-center gap-2">
+            <label className="shrink-0 text-[12px] text-[#86909C]">报告状态</label>
+            <select
+              value={reportStatus}
+              onChange={(e) => setReportStatus(e.target.value)}
+              className={`h-8 w-full appearance-none rounded-lg border border-[#e6e9ef] bg-white px-2.5 text-[13px] outline-none focus:border-[#409eff] ${reportStatus === '' ? 'text-[#98A2B3]' : 'text-[#0A1B39]'}`}
+              style={{
+                backgroundImage:
+                  "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23c0c4cc' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E\")",
+                backgroundRepeat: 'no-repeat',
+                backgroundPosition: 'right 10px center',
+              }}
+            >
+              <option value="">请选择</option>
+              <option value="completed">已生成</option>
+              <option value="running">生成中</option>
+              <option value="failed">生成失败</option>
+            </select>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={applySearch}
+              className="h-8 shrink-0 cursor-pointer rounded-lg border-0 bg-[#409eff] px-5 text-[13px] font-bold text-white hover:bg-[#66b1ff]"
+            >
+              查询
+            </button>
+            <button
+              type="button"
+              onClick={resetSearch}
+              className="h-8 shrink-0 cursor-pointer rounded-lg border border-[#e6e9ef] bg-white px-4 text-[13px] text-[#0A1B39] hover:bg-[#f5f6f8]"
+            >
+              重置
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* 数据表格卡 */}
+      <div className="rounded-2xl bg-white p-5 shadow-[0_8px_32px_rgba(29,38,52,.06)]">
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-[#eef1f5] bg-[#f9fafb]">
+                <th className="whitespace-nowrap px-4 py-3.5 text-left text-[13px] font-medium text-[#86909C]">报告编号</th>
+                <th className="whitespace-nowrap px-4 py-3.5 text-left text-[13px] font-medium text-[#86909C]">价格区间</th>
+                <th className="whitespace-nowrap px-4 py-3.5 text-left text-[13px] font-medium text-[#86909C]">竞品数量</th>
+                <th className="whitespace-nowrap px-4 py-3.5 text-left text-[13px] font-medium text-[#86909C]">更新时间</th>
+                <th className="whitespace-nowrap px-4 py-3.5 text-left text-[13px] font-medium text-[#86909C]">报告状态</th>
+                <th className="whitespace-nowrap px-4 py-3.5 text-left text-[13px] font-medium text-[#86909C]">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {isLoading && (
+                <tr>
+                  <td colSpan={6} className="px-4 py-12 text-center text-[14px] text-[#86909C]">
+                    <span className="inline-flex items-center gap-2">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      加载中…
+                    </span>
+                  </td>
+                </tr>
+              )}
+              {!isLoading &&
+                pageRows.map((row) => {
+                  const view = statusView(row.status)
+                  const canView = row.status === 'completed' || row.status === 'success'
+                  return (
+                    <tr key={row.id} className="border-b border-[#eef1f5] transition-colors hover:bg-[#f9fafb]">
+                      <td className="whitespace-nowrap px-4 py-4 text-[14px] text-[#0A1B39]">
+                        {row.reportNo || `REP-${row.id.slice(0, 10).toUpperCase()}`}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-4 text-[14px] text-[#344054]">
+                        {row.priceMin != null && row.priceMax != null ? `¥${row.priceMin} ~ ¥${row.priceMax}` : '—'}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-4 text-[14px] text-[#344054]">{row.competitorCount ?? '—'}</td>
+                      <td className="whitespace-nowrap px-4 py-4 text-[14px] text-[#86909C]">{formatDateTime(row.updatedAt)}</td>
+                      <td className="whitespace-nowrap px-4 py-4">
+                        <span className={`rounded-full px-2.5 py-1 text-[12px] ${view.className}`}>{view.text}</span>
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-4">
+                        <div className="flex items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={() => navigate(`/market/competitive/report/${row.id}`)}
+                            disabled={!canView}
+                            className="flex cursor-pointer items-center border-0 bg-transparent p-0 text-[13px] text-[#3388ff] hover:text-[#1a6fe8] disabled:cursor-not-allowed disabled:text-[#b0b7c3]"
+                          >
+                            查看报告
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => navigate(`/market/competitive/agent?reportId=${row.id}`)}
+                            className="flex cursor-pointer items-center border-0 bg-transparent p-0 text-[13px] text-[#3388ff] hover:text-[#1a6fe8]"
+                          >
+                            智能问答
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
+            </tbody>
+          </table>
+        </div>
+
+        {!isLoading && pageRows.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-20">
+            <FileBarChart className="mb-4 h-16 w-16 text-[#d0d5dd]" />
+            <p className="text-[16px] text-[#86909C]">暂无数据</p>
+            <p className="mt-2 text-[14px] text-[#86909C]">前往「AI数据采集」页面采集竞品数据后查看报告</p>
+          </div>
+        )}
+
+        {filteredRows.length > 0 && (
+          <div className="flex items-center justify-between border-t border-[#eef1f5] px-6 py-4">
+            <span className="text-[13px] text-[#86909C]">共 {filteredRows.length} 条</span>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                disabled={safePage === 1}
+                className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border border-[#eef1f5] bg-white text-[#344054] transition-colors hover:bg-[#f9fafb] disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              {renderPageNumbers().map((pageNum) => (
+                <button
+                  key={pageNum}
+                  type="button"
+                  onClick={() => setCurrentPage(pageNum)}
+                  className={`flex h-8 min-w-[32px] cursor-pointer items-center justify-center rounded-lg px-2 text-[13px] transition-colors ${
+                    safePage === pageNum ? 'border-0 bg-[#3388ff] text-white' : 'border border-[#eef1f5] bg-white text-[#344054] hover:bg-[#f9fafb]'
+                  }`}
+                >
+                  {pageNum}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                disabled={safePage === totalPages}
+                className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border border-[#eef1f5] bg-white text-[#344054] transition-colors hover:bg-[#f9fafb] disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
