@@ -1,9 +1,13 @@
+import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { Alert } from '@arco-design/web-react'
 import { useAuth } from '../store/auth'
+import { api } from '../api/client'
 
 function buildNavGroups(isSuper: boolean) {
   const settings = [
     { to: '/settings/account-info', label: '个人中心' },
+    { to: '/settings/ai-config', label: 'AI 配置' },
     ...(isSuper
       ? [
           { to: '/settings/tenants', label: '租户管理' },
@@ -57,6 +61,22 @@ export function AppLayout() {
   const isSuper = user?.username === 'super_admin' || user?.tenantId === 'system'
   const isDesktop = typeof window !== 'undefined' && Boolean((window as any).desktop)
   const navGroups = buildNavGroups(Boolean(isSuper))
+
+  // 未配个人 AI Key 且系统无默认供应商时，提醒先配置
+  const [needAiConfig, setNeedAiConfig] = useState(false)
+  useEffect(() => {
+    let alive = true
+    void api
+      .get<{ selfEnabled: boolean; hasDefaultProvider: boolean }>('/api/ai/self-config')
+      .then(({ data }) => {
+        if (alive) setNeedAiConfig(!data.selfEnabled && !data.hasDefaultProvider)
+      })
+      .catch(() => undefined)
+    return () => {
+      alive = false
+    }
+  }, [])
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -88,6 +108,15 @@ export function AppLayout() {
           </div>
         </header>
         <div className="content-body">
+          {needAiConfig && (
+            <Alert
+              type="warning"
+              showIcon
+              style={{ marginBottom: 16 }}
+              action={<NavLink to="/settings/ai-config">去配置 Key</NavLink>}
+              content="你尚未配置个人 AI 供应商，且系统暂无默认供应商可用。请先配置 Key 以免 AI 功能不可用。"
+            />
+          )}
           <Outlet />
         </div>
       </main>

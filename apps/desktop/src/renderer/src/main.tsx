@@ -29,6 +29,7 @@ import { APlusDetailPage } from './pages/APlusDetailPage'
 import { MarketReportPage } from './pages/MarketReportPage'
 import { OneClickReplicatePage } from './pages/OneClickReplicatePage'
 import { ViralReplicationPage } from './pages/ViralReplicationPage'
+import { AiConfigPage } from './pages/AiConfigPage'
 import { useAuth } from './store/auth'
 import '@arco-design/web-react/dist/css/arco.css'
 import './styles.css'
@@ -81,6 +82,7 @@ createRoot(document.getElementById('root')!).render(
             <Route path="settings/tenants" element={<SuperProtected><AdminTenantsPage /></SuperProtected>} />
             <Route path="settings/providers" element={<SuperProtected><AdminProviderProfilesPage /></SuperProtected>} />
             <Route path="settings/account-info" element={<AccountInfoPage />} />
+            <Route path="settings/ai-config" element={<AiConfigPage />} />
             <Route path="settings/change-password" element={<ChangePasswordPage />} />
             <Route path="settings/change-phone" element={<ChangePhonePage />} />
             <Route path="settings/verify-phone" element={<PhoneVerificationPage />} />
