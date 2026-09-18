@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { PageHeader } from '../components/PageHeader'
 import {
   Badge,
   Button,
@@ -339,7 +340,8 @@ export function DataDownloadPage() {
   ]
 
   return (
-    <div style={{ padding: '20px 24px', background: '#f4f7fb', minHeight: '100%' }}>
+    <div className="h-full overflow-y-auto bg-[#f4f7fb] p-6 custom-scrollbar">
+      <PageHeader title="商品数据下载" className="mb-3" />
       {/* 顶部标题栏 */}
       <div
         style={{

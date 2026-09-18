@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
+import { PageHeader } from '../components/PageHeader'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Alert,
@@ -495,7 +496,9 @@ export function MarketReportPage() {
   ]
 
   return (
-    <div className="page" style={{ padding: '20px 24px' }}>
+    <div className="h-full overflow-y-auto bg-[#f4f7fb] p-6 custom-scrollbar">
+      <PageHeader title="竞品分析报告" className="mb-3" />
+
       {/* 顶部标题栏与快捷操作 */}
       <div style={{ marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>

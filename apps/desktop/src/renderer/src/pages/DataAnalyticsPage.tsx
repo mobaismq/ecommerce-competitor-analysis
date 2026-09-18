@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { PageHeader } from '../components/PageHeader'
 
 // 数据看板：当前后端未提供 analytics 接口，先用本地示例数据展示卡片式统计、趋势与商品表格。
 // 迁移自旧 apps/legacy/src/app/pages/DataAnalytics.tsx，改为新前端纯 CSS 风格。
@@ -53,7 +54,8 @@ export function DataAnalyticsPage() {
   const ConvRateBar = ({ rate }: { rate: number }) => <div style={{ width: `${(rate / 3) * 100}%`, height: '100%', background: '#2e7d32', borderRadius: 4 }} />
 
   return (
-    <div className="page-container">
+    <div className="h-full overflow-y-auto bg-[#f4f7fb] p-6 custom-scrollbar">
+      <PageHeader title="数据分析" className="mb-3" />
       <section className="panel">
         <div className="panel-head">
         <h2>数据看板</h2>
