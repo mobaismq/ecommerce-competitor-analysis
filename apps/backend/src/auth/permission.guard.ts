@@ -2,6 +2,7 @@ import { CanActivate, ExecutionContext, ForbiddenException, Injectable, Unauthor
 import { Reflector } from '@nestjs/core'
 import { PrismaService } from '../prisma.service'
 import { PERMISSIONS_KEY } from './permission.decorator'
+import { resolveUserPermissionCodes } from './permission.resolver'
 
 @Injectable()
 export class PermissionGuard implements CanActivate {
@@ -27,19 +28,7 @@ export class PermissionGuard implements CanActivate {
     const userId = request.user?.sub
     if (!userId) throw new UnauthorizedException()
 
-    const userRoles = await this.prisma.userRole.findMany({
-      where: { userId },
-      select: { roleId: true },
-    })
-    const rolePermissions = await this.prisma.rolePermission.findMany({
-      where: { roleId: { in: userRoles.map((role) => role.roleId) } },
-      select: { permissionId: true },
-    })
-    const permissions = await this.prisma.permission.findMany({
-      where: { id: { in: rolePermissions.map((item) => item.permissionId) } },
-      select: { code: true },
-    })
-    const codes = new Set(permissions.map((item) => item.code))
+    const codes = new Set(await resolveUserPermissionCodes(this.prisma, userId))
     if (!required.every((code) => codes.has(code))) {
       throw new ForbiddenException('无权限')
     }

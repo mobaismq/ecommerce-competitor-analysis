@@ -1,4 +1,4 @@
-import { Body, Controller, HttpCode, Post, Req, UseGuards } from '@nestjs/common'
+import { Body, Controller, Get, HttpCode, Post, Req, UseGuards } from '@nestjs/common'
 import { JwtAuthGuard } from './jwt-auth.guard'
 import { AuthService } from './auth.service'
 import { ChangePasswordDto } from './dto/change-password.dto'
@@ -31,5 +31,11 @@ export class AuthController {
   @HttpCode(200)
   changePhone(@Req() request: { user: { sub: string } }, @Body() body: ChangePhoneDto) {
     return this.authService.changePhone(request.user.sub, body.newPhone)
+  }
+
+  @Get('me')
+  @UseGuards(JwtAuthGuard)
+  me(@Req() request: { user: { sub: string } }) {
+    return this.authService.me(request.user.sub)
   }
 }

@@ -2,6 +2,7 @@ import { Injectable, UnauthorizedException } from '@nestjs/common'
 import { JwtService } from '@nestjs/jwt'
 import { PrismaService } from '../prisma.service'
 import { hashPassword, verifyPassword } from './password'
+import { resolveUserPermissionCodes } from './permission.resolver'
 
 @Injectable()
 export class AuthService {
@@ -61,5 +62,20 @@ export class AuthService {
     if (!user) throw new UnauthorizedException('用户不存在')
     await this.prisma.user.update({ where: { id: userId }, data: { phone: newPhone } })
     return { ok: true }
+  }
+
+  async me(userId: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { id: true, tenantId: true, username: true, displayName: true, phone: true, departmentId: true } })
+    if (!user) throw new UnauthorizedException('用户不存在')
+    const isSuper = user.username === 'super_admin' || user.tenantId === 'system'
+    return {
+      id: user.id,
+      tenantId: user.tenantId,
+      username: user.username,
+      displayName: user.displayName,
+      departmentId: user.departmentId,
+      isSuper,
+      permissions: await resolveUserPermissionCodes(this.prisma, userId),
+    }
   }
 }
