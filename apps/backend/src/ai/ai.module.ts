@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common'
 import { ConfigModule } from '@nestjs/config'
+import { AuthModule } from '../auth/auth.module'
 import { PrismaModule } from '../prisma.module'
 import { AiAuditService } from './ai-audit.service'
 import { ProviderRegistry } from './provider-registry'
@@ -8,7 +9,7 @@ import { AiSelfConfigService } from './ai-self.service'
 import { AiSelfConfigController } from './ai-self.controller'
 
 @Module({
-  imports: [PrismaModule, ConfigModule],
+  imports: [PrismaModule, ConfigModule, AuthModule],
   controllers: [AiSelfConfigController],
   providers: [ProviderRegistry, AiAuditService, ProviderRouter, AiSelfConfigService],
   exports: [ProviderRegistry, AiAuditService, ProviderRouter],
