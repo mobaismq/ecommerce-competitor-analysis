@@ -5,6 +5,7 @@ import { join, resolve } from 'node:path'
 import type { PrismaClient } from '../generated/prisma'
 import { assertCollectionMode, type CollectionMode } from './collection-modes'
 import { runLocalCollection } from './collection-runner'
+import { logger } from './logger'
 import { resolveEmbeddedPython } from './python-runner'
 
 export interface CollectionStartInput {
@@ -127,7 +128,7 @@ export function registerCollectionHandlers(prisma: PrismaClient) {
             : undefined,
         })
       } catch (error) {
-        console.error('collection failed', error)
+        logger.error('collection failed', error)
         try {
           const errLog = `\n[${new Date().toISOString()}] [ERROR] 任务异常失败: ${error instanceof Error ? error.message : String(error)}\n`
           writeFileSync(logFile, errLog, { flag: 'a' })

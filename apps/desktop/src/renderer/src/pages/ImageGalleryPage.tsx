@@ -23,6 +23,7 @@ import {
   IconSearch,
 } from '@arco-design/web-react/icon'
 import { api } from '../api/client'
+import { saveAs } from 'file-saver'
 
 const { Title, Text } = Typography
 const { Row, Col } = Grid
@@ -124,14 +125,8 @@ export function ImageGalleryPage() {
       })
       if (!res.ok) throw new Error('下载失败')
       const blob = await res.blob()
-      const blobUrl = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = blobUrl
-      a.download = asset.originalName || asset.storageKey.split('/').pop() || `image-${asset.id}.png`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(blobUrl)
+      const name = asset.originalName || asset.storageKey.split('/').pop() || `image-${asset.id}.png`
+      saveAs(blob, name)
       Message.success('已开始下载')
     } catch {
       Message.error('下载图片失败')

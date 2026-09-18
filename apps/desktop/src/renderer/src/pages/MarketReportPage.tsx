@@ -50,6 +50,8 @@ import {
   IconTrophy,
 } from '@arco-design/web-react/icon'
 import { api } from '../api/client'
+import { formatDateTime } from '../utils/format'
+import { maxBy } from 'lodash-es'
 
 const { Title, Text, Paragraph } = Typography
 const { Row, Col } = Grid
@@ -390,15 +392,9 @@ export function MarketReportPage() {
   }
 
   // 宏观洞察指标计算
-  const bestSalesBand = useMemo(() => {
-    if (!bands.length) return null
-    return [...bands].sort((a, b) => b.soldCountTotal - a.soldCountTotal)[0]
-  }, [bands])
+  const bestSalesBand = useMemo(() => (bands.length ? maxBy(bands, (b) => b.soldCountTotal) ?? null : null), [bands])
 
-  const bestProfitBand = useMemo(() => {
-    if (!bands.length) return null
-    return [...bands].sort((a, b) => b.grossMargin - a.grossMargin)[0]
-  }, [bands])
+  const bestProfitBand = useMemo(() => (bands.length ? maxBy(bands, (b) => b.grossMargin) ?? null : null), [bands])
 
   const allSellingPoints = useMemo(() => {
     const map = new Map<string, number>()
@@ -916,7 +912,7 @@ export function MarketReportPage() {
               </div>
               <div style={{ marginTop: 8 }}>
                 <Text type="secondary" style={{ fontSize: 11 }}>
-                  更新时间：{new Date(hr.updatedAt).toLocaleString()}
+                  更新时间：{formatDateTime(hr.updatedAt)}
                 </Text>
               </div>
             </Card>

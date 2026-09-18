@@ -3,6 +3,7 @@ import { localStore } from './store'
 import { statSync } from 'node:fs'
 import { join } from 'node:path'
 import { createLocalClient, runLocalCleanup } from './local-db-core'
+import { logger } from './logger'
 
 const CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1000
 let client: ReturnType<typeof createLocalClient> | null = null
@@ -26,9 +27,9 @@ export function startLocalCleanup() {
   const run = async () => {
     try {
       const result = await runLocalCleanup(prisma)
-      console.log('local cleanup finished', result)
+      logger.info('local cleanup finished', result)
     } catch (error) {
-      console.error('local cleanup failed', error)
+      logger.error('local cleanup failed', error)
     }
   }
 

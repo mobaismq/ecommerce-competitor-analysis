@@ -36,6 +36,8 @@ import highCopyAd from '../assets/video-types/image-27.png'
 import productCloth from '../assets/video-types/image-1.png'
 import styleCopyAd from '../assets/viral/image.png'
 import suiteArrow from '../assets/viral/arrow.svg'
+import { saveAs } from 'file-saver'
+import { nanoid } from 'nanoid'
 
 const { Title, Text, Paragraph } = Typography
 const { Option } = Select
@@ -114,7 +116,7 @@ export function ViralReplicationPage() {
 
       const generated: GeneratedImageItem[] = [
         {
-          id: `res-${Date.now()}-1`,
+          id: `res-${nanoid(8)}-1`,
           title: '爆款复刻 · 高度还原营销图',
           url: highCopyAd,
           badge: '高度复刻',
@@ -122,7 +124,7 @@ export function ViralReplicationPage() {
           createTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         },
         {
-          id: `res-${Date.now()}-2`,
+          id: `res-${nanoid(8)}-2`,
           title: '爆款复刻 · 风格化场景融合图',
           url: styleCopyAd,
           badge: '参考风格',
@@ -130,7 +132,7 @@ export function ViralReplicationPage() {
           createTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         },
         {
-          id: `res-${Date.now()}-3`,
+          id: `res-${nanoid(8)}-3`,
           title: '爆款复刻 · 核心卖点强化图',
           url: referenceAd,
           badge: '高度复刻',
@@ -138,7 +140,7 @@ export function ViralReplicationPage() {
           createTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         },
         {
-          id: `res-${Date.now()}-4`,
+          id: `res-${nanoid(8)}-4`,
           title: '爆款复刻 · 氛围感变体展示图',
           url: productCloth,
           badge: '参考风格',
@@ -157,13 +159,7 @@ export function ViralReplicationPage() {
 
   // 下载单张图片
   const handleDownload = (item: GeneratedImageItem) => {
-    const a = document.createElement('a')
-    a.href = item.url
-    a.download = `${item.title}.png`
-    a.target = '_blank'
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
+    saveAs(item.url, `${item.title}.png`)
     Message.success('已触发保存')
   }
 

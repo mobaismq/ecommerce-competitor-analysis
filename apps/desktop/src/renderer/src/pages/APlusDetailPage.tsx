@@ -43,6 +43,8 @@ import {
   IconUpload,
 } from '@arco-design/web-react/icon'
 import { api } from '../api/client'
+import { saveAs } from 'file-saver'
+import { nanoid } from 'nanoid'
 import { AIReportSelector, SectionTitle, type SuiteProduct } from '../components/AIReportSelector'
 
 const { Row, Col } = Grid
@@ -260,7 +262,7 @@ export function APlusDetailPage() {
       setSelectedModules((prev) => [
         ...prev,
         {
-          instanceId: `mod-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          instanceId: `mod-${nanoid(8)}`,
           key: def.key,
           title: def.title,
           prompt: def.defaultPrompt,
@@ -391,11 +393,7 @@ export function APlusDetailPage() {
 
   // 单图下载
   const handleDownloadImage = (url: string, filename = 'detail-image.png') => {
-    const a = document.createElement('a')
-    a.href = url
-    a.download = filename
-    a.target = '_blank'
-    a.click()
+    saveAs(url, filename)
     Message.success('已下载')
   }
 

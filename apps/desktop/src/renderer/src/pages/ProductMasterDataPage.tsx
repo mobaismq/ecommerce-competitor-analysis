@@ -40,6 +40,7 @@ import {
 } from '@arco-design/web-react/icon'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
+import { nanoid } from 'nanoid'
 
 const { Row, Col } = Grid
 
@@ -203,7 +204,7 @@ export function ProductMasterDataPage() {
         setList((prev) => prev.map((item) => (item.id === editing.id ? { ...item, ...values, skus } : item)))
       } else {
         const { data } = await api.post('/api/products/master', payload)
-        const createdId = data?.id || `prod-${Date.now()}`
+        const createdId = data?.id || `prod-${nanoid(8)}`
         setList((prev) => [{ id: createdId, ...values, skus, productImage: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=300&q=80' }, ...prev])
       }
       Message.success(editing ? '主档商品已更新' : '主档商品已创建')
@@ -213,7 +214,7 @@ export function ProductMasterDataPage() {
       if (editing) {
         setList((prev) => prev.map((item) => (item.id === editing.id ? { ...item, ...values, skus } : item)))
       } else {
-        setList((prev) => [{ id: `prod-${Date.now()}`, ...values, skus, productImage: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=300&q=80' }, ...prev])
+        setList((prev) => [{ id: `prod-${nanoid(8)}`, ...values, skus, productImage: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=300&q=80' }, ...prev])
       }
       setModalVisible(false)
       Message.success('已保存至主档')

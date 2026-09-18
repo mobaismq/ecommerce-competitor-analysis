@@ -1,6 +1,7 @@
 /**
  * 电商数据呈现通用格式化工具函数
  */
+import dayjs from 'dayjs'
 
 /**
  * 格式化金额（元）
@@ -42,4 +43,28 @@ export function formatCompactNumber(num: number | null | undefined): string {
     return `${(num / 10000).toFixed(1).replace(/\.0$/, '')}万`
   }
   return String(num)
+}
+
+/** 统一的时间展示格式（含日期与时分秒） */
+const DATETIME_FMT = 'YYYY-MM-DD HH:mm:ss'
+/** 统一的时间展示格式（仅时分秒） */
+const TIME_FMT = 'HH:mm:ss'
+
+/**
+ * 格式化日期时间；解析失败或空值返回 fallback（默认 '-')
+ * @param value 时间字符串 / 时间戳 / Date，或空值
+ */
+export function formatDateTime(value: string | number | Date | null | undefined, fallback = '-'): string {
+  if (value === null || value === undefined || value === '') return fallback
+  const d = dayjs(value)
+  return d.isValid() ? d.format(DATETIME_FMT) : fallback
+}
+
+/**
+ * 格式化仅时间（HH:mm:ss）；解析失败或空值返回 fallback（默认 '-'）
+ */
+export function formatTime(value: string | number | Date | null | undefined, fallback = '-'): string {
+  if (value === null || value === undefined || value === '') return fallback
+  const d = dayjs(value)
+  return d.isValid() ? d.format(TIME_FMT) : fallback
 }

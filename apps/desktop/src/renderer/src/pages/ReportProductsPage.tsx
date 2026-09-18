@@ -41,6 +41,7 @@ import {
   IconThunderbolt,
 } from '@arco-design/web-react/icon'
 import { api } from '../api/client'
+import { nanoid } from 'nanoid'
 
 const { Title, Text, Paragraph } = Typography
 const { Row, Col } = Grid
@@ -202,7 +203,7 @@ export function ReportProductsPage() {
       setProducts((prev) =>
         prev.map((item) =>
           item.id === product.id
-            ? { ...item, mainImageAnalysisId: `analysis_${Date.now()}`, mainImageAnalyzedAt: new Date().toLocaleString() }
+            ? { ...item, mainImageAnalysisId: `analysis_${nanoid(10)}`, mainImageAnalyzedAt: new Date().toLocaleString() }
             : item,
         ),
       )
@@ -211,7 +212,7 @@ export function ReportProductsPage() {
       setProducts((prev) =>
         prev.map((item) =>
           item.id === product.id
-            ? { ...item, mainImageAnalysisId: `analysis_${Date.now()}`, mainImageAnalyzedAt: new Date().toLocaleString() }
+            ? { ...item, mainImageAnalysisId: `analysis_${nanoid(10)}`, mainImageAnalyzedAt: new Date().toLocaleString() }
             : item,
         ),
       )
@@ -249,7 +250,7 @@ export function ReportProductsPage() {
       setProducts((prev) =>
         prev.map((item) =>
           item.id === prod.id
-            ? { ...item, mainImageAnalysisId: `analysis_${Date.now()}`, mainImageAnalyzedAt: new Date().toLocaleString() }
+            ? { ...item, mainImageAnalysisId: `analysis_${nanoid(10)}`, mainImageAnalyzedAt: new Date().toLocaleString() }
             : item,
         ),
       )

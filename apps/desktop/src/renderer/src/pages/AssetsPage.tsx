@@ -17,6 +17,7 @@ import {
   IconRefresh,
 } from '@arco-design/web-react/icon'
 import type { ColumnProps } from '@arco-design/web-react/es/Table'
+import { saveAs } from 'file-saver'
 import { api } from '../api/client'
 
 const { Title, Text } = Typography
@@ -75,14 +76,8 @@ export function AssetsPage() {
       })
       if (!response.ok) throw new Error('下载失败')
       const blob = await response.blob()
-      const blobUrl = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = blobUrl
-      a.download = asset.storageKey.split('/').pop() || `asset-${asset.id}`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(blobUrl)
+      const name = asset.storageKey.split('/').pop() || `asset-${asset.id}`
+      saveAs(blob, name)
       Message.success('已开始下载')
     } catch {
       Message.error('下载资产失败')

@@ -1,5 +1,6 @@
 import { PrismaClient } from '../generated/prisma'
 import { existsSync, unlinkSync } from 'node:fs'
+import { logger } from './logger'
 
 export const TERMINAL_STATUSES = ['success', 'failure', 'cancelled']
 export const DEFAULT_RECORD_RETENTION_DAYS = 30
@@ -32,7 +33,7 @@ function removeFile(filePath: string) {
     unlinkSync(filePath)
     return true
   } catch (error) {
-    console.error(`local cleanup cannot remove file ${filePath}`, error)
+    logger.error(`local cleanup cannot remove file ${filePath}`, error)
     return false
   }
 }

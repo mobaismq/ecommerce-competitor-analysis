@@ -27,6 +27,7 @@ import {
   IconTrophy,
 } from '@arco-design/web-react/icon'
 import { api } from '../api/client'
+import { formatDateTime } from '../utils/format'
 
 const { Title, Text, Paragraph } = Typography
 const { TabPane } = Tabs
@@ -139,7 +140,7 @@ export function AnalysisReportViewPage() {
                 </Tag>
               </div>
               <Text type="secondary" style={{ fontSize: 12 }}>
-                更新时间：{new Date(report.updatedAt).toLocaleString()} · 关联任务 ID: {report.jobId}
+                更新时间：{formatDateTime(report.updatedAt)} · 关联任务 ID: {report.jobId}
               </Text>
             </div>
           </Space>

@@ -21,6 +21,7 @@ import {
 } from '@arco-design/web-react/icon'
 
 import { api } from '../api/client'
+import { formatDateTime } from '../utils/format'
 
 const { Title, Text } = Typography
 const { Option } = Select
@@ -229,7 +230,7 @@ export function ProductManagementPage() {
             {
               title: '更新时间',
               dataIndex: 'updatedAt',
-              render: (time?: string) => (time ? new Date(time).toLocaleString() : '-'),
+              render: (time?: string) => formatDateTime(time),
             },
             {
               title: '操作',

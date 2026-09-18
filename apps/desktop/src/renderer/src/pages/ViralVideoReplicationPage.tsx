@@ -53,6 +53,7 @@ import imgUnbox from '../assets/video-types/image-9.png'
 import imgScene from '../assets/video-types/image-10.png'
 import imgCompare from '../assets/video-types/image-12.png'
 import imgTutorial from '../assets/video-types/image-1.png'
+import { nanoid } from 'nanoid'
 
 const { Title, Text, Paragraph } = Typography
 const { Row, Col } = Grid
@@ -156,7 +157,7 @@ export function ViralVideoReplicationPage() {
 
       const activeTypeName = VIDEO_TYPES.find((t) => t.id === selectedTypes[0])?.label || 'UGC 种草'
       const generatedList: GeneratedVideoItem[] = Array.from({ length: fissionCount }).map((_, i) => ({
-        id: `vid_${Date.now()}_${i + 1}`,
+        id: `vid_${nanoid(8)}_${i + 1}`,
         title: `${activeTypeName} · 变体裂变 #${i + 1} (${market}定制)`,
         type: activeTypeName,
         ratio,

@@ -17,6 +17,7 @@ import {
   IconRobot,
 } from '@arco-design/web-react/icon'
 import { api } from '../api/client'
+import { formatDateTime } from '../utils/format'
 
 const { Title, Text } = Typography
 
@@ -113,7 +114,7 @@ export function ReportsListPage() {
             {
               title: '更新时间',
               dataIndex: 'updatedAt',
-              render: (time: string) => new Date(time).toLocaleString(),
+              render: (time: string) => formatDateTime(time),
             },
             {
               title: '操作',

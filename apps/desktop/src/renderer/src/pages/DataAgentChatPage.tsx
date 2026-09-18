@@ -21,6 +21,7 @@ import {
   IconUser,
 } from '@arco-design/web-react/icon'
 import { api } from '../api/client'
+import { nanoid } from 'nanoid'
 
 const { Title, Text, Paragraph } = Typography
 const { TextArea } = Input
@@ -103,7 +104,7 @@ export function DataAgentChatPage() {
     if (!finalQuestion || !selectedDataset || asking) return
 
     const userMsg: ChatMessage = {
-      id: `user-${Date.now()}`,
+      id: `user-${nanoid(6)}`,
       role: 'user',
       content: finalQuestion,
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
@@ -127,7 +128,7 @@ export function DataAgentChatPage() {
       setMessages((prev) => [
         ...prev,
         {
-          id: `assistant-${Date.now()}`,
+          id: `assistant-${nanoid(6)}`,
           role: 'assistant',
           content: answer,
           time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
@@ -138,7 +139,7 @@ export function DataAgentChatPage() {
       setMessages((prev) => [
         ...prev,
         {
-          id: `assistant-${Date.now()}`,
+          id: `assistant-${nanoid(6)}`,
           role: 'assistant',
           content: '抱歉，当前数据分析助手遇到了网络异常，未能成功生成回答。',
           time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),

@@ -30,6 +30,7 @@ import {
   IconUpload,
 } from '@arco-design/web-react/icon'
 import { api } from '../api/client'
+import { saveAs } from 'file-saver'
 
 const { Title, Text, Paragraph } = Typography
 const { Row, Col } = Grid
@@ -199,13 +200,7 @@ export function OneClickReplicatePage() {
 
   // 下载结果图片
   const downloadResult = (item: ReplicateResult) => {
-    const a = document.createElement('a')
-    a.href = item.url
-    a.download = `${item.title}.jpg`
-    a.target = '_blank'
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
+    saveAs(item.url, `${item.title}.jpg`)
     Message.success('已触发图片保存')
   }
 

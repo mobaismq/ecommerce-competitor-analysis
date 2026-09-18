@@ -33,6 +33,7 @@ import {
 } from '@arco-design/web-react/icon'
 import { api } from '../api/client'
 import { parseRpaProgress } from '../utils/rpaProgress'
+import { nanoid } from 'nanoid'
 
 const { Title, Text, Paragraph } = Typography
 const { Row, Col } = Grid
@@ -165,7 +166,7 @@ export function AnalysisCollectPage() {
 
       if (demoMode) {
         // 演示模式：模拟采集流式日志与进度推进，避免高频请求触发爬虫风控
-        const generatedJobId = `job_demo_${Date.now().toString(36)}`
+        const generatedJobId = `job_demo_${nanoid(10)}`
         setJobId(generatedJobId)
         setPid(Math.floor(10000 + Math.random() * 80000))
         setLoading(false)
@@ -208,7 +209,7 @@ export function AnalysisCollectPage() {
           searchPages: values.searchPages || 8,
           autoParse: newParams.autoParse,
         })
-        const nextJobId = data.jobId || data.id || `job_${Date.now().toString(36)}`
+        const nextJobId = data.jobId || data.id || `job_${nanoid(10)}`
         setJobId(nextJobId)
         setPid(data.pid || null)
         setLogs((prev) => prev + `[${new Date().toLocaleTimeString()}] ✅ 任务创建成功，Job ID: ${nextJobId}\n[${new Date().toLocaleTimeString()}] 正在等待 Worker 进程分配调度...\n`)

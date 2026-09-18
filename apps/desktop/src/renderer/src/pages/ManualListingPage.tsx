@@ -50,6 +50,7 @@ import {
 } from '@arco-design/web-react/icon'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
+import { nanoid } from 'nanoid'
 
 const { Row, Col } = Grid
 const TabPane = Tabs.TabPane
@@ -445,7 +446,7 @@ export function ManualListingPage() {
 
   // 添加 SKU
   const handleAddSku = () => {
-    const newId = `sku-${Date.now()}`
+    const newId = `sku-${nanoid(8)}`
     setSkus((prev) => [
       ...prev,
       {
@@ -493,7 +494,7 @@ export function ManualListingPage() {
       setMainImages((prev) => [
         ...prev,
         {
-          id: `img-${Date.now()}`,
+          id: `img-${nanoid(8)}`,
           url: reader.result as string,
           isMain: prev.length === 0,
         },
