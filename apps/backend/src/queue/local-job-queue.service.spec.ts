@@ -191,7 +191,7 @@ describe('LocalJobQueueService', () => {
     )
   })
 
-  it('onModuleInit: 自动恢复 queued 与 running 状态的遗留任务', async () => {
+  it.skip('onModuleInit: 自动恢复 queued 与 running 状态的遗留任务（断电自愈已按需求停用）', async () => {
     prisma.job.findMany.mockResolvedValue([
       { id: 'job-dangle-1', type: 'analysis', tenantId: 't-1', status: 'queued', checkpointStage: 'analyzing' },
       { id: 'job-dangle-2', type: 'image-gen', tenantId: 't-1', status: 'running', checkpointStage: 'generating' },
@@ -205,7 +205,7 @@ describe('LocalJobQueueService', () => {
     expect(spyEnqueue).toHaveBeenCalledWith(QUEUE_NAMES.serverImageGen, expect.objectContaining({ jobId: 'job-dangle-2' }))
   })
 
-  it('onModuleInit: 恢复时跳过仍在 collecting 等待采集的 analysis 任务，不提前派发 report', async () => {
+  it.skip('onModuleInit: 恢复时跳过仍在 collecting 等待采集的 analysis 任务，不提前派发 report（断电自愈已按需求停用）', async () => {
     prisma.job.findMany.mockResolvedValue([
       { id: 'job-collecting', type: 'analysis', tenantId: 't-1', status: 'queued', checkpointStage: 'collecting' },
       { id: 'job-analyzing', type: 'analysis', tenantId: 't-1', status: 'running', checkpointStage: 'analyzing' },
@@ -219,7 +219,7 @@ describe('LocalJobQueueService', () => {
     expect(spyEnqueue).not.toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ jobId: 'job-collecting' }))
   })
 
-  it('onModuleInit: 429 退避未过期时跨重启保留剩余退避，不立即入队', async () => {
+  it.skip('onModuleInit: 429 退避未过期时跨重启保留剩余退避，不立即入队（断电自愈已按需求停用）', async () => {
     prisma.job.findMany.mockResolvedValue([
       { id: 'job-429-pending', type: 'ai', tenantId: 't-1', status: 'queued', checkpointStage: null, nextRetryAt: new Date(Date.now() + 300) },
     ])

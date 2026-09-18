@@ -99,39 +99,11 @@ export class LocalJobQueueService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * 启动断电自愈：扫描未完成任务并重新加入调度队列
+   * 启动断电自愈：已按需求停用（避免重启时无脑重复派发未完成任务，后续有需要再重新评估引入）
    */
   async onModuleInit() {
-    try {
-      const danglingJobs = await this.prisma.job.findMany({
-        where: { status: { in: ['queued', 'running'] } },
-        orderBy: { createdAt: 'asc' },
-      })
-      if (danglingJobs.length > 0) {
-        this.logger.log(`Found ${danglingJobs.length} dangling jobs to recover`)
-        for (const job of danglingJobs) {
-          // 统一走单一权威 resolveQueueName，与正常派发路径一致；
-          // analysis 处于 collecting 阶段正在等待桌面端采集上报，恢复时不提前派发 report。
-          const queueName = resolveQueueName(job.type, job.checkpointStage)
-          if (!queueName) continue
-
-          const task = { jobId: job.id, tenantId: job.tenantId, type: job.type }
-          const retryAt = job.nextRetryAt ? new Date(job.nextRetryAt).getTime() : 0
-          if (retryAt > Date.now()) {
-            // 429 退避未到期：跨重启保留剩余退避时间再入队
-            this.delayedEnqueue(queueName, task, retryAt - Date.now(), job.id)
-            continue
-          }
-          if (retryAt) {
-            // 退避已到期，清理后立即入队
-            await this.prisma.job.update({ where: { id: job.id }, data: { nextRetryAt: null } }).catch(() => undefined)
-          }
-          await this.enqueue(queueName, task)
-        }
-      }
-    } catch (error) {
-      this.logger.warn(`Failed to recover dangling jobs on init: ${String(error)}`)
-    }
+    // 启动断电自愈暂已停用
+    return
   }
 
   onModuleDestroy() {

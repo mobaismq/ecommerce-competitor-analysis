@@ -7,6 +7,7 @@ dist/
 apps/desktop/out/
 apps/desktop/src/generated/
 apps/desktop/data/
+apps/backend/data/
 apps/desktop/*.db
 apps/desktop/resources/python/
 
