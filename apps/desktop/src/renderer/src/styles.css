@@ -18,57 +18,27 @@ html, body {
 .app-shell {
   height: 100vh;
   width: 100vw;
-  display: grid;
-  grid-template-columns: 232px 1fr;
+  display: flex;
   overflow: hidden;
+  background: #f4f7fb;
 }
-.sidebar {
+.sidebar-clean {
   height: 100vh;
-  background: #171c22;
-  color: #d5dbe2;
+  background: #ffffff;
+  border-right: 1px solid #e5e8ef;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border-right: 1px solid #232a33;
+  transition: width 0.2s cubic-bezier(0.34, 0.69, 0.1, 1);
 }
-.brand {
-  flex-shrink: 0;
-  font-size: 17px;
-  font-weight: 600;
-  padding: 16px 18px;
-  margin-bottom: 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-}
-.nav {
+.content-main {
+  height: 100vh;
   flex: 1;
-  overflow-y: auto;
-  overflow-x: hidden;
-  padding: 10px 12px 24px;
-  min-height: 0;
-}
-.nav::-webkit-scrollbar {
-  width: 5px;
-}
-.nav::-webkit-scrollbar-track {
-  background: transparent;
-}
-.nav::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.16);
-  border-radius: 3px;
-}
-.nav::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.3);
-}
-.nav-group { font-size: 12px; color: #8a94a1; margin: 16px 8px 6px; }
-.nav-link { display: block; color: #c7cdd6; text-decoration: none; padding: 8px 10px; border-radius: 6px; font-size: 14px; }
-.nav-link.active, .nav-link:hover { background: #2a323c; color: #fff; }
-.content {
-  height: 100vh;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  min-width: 0;
   overflow: hidden;
-  background: #f5f6f8;
+  background: #f4f7fb;
 }
 .topbar {
   flex-shrink: 0;

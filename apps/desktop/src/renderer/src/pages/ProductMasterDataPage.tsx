@@ -381,20 +381,9 @@ export function ProductMasterDataPage() {
   ]
 
   return (
-    <div style={{ padding: '20px 24px', background: '#f4f7fb', minHeight: '100%' }}>
+    <div className="h-full overflow-y-auto p-6 bg-[#f4f7fb] flex flex-col gap-4">
       {/* 顶部标题栏 */}
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          marginBottom: 20,
-          background: '#fff',
-          padding: '16px 20px',
-          borderRadius: 8,
-          boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
-        }}
-      >
+      <div className="flex justify-between items-center bg-white p-4 rounded-lg shadow-sm border border-gray-100">
         <div>
           <Space align="center" size="small">
             <Typography.Title heading={5} style={{ margin: 0 }}>
@@ -420,7 +409,7 @@ export function ProductMasterDataPage() {
       </div>
 
       {/* 搜索与过滤卡片 */}
-      <Card bordered={false} style={{ marginBottom: 16, borderRadius: 8 }}>
+      <Card bordered className="rounded-lg shadow-sm bg-white">
         <Row gutter={16} align="center">
           <Col span={8}>
             <Input
@@ -451,13 +440,27 @@ export function ProductMasterDataPage() {
       </Card>
 
       {/* 数据表格 */}
-      <Card bordered={false} style={{ borderRadius: 8, boxShadow: '0 4px 16px rgba(29,38,52,0.06)' }}>
+      <Card bordered className="rounded-lg shadow-sm bg-white">
         <Table
           rowKey="id"
           loading={loading}
           columns={columns}
           data={filteredList}
           pagination={{ pageSize: 8, showTotal: true }}
+          expandedRowRender={(record) => (
+            <div style={{ padding: '12px 16px', background: '#fafbfc', borderRadius: 6, border: '1px solid #edf0f5' }}>
+              <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 8, color: '#4e5969' }}>
+                规格明细 ({record.skus.length} 组)：
+              </div>
+              <Table
+                rowKey={(sku: Sku) => sku.id || sku.skuCode || 'sku'}
+                columns={skuDrawerCols}
+                data={record.skus}
+                pagination={false}
+                size="small"
+              />
+            </div>
+          )}
           size="default"
         />
       </Card>

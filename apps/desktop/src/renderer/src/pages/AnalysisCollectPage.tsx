@@ -5,9 +5,9 @@ import {
   Badge,
   Button,
   Card,
+  Checkbox,
   Divider,
   Form,
-  Grid,
   Input,
   InputNumber,
   Message,
@@ -21,8 +21,6 @@ import {
 import {
   IconArrowRight,
   IconCheckCircleFill,
-  IconClockCircle,
-  IconCloseCircleFill,
   IconCode,
   IconCopy,
   IconDelete,
@@ -36,7 +34,6 @@ import { parseRpaProgress } from '../utils/rpaProgress'
 import { nanoid } from 'nanoid'
 
 const { Title, Text, Paragraph } = Typography
-const { Row, Col } = Grid
 
 type CollectionStatus = 'idle' | 'running' | 'completed' | 'failed' | 'stopped'
 
@@ -49,7 +46,7 @@ interface PresetItem {
 }
 
 const PRESETS: PresetItem[] = [
-  { label: '智能手表 300-500', keyword: '智能手表', minPrice: 300, maxPrice: 500, count: 20 },
+  { label: '智能手表', keyword: '智能手表', minPrice: 300, maxPrice: 500, count: 20 },
   { label: '蓝牙耳机', keyword: '蓝牙耳机', minPrice: 50, maxPrice: 300, count: 30 },
   { label: '猫粮', keyword: '猫粮', minPrice: 80, maxPrice: 300, count: 20 },
   { label: '冲锋衣', keyword: '冲锋衣', minPrice: 200, maxPrice: 800, count: 20 },
@@ -86,7 +83,7 @@ export function AnalysisCollectPage() {
     return parseRpaProgress(logs, activeParams?.competitorCount || 20)
   }, [logs, activeParams?.competitorCount])
 
-  const total = parsedProgress.total || activeParams?.competitorCount || 20
+  const total = activeParams?.competitorCount || 20
   const collected = parsedProgress.current ?? (status === 'completed' ? total : 0)
   const percent =
     parsedProgress.percent ??
@@ -192,7 +189,7 @@ export function AnalysisCollectPage() {
             setStatus('completed')
             Message.success('演示模式采集已圆满完成！')
           }
-        }, 600)
+        }, 500)
         return
       }
 
@@ -248,307 +245,259 @@ export function AnalysisCollectPage() {
     Message.success('日志已复制到剪贴板')
   }
 
-  // 状态显示配置
-  const getStatusBadge = () => {
-    switch (status) {
-      case 'running':
-        return <Badge status="processing" text="采集中" />
-      case 'completed':
-        return <Badge status="success" text="采集完成" />
-      case 'failed':
-        return <Badge status="error" text="执行失败" />
-      case 'stopped':
-        return <Badge status="default" text="已停止" />
-      default:
-        return <Badge status="default" text="就绪待发" />
-    }
-  }
-
   return (
-    <div className="page" style={{ padding: '20px 24px' }}>
+    <div className="h-full overflow-y-auto p-6 bg-[#f4f7fb]">
       {/* 顶部标题区 */}
-      <div style={{ marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+      <div className="flex items-center justify-between mb-5">
         <div>
-          <Title heading={4} style={{ margin: '0 0 6px 0', display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span>AI 数据采集工作台</span>
+          <h1 className="text-xl font-bold text-gray-900 m-0 flex items-center gap-2">
+            <span>AI 数据采集</span>
             <Tag color="arcoblue" icon={<IconThunderbolt />}>RPA 自动化</Tag>
             {demoMode && <Tag color="orange">离线演示模式</Tag>}
-          </Title>
-          <Text type="secondary">
-            针对电商平台进行竞品深度检索，自动抓取商品详情、SKU 规格、主图切片并清洗入库，为市场报告提供数据基石。
-          </Text>
+          </h1>
+          <p className="text-xs text-gray-500 mt-1 mb-0">
+            根据关键词与筛选条件自动化爬取电商平台竞品数据，清洗入库并生成分析特征
+          </p>
         </div>
-        <Space>
+        <div className="flex items-center gap-2">
           <Switch
             checked={demoMode}
             onChange={(checked) => setDemoMode(checked)}
             checkedText="演示"
             uncheckedText="实时"
           />
-          <Tooltip content="开启演示模式可在无爬虫代理或测试环境下模拟完整流程，避免账号封禁">
-            <Text type="secondary" style={{ fontSize: 13, cursor: 'help' }}>演示模式说明</Text>
+          <Tooltip content="开启演示模式可在离线环境模拟完整数据流，防止触发平台风控">
+            <span className="text-xs text-gray-400 cursor-help">离线演示模式</span>
           </Tooltip>
-        </Space>
+        </div>
       </div>
 
-      <Row gutter={20}>
-        {/* 左侧：采集配置面板 */}
-        <Col span={10}>
-          <Card
-            title={
-              <Space>
-                <IconThunderbolt style={{ color: '#165dff' }} />
-                <span style={{ fontWeight: 600 }}>采集条件配置</span>
-              </Space>
-            }
-            extra={
-              <Button
-                size="mini"
-                type="text"
-                onClick={() => {
-                  form.resetFields()
-                  setStatus('idle')
-                  setLogs('')
-                  setActiveParams(null)
-                }}
-              >
-                重置表单
-              </Button>
-            }
-            bordered
-            style={{ borderRadius: 8 }}
-          >
-            {/* 预设快捷选区 */}
-            <div style={{ marginBottom: 16 }}>
-              <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>
-                推荐预设行业关键词：
-              </Text>
-              <Space wrap size={[8, 8]}>
-                {PRESETS.map((preset) => (
-                  <Tag
-                    key={preset.label}
-                    color="gray"
-                    style={{ cursor: 'pointer', userSelect: 'none' }}
-                    onClick={() => applyPreset(preset)}
-                  >
-                    {preset.label}
-                  </Tag>
-                ))}
-              </Space>
+      {/* 左右并排双卡片 (模式 1) */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start">
+        {/* ─── 左卡片：采集条件 ─── */}
+        <Card
+          title={
+            <div className="flex items-center gap-2">
+              <span className="font-semibold text-gray-900">采集条件</span>
             </div>
-
-            <Divider style={{ margin: '14px 0' }} />
-
-            <Form
-              form={form}
-              layout="vertical"
-              initialValues={{
-                keyword: '智能手表',
-                competitorCount: 20,
-                searchPages: 8,
-                autoParse: true,
+          }
+          extra={
+            <Button
+              size="mini"
+              type="text"
+              onClick={() => {
+                form.resetFields()
+                setStatus('idle')
+                setLogs('')
+                setActiveParams(null)
               }}
             >
-              <Form.Item
-                label="竞品关键词"
-                field="keyword"
-                rules={[{ required: true, message: '请输入要采集的商品关键词' }]}
-                help="关键词将直接用于平台搜索检索"
-              >
-                <Input
-                  placeholder="例如：智能手表、颈椎按摩仪"
-                  allowClear
-                  disabled={status === 'running'}
-                />
-              </Form.Item>
-
-              <Form.Item label="价格区间筛选（可选）">
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <Form.Item field="minPrice" noStyle>
-                    <InputNumber
-                      placeholder="最低价 ¥"
-                      min={0}
-                      precision={2}
-                      style={{ flex: 1 }}
-                      disabled={status === 'running'}
-                    />
-                  </Form.Item>
-                  <span style={{ color: 'var(--color-text-3)' }}>—</span>
-                  <Form.Item field="maxPrice" noStyle>
-                    <InputNumber
-                      placeholder="最高价 ¥"
-                      min={0}
-                      precision={2}
-                      style={{ flex: 1 }}
-                      disabled={status === 'running'}
-                    />
-                  </Form.Item>
-                </div>
-              </Form.Item>
-
-              <Row gutter={12}>
-                <Col span={12}>
-                  <Form.Item
-                    label="采集数量 (Top N)"
-                    field="competitorCount"
-                    rules={[{ required: true, message: '请输入采集数量' }]}
-                  >
-                    <InputNumber
-                      min={1}
-                      max={100}
-                      style={{ width: '100%' }}
-                      disabled={status === 'running'}
-                    />
-                  </Form.Item>
-                </Col>
-                <Col span={12}>
-                  <Form.Item label="搜索翻页深度" field="searchPages">
-                    <InputNumber
-                      min={1}
-                      max={20}
-                      style={{ width: '100%' }}
-                      disabled={status === 'running'}
-                    />
-                  </Form.Item>
-                </Col>
-              </Row>
-
-              <Form.Item
-                label="自动入库与切片处理"
-                field="autoParse"
-                tooltip="自动清洗并持久化写入 MySQL，同步解析主图、SKU 及问大家数据"
-              >
-                <Switch defaultChecked disabled={status === 'running'} />
-              </Form.Item>
-
-              {errorMessage && (
-                <Alert
-                  type="error"
-                  content={errorMessage}
-                  style={{ marginBottom: 16 }}
-                  closable
-                  onClose={() => setErrorMessage('')}
-                />
-              )}
-
-              <Space style={{ width: '100%', marginTop: 8 }}>
-                <Button
-                  type="primary"
-                  icon={<IconPlayArrow />}
-                  loading={loading || status === 'running'}
-                  disabled={status === 'running'}
-                  onClick={handleStart}
-                  style={{ flex: 1 }}
-                  size="large"
+              重置
+            </Button>
+          }
+          bordered
+          className="rounded-lg shadow-sm bg-white"
+        >
+          {/* 预设快捷选区 */}
+          <div className="mb-4">
+            <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 6 }}>
+              快捷热门行业关键词：
+            </Text>
+            <Space wrap size={[6, 6]}>
+              {PRESETS.map((preset) => (
+                <Tag
+                  key={preset.label}
+                  color="gray"
+                  style={{ cursor: 'pointer', userSelect: 'none', borderRadius: 4 }}
+                  onClick={() => applyPreset(preset)}
                 >
-                  {status === 'running' ? '正在采集...' : '开始采集任务'}
-                </Button>
-                <Button
-                  type="outline"
-                  status="danger"
-                  icon={<IconStop />}
-                  disabled={status !== 'running'}
-                  onClick={handleStop}
-                  size="large"
-                >
-                  停止
-                </Button>
-              </Space>
-            </Form>
-          </Card>
-        </Col>
+                  {preset.label}
+                </Tag>
+              ))}
+            </Space>
+          </div>
 
-        {/* 右侧：监控、进度指示与暗黑代码控制台 */}
-        <Col span={14}>
-          {/* 实时监控仪表盘 */}
-          <Card
-            title={
-              <Space>
-                <IconCode style={{ color: '#00b42a' }} />
-                <span style={{ fontWeight: 600 }}>任务监控看板</span>
-              </Space>
-            }
-            extra={getStatusBadge()}
-            bordered
-            style={{ borderRadius: 8, marginBottom: 16 }}
+          <Divider style={{ margin: '12px 0 16px 0' }} />
+
+          <Form
+            form={form}
+            layout="vertical"
+            initialValues={{
+              keyword: '智能手表',
+              competitorCount: 20,
+              searchPages: 8,
+              autoParse: true,
+            }}
           >
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
-              <div style={{ background: 'var(--color-fill-2)', padding: '10px 14px', borderRadius: 6 }}>
-                <Text type="secondary" style={{ fontSize: 12, display: 'block' }}>关键词</Text>
-                <Text bold style={{ fontSize: 14 }}>
-                  {activeParams?.keyword ? <Tag color="arcoblue">{activeParams.keyword}</Tag> : '未设定'}
-                </Text>
-              </div>
-              <div style={{ background: 'var(--color-fill-2)', padding: '10px 14px', borderRadius: 6 }}>
-                <Text type="secondary" style={{ fontSize: 12, display: 'block' }}>采集进度</Text>
-                <Text bold style={{ fontSize: 16, color: '#165dff' }}>
-                  {collected} <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>/ {total}</span>
-                </Text>
-              </div>
-              <div style={{ background: 'var(--color-fill-2)', padding: '10px 14px', borderRadius: 6 }}>
-                <Text type="secondary" style={{ fontSize: 12, display: 'block' }}>当前阶段</Text>
-                <Text bold style={{ fontSize: 13, color: '#00b42a' }}>
-                  {status === 'running' ? parsedProgress.label || '正在抓取' : status === 'completed' ? '已完成' : '待机就绪'}
-                </Text>
-              </div>
-              <div style={{ background: 'var(--color-fill-2)', padding: '10px 14px', borderRadius: 6 }}>
-                <Text type="secondary" style={{ fontSize: 12, display: 'block' }}>任务标识</Text>
-                <Text bold style={{ fontSize: 13, fontFamily: 'monospace' }}>
-                  {jobId ? jobId.slice(0, 12) : pid ? `PID: ${pid}` : '-'}
-                </Text>
-              </div>
-            </div>
-
-            {/* 动态进度条 */}
-            <div style={{ marginBottom: 6 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                <Text style={{ fontSize: 12 }}>{parsedProgress.detail || '准备采集任务数据'}</Text>
-                <Text bold style={{ fontSize: 13, color: '#165dff' }}>{percent}%</Text>
-              </div>
-              <Progress
-                percent={percent}
-                status={status === 'failed' ? 'error' : status === 'completed' ? 'success' : 'normal'}
-                animation={status === 'running'}
-                color="#165dff"
+            <Form.Item
+              label="竞品关键词"
+              field="keyword"
+              rules={[{ required: true, message: '请输入竞品关键词' }]}
+            >
+              <Input
+                placeholder="如：手机支架、蓝牙耳机、智能手表"
+                allowClear
+                disabled={status === 'running'}
+                size="large"
               />
+            </Form.Item>
+
+            <Form.Item label="价格区间 (元)">
+              <div className="flex items-center gap-2">
+                <Form.Item field="minPrice" noStyle>
+                  <InputNumber
+                    placeholder="最低价 ¥"
+                    min={0}
+                    precision={2}
+                    className="flex-1"
+                    disabled={status === 'running'}
+                  />
+                </Form.Item>
+                <span className="text-gray-400 font-medium">—</span>
+                <Form.Item field="maxPrice" noStyle>
+                  <InputNumber
+                    placeholder="最高价 ¥"
+                    min={0}
+                    precision={2}
+                    className="flex-1"
+                    disabled={status === 'running'}
+                  />
+                </Form.Item>
+              </div>
+            </Form.Item>
+
+            <div className="grid grid-cols-2 gap-4">
+              <Form.Item
+                label="竞品数量 (Top N)"
+                field="competitorCount"
+                rules={[{ required: true, message: '请输入采集数量' }]}
+                help="限制 1 ~ 100 件商品"
+              >
+                <InputNumber
+                  min={1}
+                  max={100}
+                  className="w-full"
+                  disabled={status === 'running'}
+                />
+              </Form.Item>
+
+              <Form.Item label="翻页深度 (页数)" field="searchPages" help="默认检索前 8 页">
+                <InputNumber
+                  min={1}
+                  max={20}
+                  className="w-full"
+                  disabled={status === 'running'}
+                />
+              </Form.Item>
             </div>
-          </Card>
 
-          {/* 任务完成后的下一步引导 */}
-          {status === 'completed' && (
-            <Alert
-              type="success"
-              style={{ marginBottom: 16 }}
-              icon={<IconCheckCircleFill />}
-              title="竞品数据采集与切片入库已完成！"
-              content={
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
-                  <span>已成功获取并清洗入库 {collected} 个竞品数据集，可直接开启价格带测算与大模型报告分析。</span>
-                  <Button
-                    type="primary"
-                    size="small"
-                    icon={<IconArrowRight />}
-                    onClick={() => {
-                      const kw = activeParams?.keyword || ''
-                      navigate(`/analysis/market-reports?keyword=${encodeURIComponent(kw)}`)
-                    }}
-                  >
-                    前往生成市场报告
-                  </Button>
-                </div>
-              }
+            <Form.Item field="autoParse">
+              <Checkbox defaultChecked disabled={status === 'running'}>
+                <span className="text-xs text-gray-700">竞品数据采集后自动入库并保存图片</span>
+              </Checkbox>
+            </Form.Item>
+
+            {errorMessage && (
+              <Alert
+                type="error"
+                content={errorMessage}
+                className="mb-4"
+                closable
+                onClose={() => setErrorMessage('')}
+              />
+            )}
+
+            <div className="flex gap-3 pt-2">
+              <Button
+                type="primary"
+                icon={<IconPlayArrow />}
+                loading={loading || status === 'running'}
+                disabled={status === 'running'}
+                onClick={handleStart}
+                className="flex-1"
+                size="large"
+                style={{ height: 40, borderRadius: 6 }}
+              >
+                {status === 'running' ? '正在采集中...' : '开始采集'}
+              </Button>
+              <Button
+                type="outline"
+                status="danger"
+                icon={<IconStop />}
+                disabled={status !== 'running'}
+                onClick={handleStop}
+                size="large"
+                style={{ width: 100, height: 40, borderRadius: 6 }}
+              >
+                停止
+              </Button>
+            </div>
+          </Form>
+        </Card>
+
+        {/* ─── 右卡片：采集进度 ─── */}
+        <Card
+          title={
+            <div className="flex items-center gap-2">
+              <span className="font-semibold text-gray-900">采集进度</span>
+            </div>
+          }
+          extra={
+            <div>
+              {status === 'running' ? (
+                <Badge status="processing" text="采集中" />
+              ) : status === 'completed' ? (
+                <Badge status="success" text="已完成" />
+              ) : status === 'failed' ? (
+                <Badge status="error" text="失败" />
+              ) : status === 'stopped' ? (
+                <Badge status="default" text="已停止" />
+              ) : (
+                <Badge status="default" text="待开始" />
+              )}
+            </div>
+          }
+          bordered
+          className="rounded-lg shadow-sm bg-white"
+        >
+          {/* 顶部指标与进度条 (严格对照截图 2) */}
+          <div className="mb-5 bg-[#fafafa] p-4 rounded-lg border border-gray-100">
+            <div className="flex justify-between items-baseline mb-2">
+              <div>
+                <span className="text-2xl font-bold text-gray-900 font-mono">
+                  {status === 'idle' ? '0 / -' : `${collected} / ${total}`}
+                </span>
+                <span className="ml-2 text-xs text-gray-500">
+                  {activeParams?.keyword ? `[${activeParams.keyword}]` : ''}
+                </span>
+              </div>
+              <div className="text-base font-bold text-[#165dff] font-mono">
+                {percent}%
+              </div>
+            </div>
+
+            <Progress
+              percent={percent}
+              status={status === 'failed' ? 'error' : status === 'completed' ? 'success' : 'normal'}
+              animation={status === 'running'}
+              color="#165dff"
+              size="small"
+              showText={false}
             />
-          )}
 
-          {/* 暗黑代码控制台终端 */}
-          <Card
-            title={
-              <Space>
-                <IconCode />
-                <span style={{ fontWeight: 600 }}>运行控制台输出（Console Terminal）</span>
-              </Space>
-            }
-            extra={
+            <div className="flex justify-between items-center mt-2 text-xs text-gray-400">
+              <span>{parsedProgress.label || (status === 'running' ? '正在连接平台并解析商品流水...' : '等待执行')}</span>
+              <span>{jobId ? `任务ID: ${jobId.slice(0, 10)}` : '空闲中'}</span>
+            </div>
+          </div>
+
+          {/* 下部：「>_ 进度流」控制台黑框 (严格对照截图 2) */}
+          <div>
+            <div className="flex justify-between items-center mb-2">
+              <span className="font-mono text-xs font-semibold text-gray-700 flex items-center gap-1.5">
+                <IconCode style={{ fontSize: 13, color: '#165dff' }} />
+                <span>&gt;_ 进度流</span>
+              </span>
               <Space size="mini">
                 <Switch
                   size="small"
@@ -560,43 +509,49 @@ export function AnalysisCollectPage() {
                 <Button size="mini" type="text" icon={<IconCopy />} onClick={handleCopyLogs}>
                   复制
                 </Button>
-                <Button
-                  size="mini"
-                  type="text"
-                  icon={<IconDelete />}
-                  onClick={() => setLogs('')}
-                >
-                  清屏
+                <Button size="mini" type="text" icon={<IconDelete />} onClick={() => setLogs('')}>
+                  清空
                 </Button>
               </Space>
-            }
-            bordered
-            bodyStyle={{ padding: 0 }}
-            style={{ borderRadius: 8, overflow: 'hidden' }}
-          >
+            </div>
+
             <pre
               ref={logContainerRef}
+              className="m-0 p-3 bg-[#13161a] text-[#58a6ff] rounded-lg font-mono text-xs leading-relaxed border border-gray-800 shadow-inner overflow-y-auto"
               style={{
-                margin: 0,
-                padding: 16,
-                background: '#0d1117',
-                color: '#58a6ff',
-                fontFamily: 'SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace',
-                fontSize: 12,
-                lineHeight: 1.6,
-                minHeight: 280,
-                maxHeight: 420,
-                overflowY: 'auto',
+                minHeight: 240,
+                maxHeight: 320,
                 whiteSpace: 'pre-wrap',
                 wordBreak: 'break-all',
               }}
             >
               {logs ||
-                `> 终端就绪。配置左侧条件后点击「开始采集任务」，即可在此处实时查看运行进程日志与商品流水。`}
+                `> 终端就绪。\n> 在左侧配置条件后点击「开始采集」，在此处查看实时采集日志与商品流水。`}
             </pre>
-          </Card>
-        </Col>
-      </Row>
+          </div>
+
+          {/* 任务完成引导条 */}
+          {status === 'completed' && (
+            <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg flex items-center justify-between">
+              <span className="text-xs text-green-800 font-medium flex items-center gap-1.5">
+                <IconCheckCircleFill className="text-green-600" />
+                已成功抓取并入库 {collected} 件竞品数据！
+              </span>
+              <Button
+                type="primary"
+                size="mini"
+                icon={<IconArrowRight />}
+                onClick={() => {
+                  const kw = activeParams?.keyword || ''
+                  navigate(`/market/competitive/report?keyword=${encodeURIComponent(kw)}`)
+                }}
+              >
+                生成市场报告
+              </Button>
+            </div>
+          )}
+        </Card>
+      </div>
     </div>
   )
 }

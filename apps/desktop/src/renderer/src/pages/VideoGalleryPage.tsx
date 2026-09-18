@@ -196,9 +196,9 @@ export function VideoGalleryPage() {
   }
 
   return (
-    <div className="page" style={{ padding: '20px 24px' }}>
+    <div className="h-full overflow-y-auto p-6 bg-[#f4f7fb] flex flex-col gap-4">
       {/* 顶部标题栏 */}
-      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div className="flex justify-between items-center">
         <div>
           <Title heading={4} style={{ margin: '0 0 6px 0', display: 'flex', alignItems: 'center', gap: 10 }}>
             <span>视频素材资产库</span>

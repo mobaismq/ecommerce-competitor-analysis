@@ -188,190 +188,193 @@ export function ViralVideoReplicationPage() {
   }
 
   return (
-    <div className="page" style={{ padding: '20px 24px' }}>
-      {/* 顶部标题区 */}
-      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div>
-          <Title heading={4} style={{ margin: '0 0 6px 0', display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span>爆款视频生成与复刻工作台</span>
-            <Tag color="magenta" icon={<IconVideoCamera />}>AI 视频大模型</Tag>
-          </Title>
-          <Text type="secondary">
-            针对 TikTok、抖音、小红书与天猫电商平台，提供 8 类高转化视频脚本规划、多国语言本地化与爆款短剧一键裂变。
-          </Text>
+    <div className="relative flex h-full bg-[#f4f7fb] overflow-hidden">
+      {/* ─── 左侧 380px 配置工作台 ─── */}
+      <div className="w-[380px] shrink-0 h-full overflow-y-auto border-r border-[#e5e8ef] bg-white p-5 pb-24 select-none">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-[16px] font-bold text-[#0A1B39] m-0 flex items-center gap-2">
+              <span>视频生成与复刻</span>
+              <Tag color="magenta" icon={<IconVideoCamera />} size="small">AI 大模型</Tag>
+            </h2>
+            <div className="text-[12px] text-gray-500 mt-1">
+              8 类高转化视频脚本与带货视频一键生成
+            </div>
+          </div>
         </div>
 
         <Tabs
           type="capsule"
           activeTab={activeTab}
           onChange={(k) => setActiveTab(k as 'generate' | 'replicate')}
+          className="mb-4 w-full"
         >
-          <TabPane key="generate" title="原创生成爆款" />
-          <TabPane key="replicate" title="竞品爆款复刻" />
+          <TabPane key="generate" title="原创爆款" />
+          <TabPane key="replicate" title="竞品复刻" />
         </Tabs>
+
+        {/* 产品图预览与上传 */}
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+            <Text bold style={{ fontSize: 13 }}>产品原图基准</Text>
+            <Tag color="arcoblue" size="small">主视角</Tag>
+          </div>
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+            <div style={{ width: 68, height: 68, borderRadius: 6, overflow: 'hidden', border: '1px solid var(--color-border-2)', flexShrink: 0 }}>
+              <Image src={productImage} width={68} height={68} style={{ objectFit: 'cover' }} preview />
+            </div>
+            <div style={{ flex: 1 }}>
+              <Text style={{ fontSize: 12, color: 'var(--color-text-3)', display: 'block', marginBottom: 6 }}>
+                大模型将严格参照原图材质与结构进行形变对齐。
+              </Text>
+              <Button size="mini" icon={<IconUpload />}>更换实物图</Button>
+            </div>
+          </div>
+        </div>
+
+        <Divider style={{ margin: '14px 0' }} />
+
+        {/* 8 种爆款视频类型选择池 */}
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <Text bold style={{ fontSize: 13 }}>视频类型矩阵 (可多选)</Text>
+            <Text type="secondary" style={{ fontSize: 12 }}>已选 {selectedTypes.length} 类</Text>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
+            {VIDEO_TYPES.map((type) => {
+              const isSelected = selectedTypes.includes(type.id)
+              return (
+                <div
+                  key={type.id}
+                  onClick={() => toggleType(type.id)}
+                  style={{
+                    border: isSelected ? '2px solid #165dff' : '1px solid var(--color-border-2)',
+                    background: isSelected ? '#f2f7ff' : '#fff',
+                    borderRadius: 8,
+                    overflow: 'hidden',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                    position: 'relative',
+                  }}
+                >
+                  <div style={{ height: 80, overflow: 'hidden', position: 'relative' }}>
+                    <img src={type.image} alt={type.label} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top, rgba(0,0,0,0.6), transparent)' }} />
+                    {isSelected && (
+                      <div style={{ position: 'absolute', top: 5, right: 5, width: 18, height: 18, borderRadius: '50%', background: '#165dff', display: 'grid', placeItems: 'center' }}>
+                        <IconCheck style={{ color: '#fff', fontSize: 11 }} />
+                      </div>
+                    )}
+                    <span style={{ position: 'absolute', bottom: 4, left: 6, color: '#fff', fontWeight: 600, fontSize: 12 }}>
+                      {type.label}
+                    </span>
+                  </div>
+                  <div style={{ padding: '4px 6px' }}>
+                    <Text type="secondary" ellipsis style={{ fontSize: 11, display: 'block' }}>
+                      {type.desc}
+                    </Text>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+
+        <Divider style={{ margin: '14px 0' }} />
+
+        {/* 国际化与画幅配置 */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10, marginBottom: 14 }}>
+          <div>
+            <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>目标市场</Text>
+            <Select value={market} onChange={setMarket} size="small">
+              {MARKETS.map((m) => (
+                <Select.Option key={m} value={m}>{m}</Select.Option>
+              ))}
+            </Select>
+          </div>
+          <div>
+            <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>配音与文字</Text>
+            <Select value={language} onChange={setLanguage} size="small">
+              {LANGUAGES.map((l) => (
+                <Select.Option key={l} value={l}>{l}</Select.Option>
+              ))}
+            </Select>
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 14 }}>
+          <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>画幅比例</Text>
+          <Select value={ratio} onChange={setRatio} size="small">
+            {RATIOS.map((r) => (
+              <Select.Option key={r.label} value={r.value}>{r.label}</Select.Option>
+            ))}
+          </Select>
+        </div>
+
+        {/* 复刻链接 (仅复刻 Tab) */}
+        {activeTab === 'replicate' && (
+          <div style={{ marginBottom: 14 }}>
+            <Text bold style={{ fontSize: 13, display: 'block', marginBottom: 4 }}>
+              参考爆款视频链接
+            </Text>
+            <Input
+              prefix={<IconLink />}
+              placeholder="TikTok / 抖音 / YouTube 链接"
+              value={replicateUrl}
+              onChange={setReplicateUrl}
+              allowClear
+              size="small"
+            />
+          </div>
+        )}
+
+        {/* 核心卖点输入 */}
+        <div style={{ marginBottom: 14 }}>
+          <Text bold style={{ fontSize: 13, display: 'block', marginBottom: 4 }}>
+            商品核心卖点（大纲故事板）
+          </Text>
+          <TextArea
+            rows={3}
+            placeholder="请输入要重点展现的 3 个卖点"
+            value={sellingPoints}
+            onChange={setSellingPoints}
+            style={{ fontSize: 12 }}
+          />
+        </div>
+
+        {/* 裂变数量 */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <div>
+            <Text bold style={{ fontSize: 13 }}>一次生成裂变数量</Text>
+            <Text type="secondary" style={{ fontSize: 11, display: 'block' }}>生成不同分镜节奏成品</Text>
+          </div>
+          <InputNumber
+            min={1}
+            max={5}
+            value={fissionCount}
+            onChange={(v) => setFissionCount(v || 1)}
+            style={{ width: 90 }}
+            size="small"
+          />
+        </div>
+
+        {/* 左侧悬浮吸底大按钮 */}
+        <div className="absolute bottom-0 left-0 w-[380px] p-3 bg-white/95 backdrop-blur border-t border-[#e5e8ef] z-10">
+          <Button
+            type="primary"
+            size="large"
+            icon={<IconPlayArrow />}
+            loading={generating}
+            onClick={handleStart}
+            style={{ width: '100%', height: 42, borderRadius: 8 }}
+          >
+            {generating ? '大模型渲染中...' : activeTab === 'generate' ? `一键生成原创短视频 (${fissionCount}条)` : `一键高精复刻视频 (${fissionCount}条)`}
+          </Button>
+        </div>
       </div>
 
-      <Row gutter={20}>
-        {/* 左侧配置栏 (380px) */}
-        <Col span={9}>
-          <Card bordered style={{ borderRadius: 8, marginBottom: 16 }}>
-            {/* 产品图预览与上传 */}
-            <div style={{ marginBottom: 16 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                <Text bold style={{ fontSize: 13 }}>产品原图基准</Text>
-                <Tag color="arcoblue" size="small">主视角</Tag>
-              </div>
-              <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                <div style={{ width: 72, height: 72, borderRadius: 6, overflow: 'hidden', border: '1px solid var(--color-border-2)' }}>
-                  <Image src={productImage} width={72} height={72} style={{ objectFit: 'cover' }} preview />
-                </div>
-                <div style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 12, color: 'var(--color-text-3)', display: 'block', marginBottom: 6 }}>
-                    有实拍图时建议上传，视频大模型将严格参照原图结构进行材质与形变对齐。
-                  </Text>
-                  <Button size="mini" icon={<IconUpload />}>更换实物图</Button>
-                </div>
-              </div>
-            </div>
-
-            <Divider style={{ margin: '14px 0' }} />
-
-            {/* 8 种爆款视频类型选择池 */}
-            <div style={{ marginBottom: 16 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                <Text bold style={{ fontSize: 13 }}>视频类型矩阵 (可多选)</Text>
-                <Text type="secondary" style={{ fontSize: 12 }}>已选 {selectedTypes.length} 类</Text>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
-                {VIDEO_TYPES.map((type) => {
-                  const isSelected = selectedTypes.includes(type.id)
-                  return (
-                    <div
-                      key={type.id}
-                      onClick={() => toggleType(type.id)}
-                      style={{
-                        border: isSelected ? '2px solid #165dff' : '1px solid var(--color-border-2)',
-                        background: isSelected ? '#f2f7ff' : 'var(--color-fill-2)',
-                        borderRadius: 8,
-                        overflow: 'hidden',
-                        cursor: 'pointer',
-                        transition: 'all 0.2s',
-                        position: 'relative',
-                      }}
-                    >
-                      <div style={{ height: 90, overflow: 'hidden', position: 'relative' }}>
-                        <img src={type.image} alt={type.label} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                        <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top, rgba(0,0,0,0.6), transparent)' }} />
-                        {isSelected && (
-                          <div style={{ position: 'absolute', top: 6, right: 6, width: 20, height: 20, borderRadius: '50%', background: '#165dff', display: 'grid', placeItems: 'center' }}>
-                            <IconCheck style={{ color: '#fff', fontSize: 12 }} />
-                          </div>
-                        )}
-                        <span style={{ position: 'absolute', bottom: 6, left: 8, color: '#fff', fontWeight: 600, fontSize: 13 }}>
-                          {type.label}
-                        </span>
-                      </div>
-                      <div style={{ padding: '6px 8px' }}>
-                        <Text type="secondary" ellipsis style={{ fontSize: 11, display: 'block' }}>
-                          {type.desc}
-                        </Text>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-
-            <Divider style={{ margin: '14px 0' }} />
-
-            {/* 国际化与画幅配置 */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10, marginBottom: 14 }}>
-              <div>
-                <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>目标市场</Text>
-                <Select value={market} onChange={setMarket}>
-                  {MARKETS.map((m) => (
-                    <Select.Option key={m} value={m}>{m}</Select.Option>
-                  ))}
-                </Select>
-              </div>
-              <div>
-                <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>配音与文字</Text>
-                <Select value={language} onChange={setLanguage}>
-                  {LANGUAGES.map((l) => (
-                    <Select.Option key={l} value={l}>{l}</Select.Option>
-                  ))}
-                </Select>
-              </div>
-            </div>
-
-            <div style={{ marginBottom: 14 }}>
-              <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>画幅比例</Text>
-              <Select value={ratio} onChange={setRatio}>
-                {RATIOS.map((r) => (
-                  <Select.Option key={r.label} value={r.value}>{r.label}</Select.Option>
-                ))}
-              </Select>
-            </div>
-
-            {/* 复刻链接 (仅复刻 Tab) */}
-            {activeTab === 'replicate' && (
-              <div style={{ marginBottom: 14 }}>
-                <Text bold style={{ fontSize: 13, display: 'block', marginBottom: 4 }}>
-                  参考爆款视频链接
-                </Text>
-                <Input
-                  prefix={<IconLink />}
-                  placeholder="支持粘贴 TikTok / 抖音 / YouTube 视频链接"
-                  value={replicateUrl}
-                  onChange={setReplicateUrl}
-                  allowClear
-                />
-              </div>
-            )}
-
-            {/* 核心卖点输入 */}
-            <div style={{ marginBottom: 14 }}>
-              <Text bold style={{ fontSize: 13, display: 'block', marginBottom: 4 }}>
-                商品核心卖点（大纲故事板）
-              </Text>
-              <TextArea
-                rows={3}
-                placeholder="请输入要重点展现的 3 个卖点"
-                value={sellingPoints}
-                onChange={setSellingPoints}
-              />
-            </div>
-
-            {/* 裂变数量 */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <div>
-                <Text bold style={{ fontSize: 13 }}>一次生成裂变数量</Text>
-                <Text type="secondary" style={{ fontSize: 12, display: 'block' }}>生成不同分镜角度与节奏的成品</Text>
-              </div>
-              <InputNumber
-                min={1}
-                max={5}
-                value={fissionCount}
-                onChange={(v) => setFissionCount(v || 1)}
-                style={{ width: 100 }}
-              />
-            </div>
-
-            <Button
-              type="primary"
-              size="large"
-              icon={<IconPlayArrow />}
-              loading={generating}
-              onClick={handleStart}
-              style={{ width: '100%' }}
-            >
-              {generating ? '大模型渲染生成中...' : activeTab === 'generate' ? '一键生成原创爆款短视频' : '一键高精复刻视频'}
-            </Button>
-          </Card>
-        </Col>
-
-        {/* 右侧展示与视频画廊 */}
-        <Col span={15}>
+      {/* ─── 右侧自适应展示与视频画廊 ─── */}
+      <div className="flex-1 h-full overflow-y-auto p-6">
           {/* 生成进行中提示 */}
           {generating && (
             <Card bordered style={{ borderRadius: 8, marginBottom: 16, textAlign: 'center', padding: '24px 0' }}>
@@ -466,8 +469,7 @@ export function ViralVideoReplicationPage() {
               </Card>
             )
           )}
-        </Col>
-      </Row>
+      </div>
 
       {/* 视频播放 Modal */}
       <Modal

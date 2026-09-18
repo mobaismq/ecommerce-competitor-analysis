@@ -54,7 +54,48 @@ createRoot(document.getElementById('root')!).render(
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/" element={<Protected><AppLayout /></Protected>}>
-            <Route index element={<Navigate to="/analysis/reports" replace />} />
+            <Route index element={<Navigate to="/market/competitive/ai-collect" replace />} />
+            {/* 市场板块 */}
+            <Route path="market/competitive/ai-collect" element={<AnalysisCollectPage />} />
+            <Route path="market/competitive/report" element={<ReportsListPage />} />
+            <Route path="market/competitive/report/view" element={<AnalysisReportViewPage />} />
+            <Route path="market/competitive/report/products" element={<ReportProductsPage />} />
+            <Route path="market/competitive/agent" element={<DataAgentChatPage />} />
+            <Route path="market/market-reports" element={<MarketReportPage />} />
+
+            {/* AIGC 板块 */}
+            <Route path="product-sets" element={<ProductImageSetsPage />} />
+            <Route path="aplus" element={<APlusDetailPage />} />
+            <Route path="replicate" element={<ViralReplicationPage />} />
+            <Route path="video-replicate" element={<ViralVideoReplicationPage />} />
+            <Route path="one-click-replicate" element={<OneClickReplicatePage />} />
+
+            {/* 资产库板块 */}
+            <Route path="asset/image-gallery" element={<ImageGalleryPage />} />
+            <Route path="asset/video-gallery" element={<VideoGalleryPage />} />
+
+            {/* 商品板块 */}
+            <Route path="product/master-data" element={<ProductMasterDataPage />} />
+            <Route path="product/management" element={<ProductManagementPage />} />
+            <Route path="product/management/manual" element={<ManualListingPage />} />
+
+            {/* 系统设置板块 */}
+            <Route path="settings/account" element={<AdminUsersPage />} />
+            <Route path="settings/role" element={<AdminRolesPage />} />
+            <Route path="settings/store" element={<AdminStoresPage />} />
+            <Route path="settings/accounts" element={<AdminUsersPage />} />
+            <Route path="settings/roles" element={<AdminRolesPage />} />
+            <Route path="settings/stores" element={<AdminStoresPage />} />
+            <Route path="settings/departments" element={<SuperProtected><AdminDepartmentsPage /></SuperProtected>} />
+            <Route path="settings/tenants" element={<SuperProtected><AdminTenantsPage /></SuperProtected>} />
+            <Route path="settings/providers" element={<SuperProtected><AdminProviderProfilesPage /></SuperProtected>} />
+            <Route path="settings/account-info" element={<AccountInfoPage />} />
+            <Route path="settings/ai-config" element={<AiConfigPage />} />
+            <Route path="settings/change-password" element={<ChangePasswordPage />} />
+            <Route path="settings/change-phone" element={<ChangePhonePage />} />
+            <Route path="settings/verify-phone" element={<PhoneVerificationPage />} />
+
+            {/* 存量旧路由别名兼容 */}
             <Route path="analysis/collect" element={<AnalysisCollectPage />} />
             <Route path="analysis/reports" element={<ReportsListPage />} />
             <Route path="analysis/reports/:id" element={<AnalysisReportViewPage />} />
@@ -76,17 +117,6 @@ createRoot(document.getElementById('root')!).render(
             <Route path="assets" element={<AssetsPage />} />
             <Route path="assets/images" element={<ImageGalleryPage />} />
             <Route path="assets/videos" element={<VideoGalleryPage />} />
-            <Route path="settings/accounts" element={<SuperProtected><AdminUsersPage /></SuperProtected>} />
-            <Route path="settings/roles" element={<SuperProtected><AdminRolesPage /></SuperProtected>} />
-            <Route path="settings/departments" element={<SuperProtected><AdminDepartmentsPage /></SuperProtected>} />
-            <Route path="settings/stores" element={<AdminStoresPage />} />
-            <Route path="settings/tenants" element={<SuperProtected><AdminTenantsPage /></SuperProtected>} />
-            <Route path="settings/providers" element={<SuperProtected><AdminProviderProfilesPage /></SuperProtected>} />
-            <Route path="settings/account-info" element={<AccountInfoPage />} />
-            <Route path="settings/ai-config" element={<AiConfigPage />} />
-            <Route path="settings/change-password" element={<ChangePasswordPage />} />
-            <Route path="settings/change-phone" element={<ChangePhonePage />} />
-            <Route path="settings/verify-phone" element={<PhoneVerificationPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>

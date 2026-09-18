@@ -151,46 +151,37 @@ export function DataAgentChatPage() {
   }
 
   return (
-    <div className="studio-container">
+    <div className="h-full flex flex-col overflow-hidden bg-[#f4f7fb]">
       {/* 头部导航与标题 */}
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          marginBottom: 16,
-          background: '#fff',
-          padding: '14px 20px',
-          borderRadius: 8,
-          boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
-          flexShrink: 0,
-        }}
-      >
+      <div className="px-6 py-3 bg-white border-b border-gray-100 flex items-center justify-between shrink-0">
         <div>
-          <Title heading={5} style={{ margin: 0 }}>
-            数据智能体（AI 对话分析）
-          </Title>
-          <Text type="secondary" style={{ fontSize: 13 }}>
-            选择已采集的竞品数据集或报告，基于大模型进行多维深度洞察、商机发现与策略咨询
-          </Text>
+          <h1 className="text-lg font-bold text-gray-900 m-0 flex items-center gap-2">
+            <span>智能问答 Agent</span>
+            <Tag color="purple" icon={<IconRobot />}>AI 对话分析</Tag>
+          </h1>
+          <p className="text-xs text-gray-500 mt-0.5 mb-0">
+            选择已采集的竞品数据集或报告，基于大模型进行多维深度洞察与选品/定价/卖点咨询
+          </p>
         </div>
         <Button
           icon={<IconRefresh />}
           loading={loadingDatasets}
           onClick={() => void loadDatasets()}
+          size="small"
         >
           刷新数据集
         </Button>
       </div>
 
-      {/* 主体两栏布局 */}
-      <div className="studio-body">
-        {/* 左侧：数据集选择 */}
+      {/* 主体两栏布局 (模式 4) */}
+      <div className="flex-1 flex overflow-hidden p-5 gap-4">
+        {/* 左侧：320px 数据集选择抽屉 */}
         <Card
-          title="选择数据集"
-          extra={<Tag color="arcoblue">{datasets.length} 个</Tag>}
-          style={{ width: 340, flexShrink: 0, display: 'flex', flexDirection: 'column', height: '100%', borderRadius: 8, boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}
+          title="选择分析数据集"
+          extra={<Tag color="arcoblue" size="small">{datasets.length} 个</Tag>}
+          style={{ width: 320, flexShrink: 0, display: 'flex', flexDirection: 'column', height: '100%', borderRadius: 8 }}
           bodyStyle={{ display: 'flex', flexDirection: 'column', flex: 1, padding: 12, minHeight: 0 }}
+          className="shadow-sm"
         >
           <Input
             prefix={<IconSearch />}
@@ -200,15 +191,16 @@ export function DataAgentChatPage() {
             onPressEnter={() => void loadDatasets()}
             style={{ marginBottom: 12 }}
             allowClear
+            size="small"
           />
 
-          <div className="custom-scrollbar" style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div className="flex-1 overflow-y-auto flex flex-col gap-2 pr-1">
             {loadingDatasets ? (
               <div style={{ textAlign: 'center', padding: '40px 0' }}>
                 <Spin dot />
               </div>
             ) : datasets.length === 0 ? (
-              <Empty description="暂无可用的数据集，请先进行数据采集" />
+              <Empty description="暂无可用的数据集，请先采集" />
             ) : (
               datasets.map((item) => {
                 const isSelected = item.id === datasetId
@@ -220,24 +212,24 @@ export function DataAgentChatPage() {
                       setMessages([])
                     }}
                     style={{
-                      padding: 12,
+                      padding: 10,
                       borderRadius: 8,
-                      border: isSelected ? '1px solid #165dff' : '1px solid #e5e6eb',
+                      border: isSelected ? '1.5px solid #165dff' : '1px solid #e5e6eb',
                       backgroundColor: isSelected ? '#f2f7ff' : '#fff',
                       cursor: 'pointer',
                       transition: 'all 0.2s',
                     }}
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
-                      <Text bold style={{ color: isSelected ? '#165dff' : '#1d2129' }}>
+                      <Text bold style={{ fontSize: 13, color: isSelected ? '#165dff' : '#1d2129' }}>
                         {item.title || item.keyword || '竞品数据集'}
                       </Text>
                       <Tag size="small" color={isSelected ? 'arcoblue' : 'gray'}>
                         {item.status === 'generated' ? '已出报告' : item.status || '已就绪'}
                       </Tag>
                     </div>
-                    <div style={{ display: 'flex', gap: 12, fontSize: 12, color: '#86909c' }}>
-                      <span><IconApps /> {item.competitorCount ?? 0} 个商品</span>
+                    <div style={{ display: 'flex', gap: 10, fontSize: 11, color: '#86909c' }}>
+                      <span><IconApps /> {item.competitorCount ?? 0} 款竞品</span>
                       {item.priceRange && <span>价格: {item.priceRange}</span>}
                     </div>
                   </div>
@@ -249,13 +241,14 @@ export function DataAgentChatPage() {
 
         {/* 右侧：聊天主视窗 */}
         <Card
-          style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', height: '100%', borderRadius: 8, boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}
+          style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', height: '100%', borderRadius: 8 }}
           bodyStyle={{ display: 'flex', flexDirection: 'column', flex: 1, padding: 0, minHeight: 0 }}
+          className="shadow-sm"
         >
           {/* 对话窗口顶部信息 */}
           <div
             style={{
-              padding: '12px 20px',
+              padding: '10px 20px',
               borderBottom: '1px solid #f2f3f5',
               display: 'flex',
               alignItems: 'center',
@@ -266,8 +259,8 @@ export function DataAgentChatPage() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <div
                 style={{
-                  width: 34,
-                  height: 34,
+                  width: 32,
+                  height: 32,
                   borderRadius: '50%',
                   background: 'linear-gradient(135deg, #165dff 0%, #722ed1 100%)',
                   display: 'flex',
@@ -276,56 +269,56 @@ export function DataAgentChatPage() {
                   color: '#fff',
                 }}
               >
-                <IconRobot style={{ fontSize: 18 }} />
+                <IconRobot style={{ fontSize: 16 }} />
               </div>
               <div>
-                <Text bold style={{ fontSize: 14 }}>
+                <Text bold style={{ fontSize: 13 }}>
                   {selectedDataset ? `${selectedDataset.keyword || selectedDataset.title} · 数据洞察助手` : '请先在左侧选择数据集'}
                 </Text>
-                <div style={{ fontSize: 12, color: '#86909c' }}>
-                  基于统一 AI Provider 驱动，深入挖掘市场价格带、核心卖点与蓝海机会
+                <div style={{ fontSize: 11, color: '#86909c' }}>
+                  基于多模态大模型，深度挖掘市场价格带、核心卖点与蓝海机会
                 </div>
               </div>
             </div>
             {selectedDataset && (
-              <Tag icon={<IconThunderbolt />} color="purple">
-                数据集 ID: {selectedDataset.id.slice(0, 8)}...
+              <Tag icon={<IconThunderbolt />} color="purple" size="small">
+                ID: {selectedDataset.id.slice(0, 8)}...
               </Tag>
             )}
           </div>
 
           {/* 消息滚动流 */}
-          <div className="custom-scrollbar" style={{ flex: 1, overflowY: 'auto', padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div className="flex-1 overflow-y-auto p-5 flex flex-col gap-4">
             {messages.length === 0 ? (
-              <div style={{ margin: 'auto', textAlign: 'center', maxWidth: 540 }}>
+              <div style={{ margin: 'auto', textAlign: 'center', maxWidth: 520 }}>
                 <div
                   style={{
-                    width: 56,
-                    height: 56,
+                    width: 52,
+                    height: 52,
                     borderRadius: 16,
                     backgroundColor: '#e8f3ff',
                     color: '#165dff',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    fontSize: 28,
-                    margin: '0 auto 16px',
+                    fontSize: 24,
+                    margin: '0 auto 14px',
                   }}
                 >
                   <IconMessage />
                 </div>
-                <Title heading={5} style={{ marginBottom: 8 }}>
-                  问问数据智能体
+                <Title heading={5} style={{ marginBottom: 6 }}>
+                  智能数据问答助手已就绪
                 </Title>
-                <Paragraph type="secondary" style={{ fontSize: 13, marginBottom: 24 }}>
-                  可以直接针对当前数据集提问，也可以点击下方推荐的快捷问题快速开始：
+                <Paragraph type="secondary" style={{ fontSize: 13, marginBottom: 20 }}>
+                  可直接针对当前数据集提问，也可以点击下方推荐的快捷追问胶囊快速开始：
                 </Paragraph>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                   {QUICK_QUESTIONS.map((q) => (
                     <Button
                       key={q}
-                      size="large"
-                      style={{ textAlign: 'left', height: 'auto', padding: '10px 14px', whiteSpace: 'normal', borderRadius: 8 }}
+                      size="default"
+                      style={{ textAlign: 'left', height: 'auto', padding: '10px 14px', whiteSpace: 'normal', borderRadius: 8, fontSize: 12 }}
                       disabled={!selectedDataset || asking}
                       onClick={() => void handleAsk(q)}
                     >
@@ -343,14 +336,14 @@ export function DataAgentChatPage() {
                     style={{
                       display: 'flex',
                       justifyContent: isUser ? 'flex-end' : 'flex-start',
-                      gap: 12,
+                      gap: 10,
                     }}
                   >
                     {!isUser && (
                       <div
                         style={{
-                          width: 32,
-                          height: 32,
+                          width: 30,
+                          height: 30,
                           borderRadius: '50%',
                           backgroundColor: '#722ed1',
                           color: '#fff',
@@ -358,6 +351,7 @@ export function DataAgentChatPage() {
                           alignItems: 'center',
                           justifyContent: 'center',
                           flexShrink: 0,
+                          fontSize: 14,
                         }}
                       >
                         <IconRobot />
@@ -366,14 +360,15 @@ export function DataAgentChatPage() {
                     <div style={{ maxWidth: '75%' }}>
                       <div
                         style={{
-                          padding: '12px 16px',
-                          borderRadius: isUser ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
+                          padding: '10px 14px',
+                          borderRadius: isUser ? '14px 14px 2px 14px' : '14px 14px 14px 2px',
                           backgroundColor: isUser ? '#165dff' : '#f2f3f5',
                           color: isUser ? '#fff' : '#1d2129',
                           lineHeight: 1.6,
+                          fontSize: 13,
                           whiteSpace: 'pre-wrap',
                           wordBreak: 'break-word',
-                          boxShadow: isUser ? '0 4px 12px rgba(22,93,255,0.2)' : 'none',
+                          boxShadow: isUser ? '0 2px 8px rgba(22,93,255,0.18)' : 'none',
                         }}
                       >
                         {m.content}
@@ -383,7 +378,7 @@ export function DataAgentChatPage() {
                           style={{
                             fontSize: 11,
                             color: '#86909c',
-                            marginTop: 4,
+                            marginTop: 3,
                             textAlign: isUser ? 'right' : 'left',
                           }}
                         >
@@ -394,8 +389,8 @@ export function DataAgentChatPage() {
                     {isUser && (
                       <div
                         style={{
-                          width: 32,
-                          height: 32,
+                          width: 30,
+                          height: 30,
                           borderRadius: '50%',
                           backgroundColor: '#165dff',
                           color: '#fff',
@@ -403,6 +398,7 @@ export function DataAgentChatPage() {
                           alignItems: 'center',
                           justifyContent: 'center',
                           flexShrink: 0,
+                          fontSize: 14,
                         }}
                       >
                         <IconUser />
@@ -414,11 +410,11 @@ export function DataAgentChatPage() {
             )}
 
             {asking && (
-              <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                 <div
                   style={{
-                    width: 32,
-                    height: 32,
+                    width: 30,
+                    height: 30,
                     borderRadius: '50%',
                     backgroundColor: '#722ed1',
                     color: '#fff',
@@ -432,17 +428,17 @@ export function DataAgentChatPage() {
                 </div>
                 <div
                   style={{
-                    padding: '10px 16px',
-                    borderRadius: 16,
+                    padding: '8px 14px',
+                    borderRadius: 14,
                     backgroundColor: '#f2f3f5',
                     color: '#4e5969',
-                    fontSize: 13,
+                    fontSize: 12,
                     display: 'flex',
                     alignItems: 'center',
                     gap: 8,
                   }}
                 >
-                  <Spin size={14} /> 正在深度分析数据集并生成结论...
+                  <Spin size={12} /> 正在深度挖掘数据集并生成回答...
                 </div>
               </div>
             )}
@@ -450,8 +446,8 @@ export function DataAgentChatPage() {
           </div>
 
           {/* 底部输入框 */}
-          <div style={{ padding: '16px 20px', borderTop: '1px solid #f2f3f5', backgroundColor: '#fff' }}>
-            <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end' }}>
+          <div style={{ padding: '12px 16px', borderTop: '1px solid #f2f3f5', backgroundColor: '#fff' }}>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end' }}>
               <TextArea
                 value={question}
                 onChange={(v) => setQuestion(v)}
@@ -468,7 +464,7 @@ export function DataAgentChatPage() {
                 }
                 disabled={!selectedDataset || asking}
                 autoSize={{ minRows: 2, maxRows: 4 }}
-                style={{ flex: 1, borderRadius: 8 }}
+                style={{ flex: 1, borderRadius: 8, fontSize: 13 }}
               />
               <Button
                 type="primary"
@@ -476,7 +472,7 @@ export function DataAgentChatPage() {
                 disabled={!selectedDataset || !question.trim() || asking}
                 loading={asking}
                 onClick={() => void handleAsk()}
-                style={{ height: 52, padding: '0 20px', borderRadius: 8 }}
+                style={{ height: 48, padding: '0 18px', borderRadius: 8 }}
               >
                 发送
               </Button>

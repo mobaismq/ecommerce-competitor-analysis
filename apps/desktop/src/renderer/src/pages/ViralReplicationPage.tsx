@@ -164,19 +164,11 @@ export function ViralReplicationPage() {
   }
 
   return (
-    <div className="page-container">
-      <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
-        {/* ─── 左侧配置工作台 ─── */}
-        <Card
-          style={{ width: 380, flexShrink: 0, borderRadius: 8, boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}
-          title={
-            <Space>
-              <IconCopy style={{ color: 'rgb(var(--primary-6))' }} />
-              <span style={{ fontWeight: 600 }}>爆款图文复刻配置</span>
-            </Space>
-          }
-        >
-          <Space direction="vertical" style={{ width: '100%' }} size="medium">
+    <div className="relative flex h-full bg-[#f4f7fb] overflow-hidden">
+      {/* ─── 左侧 360px 配置工作台 ─── */}
+      <div className="w-[360px] shrink-0 h-full overflow-y-auto border-r border-[#e5e8ef] bg-white p-5 pb-24 select-none">
+        <h2 className="text-[16px] font-bold text-[#0A1B39] mb-4">爆款图文复刻配置</h2>
+        <Space direction="vertical" style={{ width: '100%' }} size="medium">
             {/* ① 产品原图 (可选) */}
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, alignItems: 'center' }}>
@@ -395,10 +387,10 @@ export function ViralReplicationPage() {
               {generating ? 'AI 正在复刻爆款图中...' : '一键复刻爆款图'}
             </Button>
           </Space>
-        </Card>
+      </div>
 
-        {/* ─── 右侧工作区 ─── */}
-        <div style={{ flex: 1, minWidth: 0 }}>
+      {/* ─── 右侧工作区 ─── */}
+      <div className="flex-1 h-full overflow-y-auto p-6 custom-scrollbar">
           {/* 顶部标题横幅 */}
           <div
             style={{
@@ -658,7 +650,6 @@ export function ViralReplicationPage() {
             )}
           </Card>
         </div>
-      </div>
 
       {/* ─── 大图预览弹窗 ─── */}
       <Modal
