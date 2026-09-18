@@ -59,7 +59,7 @@ export class TaobaoAdapter implements PlatformAdapter {
     this.mock = process.env.PLATFORM_MOCK === 'true' || process.env.NODE_ENV !== 'production'
   }
 
-  configStatus() {
+  getStatus() {
     return { configured: Boolean(this.appKey && this.appSecret), hasSession: Boolean(this.session), mock: this.mock }
   }
 

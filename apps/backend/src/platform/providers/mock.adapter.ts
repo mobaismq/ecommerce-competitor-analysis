@@ -7,6 +7,10 @@ export class MockPlatformAdapter implements PlatformAdapter {
     return true
   }
 
+  getStatus() {
+    return { configured: true, mock: true }
+  }
+
   async fetchCategories(parentExternalId = '0'): Promise<PlatformCategory[]> {
     const rows: PlatformCategory[] = [
       { externalId: 'mock-1', parentExternalId: '0', name: 'Mock 类目一', isParent: true, rawPayload: { kind: 'mock' } },

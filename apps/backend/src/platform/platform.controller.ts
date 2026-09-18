@@ -47,6 +47,11 @@ export class PlatformAdapterController {
     return this.platformAdapterService.getShops(code)
   }
 
+  @Get(':code/status')
+  status(@Param('code') code: string) {
+    return this.platformAdapterService.getStatus(code)
+  }
+
   @Post(':code/publish')
   publish(
     @Req() request: { user: { tenantId: string } },

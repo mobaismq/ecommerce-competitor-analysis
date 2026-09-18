@@ -29,12 +29,20 @@ export interface PlatformListingResult {
   error?: string
 }
 
+export interface PlatformStatus {
+  configured: boolean
+  mock?: boolean
+  detail?: string
+}
+
 export interface PlatformAdapter {
   readonly code: string
   supports(method: PlatformMethod): boolean
   fetchCategories(parentExternalId?: string): Promise<PlatformCategory[]>
   fetchShops(): Promise<PlatformShop[]>
   submitListing?(input: PlatformListingInput): Promise<PlatformListingResult>
+  /** 连接/授权配置状态（对齐旧版 /api/taobao/status） */
+  getStatus(): PlatformStatus
 }
 
 export class PlatformAdapterError extends Error {

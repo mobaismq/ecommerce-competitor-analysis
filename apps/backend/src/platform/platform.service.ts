@@ -51,6 +51,11 @@ export class PlatformAdapterService {
     return adapter.fetchShops()
   }
 
+  getStatus(code: string) {
+    const adapter = this.getAdapter(code)
+    return { ok: true, code, ...adapter.getStatus() }
+  }
+
   async listProducts(tenantId: string, query: QueryProductsInput = {}) {
     const page = Math.max(1, Number(query.page ?? 1))
     const pageSize = Math.min(100, Math.max(1, Number(query.pageSize ?? 20)))
