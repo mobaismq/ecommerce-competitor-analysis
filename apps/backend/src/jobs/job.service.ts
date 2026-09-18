@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { LocalJobQueueService } from '../queue/local-job-queue.service'
-import { QUEUE_NAMES } from '../queue/queue-names'
+import { resolveQueueName } from '../queue/queue-names'
 import { PrismaService } from '../prisma.service'
 import { CreateJobDto } from './dto/create-job.dto'
 
@@ -18,6 +18,7 @@ export class JobService {
       const profile = await this.prisma.providerProfile.findUnique({ where: { id: dto.providerProfileId } })
       if (!profile || !profile.enabled) throw new BadRequestException('ProviderProfile 不存在或已禁用')
     }
+    const initialStage = dto.type === 'analysis' ? 'collecting' : 'queued'
     let job
     try {
       job = await this.prisma.job.create({
@@ -26,7 +27,7 @@ export class JobService {
           type: dto.type,
           businessKey,
           status: 'queued',
-          stage: 'queued',
+          stage: initialStage,
           providerProfileId: dto.providerProfileId,
         },
       })
@@ -39,11 +40,13 @@ export class JobService {
       throw error
     }
 
-    const queueName = this.queueNameFor(dto.type)
-    await this.localQueue.enqueue(
-      queueName,
-      { jobId: job.id, tenantId, type: dto.type },
-    )
+    const queueName = resolveQueueName(dto.type, initialStage)
+    if (queueName) {
+      await this.localQueue.enqueue(
+        queueName,
+        { jobId: job.id, tenantId, type: dto.type },
+      )
+    }
 
     return { jobId: job.id, businessKey, created: true }
   }
@@ -58,15 +61,18 @@ export class JobService {
     if (job.status !== 'failure' && job.status !== 'cancelled') {
       throw new BadRequestException('仅终态任务可重试')
     }
-    const stage = job.checkpointStage ?? 'queued'
+    const stage = job.checkpointStage ?? (job.type === 'analysis' ? 'collecting' : 'queued')
     const updated = await this.prisma.job.update({
       where: { id },
       data: { status: 'queued', stage, attempt: job.attempt + 1, errorCode: null, errorMessage: null },
     })
-    await this.localQueue.enqueue(
-      this.queueNameFor(job.type, job.checkpointStage),
-      { jobId: job.id, tenantId, type: job.type },
-    )
+    const queueName = resolveQueueName(job.type, stage)
+    if (queueName) {
+      await this.localQueue.enqueue(
+        queueName,
+        { jobId: job.id, tenantId, type: job.type },
+      )
+    }
     return updated
   }
 
@@ -75,14 +81,5 @@ export class JobService {
       return `${dto.storeId}|${dto.keyword.trim().toLowerCase()}|${dto.analysisType}`
     }
     throw new BadRequestException('businessKey 或 storeId+keyword+analysisType 必填')
-  }
-
-  private queueNameFor(type: string, stage?: string | null) {
-    if (type === 'analysis' || type === 'collection' || type === 'import') {
-      return QUEUE_NAMES.serverReport
-    }
-    if (type === 'image-gen' || type === 'image_gen') return QUEUE_NAMES.serverImageGen
-    if (type === 'listing') return QUEUE_NAMES.serverListing
-    return QUEUE_NAMES.serverAi
   }
 }

@@ -115,6 +115,10 @@ export class ImageFlowService {
       where: { id: job.id },
       data: { status: 'success', stage: 'success', checkpointStage: 'reviewing' },
     })
+    await this.localQueue.enqueue(
+      QUEUE_NAMES.flowFinalizer,
+      { jobId: job.id, tenantId: job.tenantId, type: job.type },
+    )
     return { decision: input.decision, regenerated: false }
   }
 }

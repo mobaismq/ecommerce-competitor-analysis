@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client'
 import { Injectable, OnModuleInit } from '@nestjs/common'
 import { PrismaService } from '../prisma.service'
 import { LocalJobQueueService, type JobProcessor, type JobProcessContext } from './local-job-queue.service'
+import { AUTO_CHAIN_RULES, parseAutoChainConfig } from './auto-chain'
 import { QUEUE_NAMES } from './queue-names'
 
 @Injectable()
@@ -15,9 +16,8 @@ export class FlowFinalizerWorker implements JobProcessor, OnModuleInit {
     this.localQueue.registerProcessor(QUEUE_NAMES.flowFinalizer, this)
   }
 
-  async process(jobOrContext: JobProcessContext | { data?: { jobId?: string; tenantId?: string } }) {
-    const data = 'data' in jobOrContext ? jobOrContext.data : undefined
-    const jobId = (data?.jobId ?? ('jobId' in jobOrContext ? jobOrContext.jobId : undefined)) as string | undefined
+  async process(context: JobProcessContext) {
+    const jobId = context.jobId
     if (!jobId) return { ok: false, reason: 'missing jobId' }
     await this.prisma.job.update({
       where: { id: jobId },
@@ -31,26 +31,17 @@ export class FlowFinalizerWorker implements JobProcessor, OnModuleInit {
     return { ok: true, queue: QUEUE_NAMES.flowFinalizer, jobId }
   }
 
-  private async maybeChain(jobId: string) {
+  public async maybeChain(jobId: string) {
     const source = await this.prisma.job.findUnique({ where: { id: jobId } })
     if (!source) return
     const configRow = await this.prisma.systemConfig.findUnique({ where: { key: 'flow.autoChain' } })
-    if (!configRow?.value) return
-    let config: Record<string, boolean>
-    try {
-      config = JSON.parse(configRow.value)
-    } catch {
-      return
-    }
-    const target =
-      source.type === 'analysis' && config.analysisToImageGen
-        ? { type: 'image-gen', queue: QUEUE_NAMES.serverImageGen }
-        : source.type === 'image-gen' && config.imageGenToListing
-          ? { type: 'listing', queue: QUEUE_NAMES.serverListing }
-          : null
-    if (!target) return
+    const config = parseAutoChainConfig(configRow?.value)
 
-    const businessKey = `${source.id}:${target.type}`
+    // 依据单一规则表解析下游目标链路，新增链路只需在 AUTO_CHAIN_RULES 追加一行
+    const rule = AUTO_CHAIN_RULES.find((r) => r.sourceType === source.type && config[r.flagKey])
+    if (!rule) return
+
+    const businessKey = `${source.id}:${rule.targetType}`
     const existing = await this.prisma.job.findUnique({ where: { businessKey } })
     if (existing) return
 
@@ -58,17 +49,17 @@ export class FlowFinalizerWorker implements JobProcessor, OnModuleInit {
       const downstream = await this.prisma.job.create({
         data: {
           tenantId: source.tenantId,
-          type: target.type,
+          type: rule.targetType,
           businessKey,
           status: 'queued',
           stage: 'queued',
           parentJobId: source.id,
         },
       })
-      await this.localQueue.enqueue(target.queue, {
+      await this.localQueue.enqueue(rule.targetQueue, {
         jobId: downstream.id,
         tenantId: source.tenantId,
-        type: target.type,
+        type: rule.targetType,
       })
     } catch (error) {
       if (!(error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002')) throw error

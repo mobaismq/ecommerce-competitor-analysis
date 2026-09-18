@@ -14,16 +14,9 @@ export class WorkflowService {
     const job = await this.prisma.job.findFirst({ where: { id: jobId, tenantId } })
     if (!job) throw new NotFoundException('任务不存在')
     const template = getFlowTemplate(job.type)
-    const queueName = this.findInitialQueueName(template)
+    const queueName = template.steps[0]?.queueName ?? 'server-ai'
     await this.localQueue.enqueue(queueName, { jobId: job.id, tenantId: job.tenantId, type: job.type })
     return { jobId: job.id, queued: true, queueName }
-  }
-
-  private findInitialQueueName(node: WorkflowNode): string {
-    if (node.children && node.children.length > 0) {
-      return this.findInitialQueueName(node.children[0])
-    }
-    return node.queueName
   }
 
   async reportProgress(jobId: string, tenantId: string, stage: string) {

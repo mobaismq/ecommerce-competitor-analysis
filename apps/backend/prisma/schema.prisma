@@ -124,6 +124,7 @@ model Job {
   errorMessage      String?
   retryCount        Int       @default(0)
   claimDeadline     DateTime?
+  nextRetryAt       DateTime?
   startedAt         DateTime?
   finishedAt        DateTime?
   createdAt         DateTime  @default(now())

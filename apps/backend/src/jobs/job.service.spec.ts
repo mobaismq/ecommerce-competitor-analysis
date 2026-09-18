@@ -28,7 +28,7 @@ describe('JobService', () => {
   })
 
   describe('create', () => {
-    it('正常创建新任务并入队', async () => {
+    it('创建 analysis 任务时 stage 为 collecting 且不入队 serverReport', async () => {
       prisma.job.create.mockResolvedValue({ id: 'job-1' })
 
       const res = await service.create(
@@ -41,9 +41,39 @@ describe('JobService', () => {
 
       expect(res.created).toBe(true)
       expect(res.jobId).toBe('job-1')
+      expect(prisma.job.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          type: 'analysis',
+          stage: 'collecting',
+          status: 'queued',
+        }),
+      })
+      expect(localQueue.enqueue).not.toHaveBeenCalled()
+    })
+
+    it('创建非 analysis 任务（如 image-gen）时正常入队', async () => {
+      prisma.job.create.mockResolvedValue({ id: 'job-img-1' })
+
+      const res = await service.create(
+        {
+          type: 'image-gen',
+          businessKey: 'biz-key-img',
+        },
+        'tenant-1',
+      )
+
+      expect(res.created).toBe(true)
+      expect(res.jobId).toBe('job-img-1')
+      expect(prisma.job.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          type: 'image-gen',
+          stage: 'queued',
+          status: 'queued',
+        }),
+      })
       expect(localQueue.enqueue).toHaveBeenCalledWith(
-        'server-report',
-        expect.objectContaining({ jobId: 'job-1', tenantId: 'tenant-1', type: 'analysis' }),
+        'server-image-gen',
+        expect.objectContaining({ jobId: 'job-img-1', tenantId: 'tenant-1', type: 'image-gen' }),
       )
     })
 
@@ -106,7 +136,7 @@ describe('JobService', () => {
       await expect(service.retry('j-running', 'tenant-1')).rejects.toThrow('仅终态任务可重试')
     })
 
-    it('终态任务重试时递增 attempt、重置错误并重新入队', async () => {
+    it('终态任务在 reporting 阶段重试时递增 attempt、重置错误并重新入队', async () => {
       prisma.job.findFirst.mockResolvedValue({
         id: 'j-failed',
         status: 'failure',
@@ -128,6 +158,27 @@ describe('JobService', () => {
         'server-report',
         expect.objectContaining({ jobId: 'j-failed', tenantId: 'tenant-1', type: 'analysis' }),
       )
+    })
+
+    it('终态 analysis 任务若处于 collecting 阶段重试时不向 serverReport 入队', async () => {
+      prisma.job.findFirst.mockResolvedValue({
+        id: 'j-failed-collecting',
+        status: 'failure',
+        attempt: 1,
+        type: 'analysis',
+        checkpointStage: 'collecting',
+      })
+      prisma.job.update.mockResolvedValue({ id: 'j-failed-collecting', status: 'queued', attempt: 2 })
+
+      const res = await service.retry('j-failed-collecting', 'tenant-1')
+      expect(res.status).toBe('queued')
+      expect(prisma.job.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'j-failed-collecting' },
+          data: expect.objectContaining({ status: 'queued', stage: 'collecting', attempt: 2 }),
+        }),
+      )
+      expect(localQueue.enqueue).not.toHaveBeenCalled()
     })
   })
 })

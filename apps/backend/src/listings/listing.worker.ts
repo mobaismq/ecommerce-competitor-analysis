@@ -16,10 +16,8 @@ export class ListingWorker implements JobProcessor, OnModuleInit {
     this.localQueue.registerProcessor(QUEUE_NAMES.serverListing, this)
   }
 
-  async process(jobOrContext: JobProcessContext | { data?: { jobId?: string; tenantId?: string } }) {
-    const data = 'data' in jobOrContext ? jobOrContext.data : undefined
-    const jobId = 'jobId' in jobOrContext ? jobOrContext.jobId : (data?.jobId as string | undefined)
-    const tenantId = (data?.tenantId ?? ('tenantId' in jobOrContext ? jobOrContext.tenantId : undefined)) as string | undefined
+  async process(context: JobProcessContext) {
+    const { jobId, tenantId } = context
     if (!jobId || !tenantId) throw new Error('listing job missing jobId/tenantId')
     const row = await this.prisma.job.findUnique({ where: { id: jobId } })
     if (!row) throw new Error(`job not found: ${jobId}`)

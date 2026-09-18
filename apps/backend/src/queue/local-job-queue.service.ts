@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common'
 import { PrismaService } from '../prisma.service'
-import { QUEUE_NAMES } from './queue-names'
+import { QUEUE_NAMES, resolveQueueName } from './queue-names'
 
 export interface JobProcessResult {
   ok: boolean
@@ -35,7 +35,8 @@ const DEFAULT_CONCURRENCY: Record<string, number> = {
   [QUEUE_NAMES.flowFinalizer]: 3,
 }
 
-const MAX_JOB_ATTEMPTS = 3
+export const MAX_JOB_ATTEMPTS = 3
+export const MAX_429_ATTEMPTS = 5
 
 @Injectable()
 export class LocalJobQueueService implements OnModuleInit, OnModuleDestroy {
@@ -85,16 +86,14 @@ export class LocalJobQueueService implements OnModuleInit, OnModuleDestroy {
    * 排空并执行指定队列中的全部等待任务（供测试与即时调度使用）
    */
   async drain(queueNameOrType?: string) {
-    if (queueNameOrType) {
-      const queueName = this.normalizeQueueName(queueNameOrType)
-      while ((this.queues.get(queueName)?.length ?? 0) > 0) {
-        await this.pump(queueName)
-      }
-    } else {
-      for (const name of Array.from(this.queues.keys())) {
-        while ((this.queues.get(name)?.length ?? 0) > 0) {
-          await this.pump(name)
-        }
+    const queueNames = queueNameOrType
+      ? [this.normalizeQueueName(queueNameOrType)]
+      : Array.from(new Set([...this.queues.keys(), ...this.activeCounts.keys()]))
+
+    for (const name of queueNames) {
+      while ((this.queues.get(name)?.length ?? 0) > 0 || (this.activeCounts.get(name) ?? 0) > 0) {
+        this.pump(name)
+        await new Promise((resolve) => setTimeout(resolve, 5))
       }
     }
   }
@@ -111,12 +110,23 @@ export class LocalJobQueueService implements OnModuleInit, OnModuleDestroy {
       if (danglingJobs.length > 0) {
         this.logger.log(`Found ${danglingJobs.length} dangling jobs to recover`)
         for (const job of danglingJobs) {
-          const queueName = this.queueNameFor(job.type, job.checkpointStage)
-          await this.enqueue(queueName, {
-            jobId: job.id,
-            tenantId: job.tenantId,
-            type: job.type,
-          })
+          // 统一走单一权威 resolveQueueName，与正常派发路径一致；
+          // analysis 处于 collecting 阶段正在等待桌面端采集上报，恢复时不提前派发 report。
+          const queueName = resolveQueueName(job.type, job.checkpointStage)
+          if (!queueName) continue
+
+          const task = { jobId: job.id, tenantId: job.tenantId, type: job.type }
+          const retryAt = job.nextRetryAt ? new Date(job.nextRetryAt).getTime() : 0
+          if (retryAt > Date.now()) {
+            // 429 退避未到期：跨重启保留剩余退避时间再入队
+            this.delayedEnqueue(queueName, task, retryAt - Date.now(), job.id)
+            continue
+          }
+          if (retryAt) {
+            // 退避已到期，清理后立即入队
+            await this.prisma.job.update({ where: { id: job.id }, data: { nextRetryAt: null } }).catch(() => undefined)
+          }
+          await this.enqueue(queueName, task)
         }
       }
     } catch (error) {
@@ -130,27 +140,49 @@ export class LocalJobQueueService implements OnModuleInit, OnModuleDestroy {
       clearTimeout(timer)
     }
     this.pendingTimers.clear()
+    this.queues.clear()
+    this.processors.clear()
+    this.activeCounts.clear()
+  }
+
+  /**
+   * 延迟入队：到点后先清退 nextRetryAt（退避截止时间）再入库执行，供 429 退避与跨重启恢复共用。
+   */
+  private delayedEnqueue(queueName: string, task: EnqueuedTask, delayMs: number, jobId: string) {
+    const safeDelay = Math.max(0, delayMs)
+    const timer = setTimeout(() => {
+      this.pendingTimers.delete(timer)
+      void this.prisma.job.update({ where: { id: jobId }, data: { nextRetryAt: null } }).catch(() => undefined)
+      this.enqueue(queueName, task)
+    }, safeDelay)
+    this.pendingTimers.add(timer)
   }
 
   /**
    * 调度器核心：受管并发与自适应退避执行
    */
-  private async pump(queueName: string) {
-    if (this.isShuttingDown) return
-    const queue = this.queues.get(queueName)
-    if (!queue || queue.length === 0) return
-
+  private pump(queueName: string) {
     const limit = DEFAULT_CONCURRENCY[queueName] ?? 2
     const currentActive = this.activeCounts.get(queueName) ?? 0
-    if (currentActive >= limit) return
+    const availableSlots = limit - currentActive
+    if (availableSlots <= 0) return
 
-    const task = queue.shift()
-    if (!task) return
+    const taskQueue = this.queues.get(queueName) ?? []
+    if (taskQueue.length === 0) return
 
-    this.activeCounts.set(queueName, currentActive + 1)
+    const tasksToRun = taskQueue.splice(0, availableSlots)
+    this.activeCounts.set(queueName, currentActive + tasksToRun.length)
 
+    for (const task of tasksToRun) {
+      this.runTaskWrapper(queueName, task)
+    }
+  }
+
+  private async runTaskWrapper(queueName: string, task: EnqueuedTask) {
     try {
       await this.executeTask(queueName, task)
+    } catch (err) {
+      this.logger.error(`Unexpected task execution error in ${queueName}: ${err}`)
     } finally {
       const remaining = (this.activeCounts.get(queueName) ?? 1) - 1
       this.activeCounts.set(queueName, Math.max(0, remaining))
@@ -196,18 +228,44 @@ export class LocalJobQueueService implements OnModuleInit, OnModuleDestroy {
       String(error?.message ?? '').includes('429')
 
     if (isRateLimit) {
-      // 429 限流自适应指数退避调度
-      const delayMs = Math.min(this.backoffBaseMs * Math.pow(2, job.attempt), 30000)
-      this.logger.warn(`Rate limit 429 detected for job ${job.id}, backoff delay: ${delayMs}ms`)
+      const nextAttempt = job.attempt + 1
+      if (nextAttempt > MAX_429_ATTEMPTS) {
+        this.logger.error(`Job ${job.id} rate limit exceeded max attempts (${MAX_429_ATTEMPTS}): ${String(error?.message ?? error)}`)
+        await this.prisma.job.update({
+          where: { id: job.id },
+          data: {
+            status: 'failure',
+            stage: 'failure',
+            errorCode: 'RATE_LIMIT_EXCEEDED',
+            errorMessage: `429 限流重试超限 (${MAX_429_ATTEMPTS} 次): ${String(error?.message ?? error)}`,
+            nextRetryAt: null,
+            finishedAt: new Date(),
+          },
+        })
+        await this.prisma.jobEvent.create({
+          data: {
+            jobId: job.id,
+            type: 'rate-limit-exceeded',
+            data: { error: String(error?.message ?? error), attempt: nextAttempt },
+          },
+        })
+        return
+      }
+
+      // 429 限流自适应指数退避调度：真实 2^nextAttempt 退避，并把到期时间落库 nextRetryAt，
+      // 供进程重启后 onModuleInit 自愈保留剩余退避，避免对仍限流的 API 立刻重打。
+      const delayMs = Math.min(this.backoffBaseMs * Math.pow(2, nextAttempt), 30000)
+      const nextRetryAt = new Date(Date.now() + delayMs)
+      this.logger.warn(`Rate limit 429 detected for job ${job.id}, backoff delay: ${delayMs}ms (attempt ${nextAttempt}/${MAX_429_ATTEMPTS})`)
       await this.prisma.job.update({
         where: { id: job.id },
-        data: { errorMessage: `429 限流自适应退避等待中 (${delayMs}ms)` },
+        data: {
+          attempt: nextAttempt,
+          nextRetryAt,
+          errorMessage: `429 限流自适应退避至 ${nextRetryAt.toISOString()} (attempt ${nextAttempt}/${MAX_429_ATTEMPTS})`,
+        },
       })
-      const timer = setTimeout(() => {
-        this.pendingTimers.delete(timer)
-        this.enqueue(queueName, task)
-      }, delayMs)
-      this.pendingTimers.add(timer)
+      this.delayedEnqueue(queueName, task, delayMs, job.id)
       return
     }
 
@@ -217,7 +275,7 @@ export class LocalJobQueueService implements OnModuleInit, OnModuleDestroy {
       this.logger.warn(`Job ${job.id} failed, retry attempt ${nextAttempt}/${MAX_JOB_ATTEMPTS}`)
       await this.prisma.job.update({
         where: { id: job.id },
-        data: { attempt: nextAttempt, errorMessage: String(error?.message ?? error) },
+        data: { attempt: nextAttempt, nextRetryAt: null, errorMessage: String(error?.message ?? error) },
       })
       this.enqueue(queueName, task)
     } else {
@@ -227,6 +285,7 @@ export class LocalJobQueueService implements OnModuleInit, OnModuleDestroy {
         data: {
           status: 'failure',
           stage: 'failure',
+          nextRetryAt: null,
           errorMessage: String(error?.message ?? error),
           finishedAt: new Date(),
         },
@@ -245,15 +304,8 @@ export class LocalJobQueueService implements OnModuleInit, OnModuleDestroy {
     if (queueNameOrType.startsWith('server-') || queueNameOrType === QUEUE_NAMES.flowFinalizer) {
       return queueNameOrType
     }
-    return this.queueNameFor(type ?? queueNameOrType)
-  }
-
-  private queueNameFor(type: string, stage?: string | null): string {
-    if (type === 'analysis' || type === 'collection' || type === 'import') {
-      return QUEUE_NAMES.serverReport
-    }
-    if (type === 'image-gen' || type === 'image_gen') return QUEUE_NAMES.serverImageGen
-    if (type === 'listing') return QUEUE_NAMES.serverListing
-    return QUEUE_NAMES.serverAi
+    // 非显式队列名（如按业务类型入队）时，统一走单一权威 resolveQueueName。
+    // resolveQueueName 对 collecting 阶段 analysis 返回 null，此处防御性回落到 server-ai。
+    return resolveQueueName(type ?? queueNameOrType) ?? QUEUE_NAMES.serverAi
   }
 }

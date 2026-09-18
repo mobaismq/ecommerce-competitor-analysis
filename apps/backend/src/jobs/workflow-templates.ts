@@ -1,8 +1,23 @@
 import { QUEUE_NAMES } from '../queue/queue-names'
 
+export interface FlowStep {
+  name: string
+  queueName: string
+  stage: string
+}
+
+export interface FlowTemplate {
+  name: string
+  type: string
+  steps: FlowStep[]
+  finalizerQueue: string
+}
+
+// 兼容旧类型别名与外部引用
 export interface WorkflowNode {
   name: string
   queueName: string
+  stage?: string
   data?: Record<string, any>
   children?: WorkflowNode[]
 }
@@ -25,54 +40,33 @@ export function canTransition(type: string, from: string, to: string) {
   return toIndex === fromIndex + 1
 }
 
-export function getFlowTemplate(type: string): WorkflowNode {
+export function getFlowTemplate(type: string): FlowTemplate {
   if (type === 'image-gen' || type === 'image_gen') {
     return {
       name: 'image-flow',
-      queueName: QUEUE_NAMES.flowFinalizer,
-      data: {},
-      children: [
-        {
-          name: 'generate',
-          queueName: QUEUE_NAMES.serverImageGen,
-          data: {},
-          children: [{ name: 'prompt', queueName: QUEUE_NAMES.serverAi, data: {} }],
-        },
+      type: 'image-gen',
+      steps: [
+        { name: 'generate', queueName: QUEUE_NAMES.serverImageGen, stage: 'generating' },
       ],
+      finalizerQueue: QUEUE_NAMES.flowFinalizer,
     }
   }
   if (type === 'listing') {
     return {
       name: 'listing-flow',
-      queueName: QUEUE_NAMES.flowFinalizer,
-      data: {},
-      children: [
-        {
-          name: 'submit',
-          queueName: QUEUE_NAMES.serverListing,
-          data: {},
-          children: [{ name: 'upload-assets', queueName: QUEUE_NAMES.serverImageGen, data: {} }],
-        },
+      type: 'listing',
+      steps: [
+        { name: 'submit', queueName: QUEUE_NAMES.serverListing, stage: 'submitting_listing' },
       ],
+      finalizerQueue: QUEUE_NAMES.flowFinalizer,
     }
   }
   return {
     name: 'analysis-flow',
-    queueName: QUEUE_NAMES.flowFinalizer,
-    data: {},
-    children: [
-      {
-        name: 'report',
-        queueName: QUEUE_NAMES.serverReport,
-        data: {},
-        children: [
-          {
-            name: 'analyze',
-            queueName: QUEUE_NAMES.serverAi,
-            data: {},
-          },
-        ],
-      },
+    type: 'analysis',
+    steps: [
+      { name: 'report', queueName: QUEUE_NAMES.serverReport, stage: 'analyzing' },
     ],
+    finalizerQueue: QUEUE_NAMES.flowFinalizer,
   }
 }

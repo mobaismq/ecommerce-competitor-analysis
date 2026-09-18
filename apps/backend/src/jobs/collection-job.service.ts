@@ -1,11 +1,16 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { PrismaService } from '../prisma.service'
+import { LocalJobQueueService } from '../queue/local-job-queue.service'
+import { QUEUE_NAMES } from '../queue/queue-names'
 import { CollectionResultDto } from './dto/collection-result.dto'
 
 @Injectable()
 export class CollectionJobService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly localQueue: LocalJobQueueService,
+  ) {}
 
   async importResults(jobId: string, tenantId: string, dto: CollectionResultDto) {
     const job = await this.prisma.job.findFirst({ where: { id: jobId, tenantId } })
@@ -14,7 +19,7 @@ export class CollectionJobService {
     const existing = await this.prisma.collectionJob.findUnique({ where: { jobId } })
     if (existing?.status === 'success') return { imported: false, jobId, existing: true }
 
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       await tx.collectionJob.upsert({
         where: { jobId },
         update: { status: 'success', rawResultJson: dto as unknown as Prisma.InputJsonValue },
@@ -124,12 +129,33 @@ export class CollectionJobService {
         }
       }
 
-      await tx.job.update({ where: { id: jobId }, data: { status: 'success', stage: 'success' } })
+      if (job.type === 'analysis') {
+        await tx.job.update({
+          where: { id: jobId },
+          data: { status: 'queued', stage: 'analyzing', checkpointStage: 'analyzing' },
+        })
+      } else {
+        await tx.job.update({
+          where: { id: jobId },
+          data: { status: 'success', stage: 'success' },
+        })
+      }
+
       return {
         imported: true,
         jobId,
         counts: { productCount, skuCount, qaCount, reviewCount, fileCount },
       }
     })
+
+    if (job.type === 'analysis') {
+      await this.localQueue.enqueue(QUEUE_NAMES.serverReport, {
+        jobId,
+        tenantId,
+        type: job.type,
+      })
+    }
+
+    return result
   }
 }

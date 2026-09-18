@@ -31,36 +31,35 @@ describe('canTransition', () => {
 })
 
 describe('getFlowTemplate', () => {
-  it('analysis 流程：analyze 嵌套于 report 之下（无 desktopRpa 假叶子）', () => {
+  it('analysis 流程：包含 report 阶段与 finalizerQueue', () => {
     const t = getFlowTemplate('analysis')
     expect(t.name).toBe('analysis-flow')
-    const report = t.children![0]!
-    const analyze = report.children![0]!
-    expect(analyze.name).toBe('analyze')
-    expect(analyze.queueName).toBe(QUEUE_NAMES.serverAi)
-    expect(analyze.children).toBeUndefined()
+    expect(t.steps).toHaveLength(1)
+    expect(t.steps[0].name).toBe('report')
+    expect(t.steps[0].queueName).toBe(QUEUE_NAMES.serverReport)
+    expect(t.finalizerQueue).toBe(QUEUE_NAMES.flowFinalizer)
   })
 
-  it('image-gen 流程：prompt 嵌套于 generate 之下', () => {
+  it('image-gen 流程：包含 generate 阶段与 serverImageGen 队列', () => {
     const t = getFlowTemplate('image-gen')
-    const generate = t.children![0]!
-    const prompt = generate.children![0]!
-    expect(prompt.name).toBe('prompt')
-    expect(prompt.queueName).toBe(QUEUE_NAMES.serverAi)
+    expect(t.name).toBe('image-flow')
+    expect(t.steps[0].name).toBe('generate')
+    expect(t.steps[0].queueName).toBe(QUEUE_NAMES.serverImageGen)
+    expect(t.finalizerQueue).toBe(QUEUE_NAMES.flowFinalizer)
   })
 
   it('image_gen 别名等价', () => {
     const a = getFlowTemplate('image_gen')
     const b = getFlowTemplate('image-gen')
     expect(a.name).toBe(b.name)
-    expect(a.children![0]!.children![0]!.name).toBe('prompt')
+    expect(a.steps[0].name).toBe('generate')
   })
 
-  it('listing 流程：upload-assets 嵌套于 submit 之下', () => {
+  it('listing 流程：包含 submit 阶段与 serverListing 队列', () => {
     const t = getFlowTemplate('listing')
     expect(t.name).toBe('listing-flow')
-    const submit = t.children![0]!
-    expect(submit.children![0]!.name).toBe('upload-assets')
-    expect(submit.children![0]!.queueName).toBe(QUEUE_NAMES.serverImageGen)
+    expect(t.steps[0].name).toBe('submit')
+    expect(t.steps[0].queueName).toBe(QUEUE_NAMES.serverListing)
+    expect(t.finalizerQueue).toBe(QUEUE_NAMES.flowFinalizer)
   })
 })
