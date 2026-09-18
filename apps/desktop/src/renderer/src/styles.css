@@ -93,6 +93,28 @@ html, body {
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
   background-color: #aeb7c4;
 }
+/* Arco 按钮内容排布修复：arco-btn 原为 inline-block，按钮内 svg 图标与文字
+   会在宽度不足时于图标和文字之间换行（「AI 帮写」「上传图片」裁切事故）。
+   改 inline-flex 后内容单行排布、垂直居中，宽度不足时按钮按需撑开。 */
+.arco-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 修复：arco.css 未分层 normalize 的 button/input { margin: 0 }（特异性 0,0,1）
+   会压过 Tailwind v4 space-y 工具类的 :where 零特异性规则——
+   容器内原生 button/input 的垂直间距全部失效（采集页「开始采集」与勾选行贴合事故）。
+   在未分层区以更高特异性恢复本项目实际使用的 space-y 刻度（仅覆盖已用值）。 */
+.space-y-2 > :not(:last-child) { margin-block-end: calc(var(--spacing, 0.25rem) * 2); }
+.space-y-3 > :not(:last-child) { margin-block-end: calc(var(--spacing, 0.25rem) * 3); }
+.space-y-5 > :not(:last-child) { margin-block-end: calc(var(--spacing, 0.25rem) * 5); }
+
+/* 侧边栏整列禁用文字选中：双击菜单不再拉蓝文字（用户实测反馈） */
+.app-sidebar {
+  user-select: none;
+  -webkit-user-select: none;
+}
 /* Arco Menu 侧边栏主题覆写：对齐旧版菜单视觉基调（行高/圆角/激活底色/悬停色） */
 .sidebar-tree .arco-menu-inner {
   padding: 8px 12px 16px;

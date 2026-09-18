@@ -569,9 +569,9 @@ export function ProductImageSetsPage() {
           </div>
         </div>
 
-        {/* 4. 商品卖点 & 要求 + AI帮写 */}
+        {/* 4. 商品卖点 & 要求 + AI帮写（grid 两列，标题列 min-w-0 防挤压按钮换行裁切） */}
         <div className="mb-5">
-          <div className="flex items-center justify-between mb-2">
+          <div className="mb-2 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
             <SectionTitle help tooltip="填写产品名、卖点、人群和场景，AI 生图更精准">
               商品卖点&要求
             </SectionTitle>

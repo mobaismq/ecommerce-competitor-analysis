@@ -253,7 +253,7 @@ export function AppLayout() {
   return (
     <div className="min-w-[1024px] h-screen w-full overflow-hidden bg-[#f4f7fb] text-[#0A1B39] font-sans flex">
       <aside
-        className={`${expanded ? 'w-[240px]' : 'w-[72px]'} relative z-30 h-full shrink-0 border-r border-[#e9edf3] bg-white flex flex-col transition-all duration-300`}
+        className={`app-sidebar ${expanded ? 'w-[240px]' : 'w-[72px]'} relative z-30 h-full shrink-0 border-r border-[#e9edf3] bg-white flex flex-col transition-all duration-300`}
       >
         <div className={`flex h-[68px] shrink-0 items-center border-b border-[#e9edf3] ${expanded ? 'gap-2.5 px-6' : 'justify-center'}`}>
           <img src={brandLogo} alt="繁星" className="h-8 w-8 rounded-lg object-contain" />
