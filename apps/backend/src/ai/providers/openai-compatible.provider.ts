@@ -23,17 +23,36 @@ export class OpenAICompatibleProvider implements AiProvider {
   }
 
   protected async requestJson(endpoint: string, body: Record<string, unknown>): Promise<{ payload: Record<string, any>; durationMs: number }> {
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), this.config.timeoutMs ?? 120_000)
     const started = Date.now()
+    const controller = new AbortController()
+    const timeoutMs = this.config.timeoutMs ?? 120_000
+    // 超时覆盖整个请求：连接等待 + 响应头 + body 读取，读到完整 payload 后才清 timer。
+    const timer = setTimeout(() => controller.abort(), timeoutMs)
+
+    let response: Response
     try {
-      const response = await fetch(endpoint, {
+      response = await fetch(endpoint, {
         method: 'POST',
         headers: this.authHeaders(),
         body: JSON.stringify(body),
         signal: controller.signal,
       })
-      const payload = (await response.json().catch(() => ({}))) as Record<string, any>
+    } catch (error) {
+      clearTimeout(timer)
+      this.classifyRequestError(error, timeoutMs)
+    }
+
+    try {
+      let payload: Record<string, any>
+      try {
+        payload = await response.json()
+      } catch (bodyError) {
+        // body 读取阶段被 abort（超时）或无法解析
+        if (controller.signal.aborted) {
+          this.classifyRequestError(bodyError, timeoutMs)
+        }
+        payload = {}
+      }
       if (!response.ok) {
         throw new AiCallError(
           `provider http ${response.status}: ${JSON.stringify(payload).slice(0, 300)}`,
@@ -42,12 +61,19 @@ export class OpenAICompatibleProvider implements AiProvider {
         )
       }
       return { payload, durationMs: Date.now() - started }
-    } catch (error) {
-      if (error instanceof AiCallError) throw error
-      throw new AiCallError(error instanceof Error ? error.message : String(error), 'PROVIDER_NETWORK_ERROR', true)
     } finally {
-      clearTimeout(timeout)
+      clearTimeout(timer)
     }
+  }
+
+  private classifyRequestError(error: unknown, timeoutMs: number): never {
+    const isAbort = error instanceof DOMException
+      ? error.name === 'AbortError'
+      : (error as { name?: string } | null)?.name === 'AbortError'
+    if (isAbort) {
+      throw new AiCallError(`provider timeout after ${timeoutMs}ms`, 'PROVIDER_TIMEOUT', true)
+    }
+    throw new AiCallError(error instanceof Error ? error.message : String(error), 'PROVIDER_NETWORK_ERROR', true)
   }
 
   async generateText(request: AiTextRequest): Promise<AiResult> {

@@ -1,5 +1,6 @@
 import { Body, Controller, Delete, Get, Param, Post, Query, Req, Res, UseGuards } from '@nestjs/common'
 import { JwtAuthGuard } from '../auth/jwt-auth.guard'
+import { SseStream, type SseReplyLike } from '../common/sse'
 import { GenerateDetailWorkflowDto, GenerateImageDto, GeneratePromptsDto, GenerateRetouchPromptDto, ExtractImageTextDto } from './dto/product-sets.dto'
 import { ProductSetsService } from './product-sets.service'
 
@@ -59,15 +60,7 @@ export class ProductSetsController {
   @Post('expand-prompts-stream')
   @UseGuards(JwtAuthGuard)
   async expandPromptsStream(@Req() _request: { user: { tenantId: string } }, @Body() body: GeneratePromptsDto, @Res() reply: any) {
-    reply.raw.writeHead(200, {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      Connection: 'keep-alive',
-      'X-Accel-Buffering': 'no',
-    })
-    const write = (type: string, data: unknown) => {
-      reply.raw.write(`data: ${JSON.stringify({ type, data })}\n\n`)
-    }
+    const stream = new SseStream(reply)
     try {
       const { text, model } = await this.service.expandPrompts({
         settings: body.settings as never,
@@ -77,12 +70,12 @@ export class ProductSetsController {
         promptSlots: body.promptSlots,
         selectedSlots: body.selectedSlots,
       })
-      write('content', { content: text ?? '', model })
-      write('done', { ok: true })
+      stream.send('content', { content: text ?? '', model })
+      stream.send('done', { ok: true })
     } catch (error: unknown) {
-      write('error', { message: (error as Error)?.message ?? '生成失败' })
+      stream.error((error as Error)?.message ?? '生成失败')
     } finally {
-      reply.raw.end()
+      stream.end()
     }
   }
 

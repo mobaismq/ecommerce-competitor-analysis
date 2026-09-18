@@ -3,6 +3,7 @@
 // 可独立单元测试。AI 编排（多阶段、重试、降级、落库）在镜像侧服务中承接（见 image-prompt.engine）。
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { jsonrepair } from 'jsonrepair'
 
 export interface PromptSlot {
   id: string
@@ -134,17 +135,32 @@ export function readDetailWorkflowSpec(key: string, specDir = DETAIL_IMAGE_SPEC_
   }
 }
 
-/** 从模型文本提取 JSON 对象。 */
+/**
+ * 从模型文本提取 JSON 对象。
+ * 先剥离代码围栏，再用 jsonrepair 修复模型输出中的常见非法 JSON（尾随逗号、单引号、
+ * 缺引号键、注释等），兜底再做首尾大括号截取，最大程度容忍 LLM 输出抖动。
+ */
 export function parseJsonFromText(text: string): Record<string, unknown> | null {
   const cleaned = String(text || '').replace(/^```json\s*/i, '').replace(/```$/i, '').trim()
+  const candidates = [cleaned]
   const start = cleaned.indexOf('{')
   const end = cleaned.lastIndexOf('}')
-  if (start < 0 || end < start) return null
-  try {
-    return JSON.parse(cleaned.slice(start, end + 1)) as Record<string, unknown>
-  } catch {
-    return null
+  if (start >= 0 && end >= start) candidates.unshift(cleaned.slice(start, end + 1))
+  for (const candidate of candidates) {
+    try {
+      return JSON.parse(candidate) as Record<string, unknown>
+    } catch {
+      try {
+        // jsonrepair 会返回修复后的 JSON 字符串，甚至把裸文本包成合法 JSON 字符串；
+        // 仅当解析结果为“对象”时才视为有效结构化输出，否则回落 null。
+        const repaired: unknown = JSON.parse(jsonrepair(candidate))
+        if (typeof repaired === 'object' && repaired !== null) return repaired as Record<string, unknown>
+      } catch {
+        // 尝试下一个候选
+      }
+    }
   }
+  return null
 }
 
 /** 归一化主图位类型。 */

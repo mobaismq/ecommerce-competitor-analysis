@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
-import { randomUUID } from 'node:crypto'
+import { nanoid } from 'nanoid'
 import { PrismaService } from '../prisma.service'
 import { VideoProviderRegistry } from './video-registry'
 
@@ -13,7 +13,7 @@ export class VideoReplicationService {
   async replicate(input: { tenantId: string; sourceUrl?: string; sourceStorageKey?: string; title?: string }) {
     if (!input.sourceUrl && !input.sourceStorageKey) throw new BadRequestException('sourceUrl 或 sourceStorageKey 必填')
     const provider = this.registry.create(process.env.VIDEO_PROVIDER ?? 'mock')
-    const sourceKey = input.sourceStorageKey ?? `video-sources/${randomUUID()}.mp4`
+    const sourceKey = input.sourceStorageKey ?? `video-sources/${nanoid()}.mp4`
     const source = await this.prisma.mediaAsset.create({
       data: {
         tenantId: input.tenantId,
@@ -29,7 +29,7 @@ export class VideoReplicationService {
       data: {
         tenantId: input.tenantId,
         type: 'video_replication',
-        businessKey: `video-replication:${input.tenantId}:${source.id}:${Date.now()}`,
+        businessKey: `video-replication:${input.tenantId}:${source.id}:${nanoid(8)}`,
         status: 'running',
         stage: 'processing',
         startedAt: new Date(),
