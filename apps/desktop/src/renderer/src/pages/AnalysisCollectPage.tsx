@@ -5,6 +5,7 @@ import { AlertCircle, Loader2, Play, Square, Terminal } from 'lucide-react'
 import { api } from '../api/client'
 import { parseRpaProgress } from '../utils/rpaProgress'
 import { PageHeader } from '../components/PageHeader'
+import { XInput } from '../components/XInput'
 import { nanoid } from 'nanoid'
 
 type CollectionStatus = 'idle' | 'running' | 'completed' | 'failed' | 'stopped'
@@ -296,66 +297,27 @@ export function AnalysisCollectPage() {
 
             <div>
               <label className={FIELD_LABEL_CLASS}>关键词</label>
-              <input
-                type="text"
-                value={keyword}
-                onChange={(e) => setKeyword(e.target.value)}
-                disabled={isRunning}
-                placeholder="请输入采集竞品关键词"
-                className={INPUT_CLASS}
-              />
+              <XInput value={keyword} onChange={setKeyword} disabled={isRunning} placeholder="请输入采集竞品关键词" />
             </div>
 
             <div>
               <label className={FIELD_LABEL_CLASS}>价格区间</label>
               <div className="flex items-center gap-3">
-                <input
-                  type="text"
-                  value={minPrice}
-                  onChange={(e) => setMinPrice(e.target.value)}
-                  disabled={isRunning}
-                  placeholder="请输入最低价"
-                  inputMode="decimal"
-                  className={INPUT_CLASS + ' flex-1'}
-                />
+                <XInput value={minPrice} onChange={setMinPrice} disabled={isRunning} placeholder="请输入最低价" inputMode="decimal" className="flex-1" />
                 <span className="text-[14px] font-bold text-[#86909C]">—</span>
-                <input
-                  type="text"
-                  value={maxPrice}
-                  onChange={(e) => setMaxPrice(e.target.value)}
-                  disabled={isRunning}
-                  placeholder="请输入最高价"
-                  inputMode="decimal"
-                  className={INPUT_CLASS + ' flex-1'}
-                />
+                <XInput value={maxPrice} onChange={setMaxPrice} disabled={isRunning} placeholder="请输入最高价" inputMode="decimal" className="flex-1" />
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className={FIELD_LABEL_CLASS}>竞品数量 (Top N)</label>
-                <input
-                  type="text"
-                  value={competitorCount}
-                  onChange={(e) => setCompetitorCount(e.target.value)}
-                  disabled={isRunning}
-                  placeholder="1-100 之间"
-                  inputMode="numeric"
-                  className={INPUT_CLASS}
-                />
+                <XInput value={competitorCount} onChange={setCompetitorCount} disabled={isRunning} placeholder="1-100 之间" inputMode="numeric" />
                 <p className="m-0 mt-1 text-[12px] text-[#86909C]">限制 1 ~ 100 件商品</p>
               </div>
               <div>
                 <label className={FIELD_LABEL_CLASS}>翻页深度 (页数)</label>
-                <input
-                  type="text"
-                  value={searchPages}
-                  onChange={(e) => setSearchPages(e.target.value)}
-                  disabled={isRunning}
-                  placeholder="默认检索前 8 页"
-                  inputMode="numeric"
-                  className={INPUT_CLASS}
-                />
+                <XInput value={searchPages} onChange={setSearchPages} disabled={isRunning} placeholder="默认检索前 8 页" inputMode="numeric" />
                 <p className="m-0 mt-1 text-[12px] text-[#86909C]">默认检索前 8 页</p>
               </div>
             </div>

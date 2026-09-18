@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import { api } from '../api/client'
 import { PageHeader } from '../components/PageHeader'
+import { XInput } from '../components/XInput'
 
 interface ProductSku {
   skuId: string
@@ -400,8 +401,18 @@ export function ReportProductsPage() {
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 placeholder="搜索标题、商品ID、SKU"
-                className="h-10 w-full rounded-lg border border-[#dce3ee] bg-white pl-9 pr-3 text-[13px] text-[#0A1B39] outline-none focus:border-[#3388ff] focus:ring-2 focus:ring-[#d8ebff]"
+                className={`h-10 w-full rounded-lg border border-[#dce3ee] bg-white pl-9 text-[13px] text-[#0A1B39] outline-none focus:border-[#3388ff] focus:ring-2 focus:ring-[#d8ebff] ${search ? 'pr-8' : 'pr-3'}`}
               />
+              {search && (
+                <button
+                  type="button"
+                  onClick={() => setSearch('')}
+                  aria-label="清空"
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 cursor-pointer border-0 bg-transparent p-0 text-[#c0c4cc] hover:text-[#86909C]"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
             </div>
           </div>
         </div>

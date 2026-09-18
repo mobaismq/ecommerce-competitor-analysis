@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { XInput } from '../components/XInput'
 import { Button, Input, Message, Modal, Select } from '@arco-design/web-react'
 import { Download, Eye, Image as ImageIcon, Loader2, Plus, X } from 'lucide-react'
 import { saveAs } from 'file-saver'
@@ -168,6 +169,7 @@ export function ViralReplicationPage() {
               value={referenceLink}
               onChange={setReferenceLink}
               placeholder="粘贴参考爆款链接（商品/笔记页）"
+              allowClear
               className="h-10 rounded-lg"
             />
           )}

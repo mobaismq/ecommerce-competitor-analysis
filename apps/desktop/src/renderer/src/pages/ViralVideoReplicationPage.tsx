@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { XInput } from '../components/XInput'
 import { Button, Input, Message, Modal, Select } from '@arco-design/web-react'
 import { Check, Copy, Download, Loader2, Play, Plus, X } from 'lucide-react'
 import { api } from '../api/client'
@@ -248,6 +249,7 @@ export function ViralVideoReplicationPage() {
                 value={replicateUrl}
                 onChange={setReplicateUrl}
                 placeholder="粘贴 TikTok / 抖音 / Reels 视频链接"
+                allowClear
                 className="h-10 rounded-lg"
               />
             </div>

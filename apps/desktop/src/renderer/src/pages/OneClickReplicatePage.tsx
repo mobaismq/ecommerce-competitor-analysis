@@ -6,6 +6,7 @@ import { api } from '../api/client'
 import { saveAs } from 'file-saver'
 import { Link } from 'react-router-dom'
 import { PageHeader } from '../components/PageHeader'
+import { XInput } from '../components/XInput'
 
 const Option = Select.Option
 
@@ -256,6 +257,7 @@ export function OneClickReplicatePage() {
               value={referenceUrl}
               onChange={setReferenceUrl}
               placeholder="粘贴参考爆款链接"
+              allowClear
               className="h-11 rounded-lg"
             />
           )}

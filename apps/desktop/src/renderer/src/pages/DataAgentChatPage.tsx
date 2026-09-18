@@ -4,6 +4,7 @@ import { Message } from '@arco-design/web-react'
 import { nanoid } from 'nanoid'
 import { api } from '../api/client'
 import { PageHeader } from '../components/PageHeader'
+import { X } from 'lucide-react'
 
 interface Dataset {
   id: string
@@ -176,6 +177,16 @@ export function DataAgentChatPage() {
                 placeholder="搜索关键词"
                 className="h-full min-w-0 flex-1 border-0 bg-transparent text-[13px] font-semibold text-[#0A1B39] outline-none placeholder:text-[#98A2B3]"
               />
+              {search && (
+                <button
+                  type="button"
+                  onClick={() => setSearch('')}
+                  aria-label="清空"
+                  className="grid h-5 w-5 shrink-0 cursor-pointer place-items-center rounded-full border-0 bg-transparent p-0 text-[#c0c4cc] hover:bg-[#f2f4f7] hover:text-[#86909C]"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              )}
             </div>
           </div>
 

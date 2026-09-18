@@ -5,6 +5,7 @@ import { Calendar, ChevronLeft, ChevronRight, FileBarChart, Loader2, Search, X }
 import { api } from '../api/client'
 import { formatDateTime } from '../utils/format'
 import { PageHeader } from '../components/PageHeader'
+import { XSearchInput } from '../components/XInput'
 
 interface AnalysisRun {
   id: string
@@ -205,26 +206,12 @@ export function ReportsListPage() {
         <div className="grid grid-cols-4 gap-3">
           <div className="flex items-center gap-2">
             <label className="shrink-0 text-[12px] text-[#86909C]">关键词</label>
-            <div className="relative min-w-0 flex-1">
-              <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#c0c4cc]" />
-              <input
-                type="text"
-                value={searchKeyword}
-                onChange={(e) => setSearchKeyword(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && applySearch()}
-                placeholder="请输入"
-                className="h-8 w-full rounded-lg border border-[#e6e9ef] bg-white pl-8 pr-7 text-[13px] outline-none focus:border-[#409eff]"
-              />
-              {searchKeyword && (
-                <button
-                  type="button"
-                  onClick={() => setSearchKeyword('')}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 cursor-pointer border-0 bg-transparent p-0 text-[#c0c4cc] hover:text-[#86909C]"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              )}
-            </div>
+            <XSearchInput
+              value={searchKeyword}
+              onChange={setSearchKeyword}
+              onEnter={applySearch}
+              placeholder="请输入"
+            />
           </div>
 
           <div className="flex items-center gap-2">

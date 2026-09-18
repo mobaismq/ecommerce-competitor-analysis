@@ -1,37 +1,11 @@
-import React, { useState, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import {
-  Button,
-  Card,
-  Divider,
-  Empty,
-  Form,
-  Grid,
-  Image,
-  Input,
-  Message,
-  Modal,
-  Select,
-  Space,
-  Spin,
-  Tag,
-  Typography,
-} from '@arco-design/web-react'
-import {
-  IconArrowLeft,
-  IconArrowRight,
-  IconDownload,
-  IconEye,
-  IconImage,
-  IconRefresh,
-  IconSearch,
-} from '@arco-design/web-react/icon'
+import { ChevronLeft, ChevronRight, Download, Eye, Loader2, Search } from 'lucide-react'
+import { Button, Message, Modal } from '@arco-design/web-react'
 import { api } from '../api/client'
 import { saveAs } from 'file-saver'
-
-const { Title, Text } = Typography
-const { Row, Col } = Grid
-const { Option } = Select
+import { PageHeader } from '../components/PageHeader'
+import { XSearchInput } from '../components/XInput'
 
 interface Asset {
   id: string
@@ -43,6 +17,8 @@ interface Asset {
   originalName?: string | null
   createdAt?: string
 }
+
+const PAGE_SIZE = 80
 
 function formatBytes(bytes: number) {
   if (bytes === 0) return '0 B'
@@ -56,13 +32,16 @@ export function ImageGalleryPage() {
   const [keyword, setKeyword] = useState('')
   const [typeFilter, setTypeFilter] = useState('ALL')
   const [formatFilter, setFormatFilter] = useState('ALL')
+  const [applied, setApplied] = useState({ keyword: '', type: 'ALL', format: 'ALL' })
+  const [currentPage, setCurrentPage] = useState(1)
 
   // 轮播大图预览状态
   const [previewIndex, setPreviewIndex] = useState<number | null>(null)
   const [downloadingId, setDownloadingId] = useState<string | null>(null)
   const [zipping, setZipping] = useState(false)
 
-  const { data = [], isLoading, refetch, isFetching } = useQuery<Asset[]>({
+  // 数据流保持桌面端现状：GET /api/assets + react-query
+  const { data = [], isLoading } = useQuery<Asset[]>({
     queryKey: ['assets'],
     queryFn: async () => {
       const response = await api.get<Asset[]>('/api/assets')
@@ -80,31 +59,36 @@ export function ImageGalleryPage() {
     })
   }, [data])
 
-  // 搜索和多维过滤
+  // 搜索和多维过滤（应用态，对照旧版「查询」模式）
   const filteredImages = useMemo(() => {
     return imageAssets.filter((item) => {
       const name = item.originalName || item.storageKey.split('/').pop() || item.storageKey
+      const kw = applied.keyword.trim().toLowerCase()
       const matchKeyword =
-        !keyword.trim() ||
-        name.toLowerCase().includes(keyword.trim().toLowerCase()) ||
-        item.storageKey.toLowerCase().includes(keyword.trim().toLowerCase()) ||
-        (item.runId && item.runId.toLowerCase().includes(keyword.trim().toLowerCase()))
+        !kw ||
+        name.toLowerCase().includes(kw) ||
+        item.storageKey.toLowerCase().includes(kw) ||
+        (item.runId && item.runId.toLowerCase().includes(kw))
 
       const matchFormat =
-        formatFilter === 'ALL' ||
-        item.mimeType?.toLowerCase().includes(formatFilter.toLowerCase()) ||
-        item.storageKey.toLowerCase().endsWith(formatFilter.toLowerCase())
+        applied.format === 'ALL' ||
+        item.mimeType?.toLowerCase().includes(applied.format.toLowerCase()) ||
+        item.storageKey.toLowerCase().endsWith(applied.format.toLowerCase())
 
       const matchType =
-        typeFilter === 'ALL' ||
-        (typeFilter === 'main' && name.includes('主图')) ||
-        (typeFilter === 'aplus' && (name.includes('详情') || name.includes('aplus'))) ||
-        (typeFilter === 'viral' && (name.includes('复刻') || name.includes('爆款'))) ||
-        (typeFilter === 'other' && !name.includes('主图') && !name.includes('详情') && !name.includes('复刻'))
+        applied.type === 'ALL' ||
+        (applied.type === 'main' && name.includes('主图')) ||
+        (applied.type === 'aplus' && (name.includes('详情') || name.includes('aplus'))) ||
+        (applied.type === 'viral' && (name.includes('复刻') || name.includes('爆款'))) ||
+        (applied.type === 'other' && !name.includes('主图') && !name.includes('详情') && !name.includes('复刻'))
 
       return matchKeyword && matchFormat && matchType
     })
-  }, [imageAssets, keyword, formatFilter, typeFilter])
+  }, [imageAssets, applied])
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [applied])
 
   // 获取图片的真实加载 URL
   const getImageRawUrl = (assetId: string) => {
@@ -112,7 +96,7 @@ export function ImageGalleryPage() {
     return `${baseURL}/api/assets/${assetId}/raw`
   }
 
-  // 下载单张图片
+  // 下载单张图片（业务逻辑保持桌面端现状：token 鉴权 raw 拉流）
   const handleDownload = async (asset: Asset) => {
     setDownloadingId(asset.id)
     try {
@@ -133,7 +117,7 @@ export function ImageGalleryPage() {
     }
   }
 
-  // 批量下载全部筛选结果
+  // 批量下载全部筛选结果（业务逻辑保持桌面端现状）
   const handleBatchDownload = () => {
     if (filteredImages.length === 0) return
     setZipping(true)
@@ -152,261 +136,285 @@ export function ImageGalleryPage() {
     }
   }
 
+  const totalPages = Math.max(1, Math.ceil(filteredImages.length / PAGE_SIZE))
+  const safePage = Math.min(currentPage, totalPages)
+  const pageImages = filteredImages.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
+
   const currentPreviewAsset = previewIndex !== null ? filteredImages[previewIndex] : null
+  const typeLabel = (asset: Asset) => {
+    const name = asset.originalName || asset.storageKey
+    if (name.includes('主图')) return '商品主图'
+    if (name.includes('详情') || name.includes('aplus')) return '详情图'
+    if (name.includes('复刻') || name.includes('爆款')) return '爆款复刻'
+    return '其他素材'
+  }
 
   return (
-    <div className="h-full overflow-y-auto p-6 bg-[#f4f7fb] flex flex-col gap-4">
-      {/* 顶部标题区 */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold text-gray-900 m-0 flex items-center gap-2">
-            <span>图片资产库</span>
-            <Tag color="arcoblue" icon={<IconImage />}>共 {imageAssets.length} 张图片</Tag>
-          </h1>
-          <p className="text-xs text-gray-500 mt-1 mb-0">
-            集中管理与查看商品主图、详情图 A+、爆款复刻等工作流沉淀的高清图像资产
-          </p>
-        </div>
-        <Space>
-          <Button
-            icon={<IconRefresh />}
-            loading={isFetching}
-            onClick={() => void refetch()}
-          >
-            刷新
-          </Button>
-          <Button
-            type="primary"
-            icon={<IconDownload />}
-            loading={zipping}
-            disabled={filteredImages.length === 0}
-            onClick={handleBatchDownload}
-          >
-            批量下载图片
-          </Button>
-        </Space>
-      </div>
+    <div className="h-full overflow-auto bg-[#f4f7fb]">
+      <div className="p-6">
+        <PageHeader breadcrumbs={[{ label: '资产库' }, { label: '图库' }]} className="mb-2" />
 
-      {/* 顶部多维筛选卡片 (模式 3 规范) */}
-      <Card bordered className="rounded-lg shadow-sm bg-white">
-        <div className="flex flex-wrap items-center gap-4">
-          <Input
-            style={{ width: 240 }}
-            prefix={<IconSearch />}
-            placeholder="搜索名称 / 存储路径 / 批次"
-            allowClear
-            value={keyword}
-            onChange={setKeyword}
-          />
-          <Select
-            style={{ width: 140 }}
-            value={typeFilter}
-            onChange={setTypeFilter}
-          >
-            <Option value="ALL">全部类型</Option>
-            <Option value="main">商品主图</Option>
-            <Option value="aplus">详情图 A+</Option>
-            <Option value="viral">爆款复刻</Option>
-            <Option value="other">其他素材</Option>
-          </Select>
-          <Select
-            style={{ width: 130 }}
-            value={formatFilter}
-            onChange={setFormatFilter}
-          >
-            <Option value="ALL">全部格式</Option>
-            <Option value="png">PNG 格式</Option>
-            <Option value="jpeg">JPG / JPEG</Option>
-            <Option value="webp">WEBP 格式</Option>
-            <Option value="svg">SVG 矢量</Option>
-          </Select>
+        {/* 查询条件卡（对照旧版 grid-cols-4） */}
+        <div className="mb-4 grid grid-cols-4 gap-3 rounded-xl bg-white p-4">
+          <div className="flex items-center gap-2">
+            <label className="shrink-0 text-[12px] text-[#86909C]">图片名称</label>
+            <XSearchInput
+              value={keyword}
+              onChange={setKeyword}
+              onEnter={() => setApplied({ keyword, type: typeFilter, format: formatFilter })}
+              placeholder="请输入"
+            />
+          </div>
 
-          <Button
-            onClick={() => {
-              setKeyword('')
-              setTypeFilter('ALL')
-              setFormatFilter('ALL')
-            }}
-          >
-            重置
-          </Button>
+          <div className="flex items-center gap-2">
+            <label className="shrink-0 text-[12px] text-[#86909C]">图片类型</label>
+            <select
+              value={typeFilter}
+              onChange={(e) => setTypeFilter(e.target.value)}
+              className={`h-8 w-full appearance-none rounded-lg border border-[#e6e9ef] bg-white px-2.5 text-[13px] outline-none focus:border-[#409eff] ${typeFilter === 'ALL' ? 'text-[#98A2B3]' : 'text-[#0A1B39]'}`}
+              style={{
+                backgroundImage:
+                  "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23c0c4cc' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E\")",
+                backgroundRepeat: 'no-repeat',
+                backgroundPosition: 'right 10px center',
+              }}
+            >
+              <option value="ALL">全部类型</option>
+              <option value="main">商品主图</option>
+              <option value="aplus">详情图 A+</option>
+              <option value="viral">爆款复刻</option>
+              <option value="other">其他素材</option>
+            </select>
+          </div>
 
-          <div className="ml-auto text-xs text-gray-400">
-            当前筛选出 <span className="font-semibold text-blue-600">{filteredImages.length}</span> 项资产
+          <div className="flex items-center gap-2">
+            <label className="shrink-0 text-[12px] text-[#86909C]">格式</label>
+            <select
+              value={formatFilter}
+              onChange={(e) => setFormatFilter(e.target.value)}
+              className={`h-8 w-full appearance-none rounded-lg border border-[#e6e9ef] bg-white px-2.5 text-[13px] outline-none focus:border-[#409eff] ${formatFilter === 'ALL' ? 'text-[#98A2B3]' : 'text-[#0A1B39]'}`}
+              style={{
+                backgroundImage:
+                  "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23c0c4cc' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E\")",
+                backgroundRepeat: 'no-repeat',
+                backgroundPosition: 'right 10px center',
+              }}
+            >
+              <option value="ALL">全部格式</option>
+              <option value="png">PNG 格式</option>
+              <option value="jpeg">JPG / JPEG</option>
+              <option value="webp">WEBP 格式</option>
+              <option value="svg">SVG 矢量</option>
+            </select>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setApplied({ keyword, type: typeFilter, format: formatFilter })}
+              className="h-8 shrink-0 cursor-pointer rounded-lg border-0 bg-[#409eff] px-5 text-[13px] font-bold text-white hover:bg-[#66b1ff]"
+            >
+              查询
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setKeyword('')
+                setTypeFilter('ALL')
+                setFormatFilter('ALL')
+                setApplied({ keyword: '', type: 'ALL', format: 'ALL' })
+              }}
+              className="h-8 shrink-0 cursor-pointer rounded-lg border border-[#e6e9ef] bg-white px-4 text-[13px] text-[#0A1B39] hover:bg-[#f5f6f8]"
+            >
+              重置
+            </button>
+            <button
+              type="button"
+              onClick={handleBatchDownload}
+              disabled={zipping || filteredImages.length === 0}
+              className="ml-auto flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-[#dce3ee] bg-white px-3 text-[12px] font-semibold text-[#344054] hover:border-[#3388ff] hover:text-[#3388ff] disabled:cursor-not-allowed disabled:opacity-50"
+              title="批量下载前 20 张筛选结果"
+            >
+              {zipping ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+              批量下载
+            </button>
           </div>
         </div>
-      </Card>
 
-      {/* 图片 4 列瀑布流网格区 */}
-      <Spin loading={isLoading} style={{ width: '100%' }}>
-        {filteredImages.length === 0 ? (
-          <Card bordered className="rounded-lg text-center py-16 bg-white">
-            <Empty
-              description={
-                keyword.trim() || formatFilter !== 'ALL' || typeFilter !== 'ALL'
-                  ? '未找到符合条件的图片资产'
-                  : '暂无图片资产，可在「商品主图」或「A+详情图」中一键生成'
-              }
-            />
-          </Card>
+        {/* 图片网格（对照旧版 grid-cols-8 密集网格） */}
+        {isLoading ? (
+          <div className="grid place-items-center rounded-xl bg-white py-20 text-[14px] text-[#86909C]">
+            <Loader2 className="mr-2 inline h-4 w-4 animate-spin" />
+            加载中…
+          </div>
+        ) : filteredImages.length === 0 ? (
+          <div className="flex flex-col items-center justify-center rounded-xl bg-white py-20">
+            <Search className="mb-4 h-14 w-14 text-[#d0d5dd]" />
+            <p className="text-[16px] text-[#86909C]">暂无数据</p>
+            <p className="m-0 mt-1 text-[13px] text-[#98A2B3]">
+              {applied.keyword || applied.format !== 'ALL' || applied.type !== 'ALL'
+                ? '未找到符合条件的图片资产'
+                : '可在「商品主图」或「详情图 A+」中一键生成图片资产'}
+            </p>
+          </div>
         ) : (
-          <Row gutter={[16, 16]}>
-            {filteredImages.map((asset, idx) => {
+          <div className="grid grid-cols-8 gap-3">
+            {pageImages.map((asset, idx) => {
               const fileName = asset.originalName || asset.storageKey.split('/').pop() || asset.storageKey
-              const ext = asset.storageKey.split('.').pop()?.toUpperCase() || 'IMG'
               return (
-                <Col key={asset.id} xs={24} sm={12} md={8} lg={6} xl={6}>
-                  <Card
-                    hoverable
-                    bordered
-                    className="rounded-lg overflow-hidden bg-white shadow-sm"
-                    bodyStyle={{ padding: 12 }}
-                    cover={
-                      <div
-                        style={{
-                          height: 180,
-                          backgroundColor: '#f7f8fa',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          position: 'relative',
-                          overflow: 'hidden',
-                          cursor: 'pointer',
-                        }}
-                        onClick={() => setPreviewIndex(idx)}
-                      >
-                        <Image
-                          preview={false}
-                          src={getImageRawUrl(asset.id)}
-                          alt={fileName}
-                          style={{
-                            maxHeight: 180,
-                            maxWidth: '100%',
-                            objectFit: 'contain',
-                          }}
-                          loader={
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
-                              <Spin />
-                            </div>
-                          }
-                          error={
-                            <div style={{ textAlign: 'center', color: '#86909c' }}>
-                              <IconImage style={{ fontSize: 32 }} />
-                              <div style={{ fontSize: 12, marginTop: 4 }}>点击放大预览</div>
-                            </div>
-                          }
-                        />
-                        <div style={{ position: 'absolute', top: 8, right: 8 }}>
-                          <Tag size="small" color="blue">{ext}</Tag>
-                        </div>
-                      </div>
-                    }
+                <div key={asset.id} className="overflow-hidden rounded-lg border border-[#eef1f5] bg-white">
+                  <div
+                    className="group relative aspect-square cursor-pointer bg-[#f7f8fa]"
+                    onClick={() => setPreviewIndex(filteredImages.indexOf(asset))}
                   >
-                    <div>
-                      <div
-                        className="font-semibold text-gray-900 truncate mb-1 text-sm"
-                        title={fileName}
+                    <img
+                      src={getImageRawUrl(asset.id)}
+                      alt={fileName}
+                      loading="lazy"
+                      className="h-full w-full object-contain p-1"
+                    />
+                    <div className="absolute inset-0 flex items-center justify-center gap-2 bg-black/35 opacity-0 transition-opacity group-hover:opacity-100">
+                      <span
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setPreviewIndex(filteredImages.indexOf(asset))
+                        }}
+                        className="grid h-8 w-8 place-items-center rounded-full bg-white/90 text-[#0A1B39] hover:bg-white"
+                        title="查看"
                       >
-                        {fileName}
-                      </div>
-
-                      <div className="flex justify-between items-center text-xs text-gray-400 mb-3">
-                        <span>{formatBytes(asset.size)}</span>
-                        {asset.runId && (
-                          <span title={`任务批次: ${asset.runId}`}>
-                            批次: {asset.runId.slice(0, 8)}
-                          </span>
-                        )}
-                      </div>
-
-                      <Space style={{ width: '100%', justifyContent: 'space-between' }}>
-                        <Button
-                          size="small"
-                          type="outline"
-                          icon={<IconEye />}
-                          onClick={() => setPreviewIndex(idx)}
-                        >
-                          查看
-                        </Button>
-                        <Button
-                          size="small"
-                          type="text"
-                          icon={<IconDownload />}
-                          loading={downloadingId === asset.id}
-                          onClick={() => void handleDownload(asset)}
-                        >
-                          下载
-                        </Button>
-                      </Space>
+                        <Eye className="h-3.5 w-3.5" />
+                      </span>
+                      <span
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          void handleDownload(asset)
+                        }}
+                        className="grid h-8 w-8 place-items-center rounded-full bg-white/90 text-[#0A1B39] hover:bg-white"
+                        title="下载"
+                      >
+                        {downloadingId === asset.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+                      </span>
                     </div>
-                  </Card>
-                </Col>
+                  </div>
+                  <div className="p-2">
+                    <p className="m-0 truncate text-[12px] font-semibold text-[#0A1B39]" title={fileName}>
+                      {fileName}
+                    </p>
+                    <div className="mt-1 flex items-center justify-between text-[11px] text-[#98A2B3]">
+                      <span>{typeLabel(asset)}</span>
+                      <span>{formatBytes(asset.size)}</span>
+                    </div>
+                    {asset.runId && (
+                      <p className="m-0 mt-0.5 truncate text-[11px] text-[#c0c4cc]" title={`任务批次: ${asset.runId}`}>
+                        批次 {asset.runId.slice(0, 8)}
+                      </p>
+                    )}
+                  </div>
+                </div>
               )
             })}
-          </Row>
+          </div>
         )}
-      </Spin>
 
-      {/* 大图套图轮播预览 Modal */}
+        {/* 分页（对照旧版 justify-between + 页码） */}
+        {filteredImages.length > 0 && (
+          <div className="mt-4 flex items-center justify-between">
+            <span className="text-[13px] text-[#86909C]">
+              共 {filteredImages.length} 张，第 {safePage} / {totalPages} 页
+            </span>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                disabled={safePage === 1}
+                className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border border-[#eef1f5] bg-white text-[#344054] transition-colors hover:bg-[#f9fafb] disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              {Array.from({ length: totalPages }, (_, i) => i + 1).slice(0, 7).map((page) => (
+                <button
+                  key={page}
+                  type="button"
+                  onClick={() => setCurrentPage(page)}
+                  className={`flex h-8 min-w-[32px] cursor-pointer items-center justify-center rounded-lg px-2 text-[13px] transition-colors ${
+                    safePage === page ? 'border-0 bg-[#409eff] text-white' : 'border border-[#eef1f5] bg-white text-[#344054] hover:bg-[#f9fafb]'
+                  }`}
+                >
+                  {page}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                disabled={safePage === totalPages}
+                className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border border-[#eef1f5] bg-white text-[#344054] transition-colors hover:bg-[#f9fafb] disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* 大图轮播预览 Modal（业务保留桌面端轮播） */}
       <Modal
         title={
           <div className="flex items-center gap-2">
             <span>{currentPreviewAsset?.originalName || '图片预览'}</span>
             {previewIndex !== null && (
-              <Tag size="small" color="arcoblue">
+              <span className="rounded bg-[#f0f7ff] px-2 py-0.5 text-[12px] font-bold text-[#3388ff]">
                 {previewIndex + 1} / {filteredImages.length}
-              </Tag>
+              </span>
             )}
           </div>
         }
         visible={previewIndex !== null}
         onCancel={() => setPreviewIndex(null)}
         footer={
-          <div className="flex items-center justify-between w-full">
-            <Space>
+          <div className="flex w-full items-center justify-between">
+            <div className="flex items-center gap-2">
               <Button
-                icon={<IconArrowLeft />}
+                icon={<ChevronLeft className="h-3.5 w-3.5" />}
                 disabled={previewIndex === null || previewIndex === 0}
                 onClick={() => setPreviewIndex((prev) => (prev !== null && prev > 0 ? prev - 1 : prev))}
+                className="rounded-lg"
               >
                 上一张
               </Button>
               <Button
-                icon={<IconArrowRight />}
+                icon={<ChevronRight className="h-3.5 w-3.5" />}
                 disabled={previewIndex === null || previewIndex >= filteredImages.length - 1}
                 onClick={() => setPreviewIndex((prev) => (prev !== null && prev < filteredImages.length - 1 ? prev + 1 : prev))}
+                className="rounded-lg"
               >
                 下一张
               </Button>
-            </Space>
-
-            <Space>
+            </div>
+            <div className="flex items-center gap-2">
               <Button
                 type="primary"
-                icon={<IconDownload />}
+                icon={<Download className="h-3.5 w-3.5" />}
                 onClick={() => {
                   if (currentPreviewAsset) void handleDownload(currentPreviewAsset)
                 }}
+                className="rounded-lg"
               >
                 下载当前图片
               </Button>
-              <Button onClick={() => setPreviewIndex(null)}>关闭</Button>
-            </Space>
+              <Button onClick={() => setPreviewIndex(null)} className="rounded-lg">
+                关闭
+              </Button>
+            </div>
           </div>
         }
         style={{ width: '80vw', maxWidth: 840 }}
       >
-        <div style={{ textAlign: 'center', maxHeight: '65vh', overflow: 'auto' }}>
+        <div className="max-h-[65vh] overflow-auto text-center">
           {currentPreviewAsset && (
             <img
               src={getImageRawUrl(currentPreviewAsset.id)}
               alt="原图预览"
-              style={{
-                maxWidth: '100%',
-                maxHeight: '60vh',
-                objectFit: 'contain',
-                borderRadius: 4,
-              }}
+              className="max-h-[60vh] max-w-full rounded object-contain"
             />
           )}
         </div>

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { XInput } from '../components/XInput'
 import {
   ChevronDown,
   ChevronUp,
@@ -295,6 +296,7 @@ export function APlusDetailPage() {
                   value={keyword}
                   onChange={setKeyword}
                   placeholder="商品名称与核心定位"
+                  allowClear
                   className={INPUT_CLASS}
                 />
               </div>
