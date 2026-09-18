@@ -9,7 +9,6 @@
 - `apps/legacy/`：旧版单体应用（`legacy:cleanup` 清理目标，仅供迁移参考）
 - `skills/`：采集/清洗/旧报告脚本，旧报告 skill 仅作迁移参考
 - `scripts/`：环境检查、旧应用归档脚本
-- `docs/开发任务/2026-09-10-桌面端与服务端架构方案/`：任务清单与设计文档（先读 `待办事项清单.md`）
 
 根目录为 pnpm monorepo，`pnpm-workspace.yaml` 以 `apps/*` 聚合各应用包；后续如抽共享代码可新增 `packages/` 层（workspace 已按 glob 聚合，无需改配置）。
 
