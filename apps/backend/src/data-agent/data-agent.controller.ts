@@ -14,12 +14,13 @@ export class DataAgentController {
   }
 
   @Post('chat')
-  chat(@Req() request: { user: { tenantId: string } }, @Body() body: DataAgentChatDto) {
+  chat(@Req() request: { user: { tenantId: string; sub?: string } }, @Body() body: DataAgentChatDto) {
     return this.service.chat({
       tenantId: request.user.tenantId,
       question: body.question,
       jobId: body.jobId,
       datasetId: body.datasetId,
+      userId: request.user.sub,
     })
   }
 }

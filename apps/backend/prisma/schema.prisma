@@ -36,6 +36,13 @@ model User {
   avatarUrl    String?
   departmentId String?
   dataScope    String?
+  // 个人自配 AI 供应商（优先级：用户自配 > 租户/系统 ProviderProfile > 环境默认）
+  aiSelfEnabled   Boolean?
+  aiProviderType  String?
+  aiBaseUrl       String?
+  aiApiKey        String?
+  aiModel         String?
+  aiTimeoutMs     Int?
   isActive     Boolean   @default(true)
   deletedAt    DateTime?
   createdAt    DateTime  @default(now())
@@ -118,6 +125,7 @@ model Job {
   attempt           Int       @default(0)
   checkpointStage   String?
   parentJobId       String?
+  userId            String?
   agentId           String?
   providerProfileId String?
   errorCode         String?

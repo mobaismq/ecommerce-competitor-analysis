@@ -12,7 +12,7 @@ export class JobService {
     private readonly localQueue: LocalJobQueueService,
   ) {}
 
-  async create(dto: CreateJobDto, tenantId: string) {
+  async create(dto: CreateJobDto, tenantId: string, userId?: string) {
     const businessKey = dto.businessKey ?? this.buildBusinessKey(dto)
     if (dto.providerProfileId) {
       const profile = await this.prisma.providerProfile.findUnique({ where: { id: dto.providerProfileId } })
@@ -29,6 +29,7 @@ export class JobService {
           status: 'queued',
           stage: initialStage,
           providerProfileId: dto.providerProfileId,
+          userId,
         },
       })
     } catch (error) {

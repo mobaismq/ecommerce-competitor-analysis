@@ -10,8 +10,8 @@ export class JobController {
   constructor(private readonly jobService: JobService) {}
 
   @Post()
-  create(@Req() request: { user: { tenantId: string } }, @Body() body: CreateJobDto) {
-    return this.jobService.create(body, request.user.tenantId)
+  create(@Req() request: { user: { tenantId: string; sub?: string } }, @Body() body: CreateJobDto) {
+    return this.jobService.create(body, request.user.tenantId, request.user.sub)
   }
 
   @Get(':id')

@@ -4,10 +4,13 @@ import { PrismaModule } from '../prisma.module'
 import { AiAuditService } from './ai-audit.service'
 import { ProviderRegistry } from './provider-registry'
 import { ProviderRouter } from './provider-router.service'
+import { AiSelfConfigService } from './ai-self.service'
+import { AiSelfConfigController } from './ai-self.controller'
 
 @Module({
   imports: [PrismaModule, ConfigModule],
-  providers: [ProviderRegistry, AiAuditService, ProviderRouter],
+  controllers: [AiSelfConfigController],
+  providers: [ProviderRegistry, AiAuditService, ProviderRouter, AiSelfConfigService],
   exports: [ProviderRegistry, AiAuditService, ProviderRouter],
 })
 export class AiModule {}

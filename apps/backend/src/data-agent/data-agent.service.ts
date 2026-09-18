@@ -8,6 +8,7 @@ interface ChatInput {
   question: string
   jobId?: string
   datasetId?: string
+  userId?: string
 }
 
 interface RateWindow {
@@ -85,7 +86,7 @@ export class DataAgentService {
     const result = await this.router.execute(
       'text',
       { system: '你是电商数据 Agent。回答必须基于给定上下文，不能编造不存在的数据。', prompt: `上下文：${context}\n问题：${input.question}`, maxTokens: Number(process.env.ARK_DATA_AGENT_MAX_OUTPUT_TOKENS ?? 3000) },
-      { tenantId: input.tenantId, jobId: matchedJobId, attemptKey },
+      { tenantId: input.tenantId, jobId: matchedJobId, attemptKey, userId: input.userId },
     )
     return { answer: result.text ?? '', sources, model: result.model, attemptKey }
   }

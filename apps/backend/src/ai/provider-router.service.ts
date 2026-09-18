@@ -11,6 +11,17 @@ interface ExecuteOptions {
   jobId?: string
   attemptKey?: string
   providerProfileId?: string
+  /** 发起用户 id：命中个人自配的 AI 供应商（优先级 用户自配 > 租户/系统 ProviderProfile > 环境默认） */
+  userId?: string
+}
+
+interface UserSelfConfig {
+  aiSelfEnabled: boolean | null
+  aiProviderType: string | null
+  aiBaseUrl: string | null
+  aiApiKey: string | null
+  aiModel: string | null
+  aiTimeoutMs: number | null
 }
 
 interface CapabilityProfile {
@@ -35,12 +46,11 @@ export class ProviderRouter {
     request: AiTextRequest | AiVisionRequest | AiImageRequest,
     options: ExecuteOptions,
   ): Promise<AiResult & { cached?: boolean; cacheKey?: string }> {
-    const profile = options.providerProfileId
-      ? await this.prisma.providerProfile.findFirst({ where: { id: options.providerProfileId, enabled: true } })
-      : await this.selectActiveProfile(capability, options.tenantId)
-    const providerType = profile?.type ?? this.defaultProviderType()
-    const config = profile ? this.resolveConfig(profile) : this.resolveEnvConfig(providerType, capability)
+    const resolved = await this.resolveProvider(capability, options)
+    const providerType = resolved.type
+    const config = resolved.config
     const provider = this.registry.create(providerType, config)
+    const profileId = resolved.profileId
     const cacheKey = createHash('sha256')
       .update(JSON.stringify({ capability, providerType: provider.type, model: config.model, request }))
       .digest('hex')
@@ -62,7 +72,7 @@ export class ProviderRouter {
         tenantId: options.tenantId,
         jobId: options.jobId,
         attemptKey,
-        providerProfileId: profile?.id,
+        providerProfileId: profileId,
         providerType: provider.type,
         model: cachedResult.model ?? config.model,
       })
@@ -79,7 +89,7 @@ export class ProviderRouter {
       tenantId: options.tenantId,
       jobId: options.jobId,
       attemptKey,
-      providerProfileId: profile?.id,
+      providerProfileId: profileId,
       providerType: provider.type,
       model: config.model,
     })
@@ -134,6 +144,53 @@ export class ProviderRouter {
     })
     if (matches.length === 0) return null
     return matches[0]
+  }
+
+  private async resolveProvider(
+    capability: AiCapability,
+    options: ExecuteOptions,
+  ): Promise<{ type: string; config: ProviderConfig; profileId?: string }> {
+    // 1) 个人自配优先：用户主动开启且配置了 Key
+    if (options.userId) {
+      const user = await this.prisma.user.findUnique({
+        where: { id: options.userId },
+        select: {
+          aiSelfEnabled: true,
+          aiProviderType: true,
+          aiBaseUrl: true,
+          aiApiKey: true,
+          aiModel: true,
+          aiTimeoutMs: true,
+        },
+      })
+      const userConfig = this.resolveUserConfig(user)
+      if (userConfig) {
+        return { type: user?.aiProviderType ?? this.defaultProviderType(), config: userConfig }
+      }
+    }
+
+    // 2) 租户/系统 ProviderProfile（组织集中配置）
+    const profile = options.providerProfileId
+      ? await this.prisma.providerProfile.findFirst({ where: { id: options.providerProfileId, enabled: true } })
+      : await this.selectActiveProfile(capability, options.tenantId)
+    if (profile) return { type: profile.type, config: this.resolveConfig(profile), profileId: profile.id }
+
+    // 3) 环境默认兜底（项目初期默认 provider）
+    const fallbackType = this.defaultProviderType()
+    return { type: fallbackType, config: this.resolveEnvConfig(fallbackType, capability) }
+  }
+
+  /**
+   * 将用户的个人自配字段解析为可用的 ProviderConfig；未开启 / 缺 Key 时返回 null，回落下一优先级。
+   */
+  private resolveUserConfig(user: UserSelfConfig | null): ProviderConfig | null {
+    if (!user || user.aiSelfEnabled !== true || !user.aiApiKey) return null
+    return {
+      baseUrl: user.aiBaseUrl ?? undefined,
+      apiKey: user.aiApiKey,
+      model: user.aiModel ?? undefined,
+      timeoutMs: user.aiTimeoutMs ?? undefined,
+    }
   }
 
   private resolveConfig(profile: CapabilityProfile | null): ProviderConfig {

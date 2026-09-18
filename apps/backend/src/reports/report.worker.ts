@@ -31,7 +31,7 @@ export class ReportWorker implements JobProcessor, OnModuleInit {
       where: { id: jobId },
       data: { status: 'running', stage: 'analyzing', startedAt: row.startedAt ?? new Date() },
     })
-    const result = await this.reportService.runReport({ jobId, tenantId, attempt: row.attempt })
+    const result = await this.reportService.runReport({ jobId, tenantId, attempt: row.attempt, userId: row.userId ?? undefined })
     await this.localQueue.enqueue(QUEUE_NAMES.flowFinalizer, { jobId, tenantId })
     process.stdout.write(
       JSON.stringify({ level: 30, msg: 'report worker done', jobId, tenantId, reportNo: result.reportNo, reused: result.reused }) + '\n',

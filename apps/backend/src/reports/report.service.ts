@@ -10,6 +10,8 @@ export interface RunReportInput {
   jobId: string
   tenantId: string
   attempt?: number
+  /** 发起用户 id，用于命中个人自配 AI 供应商 */
+  userId?: string
 }
 
 export interface RunReportResult {
@@ -60,7 +62,7 @@ export class ReportService {
         system: '你是电商竞品分析报告助手，请输出结构化结论。',
         maxTokens: Number(process.env.ARK_OVERALL_REPORT_MAX_OUTPUT_TOKENS ?? 10000),
       },
-      { tenantId: input.tenantId, jobId: job.id, attemptKey },
+      { tenantId: input.tenantId, jobId: job.id, attemptKey, userId: input.userId ?? job.userId ?? undefined },
     )
 
     const collectionJob = await this.prisma.collectionJob.findUnique({ where: { jobId: job.id } })

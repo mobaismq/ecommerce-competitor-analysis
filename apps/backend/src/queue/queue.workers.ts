@@ -54,6 +54,7 @@ export class FlowFinalizerWorker implements JobProcessor, OnModuleInit {
           status: 'queued',
           stage: 'queued',
           parentJobId: source.id,
+          userId: source.userId ?? undefined,
         },
       })
       await this.localQueue.enqueue(rule.targetQueue, {
