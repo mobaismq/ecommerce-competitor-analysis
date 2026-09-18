@@ -1,50 +1,10 @@
-import React, { useState } from 'react'
-import {
-  Alert,
-  Badge,
-  Button,
-  Card,
-  Divider,
-  Empty,
-  Form,
-  Grid,
-  Image,
-  Input,
-  InputNumber,
-  Message,
-  Modal,
-  Progress,
-  Radio,
-  Select,
-  Space,
-  Spin,
-  Steps,
-  Switch,
-  Tabs,
-  Tag,
-  Tooltip,
-  Typography,
-  Upload,
-} from '@arco-design/web-react'
-import {
-  IconCheck,
-  IconCopy,
-  IconDownload,
-  IconEye,
-  IconFire,
-  IconFolder,
-  IconLink,
-  IconLoading,
-  IconPlayArrow,
-  IconPlus,
-  IconRefresh,
-  IconThunderbolt,
-  IconUpload,
-  IconVideoCamera,
-} from '@arco-design/web-react/icon'
+import { useState } from 'react'
+import { Button, Input, Message, Modal, Select } from '@arco-design/web-react'
+import { Check, Copy, Download, Loader2, Play, Plus, X } from 'lucide-react'
 import { api } from '../api/client'
+import { nanoid } from 'nanoid'
 
-// 导入我们在 Phase 9.1 中提取的 8 种类型封面图片
+// 8 种类型封面图
 import imgUgc from '../assets/video-types/image-11.png'
 import imgDrama from '../assets/video-types/image-26.png'
 import imgOral from '../assets/video-types/image-27.png'
@@ -53,13 +13,8 @@ import imgUnbox from '../assets/video-types/image-9.png'
 import imgScene from '../assets/video-types/image-10.png'
 import imgCompare from '../assets/video-types/image-12.png'
 import imgTutorial from '../assets/video-types/image-1.png'
-import { nanoid } from 'nanoid'
 
-const { Title, Text, Paragraph } = Typography
-const { Row, Col } = Grid
-const { TabPane } = Tabs
-const { TextArea } = Input
-const { Step } = Steps
+const Option = Select.Option
 
 interface VideoTypeCard {
   id: string
@@ -69,21 +24,20 @@ interface VideoTypeCard {
 }
 
 const VIDEO_TYPES: VideoTypeCard[] = [
-  { id: 'ugc', label: 'UGC 种草', desc: '用户视角真实分享，高亲和力极速种草', image: imgUgc },
-  { id: 'drama', label: '带货短剧', desc: '微短剧反转剧情，软植入高转化', image: imgDrama },
-  { id: 'oral', label: '产品口播', desc: '达人正脸对镜讲解，直击痛点', image: imgOral },
-  { id: 'demo', label: '产品演示', desc: '核心功能近景实操与硬核特性展现', image: imgDemo },
-  { id: 'unbox', label: '开箱测评', desc: '真实拆箱仪式感，包装与配件全览', image: imgUnbox },
-  { id: 'scene', label: '场景种草', desc: '沉浸式生活场景自然融入商品', image: imgScene },
-  { id: 'compare', label: '对比评测', desc: '硬核竞品实测对比，凸显绝对优势', image: imgCompare },
-  { id: 'tutorial', label: '教程视频', desc: '保姆级新手上手技巧与使用攻略', image: imgTutorial },
+  { id: 'ugc', label: 'UGC 种草', desc: '用户视角真实分享', image: imgUgc },
+  { id: 'drama', label: '带货短剧', desc: '微短剧反转剧情', image: imgDrama },
+  { id: 'oral', label: '产品口播', desc: '达人正脸讲解', image: imgOral },
+  { id: 'demo', label: '产品演示', desc: '核心功能实操', image: imgDemo },
+  { id: 'unbox', label: '开箱测评', desc: '真实拆箱仪式感', image: imgUnbox },
+  { id: 'scene', label: '场景种草', desc: '生活场景融入', image: imgScene },
+  { id: 'compare', label: '对比评测', desc: '竞品实测对比', image: imgCompare },
+  { id: 'tutorial', label: '教程视频', desc: '新手上手攻略', image: imgTutorial },
 ]
 
 const MARKETS = ['北美市场', '欧洲市场', '东南亚市场', '日韩市场', '中东市场', '拉美市场', '澳洲市场', '全球通用']
 const LANGUAGES = ['英语', '中文', '日语', '韩语', '德语', '法语', '西班牙语', '葡萄牙语', '阿拉伯语', '泰语', '越南语']
 const RATIOS = [
   { label: 'TikTok / Reels · 9:16', value: '9:16' },
-  { label: '抖音 / 快手 · 9:16', value: '9:16' },
   { label: '小红书笔记 · 3:4', value: '3:4' },
   { label: '淘宝/天猫主图 · 1:1', value: '1:1' },
   { label: 'YouTube / 亚马逊 · 16:9', value: '16:9' },
@@ -102,10 +56,12 @@ interface GeneratedVideoItem {
   createTime: string
 }
 
+const GEN_STEPS = ['卖点分析', '脚本生成', '画面渲染', '音频对齐']
+
 export function ViralVideoReplicationPage() {
   const [activeTab, setActiveTab] = useState<'generate' | 'replicate'>('generate')
 
-  // 表单状态
+  // 表单状态（业务逻辑保持桌面端现状）
   const [selectedTypes, setSelectedTypes] = useState<string[]>(['ugc'])
   const [market, setMarket] = useState('北美市场')
   const [language, setLanguage] = useState('英语')
@@ -125,29 +81,32 @@ export function ViralVideoReplicationPage() {
   const [results, setResults] = useState<GeneratedVideoItem[]>([])
   const [previewVideo, setPreviewVideo] = useState<GeneratedVideoItem | null>(null)
 
-  // 切换类型
   const toggleType = (id: string) => {
     setSelectedTypes((prev) =>
       prev.includes(id) ? (prev.length > 1 ? prev.filter((t) => t !== id) : prev) : [...prev, id],
     )
   }
 
-  // 启动生成/复刻
+  // 启动生成/复刻（数据流保持桌面端现状：/api/videos/replicate + 步骤动画）
   const handleStart = async () => {
+    if (activeTab === 'replicate' && !replicateUrl.trim()) {
+      Message.warning('请输入要复刻的爆款视频链接')
+      return
+    }
     setGenerating(true)
     setGenerateStep(0)
 
     try {
-      // 尝试调用后端任务接口
-      await api.post('/api/videos/replicate', {
-        sourceUrl: replicateUrl || 'https://www.tiktok.com/demo-hot-video',
-        title: activeTab === 'generate' ? `原创爆款视频 (${selectedTypes.join(',')})` : '竞品爆款复刻视频',
-      }).catch(() => undefined)
+      await api
+        .post('/api/videos/replicate', {
+          sourceUrl: replicateUrl || 'https://www.tiktok.com/demo-hot-video',
+          title: activeTab === 'generate' ? `原创爆款视频 (${selectedTypes.join(',')})` : '竞品爆款复刻视频',
+        })
+        .catch(() => undefined)
     } catch {
       // ignore
     }
 
-    // 步骤动画模拟
     const s1 = setTimeout(() => setGenerateStep(1), 1000)
     const s2 = setTimeout(() => setGenerateStep(2), 2200)
     const s3 = setTimeout(() => setGenerateStep(3), 3600)
@@ -172,303 +131,317 @@ export function ViralVideoReplicationPage() {
       setResults(generatedList)
       Message.success(`视频${activeTab === 'generate' ? '生成' : '复刻'}完成！成功输出 ${fissionCount} 条高画质成品`)
     }, 4800)
-
-    return () => {
-      clearTimeout(s1)
-      clearTimeout(s2)
-      clearTimeout(s3)
-      clearTimeout(s4)
-    }
+    void [s1, s2, s3, s4]
   }
 
-  // 复制分镜脚本
   const handleCopyScript = (txt: string) => {
     navigator.clipboard.writeText(txt)
     Message.success('分镜脚本已复制')
   }
 
+  const LABEL_CLASS = 'mb-2 block text-[13px] font-bold text-[#344054]'
+
   return (
-    <div className="relative flex h-full bg-[#f4f7fb] overflow-hidden">
-      {/* ─── 左侧 380px 配置工作台 ─── */}
-      <div className="w-[380px] shrink-0 h-full overflow-y-auto border-r border-[#e5e8ef] bg-white p-5 pb-24 select-none">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h2 className="text-[16px] font-bold text-[#0A1B39] m-0 flex items-center gap-2">
-              <span>视频生成与复刻</span>
-              <Tag color="magenta" icon={<IconVideoCamera />} size="small">AI 大模型</Tag>
-            </h2>
-            <div className="text-[12px] text-gray-500 mt-1">
-              8 类高转化视频脚本与带货视频一键生成
-            </div>
-          </div>
+    <div className="relative flex h-full bg-[#F2F4F7]">
+      {/* ─── 左侧 360px 配置面板（顶部双 tab，对照旧版） ─── */}
+      <div className="h-full w-[360px] shrink-0 overflow-y-auto border-r border-[#E5E8EF] bg-white px-5 pt-5 pb-4">
+        <div className="mb-4 flex rounded-lg bg-[#f2f4f7] p-1">
+          {(['generate', 'replicate'] as const).map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              onClick={() => setActiveTab(tab)}
+              className={`h-8 flex-1 cursor-pointer rounded-md border-0 text-[12px] transition-colors ${
+                activeTab === tab ? 'bg-white font-semibold text-[#3388ff] shadow-sm' : 'bg-transparent text-[#667085]'
+              }`}
+            >
+              {tab === 'generate' ? '生成爆款' : '爆款复刻'}
+            </button>
+          ))}
         </div>
 
-        <Tabs
-          type="capsule"
-          activeTab={activeTab}
-          onChange={(k) => setActiveTab(k as 'generate' | 'replicate')}
-          className="mb-4 w-full"
-        >
-          <TabPane key="generate" title="原创爆款" />
-          <TabPane key="replicate" title="竞品复刻" />
-        </Tabs>
-
-        {/* 产品图预览与上传 */}
-        <div style={{ marginBottom: 16 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-            <Text bold style={{ fontSize: 13 }}>产品原图基准</Text>
-            <Tag color="arcoblue" size="small">主视角</Tag>
-          </div>
-          <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-            <div style={{ width: 68, height: 68, borderRadius: 6, overflow: 'hidden', border: '1px solid var(--color-border-2)', flexShrink: 0 }}>
-              <Image src={productImage} width={68} height={68} style={{ objectFit: 'cover' }} preview />
-            </div>
-            <div style={{ flex: 1 }}>
-              <Text style={{ fontSize: 12, color: 'var(--color-text-3)', display: 'block', marginBottom: 6 }}>
-                大模型将严格参照原图材质与结构进行形变对齐。
-              </Text>
-              <Button size="mini" icon={<IconUpload />}>更换实物图</Button>
-            </div>
-          </div>
-        </div>
-
-        <Divider style={{ margin: '14px 0' }} />
-
-        {/* 8 种爆款视频类型选择池 */}
-        <div style={{ marginBottom: 16 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-            <Text bold style={{ fontSize: 13 }}>视频类型矩阵 (可多选)</Text>
-            <Text type="secondary" style={{ fontSize: 12 }}>已选 {selectedTypes.length} 类</Text>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
-            {VIDEO_TYPES.map((type) => {
-              const isSelected = selectedTypes.includes(type.id)
-              return (
-                <div
-                  key={type.id}
-                  onClick={() => toggleType(type.id)}
-                  style={{
-                    border: isSelected ? '2px solid #165dff' : '1px solid var(--color-border-2)',
-                    background: isSelected ? '#f2f7ff' : '#fff',
-                    borderRadius: 8,
-                    overflow: 'hidden',
-                    cursor: 'pointer',
-                    transition: 'all 0.2s',
-                    position: 'relative',
-                  }}
+        {activeTab === 'generate' ? (
+          <>
+            {/* 上传产品图（蓝虚线） */}
+            <div className="mb-4">
+              <span className={LABEL_CLASS}>上传产品图</span>
+              <div className="group relative h-[94px] overflow-hidden rounded-lg border border-dashed border-[#8CC4FF] bg-[#f5faff]">
+                <img src={productImage} alt="产品图" className="h-full w-full object-contain p-1.5" />
+                <button
+                  type="button"
+                  onClick={() => setProductImage('')}
+                  className="absolute right-1.5 top-1.5 grid h-6 w-6 cursor-pointer place-items-center rounded-full border-0 bg-white/90 text-[#c62828] shadow-sm"
                 >
-                  <div style={{ height: 80, overflow: 'hidden', position: 'relative' }}>
-                    <img src={type.image} alt={type.label} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                    <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top, rgba(0,0,0,0.6), transparent)' }} />
-                    {isSelected && (
-                      <div style={{ position: 'absolute', top: 5, right: 5, width: 18, height: 18, borderRadius: '50%', background: '#165dff', display: 'grid', placeItems: 'center' }}>
-                        <IconCheck style={{ color: '#fff', fontSize: 11 }} />
-                      </div>
-                    )}
-                    <span style={{ position: 'absolute', bottom: 4, left: 6, color: '#fff', fontWeight: 600, fontSize: 12 }}>
-                      {type.label}
-                    </span>
-                  </div>
-                  <div style={{ padding: '4px 6px' }}>
-                    <Text type="secondary" ellipsis style={{ fontSize: 11, display: 'block' }}>
-                      {type.desc}
-                    </Text>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </div>
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
 
-        <Divider style={{ margin: '14px 0' }} />
+            {/* 目标市场与语言 */}
+            <div className="mb-4">
+              <span className={LABEL_CLASS}>目标市场与语言</span>
+              <div className="mb-2 grid grid-cols-2 gap-2">
+                <Select size="small" value={market} onChange={setMarket}>
+                  {MARKETS.map((m) => (
+                    <Option key={m} value={m}>
+                      {m}
+                    </Option>
+                  ))}
+                </Select>
+                <Select size="small" value={language} onChange={setLanguage}>
+                  {LANGUAGES.map((l) => (
+                    <Option key={l} value={l}>
+                      {l}
+                    </Option>
+                  ))}
+                </Select>
+              </div>
+              <Select size="small" value={ratio} onChange={setRatio} className="w-full">
+                {RATIOS.map((r) => (
+                  <Option key={r.value + r.label} value={r.value}>
+                    {r.label}
+                  </Option>
+                ))}
+              </Select>
+            </div>
 
-        {/* 国际化与画幅配置 */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10, marginBottom: 14 }}>
-          <div>
-            <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>目标市场</Text>
-            <Select value={market} onChange={setMarket} size="small">
-              {MARKETS.map((m) => (
-                <Select.Option key={m} value={m}>{m}</Select.Option>
-              ))}
-            </Select>
-          </div>
-          <div>
-            <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>配音与文字</Text>
-            <Select value={language} onChange={setLanguage} size="small">
-              {LANGUAGES.map((l) => (
-                <Select.Option key={l} value={l}>{l}</Select.Option>
-              ))}
-            </Select>
-          </div>
-        </div>
+            {/* 商品卖点 */}
+            <div className="mb-4">
+              <span className={LABEL_CLASS}>商品卖点</span>
+              <textarea
+                value={sellingPoints}
+                onChange={(e) => setSellingPoints(e.target.value)}
+                rows={3}
+                className="w-full resize-none rounded-lg border border-[#dce3ee] bg-[#f9fafb] p-2.5 text-[12px] leading-5 text-[#0A1B39] outline-none focus:border-[#3388ff] focus:bg-white"
+              />
+            </div>
 
-        <div style={{ marginBottom: 14 }}>
-          <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>画幅比例</Text>
-          <Select value={ratio} onChange={setRatio} size="small">
-            {RATIOS.map((r) => (
-              <Select.Option key={r.label} value={r.value}>{r.label}</Select.Option>
-            ))}
-          </Select>
-        </div>
+            {/* 视频类型矩阵（grid-cols-2 八类型钮，多选） */}
+            <div className="mb-2">
+              <span className={LABEL_CLASS}>视频类型（可多选）</span>
+              <div className="grid grid-cols-2 gap-2">
+                {VIDEO_TYPES.map((t) => {
+                  const active = selectedTypes.includes(t.id)
+                  return (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => toggleType(t.id)}
+                      className={`cursor-pointer rounded-lg border p-2 text-left transition-colors ${
+                        active ? 'border-[#3388FF] bg-[#EEF5FF] ring-1 ring-[#3388FF]' : 'border-[#e5e8ef] bg-white hover:border-[#b8d7ff]'
+                      }`}
+                    >
+                      <p className={`m-0 text-[12px] font-bold ${active ? 'text-[#3388ff]' : 'text-[#0A1B39]'}`}>{t.label}</p>
+                      <p className="m-0 mt-0.5 text-[10px] leading-3.5 text-[#86909C]">{t.desc}</p>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          </>
+        ) : (
+          <>
+            {/* 爆款复刻：链接导入 + 授权 + 市场 + 卖点 + 裂变步进器 */}
+            <div className="mb-4">
+              <span className={LABEL_CLASS}>爆款视频链接</span>
+              <Input
+                value={replicateUrl}
+                onChange={setReplicateUrl}
+                placeholder="粘贴 TikTok / 抖音 / Reels 视频链接"
+                className="h-10 rounded-lg"
+              />
+            </div>
 
-        {/* 复刻链接 (仅复刻 Tab) */}
-        {activeTab === 'replicate' && (
-          <div style={{ marginBottom: 14 }}>
-            <Text bold style={{ fontSize: 13, display: 'block', marginBottom: 4 }}>
-              参考爆款视频链接
-            </Text>
-            <Input
-              prefix={<IconLink />}
-              placeholder="TikTok / 抖音 / YouTube 链接"
-              value={replicateUrl}
-              onChange={setReplicateUrl}
-              allowClear
-              size="small"
-            />
-          </div>
+            <div className="mb-4">
+              <span className={LABEL_CLASS}>素材与授权</span>
+              <div className="rounded-lg border border-dashed border-[#d8e0ea] bg-[#fafbfc] p-3">
+                <label className="flex cursor-pointer items-center gap-2 text-[12px] text-[#344054]">
+                  <input type="checkbox" defaultChecked className="h-3.5 w-3.5 accent-[#3388ff]" />
+                  我已确认拥有该参考素材的商用授权
+                </label>
+              </div>
+            </div>
+
+            <div className="mb-4">
+              <span className={LABEL_CLASS}>目标市场与语言</span>
+              <div className="grid grid-cols-2 gap-2">
+                <Select size="small" value={market} onChange={setMarket}>
+                  {MARKETS.map((m) => (
+                    <Option key={m} value={m}>
+                      {m}
+                    </Option>
+                  ))}
+                </Select>
+                <Select size="small" value={language} onChange={setLanguage}>
+                  {LANGUAGES.map((l) => (
+                    <Option key={l} value={l}>
+                      {l}
+                    </Option>
+                  ))}
+                </Select>
+              </div>
+            </div>
+
+            <div className="mb-4">
+              <span className={LABEL_CLASS}>商品卖点</span>
+              <textarea
+                value={sellingPoints}
+                onChange={(e) => setSellingPoints(e.target.value)}
+                rows={3}
+                className="w-full resize-none rounded-lg border border-[#dce3ee] bg-[#f9fafb] p-2.5 text-[12px] leading-5 text-[#0A1B39] outline-none focus:border-[#3388ff] focus:bg-white"
+              />
+            </div>
+
+            {/* 爆款裂变步进器（对照旧版 -/+ h-8 w-8） */}
+            <div className="mb-2">
+              <span className={LABEL_CLASS}>爆款裂变数量</span>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setFissionCount((n) => Math.max(1, n - 1))}
+                  className="grid h-8 w-8 cursor-pointer place-items-center rounded-lg border border-[#dce3ee] bg-white text-[#0A1B39] hover:border-[#3388ff]"
+                >
+                  −
+                </button>
+                <span className="text-[14px] font-bold text-[#0A1B39]">{fissionCount} 条</span>
+                <button
+                  type="button"
+                  onClick={() => setFissionCount((n) => Math.min(10, n + 1))}
+                  className="grid h-8 w-8 cursor-pointer place-items-center rounded-lg border border-[#dce3ee] bg-white text-[#0A1B39] hover:border-[#3388ff]"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
+          </>
         )}
 
-        {/* 核心卖点输入 */}
-        <div style={{ marginBottom: 14 }}>
-          <Text bold style={{ fontSize: 13, display: 'block', marginBottom: 4 }}>
-            商品核心卖点（大纲故事板）
-          </Text>
-          <TextArea
-            rows={3}
-            placeholder="请输入要重点展现的 3 个卖点"
-            value={sellingPoints}
-            onChange={setSellingPoints}
-            style={{ fontSize: 12 }}
-          />
-        </div>
-
-        {/* 裂变数量 */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <div>
-            <Text bold style={{ fontSize: 13 }}>一次生成裂变数量</Text>
-            <Text type="secondary" style={{ fontSize: 11, display: 'block' }}>生成不同分镜节奏成品</Text>
-          </div>
-          <InputNumber
-            min={1}
-            max={5}
-            value={fissionCount}
-            onChange={(v) => setFissionCount(v || 1)}
-            style={{ width: 90 }}
-            size="small"
-          />
-        </div>
-
-        {/* 左侧悬浮吸底大按钮 */}
-        <div className="absolute bottom-0 left-0 w-[380px] p-3 bg-white/95 backdrop-blur border-t border-[#e5e8ef] z-10">
+        {/* 吸底生成条（对照旧版双文案） */}
+        <div className="sticky bottom-0 -mx-5 mt-2 border-t border-[#EEF1F5] bg-white p-4">
           <Button
             type="primary"
+            long
             size="large"
-            icon={<IconPlayArrow />}
             loading={generating}
             onClick={handleStart}
-            style={{ width: '100%', height: 42, borderRadius: 8 }}
+            className="rounded-lg font-bold"
           >
-            {generating ? '大模型渲染中...' : activeTab === 'generate' ? `一键生成原创短视频 (${fissionCount}条)` : `一键高精复刻视频 (${fissionCount}条)`}
+            {activeTab === 'generate' ? '生成 15s 爆款视频' : `复制 15s 爆款视频（共 ${fissionCount} 条）`}
           </Button>
         </div>
       </div>
 
-      {/* ─── 右侧自适应展示与视频画廊 ─── */}
-      <div className="flex-1 h-full overflow-y-auto p-6">
-          {/* 生成进行中提示 */}
-          {generating && (
-            <Card bordered style={{ borderRadius: 8, marginBottom: 16, textAlign: 'center', padding: '24px 0' }}>
-              <Steps current={generateStep} style={{ maxWidth: 640, margin: '0 auto 20px auto' }}>
-                <Step title="卖点分析" description="拆解分镜痛点" />
-                <Step title="脚本生成" description="多语言母语化" />
-                <Step title="画面渲染" description="主体运动生成" />
-                <Step title="音频对齐" description="AI 旁白与配乐" />
-              </Steps>
-              <Spin tip="Sora / Hunyuan 多模态视频大模型渲染中，请稍候..." />
-            </Card>
-          )}
-
-          {/* 结果画廊 */}
-          {results.length > 0 ? (
-            <div>
-              <div style={{ marginBottom: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Title heading={5} style={{ margin: 0 }}>
-                  生成成果列表 ({results.length} 条成品)
-                </Title>
-                <Button size="small" icon={<IconDownload />}>打包下载全部 MP4</Button>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16 }}>
-                {results.map((vid) => (
-                  <Card key={vid.id} bordered style={{ borderRadius: 8, overflow: 'hidden' }}>
-                    <div style={{ position: 'relative', height: 200, background: '#000', borderRadius: 6, overflow: 'hidden' }}>
-                      <img src={vid.coverUrl} alt={vid.title} style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: 0.85 }} />
-                      <div
-                        onClick={() => setPreviewVideo(vid)}
-                        style={{
-                          position: 'absolute',
-                          inset: 0,
-                          display: 'grid',
-                          placeItems: 'center',
-                          cursor: 'pointer',
-                          background: 'rgba(0,0,0,0.25)',
-                        }}
-                      >
-                        <div style={{ width: 48, height: 48, borderRadius: '50%', background: 'rgba(22,93,255,0.9)', display: 'grid', placeItems: 'center' }}>
-                          <IconPlayArrow style={{ color: '#fff', fontSize: 24, marginLeft: 2 }} />
-                        </div>
-                      </div>
-                      <span style={{ position: 'absolute', bottom: 8, right: 8, background: 'rgba(0,0,0,0.7)', color: '#fff', fontSize: 11, padding: '2px 6px', borderRadius: 4 }}>
-                        {vid.duration}
-                      </span>
-                      <span style={{ position: 'absolute', top: 8, left: 8, background: '#165dff', color: '#fff', fontSize: 11, padding: '2px 6px', borderRadius: 4 }}>
-                        {vid.type}
-                      </span>
+      {/* ─── 右侧画布区（对照旧版：标题 + 白卡 w-864 grid-cols-4 视频类型卡矩阵） ─── */}
+      <div className="h-full min-w-0 flex-1 overflow-y-auto p-6 custom-scrollbar">
+        {generating ? (
+          <div className="grid h-full place-items-center">
+            <div className="w-[640px] rounded-2xl bg-white p-8 text-center shadow-[0_8px_32px_rgba(29,38,52,.06)]">
+              <Loader2 className="mx-auto mb-4 h-8 w-8 animate-spin text-[#3388ff]" />
+              <div className="mb-5 flex items-center justify-between">
+                {GEN_STEPS.map((label, i) => (
+                  <div key={label} className="flex flex-col items-center gap-1.5">
+                    <div
+                      className={`grid h-8 w-8 place-items-center rounded-full text-[12px] font-bold ${
+                        i <= generateStep ? 'bg-[#3388ff] text-white' : 'bg-[#f2f4f7] text-[#98A2B3]'
+                      }`}
+                    >
+                      {i + 1}
                     </div>
-
-                    <div style={{ marginTop: 12 }}>
-                      <Text bold ellipsis style={{ fontSize: 14, display: 'block', marginBottom: 4 }}>
-                        {vid.title}
-                      </Text>
-                      <Paragraph
-                        type="secondary"
-                        ellipsis={{ rows: 2 }}
-                        style={{ fontSize: 12, marginBottom: 8, background: 'var(--color-fill-2)', padding: '6px 8px', borderRadius: 4 }}
-                      >
-                        {vid.scriptSummary}
-                      </Paragraph>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Text type="secondary" style={{ fontSize: 11 }}>画幅: {vid.ratio} ｜ {vid.createTime}</Text>
-                        <Space size="mini">
-                          <Button size="mini" type="text" icon={<IconCopy />} onClick={() => handleCopyScript(vid.scriptSummary)}>
-                            脚本
-                          </Button>
-                          <Button size="mini" type="primary" icon={<IconDownload />}>
-                            下载
-                          </Button>
-                        </Space>
-                      </div>
-                    </div>
-                  </Card>
+                    <span className={`text-[12px] font-bold ${i <= generateStep ? 'text-[#0A1B39]' : 'text-[#98A2B3]'}`}>{label}</span>
+                  </div>
                 ))}
               </div>
+              <p className="m-0 text-[13px] text-[#86909C]">Sora / Hunyuan 多模态视频大模型渲染中，请稍候...</p>
             </div>
-          ) : (
-            !generating && (
-              <Card bordered style={{ borderRadius: 8, minHeight: 480, display: 'grid', placeItems: 'center' }}>
-                <Empty
-                  description={
-                    <div style={{ maxWidth: 420 }}>
-                      <Title heading={5} style={{ margin: '8px 0 4px 0' }}>暂无已生成的爆款短视频</Title>
-                      <Paragraph type="secondary" style={{ fontSize: 13 }}>
-                        在左侧选择视频类型矩阵、设定目标市场语言后点击「生成」，即可在此处获得包含分镜故事板的多条带货成片。
-                      </Paragraph>
+          </div>
+        ) : (
+          <div className="mx-auto flex min-h-full max-w-[1040px] flex-col items-center justify-center py-8 text-center">
+            <h1 className="m-0 text-[32px] font-extrabold text-[#0A1B39]">爆款视频复刻</h1>
+            <p className="m-0 mt-2 text-[14px] text-[#86909C]">选择视频类型与目标市场，AI 生成多语言带货短视频与裂变变体</p>
+
+            <div className="mt-8 grid w-[864px] grid-cols-4 gap-4 rounded-2xl border border-[#eef2f8] bg-white p-8 shadow-[0_8px_32px_rgba(29,38,52,0.06)]">
+              {VIDEO_TYPES.map((t) => {
+                const active = selectedTypes.includes(t.id)
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => toggleType(t.id)}
+                    className={`relative h-[290px] w-[180px] cursor-pointer overflow-hidden rounded-xl border-0 bg-[#fafbfc] p-0 text-left transition-shadow ${
+                      active ? 'ring-2 ring-[#3388FF]' : 'hover:shadow-md'
+                    }`}
+                  >
+                    <div className="relative h-[220px] w-full overflow-hidden">
+                      <img src={t.image} alt={t.label} className="h-full w-full object-cover" />
+                      <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/55 to-transparent" />
+                      <div className="absolute inset-0 grid place-items-center">
+                        <div className="grid h-11 w-11 place-items-center rounded-full bg-white/85 text-[#3388ff] shadow">
+                          <Play className="ml-0.5 h-5 w-5 fill-[#3388ff]" />
+                        </div>
+                      </div>
+                      {active && (
+                        <span className="absolute right-2 top-2 grid h-6 w-6 place-items-center rounded-full bg-[#3388FF] text-white">
+                          <Check className="h-3.5 w-3.5" />
+                        </span>
+                      )}
                     </div>
-                  }
-                />
-              </Card>
-            )
-          )}
+                    <div className="h-[70px] px-2.5 py-2 text-left">
+                      <p className={`m-0 text-[12px] font-bold ${active ? 'text-[#3388ff]' : 'text-[#0A1B39]'}`}>{t.label}</p>
+                      <p className="m-0 mt-0.5 line-clamp-2 text-[10px] leading-3.5 text-[#86909C]">{t.desc}</p>
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+
+            {results.length > 0 && (
+              <div className="mt-8 w-full text-left">
+                <div className="mb-3 flex items-center justify-between">
+                  <h2 className="m-0 text-[18px] font-extrabold text-[#0A1B39]">生成成果列表（{results.length} 条成品）</h2>
+                  <Button size="small" icon={<Download className="h-3.5 w-3.5" />} className="rounded-lg">
+                    打包下载全部 MP4
+                  </Button>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  {results.map((vid) => (
+                    <div key={vid.id} className="overflow-hidden rounded-xl border border-[#e5e8ef] bg-white">
+                      <div
+                        className="relative h-[200px] cursor-pointer bg-black"
+                        onClick={() => setPreviewVideo(vid)}
+                      >
+                        <img src={vid.coverUrl} alt={vid.title} className="h-full w-full object-cover opacity-85" />
+                        <div className="absolute inset-0 grid place-items-center bg-black/25">
+                          <div className="grid h-12 w-12 place-items-center rounded-full bg-[#3388ff]/90 text-white">
+                            <Play className="ml-0.5 h-5 w-5 fill-white" />
+                          </div>
+                        </div>
+                        <span className="absolute left-2 top-2 rounded bg-[#3388ff] px-1.5 py-0.5 text-[11px] font-bold text-white">{vid.type}</span>
+                        <span className="absolute bottom-2 right-2 rounded bg-black/70 px-1.5 py-0.5 text-[11px] text-white">{vid.duration}</span>
+                      </div>
+                      <div className="p-3">
+                        <p className="m-0 truncate text-[14px] font-bold text-[#0A1B39]">{vid.title}</p>
+                        <p className="m-0 mt-1.5 rounded bg-[#f8fafc] p-2 text-[12px] leading-5 text-[#4e5969]">{vid.scriptSummary}</p>
+                        <div className="mt-2 flex items-center justify-between">
+                          <span className="text-[11px] text-[#86909C]">
+                            画幅: {vid.ratio} ｜ {vid.createTime}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleCopyScript(vid.scriptSummary)}
+                            className="flex cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-[12px] font-semibold text-[#3388ff] hover:text-[#1a6fe8]"
+                          >
+                            <Copy className="h-3.5 w-3.5" />
+                            脚本
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* 视频播放 Modal */}
@@ -476,23 +449,19 @@ export function ViralVideoReplicationPage() {
         title={previewVideo?.title || '视频播放预览'}
         visible={Boolean(previewVideo)}
         onCancel={() => setPreviewVideo(null)}
-        footer={<Button type="primary" onClick={() => setPreviewVideo(null)}>关闭预览</Button>}
-        style={{ width: 680 }}
+        footer={
+          <Button type="primary" onClick={() => setPreviewVideo(null)} className="rounded-lg">
+            关闭预览
+          </Button>
+        }
+        style={{ width: 640 }}
       >
         {previewVideo && (
           <div>
-            <video
-              src={previewVideo.videoUrl}
-              controls
-              autoPlay
-              style={{ width: '100%', maxHeight: 420, borderRadius: 8, background: '#000' }}
-            />
-            <div style={{ marginTop: 12, background: 'var(--color-fill-2)', padding: 12, borderRadius: 6 }}>
-              <Text bold style={{ fontSize: 13, display: 'block', marginBottom: 4 }}>分镜脚本与旁白文案：</Text>
-              <pre style={{ margin: 0, fontSize: 12, lineHeight: 1.6, whiteSpace: 'pre-wrap', color: 'var(--color-text-2)' }}>
-                {previewVideo.scriptSummary}
-              </pre>
-            </div>
+            <video src={previewVideo.videoUrl} controls autoPlay className="max-h-[60vh] w-full rounded-lg bg-black" />
+            <p className="m-0 mt-3 whitespace-pre-wrap rounded-lg bg-[#f8fafc] p-3 text-[12px] leading-5 text-[#4e5969]">
+              {previewVideo.scriptSummary}
+            </p>
           </div>
         )}
       </Modal>
