@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
+import { LocalJobQueueService } from '../queue/local-job-queue.service'
 import { QUEUE_NAMES } from '../queue/queue-names'
-import { QueueService } from '../queue/queue.service'
 import { PrismaService } from '../prisma.service'
 import { CreateJobDto } from './dto/create-job.dto'
 
@@ -9,7 +9,7 @@ import { CreateJobDto } from './dto/create-job.dto'
 export class JobService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly queueService: QueueService,
+    private readonly localQueue: LocalJobQueueService,
   ) {}
 
   async create(dto: CreateJobDto, tenantId: string) {
@@ -40,10 +40,9 @@ export class JobService {
     }
 
     const queueName = this.queueNameFor(dto.type)
-    await this.queueService.addJob(
+    await this.localQueue.enqueue(
       queueName,
       { jobId: job.id, tenantId, type: dto.type },
-      { jobId: job.id },
     )
 
     return { jobId: job.id, businessKey, created: true }
@@ -64,10 +63,9 @@ export class JobService {
       where: { id },
       data: { status: 'queued', stage, attempt: job.attempt + 1, errorCode: null, errorMessage: null },
     })
-    await this.queueService.addJob(
+    await this.localQueue.enqueue(
       this.queueNameFor(job.type, job.checkpointStage),
       { jobId: job.id, tenantId, type: job.type },
-      { jobId: job.id },
     )
     return updated
   }
@@ -81,8 +79,7 @@ export class JobService {
 
   private queueNameFor(type: string, stage?: string | null) {
     if (type === 'analysis' || type === 'collection' || type === 'import') {
-      if (type === 'analysis' && (stage === 'analyzing' || stage === 'reporting')) return QUEUE_NAMES.serverReport
-      return QUEUE_NAMES.desktopRpa
+      return QUEUE_NAMES.serverReport
     }
     if (type === 'image-gen' || type === 'image_gen') return QUEUE_NAMES.serverImageGen
     if (type === 'listing') return QUEUE_NAMES.serverListing

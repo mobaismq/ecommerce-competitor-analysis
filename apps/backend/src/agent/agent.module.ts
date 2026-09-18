@@ -6,7 +6,7 @@ import { AgentController } from './agent.controller'
 import { AgentService } from './agent.service'
 
 @Module({
-  imports: [AuthModule, PrismaModule, QueueModule],
+  imports: [AuthModule, PrismaModule],
   controllers: [AgentController],
   providers: [AgentService],
   exports: [AgentService],

@@ -1,5 +1,11 @@
-import type { FlowJob } from 'bullmq'
 import { QUEUE_NAMES } from '../queue/queue-names'
+
+export interface WorkflowNode {
+  name: string
+  queueName: string
+  data?: Record<string, any>
+  children?: WorkflowNode[]
+}
 
 export const STAGE_SEQUENCE: Record<string, string[]> = {
   analysis: ['queued', 'collecting', 'uploading', 'analyzing', 'reporting', 'success', 'failure', 'cancelled'],
@@ -15,10 +21,11 @@ export function canTransition(type: string, from: string, to: string) {
   const toIndex = sequence.indexOf(to)
   if (fromIndex === -1 || toIndex === -1) return false
   if (TERMINAL.has(from)) return false
+  if (TERMINAL.has(to)) return true
   return toIndex === fromIndex + 1
 }
 
-export function getFlowTemplate(type: string): FlowJob {
+export function getFlowTemplate(type: string): WorkflowNode {
   if (type === 'image-gen' || type === 'image_gen') {
     return {
       name: 'image-flow',
@@ -26,17 +33,10 @@ export function getFlowTemplate(type: string): FlowJob {
       data: {},
       children: [
         {
-          name: 'review',
-          queueName: QUEUE_NAMES.desktopRpa,
+          name: 'generate',
+          queueName: QUEUE_NAMES.serverImageGen,
           data: {},
-          children: [
-            {
-              name: 'generate',
-              queueName: QUEUE_NAMES.serverImageGen,
-              data: {},
-              children: [{ name: 'prompt', queueName: QUEUE_NAMES.serverAi, data: {} }],
-            },
-          ],
+          children: [{ name: 'prompt', queueName: QUEUE_NAMES.serverAi, data: {} }],
         },
       ],
     }
@@ -70,7 +70,6 @@ export function getFlowTemplate(type: string): FlowJob {
             name: 'analyze',
             queueName: QUEUE_NAMES.serverAi,
             data: {},
-            children: [{ name: 'collect', queueName: QUEUE_NAMES.desktopRpa, data: {} }],
           },
         ],
       },

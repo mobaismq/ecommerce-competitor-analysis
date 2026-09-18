@@ -3,7 +3,7 @@ import { buildAttemptKey } from '../ai/ai.types'
 import { ProviderRouter } from '../ai/provider-router.service'
 import { PrismaService } from '../prisma.service'
 import { QUEUE_NAMES } from '../queue/queue-names'
-import { QueueService } from '../queue/queue.service'
+import { LocalJobQueueService } from '../queue/local-job-queue.service'
 import { storeMockImage } from './mock-image-storage'
 
 export const IMAGE_REVIEW_DECISIONS = ['approved', 'rejected', 'regenerate'] as const
@@ -15,7 +15,7 @@ export class ImageFlowService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly router: ProviderRouter,
-    private readonly queueService: QueueService,
+    private readonly localQueue: LocalJobQueueService,
   ) {}
 
   async generate(input: { jobId: string; tenantId: string; attempt?: number; prompt?: string }) {
@@ -52,7 +52,7 @@ export class ImageFlowService {
         storageKey: stored.storageKey,
         mimeType: stored.mimeType,
         size: stored.size,
-        sourceUrl: aiResult.images?.[0],
+        sourceUrl: aiResult.images?.[0] ? aiResult.images[0].slice(0, 191) : null,
       },
     })
     const review = await this.prisma.reviewRecord.create({
@@ -104,10 +104,9 @@ export class ImageFlowService {
         where: { id: job.id },
         data: { status: 'queued', stage: 'generating', checkpointStage: 'generating' },
       })
-      await this.queueService.addJob(
+      await this.localQueue.enqueue(
         QUEUE_NAMES.serverImageGen,
         { jobId: job.id, tenantId: job.tenantId, type: job.type },
-        { jobId: job.id },
       )
       return { decision: input.decision, regenerated: true, regenerateCount }
     }

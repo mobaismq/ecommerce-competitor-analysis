@@ -6,6 +6,7 @@ import { AdminModule } from './admin/admin.module'
 import { AgentModule } from './agent/agent.module'
 import { PrismaModule } from './prisma.module'
 import { QueueModule } from './queue/queue.module'
+import { WorkerModule } from './queue/worker.module'
 import { JobsModule } from './jobs/jobs.module'
 import { AiModule } from './ai/ai.module'
 import { ReportsModule } from './reports/reports.module'
@@ -24,6 +25,7 @@ import { buildPinoStream } from './log-streams'
   imports: [
     PrismaModule,
     QueueModule,
+    WorkerModule,
     AuthModule,
     AdminModule,
     AgentModule,

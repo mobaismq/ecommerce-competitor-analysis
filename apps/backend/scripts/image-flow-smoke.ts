@@ -1,14 +1,14 @@
-import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
+import { execFileSync, type ChildProcess } from 'node:child_process'
 import { existsSync, mkdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { Queue } from 'bullmq'
-import IORedis from 'ioredis'
 import { AiAuditService } from '../src/ai/ai-audit.service'
 import { ProviderRegistry } from '../src/ai/provider-registry'
 import { ProviderRouter } from '../src/ai/provider-router.service'
 import { loadBackendEnv } from '../src/env'
 import { ImageFlowService, MAX_REGENERATE } from '../src/images/image.service'
+import { ImageGenWorker } from '../src/images/image.worker'
+import { LocalJobQueueService } from '../src/queue/local-job-queue.service'
 import { PrismaService } from '../src/prisma.service'
 
 const backendRoot = resolve(__dirname, '..')
@@ -115,24 +115,19 @@ async function waitForReview(prisma: PrismaService, jobId: string, timeoutMs = 1
 }
 
 async function queueFlow(prisma: PrismaService, tenantId: string, suffix: string) {
-  execFileSync('pnpm', ['--filter', 'backend', 'build'], { cwd: workspaceRoot, stdio: 'inherit' })
   const job = await createImageJob(prisma, tenantId, `${suffix}-queue`)
-  const connection = new IORedis('redis://127.0.0.1:6380', { maxRetriesPerRequest: null })
-  const queue = new Queue('server-image-gen', { connection })
-  await queue.add('generate', { jobId: job.id, tenantId, type: 'image_gen' }, { jobId: job.id })
+  const localQueue = new LocalJobQueueService(prisma)
+  const audit = new AiAuditService(prisma)
+  const router = new ProviderRouter(prisma, new ProviderRegistry(), audit)
+  const imageService = new ImageFlowService(prisma, router, localQueue)
+  const worker = new ImageGenWorker(prisma, imageService, {} as any, localQueue)
+  localQueue.registerProcessor('server-image-gen', worker)
 
-  let worker: ChildProcess | null = null
-  let reviewId = ''
-  try {
-    worker = spawn('node', ['dist/src/worker.js'], { cwd: backendRoot, stdio: 'ignore' })
-    await new Promise((resolve) => setTimeout(resolve, 2000))
-    const review = await waitForReview(prisma, job.id)
-    reviewId = review.id
-  } finally {
-    if (worker && !worker.killed) worker.kill('SIGTERM')
-    await queue.close()
-    await connection.quit()
-  }
+  await localQueue.enqueue('server-image-gen', { jobId: job.id, tenantId, type: 'image_gen' })
+  await localQueue.drain('server-image-gen')
+
+  const review = await waitForReview(prisma, job.id)
+  const reviewId = review.id
 
   const asset = await prisma.generatedAsset.findFirst({ where: { jobId: job.id } })
   const output = { reviewCreated: reviewId !== '', assetCreated: asset != null, storageKey: asset?.storageKey != null }
@@ -143,6 +138,8 @@ async function queueFlow(prisma: PrismaService, tenantId: string, suffix: string
 
 async function main() {
   loadBackendEnv()
+  delete process.env.OPENROUTER_API_KEY
+  process.env.AI_MOCK_MODEL = 'mock-model'
   const assetDir = join(tmpdir(), `eca-image-flow-${Date.now()}`)
   mkdirSync(assetDir, { recursive: true })
   process.env.MOCK_ASSET_DIR = assetDir

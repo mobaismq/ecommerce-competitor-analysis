@@ -1,28 +1,29 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
-import type { FlowJob } from 'bullmq'
-import { FlowProducerService } from '../queue/flow-producer.service'
 import { PrismaService } from '../prisma.service'
-import { canTransition, getFlowTemplate } from './workflow-templates'
-
-function withJobData(node: FlowJob, job: { id: string; tenantId: string }): FlowJob {
-  return {
-    ...node,
-    data: { ...node.data, jobId: job.id, tenantId: job.tenantId },
-    children: node.children?.map((child) => withJobData(child, job)),
-  }
-}
+import { LocalJobQueueService } from '../queue/local-job-queue.service'
+import { canTransition, getFlowTemplate, type WorkflowNode } from './workflow-templates'
 
 @Injectable()
 export class WorkflowService {
   constructor(
-    private readonly flowProducerService: FlowProducerService,
+    private readonly localQueue: LocalJobQueueService,
     private readonly prisma: PrismaService,
   ) {}
 
   async createFlowForJob(jobId: string, tenantId: string) {
     const job = await this.prisma.job.findFirst({ where: { id: jobId, tenantId } })
     if (!job) throw new NotFoundException('任务不存在')
-    return this.flowProducerService.add(withJobData(getFlowTemplate(job.type), job))
+    const template = getFlowTemplate(job.type)
+    const queueName = this.findInitialQueueName(template)
+    await this.localQueue.enqueue(queueName, { jobId: job.id, tenantId: job.tenantId, type: job.type })
+    return { jobId: job.id, queued: true, queueName }
+  }
+
+  private findInitialQueueName(node: WorkflowNode): string {
+    if (node.children && node.children.length > 0) {
+      return this.findInitialQueueName(node.children[0])
+    }
+    return node.queueName
   }
 
   async reportProgress(jobId: string, tenantId: string, stage: string) {

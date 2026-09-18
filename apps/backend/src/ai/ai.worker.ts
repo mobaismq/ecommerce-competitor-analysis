@@ -1,22 +1,27 @@
-import { Processor, WorkerHost } from '@nestjs/bullmq'
-import type { Job } from 'bullmq'
+import { Injectable, OnModuleInit } from '@nestjs/common'
 import { PrismaService } from '../prisma.service'
+import { LocalJobQueueService, type JobProcessor, type JobProcessContext } from '../queue/local-job-queue.service'
 import { QUEUE_NAMES } from '../queue/queue-names'
 import { buildAttemptKey } from './ai.types'
 import { ProviderRouter } from './provider-router.service'
 import { buildImagePromptGenerationPrompt, DEFAULT_SLOT_CONFIGS } from '../images/image-prompt'
 
-@Processor(QUEUE_NAMES.serverAi)
-export class AiWorker extends WorkerHost {
+@Injectable()
+export class AiWorker implements JobProcessor, OnModuleInit {
   constructor(
     private readonly prisma: PrismaService,
     private readonly router: ProviderRouter,
-  ) {
-    super()
+    private readonly localQueue: LocalJobQueueService,
+  ) {}
+
+  onModuleInit() {
+    this.localQueue.registerProcessor(QUEUE_NAMES.serverAi, this)
   }
 
-  async process(job: Job) {
-    const { jobId, tenantId } = (job.data ?? {}) as { jobId?: string; tenantId?: string }
+  async process(jobOrContext: JobProcessContext | { data?: { jobId?: string; tenantId?: string } }) {
+    const data = 'data' in jobOrContext ? jobOrContext.data : undefined
+    const jobId = 'jobId' in jobOrContext ? jobOrContext.jobId : (data?.jobId as string | undefined)
+    const tenantId = (data?.tenantId ?? ('tenantId' in jobOrContext ? jobOrContext.tenantId : undefined)) as string | undefined
     if (!jobId || !tenantId) throw new Error('AI job missing jobId/tenantId')
 
     const row = await this.prisma.job.findUnique({ where: { id: jobId } })

@@ -1,7 +1,6 @@
 import * as crypto from 'crypto'
 import { UnauthorizedException } from '@nestjs/common'
 import type { PrismaService } from '../prisma.service'
-import type { QueueService } from '../queue/queue.service'
 import { AgentService } from './agent.service'
 
 function hashSecret(secret: string) {
@@ -10,8 +9,6 @@ function hashSecret(secret: string) {
 
 describe('AgentService', () => {
   let prisma: any
-  let queueService: any
-  let mockBullJob: any
   let service: AgentService
 
   beforeEach(() => {
@@ -36,19 +33,7 @@ describe('AgentService', () => {
       $transaction: jest.fn().mockImplementation(async (ops: unknown[]) => Promise.all(ops)),
     }
 
-    mockBullJob = {
-      moveToCompleted: jest.fn().mockResolvedValue(undefined),
-      moveToFailed: jest.fn().mockResolvedValue(undefined),
-    }
-
-    queueService = {
-      getQueue: jest.fn().mockReturnValue({
-        getJob: jest.fn().mockResolvedValue(mockBullJob),
-      }),
-      addJob: jest.fn().mockResolvedValue({ id: 'q-job-1' }),
-    }
-
-    service = new AgentService(prisma as unknown as PrismaService, queueService as unknown as QueueService)
+    service = new AgentService(prisma as unknown as PrismaService)
   })
 
   it('register: 正确注册设备并返回原始 secret', async () => {
@@ -147,7 +132,6 @@ describe('AgentService', () => {
         data: expect.objectContaining({ status: 'success', stage: 'success' }),
       }),
     )
-    expect(mockBullJob.moveToCompleted).toHaveBeenCalled()
   })
 
   it('fail: 认领与任务标记为失败', async () => {
@@ -176,6 +160,5 @@ describe('AgentService', () => {
         data: expect.objectContaining({ status: 'failure', errorMessage: 'RPA network timeout' }),
       }),
     )
-    expect(mockBullJob.moveToFailed).toHaveBeenCalled()
   })
 })

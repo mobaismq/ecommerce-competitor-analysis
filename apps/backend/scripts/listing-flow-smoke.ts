@@ -1,9 +1,9 @@
-import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
 import { join, resolve } from 'node:path'
-import { Queue } from 'bullmq'
-import IORedis from 'ioredis'
 import { loadBackendEnv } from '../src/env'
 import { ListingFlowService } from '../src/listings/listing.service'
+import { ListingWorker } from '../src/listings/listing.worker'
+import { ImageGenWorker } from '../src/images/image.worker'
+import { LocalJobQueueService } from '../src/queue/local-job-queue.service'
 import { PlatformAdapterService } from '../src/platform/platform.service'
 import { PlatformRegistry } from '../src/platform/platform-registry'
 import type { PlatformAdapter, PlatformCategory, PlatformListingInput, PlatformListingResult, PlatformMethod, PlatformShop } from '../src/platform/platform.types'
@@ -133,39 +133,39 @@ async function pollUntil(prisma: PrismaService, check: () => Promise<boolean>, t
 }
 
 async function queueFlow(prisma: PrismaService, tenantId: string, suffix: string) {
-  execFileSync('pnpm', ['--filter', 'backend', 'build'], { cwd: workspaceRoot, stdio: 'inherit' })
   const { genJob } = await createGenAsset(prisma, tenantId, `${suffix}-queue`)
   const job = await createListingJob(prisma, tenantId, `${suffix}-queue`)
-  const connection = new IORedis('redis://127.0.0.1:6380', { maxRetriesPerRequest: null })
-  const imageQueue = new Queue('server-image-gen', { connection })
-  const listingQueue = new Queue('server-listing', { connection })
-  await imageQueue.add('upload-assets', { jobId: job.id, tenantId, type: 'listing' }, { jobId: job.id })
 
-  let worker: ChildProcess | null = null
-  let ok = false
-  try {
-    worker = spawn('node', ['dist/src/worker.js'], { cwd: backendRoot, stdio: 'ignore' })
-    await new Promise((resolve) => setTimeout(resolve, 2000))
-    const uploaded = await pollUntil(prisma, async () => {
-      const draft = await prisma.listingDraft.findUnique({ where: { jobId: job.id } })
-      return draft?.status === 'assets_uploaded'
-    })
-    if (!uploaded) throw new Error('upload-assets queue timeout')
-    await listingQueue.add('submit', { jobId: job.id, tenantId, type: 'listing' }, { jobId: job.id })
-    const submitted = await pollUntil(prisma, async () => {
-      const row = await prisma.job.findUnique({ where: { id: job.id } })
-      return row?.status === 'success'
-    })
+  const localQueue = new LocalJobQueueService(prisma)
+  const registry = new PlatformRegistry()
+  const platformService = new PlatformAdapterService(prisma, registry)
+  const listingService = new ListingFlowService(prisma, platformService)
+  const listingWorker = new ListingWorker(prisma, listingService, localQueue)
+  const imageWorker = new ImageGenWorker(prisma, {} as any, listingService, localQueue)
+
+  localQueue.registerProcessor('server-image-gen', imageWorker)
+  localQueue.registerProcessor('server-listing', listingWorker)
+
+  await localQueue.enqueue('server-image-gen', { jobId: job.id, tenantId, type: 'listing' })
+  await localQueue.drain('server-image-gen')
+
+  const uploaded = await pollUntil(prisma, async () => {
     const draft = await prisma.listingDraft.findUnique({ where: { jobId: job.id } })
-    ok = submitted && draft?.status === 'submitted'
-  } finally {
-    if (worker && !worker.killed) worker.kill('SIGTERM')
-    await imageQueue.close()
-    await listingQueue.close()
-    await connection.quit()
-    await cleanupListing(prisma, job.id, genJob.id)
-  }
+    return draft?.status === 'assets_uploaded'
+  })
+  if (!uploaded) throw new Error('upload-assets queue timeout')
 
+  await localQueue.enqueue('server-listing', { jobId: job.id, tenantId, type: 'listing' })
+  await localQueue.drain('server-listing')
+
+  const submitted = await pollUntil(prisma, async () => {
+    const row = await prisma.job.findUnique({ where: { id: job.id } })
+    return row?.status === 'success'
+  })
+  const draft = await prisma.listingDraft.findUnique({ where: { jobId: job.id } })
+  const ok = Boolean(submitted && draft?.status === 'submitted')
+
+  await cleanupListing(prisma, job.id, genJob.id)
   const output = { ok }
   console.log(JSON.stringify(output))
   return ok

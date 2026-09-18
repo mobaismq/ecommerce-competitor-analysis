@@ -1,12 +1,12 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import type { PrismaService } from '../prisma.service'
-import type { QueueService } from '../queue/queue.service'
+import type { LocalJobQueueService } from '../queue/local-job-queue.service'
 import { JobService } from './job.service'
 
 describe('JobService', () => {
   let prisma: any
-  let queueService: any
+  let localQueue: any
   let service: JobService
 
   beforeEach(() => {
@@ -21,10 +21,10 @@ describe('JobService', () => {
         update: jest.fn(),
       },
     }
-    queueService = {
-      addJob: jest.fn().mockResolvedValue({ id: 'q-1' }),
+    localQueue = {
+      enqueue: jest.fn().mockResolvedValue('local-q-1'),
     }
-    service = new JobService(prisma as unknown as PrismaService, queueService as unknown as QueueService)
+    service = new JobService(prisma as unknown as PrismaService, localQueue as unknown as LocalJobQueueService)
   })
 
   describe('create', () => {
@@ -41,10 +41,9 @@ describe('JobService', () => {
 
       expect(res.created).toBe(true)
       expect(res.jobId).toBe('job-1')
-      expect(queueService.addJob).toHaveBeenCalledWith(
-        'desktop-rpa',
-        expect.objectContaining({ jobId: 'job-1', tenantId: 'tenant-1' }),
-        { jobId: 'job-1' },
+      expect(localQueue.enqueue).toHaveBeenCalledWith(
+        'server-report',
+        expect.objectContaining({ jobId: 'job-1', tenantId: 'tenant-1', type: 'analysis' }),
       )
     })
 
@@ -66,7 +65,7 @@ describe('JobService', () => {
 
       expect(res.created).toBe(false)
       expect(res.jobId).toBe('job-existing')
-      expect(queueService.addJob).not.toHaveBeenCalled()
+      expect(localQueue.enqueue).not.toHaveBeenCalled()
     })
 
     it('指定的 providerProfileId 不存在或已禁用时抛出 BadRequestException', async () => {
@@ -125,10 +124,9 @@ describe('JobService', () => {
           data: expect.objectContaining({ status: 'queued', stage: 'reporting', attempt: 2 }),
         }),
       )
-      expect(queueService.addJob).toHaveBeenCalledWith(
+      expect(localQueue.enqueue).toHaveBeenCalledWith(
         'server-report',
-        expect.objectContaining({ jobId: 'j-failed', tenantId: 'tenant-1' }),
-        { jobId: 'j-failed' },
+        expect.objectContaining({ jobId: 'j-failed', tenantId: 'tenant-1', type: 'analysis' }),
       )
     })
   })

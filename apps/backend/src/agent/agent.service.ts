@@ -1,8 +1,6 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import * as crypto from 'crypto'
-import { QUEUE_NAMES } from '../queue/queue-names'
-import { QueueService } from '../queue/queue.service'
 import { PrismaService } from '../prisma.service'
 import { CompleteTaskDto } from './dto/complete-task.dto'
 import { FailTaskDto } from './dto/fail-task.dto'
@@ -18,7 +16,6 @@ function hashSecret(secret: string) {
 export class AgentService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly queueService: QueueService,
   ) {}
 
   async register(tenantId: string, dto: RegisterAgentDto) {
@@ -90,14 +87,6 @@ export class AgentService {
     await this.prisma.agentAssignment.update({ where: { jobId }, data: { status: 'completed' } })
     await this.prisma.job.update({ where: { id: jobId }, data: { status: 'success', stage: 'success', finishedAt: new Date() } })
     await this.prisma.jobEvent.create({ data: { jobId, type: 'agent-complete', data: { result: dto.result ?? {} } } })
-
-    const queue = this.queueService.getQueue(QUEUE_NAMES.desktopRpa)
-    const bullJob = await queue.getJob(jobId)
-    try {
-      if (bullJob) await bullJob.moveToCompleted(dto.result ?? {}, 'agent-complete', true)
-    } catch (error) {
-      process.stderr.write(JSON.stringify({ level: 50, msg: 'moveToCompleted skipped', jobId, error: String(error) }) + '\n')
-    }
     return { ok: true }
   }
 
@@ -110,14 +99,6 @@ export class AgentService {
       data: { status: 'failure', stage: 'failure', errorMessage: dto.error, finishedAt: new Date() },
     })
     await this.prisma.jobEvent.create({ data: { jobId, type: 'agent-fail', data: { error: dto.error ?? 'agent failed' } } })
-
-    const queue = this.queueService.getQueue(QUEUE_NAMES.desktopRpa)
-    const bullJob = await queue.getJob(jobId)
-    try {
-      if (bullJob) await bullJob.moveToFailed(new Error(dto.error ?? 'agent failed'), 'agent-fail', true)
-    } catch (error) {
-      process.stderr.write(JSON.stringify({ level: 50, msg: 'moveToFailed skipped', jobId, error: String(error) }) + '\n')
-    }
     return { ok: true }
   }
 

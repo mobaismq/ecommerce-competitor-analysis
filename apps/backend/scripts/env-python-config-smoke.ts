@@ -8,7 +8,6 @@ const REQUIRED_ENV_KEYS = [
   'PORT',
   'HOST',
   'DATABASE_URL',
-  'REDIS_URL',
   'JWT_SECRET',
   'JWT_EXPIRES_IN',
   'ADMIN_USERNAME',

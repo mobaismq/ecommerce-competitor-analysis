@@ -115,8 +115,8 @@ export class ReportService {
           data: insights.map((insight) => ({
             analysisRunId: saved.id,
             type: insight.type,
-            title: insight.title,
-            content: insight.content,
+            title: insight.title ? insight.title.slice(0, 191) : null,
+            content: insight.content ? insight.content.slice(0, 191) : null,
           })),
         })
       }

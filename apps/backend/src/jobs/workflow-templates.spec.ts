@@ -31,20 +31,19 @@ describe('canTransition', () => {
 })
 
 describe('getFlowTemplate', () => {
-  it('analysis 流程：collect 嵌套于 analyze 之下（RPA 在叶子）', () => {
+  it('analysis 流程：analyze 嵌套于 report 之下（无 desktopRpa 假叶子）', () => {
     const t = getFlowTemplate('analysis')
     expect(t.name).toBe('analysis-flow')
     const report = t.children![0]!
     const analyze = report.children![0]!
-    const collect = analyze.children![0]!
-    expect(collect.name).toBe('collect')
-    expect(collect.queueName).toBe(QUEUE_NAMES.desktopRpa)
+    expect(analyze.name).toBe('analyze')
+    expect(analyze.queueName).toBe(QUEUE_NAMES.serverAi)
+    expect(analyze.children).toBeUndefined()
   })
 
-  it('image-gen 流程：prompt → generate → review 逐层嵌套', () => {
+  it('image-gen 流程：prompt 嵌套于 generate 之下', () => {
     const t = getFlowTemplate('image-gen')
-    const review = t.children![0]!
-    const generate = review.children![0]!
+    const generate = t.children![0]!
     const prompt = generate.children![0]!
     expect(prompt.name).toBe('prompt')
     expect(prompt.queueName).toBe(QUEUE_NAMES.serverAi)
@@ -54,7 +53,7 @@ describe('getFlowTemplate', () => {
     const a = getFlowTemplate('image_gen')
     const b = getFlowTemplate('image-gen')
     expect(a.name).toBe(b.name)
-    expect(a.children![0]!.children![0]!.children![0]!.name).toBe('prompt')
+    expect(a.children![0]!.children![0]!.name).toBe('prompt')
   })
 
   it('listing 流程：upload-assets 嵌套于 submit 之下', () => {

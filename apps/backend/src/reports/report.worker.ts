@@ -1,20 +1,25 @@
-import { Processor, WorkerHost } from '@nestjs/bullmq'
-import type { Job } from 'bullmq'
+import { Injectable, OnModuleInit } from '@nestjs/common'
 import { PrismaService } from '../prisma.service'
+import { LocalJobQueueService, type JobProcessor, type JobProcessContext } from '../queue/local-job-queue.service'
 import { QUEUE_NAMES } from '../queue/queue-names'
 import { ReportService } from './report.service'
 
-@Processor(QUEUE_NAMES.serverReport)
-export class ReportWorker extends WorkerHost {
+@Injectable()
+export class ReportWorker implements JobProcessor, OnModuleInit {
   constructor(
     private readonly prisma: PrismaService,
     private readonly reportService: ReportService,
-  ) {
-    super()
+    private readonly localQueue: LocalJobQueueService,
+  ) {}
+
+  onModuleInit() {
+    this.localQueue.registerProcessor(QUEUE_NAMES.serverReport, this)
   }
 
-  async process(job: Job) {
-    const { jobId, tenantId } = (job.data ?? {}) as { jobId?: string; tenantId?: string }
+  async process(jobOrContext: JobProcessContext | { data?: { jobId?: string; tenantId?: string } }) {
+    const data = 'data' in jobOrContext ? jobOrContext.data : undefined
+    const jobId = 'jobId' in jobOrContext ? jobOrContext.jobId : (data?.jobId as string | undefined)
+    const tenantId = (data?.tenantId ?? ('tenantId' in jobOrContext ? jobOrContext.tenantId : undefined)) as string | undefined
     if (!jobId || !tenantId) throw new Error('report job missing jobId/tenantId')
 
     const row = await this.prisma.job.findUnique({ where: { id: jobId } })
