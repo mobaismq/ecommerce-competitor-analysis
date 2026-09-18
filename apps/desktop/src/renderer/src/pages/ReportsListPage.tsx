@@ -317,6 +317,13 @@ export function ReportsListPage() {
                         <div className="flex items-center gap-3">
                           <button
                             type="button"
+                            onClick={() => navigate(`/market/competitive/report/products?id=${encodeURIComponent(row.id)}`)}
+                            className="flex cursor-pointer items-center border-0 bg-transparent p-0 text-[13px] text-[#3388ff] hover:text-[#1a6fe8]"
+                          >
+                            查看采集数据
+                          </button>
+                          <button
+                            type="button"
                             onClick={() => navigate(`/market/competitive/report/view?id=${encodeURIComponent(row.id)}`)}
                             disabled={!canView}
                             className="flex cursor-pointer items-center border-0 bg-transparent p-0 text-[13px] text-[#3388ff] hover:text-[#1a6fe8] disabled:cursor-not-allowed disabled:text-[#b0b7c3]"
