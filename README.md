@@ -1,10 +1,10 @@
 # 电商竞品分析系统
 
-桌面端（Electron + RPA Agent）+ 服务端（NestJS + MySQL + Redis/BullMQ）架构。桌面端负责登录、RPA 采集、本地结果存储与图片内容工具；服务端负责账号权限、任务队列、AI 报告、资产存储与可选同步。
+桌面端（Electron + RPA Agent）+ 服务端（NestJS + MySQL + 内嵌任务调度器）架构。桌面端负责登录、RPA 采集、本地结果存储与图片内容工具；服务端负责账号权限、任务队列、AI 报告、资产存储与可选同步。
 
 ## 目录结构
 
-- `apps/backend/`：NestJS 服务端（API + BullMQ Worker），配置入口 `apps/backend/.env`
+- `apps/backend/`：NestJS 服务端（API + 内嵌任务调度器），配置入口 `apps/backend/.env`
 - `apps/desktop/`：Electron 桌面应用（主进程 + preload + 渲染层）。**业务 UI 全量在 `apps/desktop/src/renderer/`**（原 `apps/frontend` 已合并于此），UI 组件用 [Arco Design React](https://arco.design/react/docs/start)，样式入口 `apps/desktop/src/renderer/src/main.tsx`；含本地 SQLite、内置 Python、RPA Chrome 控制
 - `apps/legacy/`：旧版单体应用（`legacy:cleanup` 清理目标，仅供迁移参考）
 - `skills/`：采集/清洗/旧报告脚本，旧报告 skill 仅作迁移参考
@@ -18,13 +18,13 @@
 
 - Node.js（建议 20+）
 - pnpm 10
-- Docker（本地 MySQL/Redis）
+- Docker（本地 MySQL）
 
 ### 2. 安装与初始化
 
 ```bash
 pnpm install
-docker compose up -d mysql redis
+docker compose up -d mysql
 pnpm --filter backend db:migrate
 pnpm --filter backend db:seed
 pnpm --filter desktop db:init
@@ -37,23 +37,22 @@ pnpm check-env
 cp apps/backend/.env.example apps/backend/.env
 ```
 
-本地默认数据库/Redis 已指向 Docker（3308/6380），可直接使用；申请到 OpenRouter Key 后，把 `apps/backend/.env` 里 `OPENROUTER_API_KEY` 的占位符替换成真实 Key，火山引擎 Ark 不再需要。
+本地默认 MySQL 已指向 Docker（3308），可直接使用；申请到 OpenRouter Key 后，把 `apps/backend/.env` 里 `OPENROUTER_API_KEY` 的占位符替换成真实 Key，火山引擎 Ark 不再需要。
 
 ### 2.1 初始化命令说明（仅首次/改模型时需要）
 
 - `pnpm --filter backend db:migrate`：首次建表或更新模型时执行（生产与已有库推荐 `pnpm --filter backend exec prisma migrate deploy`）
 - `pnpm --filter backend db:seed`：首次初始化权限/管理员/平台字典，重复执行安全（幂等）
 - `pnpm --filter desktop db:init`：首次初始化桌面端本地 SQLite
-- `pnpm check-env`：全环境连通性自检（Node/Docker/MySQL/Redis/Chrome/Python 等）
+- `pnpm check-env`：全环境连通性自检（Node/Docker/MySQL/Chrome/Python 等）
 
 首次按上面顺序跑一次即可；之后每次开发只需 `pnpm dev`，不用重复执行初始化。
 
-### 2.2 本地数据库与 Redis
+### 2.2 本地数据库
 
 | 服务 | 地址 / 连接 | 查看方式 |
 |---|---|---|
 | MySQL | `127.0.0.1:3308`，用户/密码 `root/root`，库 `ecommerce_competitor` | `pnpm --filter backend exec prisma studio`（浏览器 `:5555`），或 `docker compose exec mysql mysql -uroot -proot ecommerce_competitor` |
-| Redis | `127.0.0.1:6380`（无密码） | `docker compose exec redis redis-cli`（`ping` / `keys *` / `dbsize`） |
 | 桌面端 SQLite | `apps/desktop/data/desktop.db` | `sqlite3 apps/desktop/data/desktop.db` 或 SQLite 客户端打开 |
 
 
@@ -62,7 +61,7 @@ cp apps/backend/.env.example apps/backend/.env
 本项目为**原生桌面应用客户端**形态（唯一产品界面，业务 UI 在桌面端渲染层）。日常开发只需一个命令：
 
 ```bash
-pnpm dev      # 一键启动：后端 API + 任务队列 Worker + Electron 桌面客户端
+pnpm dev      # 一键启动：后端 API（含内嵌任务调度器）+ Electron 桌面客户端
 ```
 
 按需单开某一模块：
@@ -70,7 +69,6 @@ pnpm dev      # 一键启动：后端 API + 任务队列 Worker + Electron 桌�
 ```bash
 pnpm dev:desktop    # 仅启动桌面客户端（需已有后端 API 运行）
 pnpm dev:backend    # 仅启动后端 API（http://127.0.0.1:8787）
-pnpm dev:worker     # 仅启动 BullMQ Worker
 ```
 
 ### 4. 本地服务访问地址
@@ -89,7 +87,7 @@ pnpm dev:worker     # 仅启动 BullMQ Worker
 
 | 命令 | 作用 | 说明 |
 |---|---|---|
-| `pnpm dev` | **启动桌面端全套** | 同时拉起后端 API + Worker + Electron 桌面客户端 |
+| `pnpm dev` | **启动桌面端全套** | 同时拉起后端 API（含内嵌任务调度器）+ Electron 桌面客户端 |
 | `pnpm dev:desktop` | **单启桌面客户端** | 仅启动 Electron 桌面原生窗口（适合已有后端 API 时） |
 | `pnpm check-env` | 环境自检 | 检查 Node/pnpm/Chrome/Python/Prisma/Docker |
 | `pnpm build` | 全仓项目编译 | 编译 backend 及 desktop 全部子包 |
@@ -98,7 +96,6 @@ pnpm dev:worker     # 仅启动 BullMQ Worker
 | `pnpm --filter backend db:seed` | 刷新账号与初始数据 | 初始化/重置权限、管理员账号、平台字典（幂等可重入） |
 | `pnpm --filter backend exec prisma studio` | 启动数据库 Web 控制台 | 打开浏览器 `http://localhost:5555` 图形化查看全部 35 张表 |
 | `docker compose exec mysql mysql -uroot -proot ecommerce_competitor` | 进入 MySQL 终端 | 容器内快速进入 MySQL 交互命令行 |
-| `docker compose exec redis redis-cli` | 进入 Redis 终端 | 容器内快速进入 Redis 交互命令行 |
 | `pnpm --filter backend openrouter-env-fallback-smoke` | OpenRouter Key 回退冒烟 |
 
 完整冒烟命令见各 `phase-*.md` 任务证据。
@@ -132,6 +129,6 @@ pnpm dev:worker     # 仅启动 BullMQ Worker
 
 ## 注意事项
 
-- 数据库、Redis、JWT、AI Key、OSS Secret 等敏感配置只写入各自 `.env`，不提交 git；`.env.example` 只放占位符和注释
+- 数据库、JWT、AI Key、OSS Secret 等敏感配置只写入各自 `.env`，不提交 git；`.env.example` 只放占位符和注释
 - Key 只存服务端，桌面端不保存明文；日志会自动脱敏
 - 旧 `apps/legacy/`、`apps/backend/server.js` 仅供迁移参考，人工本地验收通过后执行 `pnpm legacy:cleanup --apply` 直接删除，不归档保留；正式任务只走新 backend
