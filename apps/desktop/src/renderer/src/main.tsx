@@ -7,7 +7,7 @@ import { AnalysisCollectPage } from './pages/AnalysisCollectPage'
 import { ReportsListPage } from './pages/ReportsListPage'
 import { AssetsPage } from './pages/AssetsPage'
 import { ImageGalleryPage } from './pages/ImageGalleryPage'
-import { AdminProviderProfilesPage, AdminRolesPage, AdminStoresPage, AdminTenantsPage, AdminUsersPage } from './pages/AdminListsPage'
+import { AdminDepartmentsPage, AdminProviderProfilesPage, AdminRolesPage, AdminStoresPage, AdminTenantsPage, AdminUsersPage } from './pages/AdminListsPage'
 import { VideoGalleryPage } from './pages/VideoGalleryPage'
 import { ViralVideoReplicationPage } from './pages/ViralVideoReplicationPage'
 import { DataAnalyticsPage } from './pages/DataAnalyticsPage'
@@ -78,6 +78,7 @@ createRoot(document.getElementById('root')!).render(
             <Route path="assets/videos" element={<VideoGalleryPage />} />
             <Route path="settings/accounts" element={<SuperProtected><AdminUsersPage /></SuperProtected>} />
             <Route path="settings/roles" element={<SuperProtected><AdminRolesPage /></SuperProtected>} />
+            <Route path="settings/departments" element={<SuperProtected><AdminDepartmentsPage /></SuperProtected>} />
             <Route path="settings/stores" element={<AdminStoresPage />} />
             <Route path="settings/tenants" element={<SuperProtected><AdminTenantsPage /></SuperProtected>} />
             <Route path="settings/providers" element={<SuperProtected><AdminProviderProfilesPage /></SuperProtected>} />

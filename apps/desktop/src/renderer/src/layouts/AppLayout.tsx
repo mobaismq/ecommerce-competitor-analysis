@@ -14,6 +14,7 @@ function buildNavGroups(isSuper: boolean) {
           { to: '/settings/providers', label: 'AI 供应商' },
           { to: '/settings/accounts', label: '账号管理' },
           { to: '/settings/roles', label: '角色管理' },
+          { to: '/settings/departments', label: '部门管理' },
         ]
       : []),
     { to: '/settings/stores', label: '店铺管理' },

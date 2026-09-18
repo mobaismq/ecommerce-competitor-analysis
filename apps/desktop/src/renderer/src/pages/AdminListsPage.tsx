@@ -260,3 +260,86 @@ export function AdminProviderProfilesPage() {
     </div>
   )
 }
+
+interface DepartmentRow {
+  id: string
+  name: string
+  parentId: string | null
+}
+
+export function AdminDepartmentsPage() {
+  const departments = useQuery({ queryKey: ['departments'], queryFn: async () => (await api.get<DepartmentRow[]>('/api/departments')).data })
+  const [name, setName] = useState('')
+  const [parentId, setParentId] = useState('')
+
+  // 扁平列表按 parentId 组装层级（根 parentId 为 null/空）
+  const tree = buildDeptTree(departments.data ?? [])
+
+  const create = (event: React.FormEvent) => {
+    event.preventDefault()
+    if (!name.trim()) {
+      window.alert('请填写部门名称')
+      return
+    }
+    refresh(departments.refetch, api.post('/api/departments', { name: name.trim(), parentId: parentId || undefined }))
+    setName('')
+    setParentId('')
+  }
+
+  const rename = async (row: DepartmentRow) => {
+    const val = window.prompt(`修改部门「${row.name}」名称`, row.name)
+    if (val && val.trim() && val.trim() !== row.name) refresh(departments.refetch, api.patch(`/api/departments/${row.id}`, { name: val.trim() }))
+  }
+
+  return (
+    <div className="page-container">
+      <section className="panel">
+        <div className="panel-head">
+          <h2>部门管理（仅超级管理员）</h2>
+          <button className="ghost" onClick={() => void departments.refetch()}>刷新</button>
+        </div>
+        <form onSubmit={create} style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="部门名称" />
+          <select value={parentId} onChange={(e) => setParentId(e.target.value)}>
+            <option value="">（顶级部门）</option>
+            {(departments.data ?? []).map((d) => (
+              <option key={d.id} value={d.id}>{d.name}</option>
+            ))}
+          </select>
+          <button type="submit" className="ghost">新建部门</button>
+        </form>
+        <table>
+          <thead><tr><th>部门</th><th>上级</th><th>操作</th></tr></thead>
+          <tbody>
+            {departments.data?.length ? (
+              departments.data.map((row) => (
+                <tr key={row.id} style={{ paddingLeft: treeDepth(departments.data ?? [], row.id) * 16 }}>
+                  <td>
+                    <span style={{ marginLeft: treeDepth(departments.data ?? [], row.id) * 16 }}>{row.name}</span>
+                  </td>
+                  <td>{row.parentId ? (departments.data?.find((d) => d.id === row.parentId)?.name ?? '-') : '-'}</td>
+                  <td><button className="ghost" onClick={() => void rename(row)}>重命名</button></td>
+                </tr>
+              ))
+            ) : (
+              <tr><td colSpan={3}>加载中…</td></tr>
+            )}
+            {(departments.data ?? []).length === 0 && <tr><td colSpan={3}>暂无部门</td></tr>}
+          </tbody>
+        </table>
+      </section>
+    </div>
+  )
+}
+
+function buildDeptTree(rows: DepartmentRow[]): DepartmentRow[] {
+  return rows.filter((r) => !r.parentId)
+}
+
+function treeDepth(rows: DepartmentRow[], id: string, seen = new Set<string>()): number {
+  if (seen.has(id)) return 0
+  const row = rows.find((r) => r.id === id)
+  if (!row || !row.parentId) return 0
+  seen.add(id)
+  return 1 + treeDepth(rows, row.parentId, seen)
+}
