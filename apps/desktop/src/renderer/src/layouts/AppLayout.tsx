@@ -235,7 +235,7 @@ export function AppLayout() {
       </div>
       <button
         onClick={() => navigate('/settings/account-info')}
-        className="flex w-full items-center justify-center gap-3 px-4 py-3 text-[14px] text-[#0A1B39] transition-colors hover:bg-[#f8f9fb]"
+        className="flex w-full items-center justify-center gap-3 border-0 bg-transparent px-4 py-3 text-[14px] text-[#0A1B39] transition-colors hover:bg-[#f8f9fb]"
       >
         <User className="h-5 w-5 text-[#86909C]" />
         <span>账号信息</span>
@@ -243,7 +243,7 @@ export function AppLayout() {
       <div className="border-t border-[#f0f2f5]" />
       <button
         onClick={handleLogout}
-        className="w-full px-4 py-3 text-center text-[14px] text-[#c62828] transition-colors hover:bg-[#fff0f0]"
+        className="w-full border-0 bg-transparent px-4 py-3 text-center text-[14px] text-[#c62828] transition-colors hover:bg-[#fff0f0]"
       >
         退出当前账号
       </button>
@@ -297,7 +297,7 @@ export function AppLayout() {
           </Popover>
           <button
             onClick={() => setExpanded(!expanded)}
-            className="flex items-center justify-center h-10 w-10 rounded-lg hover:bg-[#f5f6f8] transition-colors text-[#86909C]"
+            className="flex h-10 w-10 items-center justify-center border-0 bg-transparent rounded-lg text-[#86909C] transition-colors hover:bg-[#f5f6f8]"
             title={expanded ? '收起侧边栏' : '展开侧边栏'}
           >
             {expanded ? <PanelLeftClose className="h-4 w-4" /> : <PanelLeftOpen className="h-4 w-4" />}
