@@ -8,8 +8,5 @@ module.exports = {
   collectCoverageFrom: ['src/**/*.(t|j)s'],
   testEnvironment: 'node',
   moduleDirectories: ['node_modules', 'src'],
-  moduleNameMapper: {
-    '^@nestjs/bullmq$': '<rootDir>/test/mocks/nestjs-bullmq.ts',
-  },
   testTimeout: 30000,
 }

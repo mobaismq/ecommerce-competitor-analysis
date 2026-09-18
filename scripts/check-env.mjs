@@ -82,9 +82,9 @@ try {
 try {
   const docker = run('docker', ['compose', 'ps'], { cwd: root })
   const healthy = /Up|healthy/.test(docker)
-  record('Docker MySQL/Redis', healthy, healthy ? 'compose services up' : 'compose services not ready')
+  record('Docker MySQL', healthy, healthy ? 'compose services up' : 'compose services not ready')
 } catch {
-  record('Docker MySQL/Redis', false, 'docker compose unavailable')
+  record('Docker MySQL', false, 'docker compose unavailable')
 }
 
 for (const result of results) {
