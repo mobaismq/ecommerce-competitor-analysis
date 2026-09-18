@@ -1,30 +1,10 @@
-import React, { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import {
-  Button,
-  Card,
-  Empty,
-  Input,
-  Radio,
-  Select,
-  Space,
-  Table,
-  Tag,
-  Typography,
-} from '@arco-design/web-react'
-import {
-  IconGift,
-  IconPlus,
-  IconRefresh,
-  IconSearch,
-} from '@arco-design/web-react/icon'
-
+import { ChevronLeft, ChevronRight, Loader2, Plus, RefreshCw, Search, X } from 'lucide-react'
 import { api } from '../api/client'
 import { formatDateTime } from '../utils/format'
-
-const { Title, Text } = Typography
-const { Option } = Select
+import { PageHeader } from '../components/PageHeader'
 
 interface PlatformProduct {
   id: string
@@ -37,13 +17,23 @@ interface PlatformProduct {
   updatedAt?: string
 }
 
+const PLATFORM_LABELS: Record<string, string> = {
+  taobao: '淘宝天猫',
+  jd: '京东',
+  douyin: '抖音电商',
+  pdd: '拼多多',
+}
+
+const PAGE_SIZE = 10
+
 export function ProductManagementPage() {
   const navigate = useNavigate()
   const [platform, setPlatform] = useState<string>('all')
   const [keyword, setKeyword] = useState<string>('')
   const [status, setStatus] = useState<string>('all')
 
-  const { data, isLoading, refetch } = useQuery<{
+  // 数据流保持桌面端现状：GET /api/platform-adapters/products（服务端筛选）
+  const { data, isLoading, refetch, isFetching } = useQuery<{
     items?: PlatformProduct[]
     total?: number
   }>({
@@ -59,196 +49,203 @@ export function ProductManagementPage() {
     },
   })
 
-  const platformTag = (plat: string) => {
-    switch (plat?.toLowerCase()) {
-      case 'taobao':
-        return <Tag color="orangered">淘宝天猫</Tag>
-      case 'jd':
-        return <Tag color="red">京东</Tag>
-      case 'douyin':
-        return <Tag color="cyan">抖音电商</Tag>
-      case 'pdd':
-        return <Tag color="magenta">拼多多</Tag>
-      default:
-        return <Tag color="arcoblue">{plat || '电商平台'}</Tag>
-    }
-  }
+  const items = data?.items ?? []
 
-  const statusTag = (st: string) => {
-    switch (st?.toLowerCase()) {
-      case 'online':
-      case 'published':
-        return <Tag color="green">在售中</Tag>
-      case 'offline':
-        return <Tag color="gray">已下架</Tag>
-      case 'draft':
-        return <Tag color="gold">草稿待发</Tag>
-      default:
-        return <Tag color="arcoblue">{st || '正常'}</Tag>
+  // 动态平台 Tabs（对照旧版下划线样式；全部 + 数据中出现的平台）
+  const platforms = useMemo(() => {
+    const set = new Set<string>()
+    items.forEach((it) => it.platform && set.add(it.platform))
+    return ['all', ...Array.from(set)]
+  }, [items])
+
+  const platformLabel = (plat: string) => PLATFORM_LABELS[plat?.toLowerCase()] || plat || '电商平台'
+
+  const statusBadge = (st: string) => {
+    const map: Record<string, { text: string; className: string }> = {
+      online: { text: '在售中', className: 'bg-[#e8f5e9] text-[#2e7d32]' },
+      published: { text: '在售中', className: 'bg-[#e8f5e9] text-[#2e7d32]' },
+      offline: { text: '已下架', className: 'bg-[#f2f4f7] text-[#86909C]' },
+      draft: { text: '草稿待发', className: 'bg-[#fff8e6] text-[#b45309]' },
     }
+    const view = map[st?.toLowerCase()] || { text: st || '正常', className: 'bg-[#f0f7ff] text-[#3388ff]' }
+    return <span className={`rounded-full px-2.5 py-1 text-[12px] font-bold ${view.className}`}>{view.text}</span>
   }
 
   return (
-    <div className="h-full overflow-y-auto p-6 bg-[#f4f7fb] flex flex-col gap-4">
-      {/* 头部标题与新建按钮 */}
-      <Card style={{ borderRadius: 8 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
-            <Title heading={5} style={{ margin: 0 }}>
-              平台商品管理
-            </Title>
-            <Text type="secondary" style={{ fontSize: 13 }}>
-              统一管理已同步与发布的各电商平台商品主档、上下架状态与价格库存
-            </Text>
-          </div>
-          <Space>
-            <Button
-              icon={<IconRefresh />}
-              loading={isLoading}
-              onClick={() => void refetch()}
-            >
-              刷新
-            </Button>
-            <Button
-              type="primary"
-              icon={<IconPlus />}
-              onClick={() => navigate('/products/management/manual')}
-            >
-              手动发布商品
-            </Button>
-          </Space>
-        </div>
-      </Card>
+    <div className="h-full overflow-auto bg-[#f4f7fb]">
+      <div className="p-6">
+        <PageHeader breadcrumbs={[{ label: '商品' }, { label: '平台商品' }]} className="mb-2" />
 
-      {/* 筛选过滤栏 */}
-      <Card style={{ borderRadius: 8 }}>
-        <Space size="large" wrap>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Text style={{ fontSize: 13, color: '#4e5969' }}>平台渠道:</Text>
-            <Radio.Group
+        {/* 平台 Tabs（对照旧版下划线高亮） */}
+        <div className="mb-2 flex items-center gap-6 border-b border-[#e6e9ef]">
+          {platforms.map((plat) => (
+            <button
+              key={plat}
               type="button"
-              value={platform}
-              onChange={(val) => setPlatform(val)}
+              onClick={() => setPlatform(plat)}
+              className={`relative cursor-pointer border-0 bg-transparent pb-2.5 pt-1 text-[14px] transition-colors ${
+                platform === plat ? 'font-bold text-[#409eff]' : 'text-[#4e5969] hover:text-[#0A1B39]'
+              }`}
             >
-              <Radio value="all">全部</Radio>
-              <Radio value="taobao">淘宝</Radio>
-              <Radio value="jd">京东</Radio>
-              <Radio value="douyin">抖音</Radio>
-              <Radio value="pdd">拼多多</Radio>
-            </Radio.Group>
-          </div>
+              {plat === 'all' ? '全部平台' : platformLabel(plat)}
+              {platform === plat && <span className="absolute inset-x-0 bottom-0 h-[2px] bg-[#409eff]" />}
+            </button>
+          ))}
+        </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Text style={{ fontSize: 13, color: '#4e5969' }}>在售状态:</Text>
-            <Select
-              value={status}
-              onChange={(val) => setStatus(val)}
-              style={{ width: 120 }}
-            >
-              <Option value="all">全部状态</Option>
-              <Option value="online">在售中</Option>
-              <Option value="offline">已下架</Option>
-              <Option value="draft">草稿</Option>
-            </Select>
-          </div>
-
-          <Input
-            prefix={<IconSearch />}
-            placeholder="搜索商品标题或外部编码..."
-            value={keyword}
-            onChange={(val) => setKeyword(val)}
-            onPressEnter={() => void refetch()}
-            style={{ width: 260 }}
-            allowClear
-          />
-
-          <Button type="primary" onClick={() => void refetch()}>
-            查询
-          </Button>
-        </Space>
-      </Card>
-
-      {/* 表格列表 */}
-      <Card style={{ borderRadius: 8 }}>
-        <Table<PlatformProduct>
-          rowKey="id"
-          loading={isLoading}
-          data={data?.items ?? []}
-          pagination={{ pageSize: 10, total: data?.total ?? 0, showTotal: true }}
-          noDataElement={<Empty description="暂无符合条件的平台商品数据" />}
-          columns={[
-            {
-              title: '商品标题',
-              render: (_, record) => (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <div
-                    style={{
-                      width: 40,
-                      height: 40,
-                      borderRadius: 6,
-                      background: '#f2f3f5',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      color: '#86909c',
-                      fontSize: 18,
-                    }}
+        {/* 查询条件卡（对照旧版两行） */}
+        <div className="mb-4 rounded-xl bg-white p-4">
+          <div className="grid grid-cols-4 gap-3">
+            <div className="flex items-center gap-2">
+              <label className="shrink-0 text-[12px] text-[#86909C]">商品标题</label>
+              <div className="relative min-w-0 flex-1">
+                <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#c0c4cc]" />
+                <input
+                  type="text"
+                  value={keyword}
+                  onChange={(e) => setKeyword(e.target.value)}
+                  placeholder="请输入"
+                  className={`h-8 w-full rounded-lg border border-[#e6e9ef] bg-white pl-8 text-[13px] outline-none focus:border-[#409eff] ${keyword ? 'pr-7' : 'pr-3'}`}
+                />
+                {keyword && (
+                  <button
+                    type="button"
+                    onClick={() => setKeyword('')}
+                    aria-label="清空"
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 cursor-pointer border-0 bg-transparent p-0 text-[#c0c4cc] hover:text-[#86909C]"
                   >
-                    <IconGift />
-                  </div>
-                  <div>
-                    <Text bold style={{ color: '#1d2129' }}>{record.title || '未命名商品'}</Text>
-                    <div style={{ fontSize: 11, color: '#86909c' }}>ID: {record.id}</div>
-                  </div>
-                </div>
-              ),
-            },
-            {
-              title: '渠道平台',
-              dataIndex: 'platform',
-              render: (plat: string) => platformTag(plat),
-            },
-            {
-              title: '销售价 (元)',
-              dataIndex: 'price',
-              render: (price: number) => (
-                <Text bold style={{ color: '#ff7d00' }}>
-                  ¥{Number(price || 0).toFixed(2)}
-                </Text>
-              ),
-            },
-            {
-              title: '当前库存',
-              dataIndex: 'stock',
-              render: (stock: number) => <span>{stock ?? 999} 件</span>,
-            },
-            {
-              title: '状态',
-              dataIndex: 'status',
-              render: (st: string) => statusTag(st),
-            },
-            {
-              title: '更新时间',
-              dataIndex: 'updatedAt',
-              render: (time?: string) => formatDateTime(time),
-            },
-            {
-              title: '操作',
-              render: (_, record) => (
-                <Space>
-                  <Button
-                    type="text"
-                    size="small"
-                    onClick={() => navigate('/products/management/manual')}
-                  >
-                    编辑发布
-                  </Button>
-                </Space>
-              ),
-            },
-          ]}
-        />
-      </Card>
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="shrink-0 text-[12px] text-[#86909C]">发布状态</label>
+              <select
+                value={status}
+                onChange={(e) => setStatus(e.target.value)}
+                className={`h-8 w-full appearance-none rounded-lg border border-[#e6e9ef] bg-white px-2.5 text-[13px] outline-none focus:border-[#409eff] ${status === 'all' ? 'text-[#98A2B3]' : 'text-[#0A1B39]'}`}
+                style={{
+                  backgroundImage:
+                    "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23c0c4cc' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E\")",
+                  backgroundRepeat: 'no-repeat',
+                  backgroundPosition: 'right 10px center',
+                }}
+              >
+                <option value="all">请选择</option>
+                <option value="online">在售中</option>
+                <option value="offline">已下架</option>
+                <option value="draft">草稿待发</option>
+              </select>
+            </div>
+            <div className="col-span-2 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => navigate('/products/management/manual')}
+                className="inline-flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-[#409eff] px-4 text-[13px] font-bold text-white hover:bg-[#66b1ff]"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                发布商品
+              </button>
+              <button
+                type="button"
+                onClick={() => void refetch()}
+                disabled={isFetching}
+                className="inline-flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-[#e6e9ef] bg-white px-4 text-[13px] text-[#0A1B39] hover:bg-[#f5f6f8] disabled:opacity-50"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? 'animate-spin' : ''}`} />
+                同步商品
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* 表格卡（对照旧版圆角卡 + 分页 footer） */}
+        <div className="overflow-hidden rounded-xl bg-white">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[960px]">
+              <thead>
+                <tr className="border-b border-[#eef1f5] bg-[#f9fafb]">
+                  <th className="px-4 py-3 text-left text-[13px] font-medium text-[#86909C]">商品标题</th>
+                  <th className="px-4 py-3 text-left text-[13px] font-medium text-[#86909C]">渠道平台</th>
+                  <th className="px-4 py-3 text-left text-[13px] font-medium text-[#86909C]">销售价</th>
+                  <th className="px-4 py-3 text-left text-[13px] font-medium text-[#86909C]">当前库存</th>
+                  <th className="px-4 py-3 text-left text-[13px] font-medium text-[#86909C]">发布状态</th>
+                  <th className="px-4 py-3 text-left text-[13px] font-medium text-[#86909C]">更新时间</th>
+                  <th className="px-4 py-3 text-left text-[13px] font-medium text-[#86909C]">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {isLoading && (
+                  <tr>
+                    <td colSpan={7} className="px-4 py-12 text-center text-[14px] text-[#86909C]">
+                      <Loader2 className="mr-2 inline h-4 w-4 animate-spin" />
+                      加载中…
+                    </td>
+                  </tr>
+                )}
+                {!isLoading && items.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="px-4 py-14 text-center text-[14px] text-[#86909C]">
+                      暂无符合条件的平台商品数据
+                    </td>
+                  </tr>
+                )}
+                {!isLoading &&
+                  items.slice(0, PAGE_SIZE).map((record) => (
+                    <tr key={record.id} className="border-b border-[#eef1f5] transition-colors hover:bg-[#fafafa]">
+                      <td className="px-4 py-3.5">
+                        <p className="m-0 text-[13px] font-semibold text-[#0A1B39]">{record.title || '未命名商品'}</p>
+                        <p className="m-0 mt-0.5 font-mono text-[11px] text-[#c0c4cc]">
+                          {record.outerId ? `编码 ${record.outerId}` : `ID ${record.id}`}
+                        </p>
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3.5 text-[13px] text-[#344054]">{platformLabel(record.platform)}</td>
+                      <td className="whitespace-nowrap px-4 py-3.5 text-[13px] font-bold text-[#ff7d00]">¥{Number(record.price || 0).toFixed(2)}</td>
+                      <td className="whitespace-nowrap px-4 py-3.5 text-[13px] text-[#344054]">{record.stock ?? '—'} 件</td>
+                      <td className="whitespace-nowrap px-4 py-3.5">{statusBadge(record.status)}</td>
+                      <td className="whitespace-nowrap px-4 py-3.5 text-[13px] text-[#86909C]">{formatDateTime(record.updatedAt)}</td>
+                      <td className="whitespace-nowrap px-4 py-3.5">
+                        <button
+                          type="button"
+                          onClick={() => navigate('/products/management/manual')}
+                          className="cursor-pointer border-0 bg-transparent p-0 text-[13px] text-[#3388ff] hover:text-[#1a6fe8]"
+                        >
+                          编辑发布
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="flex items-center justify-between border-t border-[#eef1f5] px-4 py-3">
+            <span className="text-[13px] text-[#86909C]">共 {data?.total ?? items.length} 条</span>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                disabled
+                className="flex h-8 w-8 cursor-not-allowed items-center justify-center rounded-lg border border-[#eef1f5] bg-white text-[#344054] opacity-40"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                className="flex h-8 min-w-[32px] cursor-pointer items-center justify-center rounded-lg border-0 bg-[#409eff] px-2 text-[13px] text-white"
+              >
+                1
+              </button>
+              <button
+                type="button"
+                disabled
+                className="flex h-8 w-8 cursor-not-allowed items-center justify-center rounded-lg border border-[#eef1f5] bg-white text-[#344054] opacity-40"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
