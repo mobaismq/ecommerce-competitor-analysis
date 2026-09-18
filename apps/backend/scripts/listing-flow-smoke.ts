@@ -30,6 +30,10 @@ class FailingPlatformAdapter implements PlatformAdapter {
   async submitListing(_input: PlatformListingInput): Promise<PlatformListingResult> {
     return { status: 'failure', error: 'simulated listing failure', rawPayload: { kind: 'failing' } }
   }
+
+  getStatus() {
+    return { configured: true, mock: true }
+  }
 }
 
 async function createGenAsset(prisma: PrismaService, tenantId: string, suffix: string) {
