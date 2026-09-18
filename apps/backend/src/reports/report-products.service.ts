@@ -7,6 +7,7 @@ import { computePriceBands as buildPriceBands } from './report-price-bands'
 export interface RunMainImageAnalysisInput {
   tenantId: string
   runId: string
+  userId?: string
   productId?: string
   productUrl?: string
   title?: string
@@ -109,7 +110,7 @@ export class ReportProductsService {
       const result = await this.router.execute(
         'vision',
         { prompt: '分析该商品主图：概括视觉卖点、画面元素与文案', system: '你是电商主图视觉分析师。', images: [input.imageUrl], maxTokens: 2000 },
-        { tenantId: input.tenantId, jobId: run.jobId, attemptKey: `report:${run.id}:vision:${input.productId ?? 'p'}` },
+        { tenantId: input.tenantId, jobId: run.jobId, attemptKey: `report:${run.id}:vision:${input.productId ?? 'p'}`, userId: input.userId },
       )
       text = result.text
       model = result.model

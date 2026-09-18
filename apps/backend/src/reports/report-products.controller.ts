@@ -19,9 +19,10 @@ export class ReportProductsController {
   @Post(':id/main-image-analysis')
   @HttpCode(200)
   @RequirePermission('market:report:view')
-  runMainImageAnalysis(@Req() request: { user: { tenantId: string } }, @Param('id') id: string, @Body() body: RunMainImageAnalysisDto) {
+  runMainImageAnalysis(@Req() request: { user: { tenantId: string; sub?: string } }, @Param('id') id: string, @Body() body: RunMainImageAnalysisDto) {
     return this.service.runMainImageAnalysis({
       tenantId: request.user.tenantId,
+      userId: request.user.sub,
       runId: id,
       productId: body.productId,
       productUrl: body.productUrl,
