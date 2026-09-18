@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { PageHeader } from '../components/PageHeader'
 import {
   Badge,
   Button,
@@ -685,7 +686,16 @@ export function ManualListingPage() {
   const currentTabs = PLATFORM_TABS[currentPlatform] || PLATFORM_TABS['淘宝']
 
   return (
-    <div style={{ padding: '20px 24px', background: '#f4f7fb', minHeight: '100%' }}>
+    <div className="h-full overflow-y-auto bg-[#f4f7fb] p-5 custom-scrollbar">
+      <PageHeader
+        breadcrumbs={[
+          { label: '商品', to: '/product/master-data' },
+          { label: '平台商品', to: '/product/management' },
+          { label: '发布商品' },
+        ]}
+        className="mb-3"
+      />
+
       {/* 顶部标题与平台切换工具条 */}
       <div
         style={{
