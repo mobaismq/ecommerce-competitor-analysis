@@ -1,30 +1,23 @@
-import { Processor, WorkerHost } from '@nestjs/bullmq'
 import { Prisma } from '@prisma/client'
-import { Queue, type Job } from 'bullmq'
-import IORedis from 'ioredis'
+import { Injectable, OnModuleInit } from '@nestjs/common'
 import { PrismaService } from '../prisma.service'
+import { LocalJobQueueService, type JobProcessor, type JobProcessContext } from './local-job-queue.service'
 import { QUEUE_NAMES } from './queue-names'
 
-function logConsumed(queueName: string, job: Job) {
-  process.stdout.write(JSON.stringify({ level: 30, msg: 'worker consumed', queue: queueName, jobId: job.id }) + '\n')
-  return { ok: true, queue: queueName, jobId: job.id }
-}
+@Injectable()
+export class FlowFinalizerWorker implements JobProcessor, OnModuleInit {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly localQueue: LocalJobQueueService,
+  ) {}
 
-@Processor(QUEUE_NAMES.desktopRpa)
-export class DesktopRpaWorker extends WorkerHost {
-  async process(job: Job) {
-    return logConsumed(QUEUE_NAMES.desktopRpa, job)
-  }
-}
-
-@Processor(QUEUE_NAMES.flowFinalizer)
-export class FlowFinalizerWorker extends WorkerHost {
-  constructor(private readonly prisma: PrismaService) {
-    super()
+  onModuleInit() {
+    this.localQueue.registerProcessor(QUEUE_NAMES.flowFinalizer, this)
   }
 
-  async process(job: Job) {
-    const jobId = job.data?.jobId as string | undefined
+  async process(jobOrContext: JobProcessContext | { data?: { jobId?: string; tenantId?: string } }) {
+    const data = 'data' in jobOrContext ? jobOrContext.data : undefined
+    const jobId = (data?.jobId ?? ('jobId' in jobOrContext ? jobOrContext.jobId : undefined)) as string | undefined
     if (!jobId) return { ok: false, reason: 'missing jobId' }
     await this.prisma.job.update({
       where: { id: jobId },
@@ -72,15 +65,11 @@ export class FlowFinalizerWorker extends WorkerHost {
           parentJobId: source.id,
         },
       })
-      const connection = new IORedis(process.env.REDIS_URL || 'redis://127.0.0.1:6380', { maxRetriesPerRequest: null })
-      const queue = new Queue(target.queue, { connection })
-      await queue.add(
-        target.queue,
-        { jobId: downstream.id, tenantId: source.tenantId, type: target.type },
-        { jobId: downstream.id },
-      )
-      await queue.close()
-      await connection.quit()
+      await this.localQueue.enqueue(target.queue, {
+        jobId: downstream.id,
+        tenantId: source.tenantId,
+        type: target.type,
+      })
     } catch (error) {
       if (!(error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002')) throw error
     }

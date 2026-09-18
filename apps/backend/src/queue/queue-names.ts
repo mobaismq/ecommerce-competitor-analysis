@@ -1,5 +1,4 @@
 export const QUEUE_NAMES = {
-  desktopRpa: 'desktop-rpa',
   serverAi: 'server-ai',
   serverReport: 'server-report',
   serverImageGen: 'server-image-gen',
