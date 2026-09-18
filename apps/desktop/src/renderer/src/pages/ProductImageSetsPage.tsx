@@ -419,7 +419,7 @@ export function ProductImageSetsPage() {
   return (
     <div className="relative flex h-full bg-[#f4f7fb] overflow-hidden">
       {/* ===================== 左侧 360px 参数面板 ===================== */}
-      <div className="w-[360px] shrink-0 h-full overflow-y-auto border-r border-[#e5e8ef] bg-white p-5 pb-24 select-none">
+      <div className="w-[360px] shrink-0 h-full overflow-y-auto border-r border-[#e5e8ef] bg-white px-5 pt-5 pb-4 select-none">
         {/* 1. 商品原图 */}
         <div className="mb-5">
           <h2 className="mb-3 flex items-center justify-between text-[14px] font-bold text-[#0A1B39]">
@@ -440,11 +440,11 @@ export function ProductImageSetsPage() {
           />
 
           {uploadedImages.length > 0 ? (
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-3 gap-3">
               {uploadedImages.map((img) => (
                 <div
                   key={img.id}
-                  className={`relative h-20 rounded-lg overflow-hidden border ${
+                  className={`relative h-[82px] rounded-lg overflow-hidden border ${
                     img.isMain ? 'border-[#1683FF] ring-1 ring-[#1683FF]' : 'border-[#e5e8ef]'
                   } group bg-[#f8fafc]`}
                 >
@@ -481,7 +481,7 @@ export function ProductImageSetsPage() {
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
-                  className="h-20 rounded-lg border border-dashed border-[#d8e0ea] bg-[#fbfcfe] hover:border-[#1683FF] hover:bg-[#f0f7ff] transition-colors flex flex-col items-center justify-center gap-1 text-[#86909C]"
+                  className="h-[82px] rounded-lg border border-dashed border-[#d8e0ea] bg-[#fbfcfe] hover:border-[#1683FF] hover:bg-[#f0f7ff] transition-colors flex flex-col items-center justify-center gap-1 text-[#86909C]"
                 >
                   <Plus className="h-5 w-5" />
                   <span className="text-[11px]">添加</span>
@@ -491,7 +491,7 @@ export function ProductImageSetsPage() {
           ) : (
             <div
               onClick={() => fileInputRef.current?.click()}
-              className="flex h-24 cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-[#c9d5e8] bg-[#fbfcfe] hover:bg-[#f5f9ff] hover:border-[#1683FF] transition-colors"
+              className="flex h-[94px] cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-[#c9d5e8] bg-[#fbfcfe] hover:bg-[#f5f9ff] hover:border-[#1683FF] transition-colors"
             >
               <Button size="small" type="secondary" icon={<UploadIcon className="h-3.5 w-3.5" />} className="mb-1.5">
                 上传图片
@@ -583,10 +583,10 @@ export function ProductImageSetsPage() {
               position="right"
             >
               <Button
-                size="mini"
+                size="small"
                 type="outline"
                 icon={expandingPrompts ? <Loader2 className="h-3 w-3 animate-spin" /> : <Lightbulb className="h-3 w-3" />}
-                className="text-[#1683FF] border-[#bcd8ff] bg-white hover:bg-[#f0f7ff]"
+                className="shrink-0 whitespace-nowrap text-[12px] text-[#1683FF] border-[#bcd8ff] bg-white hover:bg-[#f0f7ff]"
                 onClick={handleAiHelp}
                 loading={expandingPrompts}
               >
@@ -686,7 +686,7 @@ export function ProductImageSetsPage() {
         </div>
 
         {/* 6. 附加功能 */}
-        <div className="mb-6 space-y-2">
+        <div className="mb-5 space-y-2">
           <SectionTitle>附加功能</SectionTitle>
           <div className="flex items-center justify-between p-2.5 rounded-lg bg-[#f8fafc] border border-[#eef2f8]">
             <span className="text-[12px] text-[#0A1B39]">爆款风格分析</span>
@@ -700,25 +700,25 @@ export function ProductImageSetsPage() {
             <Switch size="small" checked={listingCopy} onChange={setListingCopy} />
           </div>
         </div>
-      </div>
 
-      {/* 底部吸底固定操作条 */}
-      <div className="fixed bottom-0 left-[240px] z-20 w-[360px] border-t border-[#eef1f5] bg-white p-3.5 shadow-lg">
-        <Button
-          type="primary"
-          long
-          size="large"
-          loading={generating}
-          disabled={uploadedImages.length === 0}
-          onClick={handleGenerateAll}
-          className="rounded-lg font-bold"
-        >
-          {generating ? '正在生成套图中...' : `一键生成套图与商品上架文案（${totalImageCount}张）`}
-        </Button>
+        {/* 吸底生成条：sticky 于面板滚动容器内（对照旧版 fixed+侧栏联动的等价实现，折叠侧栏不错位） */}
+        <div className="sticky bottom-0 -mx-5 mt-1 border-t border-[#eef1f5] bg-white p-3.5">
+          <Button
+            type="primary"
+            long
+            size="large"
+            loading={generating}
+            disabled={uploadedImages.length === 0}
+            onClick={handleGenerateAll}
+            className="rounded-lg font-bold"
+          >
+            {generating ? '正在生成套图中...' : `一键生成套图与商品上架文案（${totalImageCount}张）`}
+          </Button>
+        </div>
       </div>
 
       {/* ===================== 右侧自适应画布区 ===================== */}
-      <div className="flex-1 h-full overflow-y-auto p-8 custom-scrollbar">
+      <div className="flex-1 h-full overflow-y-auto p-6 custom-scrollbar">
         {!resultViewActive ? (
           /* ===================== 初始未生成态：橙色耳机套图样板展卡 ===================== */
           <div className="flex min-h-full flex-col items-center justify-center text-center max-w-[1000px] mx-auto py-8">
@@ -727,59 +727,57 @@ export function ProductImageSetsPage() {
               上传商品图，AI 即刻生成 <span className="font-bold text-[#1683FF]">符合多电商平台规范</span> 的高转化率商品主图。
             </p>
 
-            {/* 核心样板卡片 (白底圆角大卡片) */}
-            <div className="mt-8 w-full max-w-[880px] rounded-2xl bg-white p-6 shadow-[0_8px_32px_rgba(29,38,52,0.06)] border border-[#eef2f8]">
-              <div className="flex items-center justify-center gap-6">
-                {/* 01 白底大图 */}
-                <div className="relative w-[340px] h-[340px] rounded-xl overflow-hidden bg-[#fafbfc] border border-[#f0f2f5] shrink-0 p-4 flex items-center justify-center group">
-                  <span className="absolute top-3 left-3 rounded-full bg-white/90 px-2.5 py-1 text-[11px] font-bold text-[#4e5969] shadow-sm z-10">
-                    01 白底图
+            {/* 核心样板卡片（对照旧版 h-[384px] w-[792px]：左336主图 + 箭头 + 右2x2 162px） */}
+            <div className="mt-8 flex h-[384px] w-[792px] items-center justify-center gap-5 rounded-2xl border border-[#eef2f8] bg-white p-6 shadow-[0_8px_32px_rgba(29,38,52,0.06)]">
+              {/* 01 白底大图 */}
+              <div className="relative h-[336px] w-[336px] shrink-0 overflow-hidden rounded-xl border border-[#f0f2f5] bg-[#fafbfc] p-4 flex items-center justify-center group">
+                <span className="absolute left-3 top-3 z-10 rounded-full bg-white/90 px-2.5 py-1 text-[11px] font-bold text-[#4e5969] shadow-sm">
+                  01 白底图
+                </span>
+                <img
+                  src={mainHeadphone}
+                  alt="01 白底图"
+                  className="max-h-full max-w-full object-contain drop-shadow-sm group-hover:scale-105 transition-transform"
+                />
+              </div>
+
+              {/* 箭头指示 */}
+              <div className="w-10 shrink-0">
+                <img src={suiteArrow} alt="流向" className="h-6 w-6 opacity-60" />
+              </div>
+
+              {/* 右侧 2x2 四宫格（162px 每格） */}
+              <div className="grid h-[336px] w-[336px] grid-cols-2 gap-3">
+                {/* 02 场景图 */}
+                <div className="relative overflow-hidden rounded-xl border border-[#f0f2f5] bg-[#fafbfc] group">
+                  <span className="absolute left-2 top-2 z-10 rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-bold text-[#4e5969] shadow-sm">
+                    02 场景图
                   </span>
-                  <img
-                    src={mainHeadphone}
-                    alt="01 白底图"
-                    className="max-h-full max-w-full object-contain drop-shadow-sm group-hover:scale-105 transition-transform"
-                  />
+                  <img src={sceneDisplay} alt="02 场景图" className="h-full w-full object-cover group-hover:scale-105 transition-transform" />
                 </div>
 
-                {/* 箭头指示 */}
-                <div className="shrink-0">
-                  <img src={suiteArrow} alt="流向" className="h-6 w-6 opacity-60" />
+                {/* 03 卖点图 */}
+                <div className="relative overflow-hidden rounded-xl border border-[#f0f2f5] bg-[#fafbfc] group">
+                  <span className="absolute left-2 top-2 z-10 rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-bold text-[#4e5969] shadow-sm">
+                    03 卖点图
+                  </span>
+                  <img src={sellingPoint} alt="03 卖点图" className="h-full w-full object-cover group-hover:scale-105 transition-transform" />
                 </div>
 
-                {/* 右侧 4 宫格小图 */}
-                <div className="grid grid-cols-2 gap-3 w-[340px] h-[340px]">
-                  {/* 02 场景图 */}
-                  <div className="relative rounded-xl overflow-hidden bg-[#fafbfc] border border-[#f0f2f5] group">
-                    <span className="absolute top-2 left-2 rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-bold text-[#4e5969] shadow-sm z-10">
-                      02 场景图
-                    </span>
-                    <img src={sceneDisplay} alt="02 场景图" className="h-full w-full object-cover group-hover:scale-105 transition-transform" />
-                  </div>
+                {/* 04 细节说明 */}
+                <div className="relative overflow-hidden rounded-xl border border-[#f0f2f5] bg-[#fafbfc] group">
+                  <span className="absolute left-2 top-2 z-10 rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-bold text-[#4e5969] shadow-sm">
+                    04 细节说明
+                  </span>
+                  <img src={detailExplain} alt="04 细节说明" className="h-full w-full object-cover group-hover:scale-105 transition-transform" />
+                </div>
 
-                  {/* 03 卖点图 */}
-                  <div className="relative rounded-xl overflow-hidden bg-[#fafbfc] border border-[#f0f2f5] group">
-                    <span className="absolute top-2 left-2 rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-bold text-[#4e5969] shadow-sm z-10">
-                      03 卖点图
-                    </span>
-                    <img src={sellingPoint} alt="03 卖点图" className="h-full w-full object-cover group-hover:scale-105 transition-transform" />
-                  </div>
-
-                  {/* 04 细节说明 */}
-                  <div className="relative rounded-xl overflow-hidden bg-[#fafbfc] border border-[#f0f2f5] group">
-                    <span className="absolute top-2 left-2 rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-bold text-[#4e5969] shadow-sm z-10">
-                      04 细节说明
-                    </span>
-                    <img src={detailExplain} alt="04 细节说明" className="h-full w-full object-cover group-hover:scale-105 transition-transform" />
-                  </div>
-
-                  {/* 05 卖点详解 */}
-                  <div className="relative rounded-xl overflow-hidden bg-[#fafbfc] border border-[#f0f2f5] group">
-                    <span className="absolute top-2 left-2 rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-bold text-[#4e5969] shadow-sm z-10">
-                      05 卖点详解
-                    </span>
-                    <img src={modelScene} alt="05 卖点详解" className="h-full w-full object-cover group-hover:scale-105 transition-transform" />
-                  </div>
+                {/* 05 卖点详解 */}
+                <div className="relative overflow-hidden rounded-xl border border-[#f0f2f5] bg-[#fafbfc] group">
+                  <span className="absolute left-2 top-2 z-10 rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-bold text-[#4e5969] shadow-sm">
+                    05 卖点详解
+                  </span>
+                  <img src={modelScene} alt="05 卖点详解" className="h-full w-full object-cover group-hover:scale-105 transition-transform" />
                 </div>
               </div>
             </div>
