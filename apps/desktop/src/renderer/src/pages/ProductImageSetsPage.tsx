@@ -582,16 +582,15 @@ export function ProductImageSetsPage() {
               onVisibleChange={setAiHelpOpen}
               position="right"
             >
-              <Button
-                size="small"
-                type="outline"
-                icon={expandingPrompts ? <Loader2 className="h-3 w-3 animate-spin" /> : <Lightbulb className="h-3 w-3" />}
-                className="shrink-0 whitespace-nowrap text-[12px] text-[#1683FF] border-[#bcd8ff] bg-white hover:bg-[#f0f7ff]"
+              <button
+                type="button"
                 onClick={handleAiHelp}
-                loading={expandingPrompts}
+                disabled={expandingPrompts}
+                className="flex h-7 shrink-0 cursor-pointer items-center gap-1 whitespace-nowrap rounded-full border border-[#D9E8FF] bg-white px-2.5 text-[12px] font-medium text-[#1683FF] shadow-sm disabled:cursor-not-allowed disabled:opacity-60"
               >
+                {expandingPrompts ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Lightbulb className="h-3.5 w-3.5" />}
                 AI 帮写
-              </Button>
+              </button>
             </Popover>
           </div>
 

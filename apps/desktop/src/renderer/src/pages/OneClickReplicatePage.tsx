@@ -268,15 +268,15 @@ export function OneClickReplicatePage() {
           <span className={LABEL_CLASS}>③ 复刻程度</span>
           <div className="grid grid-cols-2 gap-3">
             {([
-              { key: 'style', title: '参考风格复刻', desc: '提取构图光影与排版调性重新演绎' },
-              { key: 'high', title: '高度复刻', desc: '保持参考图版式，仅替换商品主体' },
+              { key: 'style', title: '参考风格', desc: '参考整体风格和结构，自动调整色彩和重构场景。' },
+              { key: 'high', title: '高度复刻', desc: '参照参考图视觉结构替换产品和文案，场景细节略有差异。' },
             ] as const).map((item) => (
               <button
                 key={item.key}
                 type="button"
                 onClick={() => setLevel(item.key)}
                 className={`cursor-pointer rounded-xl border p-3 text-left transition-colors ${
-                  level === item.key ? 'border-[#8BBCFF] bg-white ring-1 ring-[#8BBCFF]' : 'border-[#e5e8ef] bg-[#fafbfc] hover:border-[#b8d7ff]'
+                  level === item.key ? 'border border-[#8bbcff] bg-white shadow-sm' : 'bg-[#f5f6f8]'
                 }`}
               >
                 <p className={`m-0 text-[13px] font-bold ${level === item.key ? 'text-[#3388ff]' : 'text-[#0A1B39]'}`}>{item.title}</p>
@@ -347,7 +347,7 @@ export function OneClickReplicatePage() {
       <div className="h-full min-w-0 flex-1 overflow-y-auto p-6 custom-scrollbar">
         <PageHeader title="一键复刻" />
         <p className="m-0 -mt-2 mb-5 text-[13px] text-[#86909C]">
-          选择商品主档与参考内容，一键生成属于你商品的高转化专属爆款图。
+          选择商品 + 参考爆款 = 你的专属爆款图
         </p>
 
         {generating ? (
