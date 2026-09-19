@@ -7,38 +7,41 @@
   color: #1f2328;
   background: #f5f6f8;
 }
-* { box-sizing: border-box; }
-html, body {
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
   height: 100%;
   margin: 0;
   overflow: hidden;
 }
+
 /* 旧原型时代元素样式：必须收敛进 @layer base。
    Tailwind v4 中未分层规则的优先级高于 utilities 层，
    若裸写会让 button{background:#1f6feb} 压过所有 bg-* 工具类（已致账号菜单蓝按钮事故）。 */
 @layer base {
-  .login-screen { min-height: 100vh; display: flex; align-items: center; justify-content: center; }
-  .login-card { width: 340px; padding: 28px; border: 1px solid #d9dde3; border-radius: 8px; background: #fff; display: grid; gap: 14px; }
-  h1, h2 { margin: 0 0 16px; }
-  label { display: grid; gap: 6px; font-size: 13px; }
-  /* button 不再获得默认 padding/border（污染源：小图标钮被 8px/10px 内边距挤偏位）。
-     老页面按钮的外观由 background/color 维持；button.ghost 的描边单独声明。 */
-  input, select { padding: 8px 10px; border: 1px solid #cbd1d9; border-radius: 6px; font-size: 14px; }
-  button { cursor: pointer; background: #1f6feb; color: #fff; border: 1px solid #1f6feb; font-size: 14px; }
-  button.ghost { background: transparent; color: #1f6feb; }
-  button:disabled { opacity: 0.6; cursor: default; }
-  .form-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; align-items: end; margin-bottom: 12px; }
-  .form-error { color: #c62828; margin: 0; }
-  .form-message, .muted { color: #6b7280; }
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid #edf0f3; }
-  th { color: #6b7280; font-weight: 500; }
-  th.right, td.right { text-align: right; }
-  .preview { display: flex; gap: 12px; align-items: center; margin-bottom: 14px; }
-  .preview img { max-height: 180px; border: 1px solid #e3e6ea; border-radius: 6px; }
-  .panel { background: #fff; border: 1px solid #e3e6ea; border-radius: 8px; padding: 20px; margin-bottom: 20px; }
-  .panel-head { display: flex; justify-content: space-between; align-items: center; }
+
+
+
+
+  /* 全局元素级样式已全部移除（用户裁定：全局不允许 button/input/select 元素样式）。
+     控件外观一律由各页面显式类名或 Arco 组件承担。 */
+
+
+
+
+
+
+
+
+
+
+
 }
+
 .content-main {
   height: 100vh;
   flex: 1;
@@ -48,6 +51,7 @@ html, body {
   overflow: hidden;
   background: #f4f7fb;
 }
+
 .page {
   height: 100%;
   padding: 20px 24px;
@@ -55,6 +59,7 @@ html, body {
   overflow-y: auto;
   overflow-x: hidden;
 }
+
 .page-container {
   height: 100%;
   padding: 20px 24px;
@@ -63,38 +68,47 @@ html, body {
   overflow-y: auto;
   overflow-x: hidden;
 }
+
 .page::-webkit-scrollbar,
 .page-container::-webkit-scrollbar {
   width: 7px;
   height: 7px;
 }
+
 .page::-webkit-scrollbar-track,
 .page-container::-webkit-scrollbar-track {
   background: transparent;
 }
+
 .page::-webkit-scrollbar-thumb,
 .page-container::-webkit-scrollbar-thumb {
   background: #cfd6df;
   border-radius: 4px;
 }
+
 .page::-webkit-scrollbar-thumb:hover,
 .page-container::-webkit-scrollbar-thumb:hover {
   background: #9aa5b5;
 }
+
 .custom-scrollbar::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
+
 .custom-scrollbar::-webkit-scrollbar-track {
   background: transparent;
 }
+
 .custom-scrollbar::-webkit-scrollbar-thumb {
   background-color: #d5dbe5;
   border-radius: 999px;
 }
+
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
   background-color: #aeb7c4;
 }
+
 /* Arco 按钮内容排布修复：arco-btn 原为 inline-block，按钮内 svg 图标与文字
    会在宽度不足时于图标和文字之间换行（「AI 帮写」「上传图片」裁切事故）。
    改 inline-flex 后内容单行排布、垂直居中，宽度不足时按钮按需撑开。 */
@@ -108,9 +122,17 @@ html, body {
    会压过 Tailwind v4 space-y 工具类的 :where 零特异性规则——
    容器内原生 button/input 的垂直间距全部失效（采集页「开始采集」与勾选行贴合事故）。
    在未分层区以更高特异性恢复本项目实际使用的 space-y 刻度（仅覆盖已用值）。 */
-.space-y-2 > :not(:last-child) { margin-block-end: calc(var(--spacing, 0.25rem) * 2); }
-.space-y-3 > :not(:last-child) { margin-block-end: calc(var(--spacing, 0.25rem) * 3); }
-.space-y-5 > :not(:last-child) { margin-block-end: calc(var(--spacing, 0.25rem) * 5); }
+.space-y-2> :not(:last-child) {
+  margin-block-end: calc(var(--spacing, 0.25rem) * 2);
+}
+
+.space-y-3> :not(:last-child) {
+  margin-block-end: calc(var(--spacing, 0.25rem) * 3);
+}
+
+.space-y-5> :not(:last-child) {
+  margin-block-end: calc(var(--spacing, 0.25rem) * 5);
+}
 
 /* 侧边栏整列禁用文字选中：双击菜单不再拉蓝文字（用户实测反馈） */
 .app-sidebar {
@@ -118,16 +140,19 @@ html, body {
   -webkit-user-select: none;
   overflow: hidden;
 }
+
 /* 展开/收起 300ms 过渡期间，菜单与标题文字按 nowrap 裁切而非挤压换行 */
 .app-sidebar .arco-menu-item,
 .app-sidebar .arco-menu-inline-header,
 .app-sidebar .arco-menu-item-inner {
   white-space: nowrap;
 }
+
 /* Arco Menu 侧边栏主题覆写：对齐旧版菜单视觉基调（行高/圆角/激活底色/悬停色） */
 .sidebar-tree .arco-menu-inner {
   padding: 8px 12px 16px;
 }
+
 .sidebar-tree .arco-menu-item,
 .sidebar-tree .arco-menu-inline-header {
   display: flex;
@@ -138,15 +163,18 @@ html, body {
   font-size: 14px;
   color: #0a1b39;
 }
+
 .sidebar-tree .arco-menu-item:hover,
 .sidebar-tree .arco-menu-inline-header:hover {
   background: #f5f6f8;
 }
+
 .sidebar-tree .arco-menu-item.arco-menu-selected {
   background: #e4f3ff;
   color: #0a1b39;
   font-weight: 700;
 }
+
 .sidebar-tree .arco-menu-icon-suffix {
   color: #86909c;
 }

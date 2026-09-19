@@ -1,7 +1,6 @@
 import { useRef, useState } from 'react'
-import { XInput } from '../components/XInput'
 import { Button, Input, Message, Modal, Select } from '@arco-design/web-react'
-import { Download, Eye, Loader2, Upload, X } from 'lucide-react'
+import { CircleHelp, Download, Eye, Loader2, Upload } from 'lucide-react'
 import { saveAs } from 'file-saver'
 import { nanoid } from 'nanoid'
 
@@ -9,11 +8,12 @@ import referenceAd from '../assets/video-types/image-26.png'
 import highCopyAd from '../assets/video-types/image-27.png'
 import productCloth from '../assets/video-types/image-1.png'
 import styleCopyAd from '../assets/viral/image.png'
+import suiteArrow from '../assets/viral/arrow.svg'
 
 const Option = Select.Option
 
 const CLONE_CATEGORIES = ['电商商品图', '社媒广告图', '详情页模块', '主图', '场景图', '卖点图', '海报图']
-const CLONE_LANGUAGES = ['中文', '英文', '日文', '韩文', '德文', '法文', '意大利文', '西班牙文', '葡萄牙文', '荷兰文', '波兰文', '泰文', '越南文', '印尼文']
+const CLONE_LANGUAGES = ['英文', '中文', '日文', '韩文', '德文', '法文', '意大利文', '西班牙文', '葡萄牙文', '荷兰文', '波兰文', '泰文', '越南文', '印尼文']
 const CLONE_RATIOS = ['1:1', '3:4', '4:3', '9:16', '16:9']
 
 export interface GeneratedImageItem {
@@ -26,12 +26,12 @@ export interface GeneratedImageItem {
 }
 
 export function ViralReplicationPage() {
-  const [productImage, setProductImage] = useState<string | null>(productCloth)
+  const [productImage, setProductImage] = useState<string | null>(null)
+  // tab 高亮态：对照旧版 method（legacy:51），切 tab 仅切换高亮，内容区不变
   const [referenceMethod, setReferenceMethod] = useState<'upload' | 'link'>('upload')
-  const [referenceImages, setReferenceImages] = useState<string[]>([referenceAd])
-  const [referenceLink, setReferenceLink] = useState('')
+  const [referenceImages, setReferenceImages] = useState<string[]>([])
   const [replicateLevel, setReplicateLevel] = useState<'style' | 'exact'>('exact')
-  const [customRequirements, setCustomRequirements] = useState('文案统一用英文、模特保持完全不变、参考图不变只替换商品')
+  const [customRequirements, setCustomRequirements] = useState('例如：文案统一用英文、模特保持完全不变、参考图不变只替换商品。')
   const [category, setCategory] = useState('电商商品图')
   const [language, setLanguage] = useState('英文')
   const [ratio, setRatio] = useState('1:1')
@@ -70,12 +70,8 @@ export function ViralReplicationPage() {
 
   // 复刻生成（业务逻辑保持桌面端现状：本地演示流）
   const handleStartReplicate = async () => {
-    if (referenceMethod === 'upload' && referenceImages.length === 0) {
+    if (referenceImages.length === 0) {
       Message.warning('请至少上传一张参考爆款图')
-      return
-    }
-    if (referenceMethod === 'link' && !referenceLink.trim()) {
-      Message.warning('请输入要导入的参考爆款链接')
       return
     }
 
@@ -104,20 +100,18 @@ export function ViralReplicationPage() {
     Message.success('已触发保存')
   }
 
-  const addReferenceImages = () => {
-    // 演示环境：从内置样图池轮询追加，最多 20 张
-    setReferenceImages((prev) => (prev.length >= 20 ? prev : [...prev, [referenceAd, highCopyAd, styleCopyAd][prev.length % 3]]))
-  }
-
-  const LABEL_CLASS = 'mb-2 block text-[13px] font-bold text-[#344054]'
+  const LABEL_CLASS = 'mb-3 block text-[14px] font-semibold text-[#171A1D]'
 
   return (
     <div className="relative flex h-full bg-[#F2F4F7]">
       {/* ─── 左侧 360px 配置面板（对照旧版块序①~⑤） ─── */}
-      <div className="h-full w-[360px] shrink-0 overflow-y-auto border-r border-[#E5E8EF] bg-white px-5 pt-5 pb-4">
-        {/* ① 产品原图（可选）：对照旧版蓝虚线占位 + 灰钮，无预览无删除钮 */}
+      <div className="h-full w-[360px] shrink-0 overflow-y-auto border-r border-[#E5E8EF] bg-white px-5 pb-4 pt-5">
+        {/* ① 产品原图（可选）：对照旧版蓝虚线占位 + 灰钮，无预览时恒空态、无删除钮 */}
         <div className="mb-5">
-          <span className={LABEL_CLASS}>产品原图(可选)</span>
+          <div className="mb-3 flex items-center gap-1">
+            <span className="text-[14px] font-semibold text-[#171A1D]">产品原图(可选)</span>
+            <CircleHelp className="h-3.5 w-3.5 text-[#8B949E]" />
+          </div>
           <input
             ref={productInputRef}
             type="file"
@@ -129,24 +123,11 @@ export function ViralReplicationPage() {
             }}
           />
           <div
-            className="group relative flex h-[94px] cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-[#8CC4FF] bg-white"
+            className="flex h-[94px] cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-[#8CC4FF] bg-white"
             onClick={() => productInputRef.current?.click()}
           >
             {productImage ? (
-              <>
-                <img src={productImage} alt="产品原图" className="absolute inset-0 h-full w-full object-contain p-1.5" />
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    setProductImage(null)
-                  }}
-                  className="absolute right-1.5 top-1.5 z-10 grid h-6 w-6 cursor-pointer place-items-center rounded-full border-0 bg-white/90 text-[#c62828] opacity-0 shadow-sm transition-opacity group-hover:opacity-100"
-                  title="移除产品图"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              </>
+              <img src={productImage} alt="产品原图" className="h-full w-full object-contain p-1.5" />
             ) : (
               <>
                 <button
@@ -162,20 +143,17 @@ export function ViralReplicationPage() {
           </div>
         </div>
 
-        {/* ② 参考内容：双 tab + 上传区/链接 */}
+        {/* ② 参考内容：双 tab 仅高亮切换，内容区恒为上传区（对照旧版，无链接输入框/无缩略图） */}
         <div className="mb-5">
-          <div className="mb-2 flex items-center justify-between">
-            <span className={LABEL_CLASS + ' mb-0'}>② 参考内容</span>
-            <span className="text-[12px] text-[#86909C]">最多 20 张</span>
-          </div>
-          <div className="mb-2 flex rounded-lg bg-[#f2f4f7] p-1">
+          <span className={LABEL_CLASS}>参考内容</span>
+          <div className="mb-2 flex rounded-lg bg-[#F2F3F5] p-0.5">
             {(['upload', 'link'] as const).map((m) => (
               <button
                 key={m}
                 type="button"
                 onClick={() => setReferenceMethod(m)}
-                className={`h-8 flex-1 cursor-pointer rounded-md border-0 text-[12px] transition-colors ${
-                  referenceMethod === m ? 'bg-white font-semibold text-[#3388ff] shadow-sm' : 'bg-transparent text-[#667085]'
+                className={`h-9 flex-1 cursor-pointer rounded-[8px] border-0 text-[13px] transition-all ${
+                  referenceMethod === m ? 'bg-white font-semibold text-[#171A1D] shadow-sm' : 'bg-transparent text-[#8B949E]'
                 }`}
               >
                 {m === 'upload' ? '上传参考图' : '导入链接'}
@@ -183,80 +161,52 @@ export function ViralReplicationPage() {
             ))}
           </div>
 
-          {referenceMethod === 'upload' ? (
-            <div className="rounded-lg border border-dashed border-[#E3E7EF] bg-white">
-              <input
-                ref={refImagesInputRef}
-                type="file"
-                accept="image/*"
-                multiple
-                className="hidden"
-                onChange={(e) => {
-                  handleRefImagesUpload(e.target.files)
-                  e.currentTarget.value = ''
-                }}
-              />
-              {referenceImages.length > 0 && (
-                <div className="flex flex-wrap gap-2 p-2.5">
-                  {referenceImages.map((src, idx) => (
-                    <div key={idx} className="group relative h-[62px] w-[62px] overflow-hidden rounded-md border border-[#e5e8ef]">
-                      <img src={src} alt={`参考图 ${idx + 1}`} className="h-full w-full object-cover" />
-                      <button
-                        type="button"
-                        onClick={() => setReferenceImages((prev) => prev.filter((_, i) => i !== idx))}
-                        className="absolute right-1 top-1 flex h-5 w-5 cursor-pointer items-center justify-center rounded-full border-0 bg-white p-0 text-[#c62828] shadow-sm opacity-0 transition-opacity group-hover:opacity-100"
-                      >
-                        <X className="h-3 w-3" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {referenceImages.length < 20 && (
-                <div
-                  className="flex h-[94px] cursor-pointer flex-col items-center justify-center"
-                  onClick={() => refImagesInputRef.current?.click()}
-                >
-                  <button
-                    type="button"
-                    className="mb-3 flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-[#F2F3F5] px-4 text-[13px] font-medium text-[#171A1D]"
-                  >
-                    <Upload className="h-4 w-4" />
-                    上传参考图
-                  </button>
-                  <p className="m-0 text-[12px] text-[#8B949E]">最多20张</p>
-                </div>
-              )}
-            </div>
-          ) : (
-            <Input
-              value={referenceLink}
-              onChange={setReferenceLink}
-              placeholder="粘贴参考爆款链接（商品/笔记页）"
-              allowClear
-              className="h-10 rounded-lg"
+          <div className="rounded-lg border border-dashed border-[#E3E7EF] bg-white">
+            <input
+              ref={refImagesInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={(e) => {
+                handleRefImagesUpload(e.target.files)
+                e.currentTarget.value = ''
+              }}
             />
-          )}
+            <div
+              className="flex h-[94px] cursor-pointer flex-col items-center justify-center"
+              onClick={() => refImagesInputRef.current?.click()}
+            >
+              <button
+                type="button"
+                className="mb-3 flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-[#F2F3F5] px-4 text-[13px] font-medium text-[#171A1D]"
+              >
+                <Upload className="h-4 w-4" />
+                上传参考图
+              </button>
+              <p className="m-0 text-[12px] text-[#8B949E]">最多20张</p>
+            </div>
+          </div>
         </div>
 
         {/* ③ 复刻程度：grid-cols-2 两说明卡 */}
         <div className="mb-5">
-          <span className={LABEL_CLASS}>③ 复刻程度</span>
+          <span className={LABEL_CLASS}>复刻程度</span>
           <div className="grid grid-cols-2 gap-3">
             {([
               { key: 'style', title: '参考风格', desc: '参考整体风格和结构，自动调整色彩和重构场景。' },
-              { key: 'exact', title: '高度复刻', desc: '尽量保持参考图版式与元素位置，仅替换商品主体' },
+              { key: 'exact', title: '高度复刻', desc: '参照参考图视觉结构替换产品和文案，场景细节略有差异。' },
             ] as const).map((item) => (
               <button
                 key={item.key}
                 type="button"
                 onClick={() => setReplicateLevel(item.key)}
-                className={`cursor-pointer rounded-xl border p-3 text-left transition-colors ${
-                  replicateLevel === item.key ? 'border-[#8BBCFF] bg-white ring-1 ring-[#8BBCFF]' : 'border-[#e5e8ef] bg-[#fafbfc] hover:border-[#b8d7ff]'
+                className={`cursor-pointer rounded-lg border p-3 text-left transition-colors ${
+                  replicateLevel === item.key ? 'border-[#8BBCFF] bg-white' : 'border-transparent bg-[#F2F3F5] hover:border-[#b8d7ff]'
                 }`}
               >
-                <p className={`m-0 text-[13px] font-bold ${replicateLevel === item.key ? 'text-[#3388ff]' : 'text-[#0A1B39]'}`}>{item.title}</p>
-                <p className="m-0 mt-1 text-[11px] leading-4 text-[#86909C]">{item.desc}</p>
+                <p className="m-0 text-[13px] font-semibold text-[#171A1D]">{item.title}</p>
+                <p className="m-0 mt-2 text-[12px] leading-5 text-[#8B949E]">{item.desc}</p>
               </button>
             ))}
           </div>
@@ -264,19 +214,18 @@ export function ViralReplicationPage() {
 
         {/* ④ 统一复刻要求 */}
         <div className="mb-5">
-          <span className={LABEL_CLASS}>④ 统一复刻要求（选填）</span>
+          <span className={LABEL_CLASS}>统一复刻要求（选填）</span>
           <Input.TextArea
             value={customRequirements}
             onChange={setCustomRequirements}
             rows={3}
-            placeholder="例：文案统一用英文、模特保持不变、只替换商品主体"
             className="rounded-lg text-[12px]"
           />
         </div>
 
         {/* ⑤ 生成设置 */}
         <div className="mb-4">
-          <span className={LABEL_CLASS}>⑤ 生成设置</span>
+          <span className={LABEL_CLASS}>生成设置</span>
           <Select value={category} onChange={setCategory} className="mb-2 w-full">
             {CLONE_CATEGORIES.map((c) => (
               <Option key={c} value={c}>
@@ -302,18 +251,18 @@ export function ViralReplicationPage() {
           </div>
         </div>
 
-        {/* 吸底生成条（对照旧版，禁用态 bg-[#C4C6CA]） */}
+        {/* 吸底生成条（对照旧版：恒灰 bg-[#C4C6CA]、文案恒为「一键复刻爆款图」；点击触发本地演示生成流） */}
         <div className="sticky bottom-0 -mx-5 mt-2 border-t border-[#EEF1F5] bg-white p-4">
-          <Button
-            type="primary"
-            long
-            size="large"
-            loading={generating}
+          <button
+            type="button"
+            disabled={generating}
             onClick={handleStartReplicate}
-            className="rounded-lg font-bold"
+            className={`h-10 w-full cursor-pointer rounded-lg border-0 bg-[#C4C6CA] text-[13px] font-semibold text-white transition-opacity ${
+              generating ? 'cursor-not-allowed opacity-70' : 'hover:opacity-90'
+            }`}
           >
-            {generating ? 'AI 正在复刻爆款图中...' : '一键复刻爆款图'}
-          </Button>
+            一键复刻爆款图
+          </button>
         </div>
       </div>
 
@@ -328,38 +277,35 @@ export function ViralReplicationPage() {
           </div>
         ) : results.length === 0 ? (
           <div className="mx-auto flex min-h-full max-w-[980px] flex-col items-center justify-center py-8 text-center">
-            <h1 className="m-0 text-[32px] font-extrabold text-[#0A1B39]">爆款图复刻</h1>
-            <p className="m-0 mt-2 text-[14px] text-[#86909C]">想参考的爆款 + 你的产品图 = 你的爆款图</p>
+            <h1 className="m-0 text-[32px] font-bold leading-tight text-[#171A1D]">爆款图复刻</h1>
+            <p className="m-0 mt-3 text-[14px] leading-6 text-[#5F6B7A]">想参考的爆款 + 你的产品图 = 你的爆款图</p>
 
-            {/* 示例卡（对照旧版 h-[384px] w-[792px]：左336参考图+悬浮圆形产品图+双箭头+右2张162px） */}
-            <div className="mt-8 flex h-[384px] w-[792px] items-center justify-center gap-4 rounded-2xl border border-[#eef2f8] bg-white p-5 shadow-[0_8px_32px_rgba(29,38,52,0.06)]">
-              <div className="relative h-[336px] w-[336px] shrink-0 overflow-hidden rounded-xl border border-[#f0f2f5] bg-[#fafbfc]">
-                <img src={referenceAd} alt="参考爆款" className="h-full w-full object-cover" />
-                <span className="absolute left-3 top-3 rounded-full bg-white/90 px-2.5 py-1 text-[11px] font-bold text-[#4e5969] shadow-sm">参考爆款</span>
-                {productImage && (
-                  <div className="absolute -bottom-1 -right-1 h-[104px] w-[104px] overflow-hidden rounded-full border-4 border-white bg-white shadow-md">
-                    <img src={productImage} alt="你的产品" className="h-full w-full object-cover" />
+            {/* 示例卡（对照旧版 h-[384px] w-[792px]：左336参考图+底部居中悬浮圆形产品图+双箭头+右2张162px） */}
+            <div className="mt-12 flex h-[384px] w-[792px] items-center gap-4 rounded-[20px] bg-white p-6 shadow-[0_18px_40px_rgba(31,37,45,0.06)]">
+              <div className="flex h-[336px] w-[336px] shrink-0 items-center">
+                <div className="relative h-[209px] w-[336px] overflow-hidden rounded-[18px] bg-[#fafbfc]">
+                  <img src={referenceAd} alt="参考爆款童装广告图" className="block h-full w-full object-contain" />
+                  <span className="absolute right-3 top-3 rounded-full bg-[#F2F3F5] px-3 py-1.5 text-[12px] font-semibold text-[#22324D]">参考图</span>
+                  <div className="absolute -bottom-9 left-1/2 grid h-28 w-28 -translate-x-1/2 place-items-center rounded-full bg-white shadow-[0_14px_30px_rgba(31,37,45,0.16)]">
+                    <img src={productImage ?? productCloth} alt="蓝色童装产品图" className="h-20 w-20 object-contain" />
+                    <span className="absolute bottom-3 text-[12px] font-semibold text-[#22324D]">产品图</span>
                   </div>
-                )}
-              </div>
-
-              <div className="flex w-10 shrink-0 flex-col items-center gap-1 text-[#c0c4cc]">
-                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M5 12h14m-6-6 6 6-6 6" />
-                </svg>
-                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M19 12H5m6 6-6-6 6-6" />
-                </svg>
-              </div>
-
-              <div className="grid h-[336px] w-[336px] shrink-0 grid-rows-2 gap-3">
-                <div className="relative overflow-hidden rounded-xl border border-[#f0f2f5] bg-[#fafbfc]">
-                  <img src={highCopyAd} alt="复刻结果示意" className="h-full w-full object-cover" />
-                  <span className="absolute left-2 top-2 rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-bold text-[#4e5969] shadow-sm">高度复刻</span>
                 </div>
-                <div className="relative overflow-hidden rounded-xl border border-[#f0f2f5] bg-[#fafbfc]">
-                  <img src={styleCopyAd} alt="风格复刻示意" className="h-full w-full object-cover" />
-                  <span className="absolute left-2 top-2 rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-bold text-[#4e5969] shadow-sm">参考风格</span>
+              </div>
+
+              <div className="flex h-[336px] w-10 shrink-0 flex-col items-center justify-center gap-8">
+                <img src={suiteArrow} alt="" className="block w-[40px] shrink-0" />
+                <img src={suiteArrow} alt="" className="block w-[40px] shrink-0 rotate-90" />
+              </div>
+
+              <div className="grid h-[336px] w-[336px] shrink-0 grid-rows-2 justify-items-center gap-3">
+                <div className="relative h-[162px] w-[262px] overflow-hidden rounded-[18px] bg-[#fafbfc]">
+                  <img src={highCopyAd} alt="高度复刻后的童装广告图" className="block h-full w-full object-contain" />
+                  <span className="absolute right-3 top-3 rounded-full bg-[#F2F3F5] px-3 py-1.5 text-[12px] font-semibold text-[#22324D]">高度复刻</span>
+                </div>
+                <div className="relative h-[162px] w-[261px] overflow-hidden rounded-[18px] bg-[#fafbfc]">
+                  <img src={styleCopyAd} alt="参考风格后的童装广告图" className="block h-full w-full object-contain" />
+                  <span className="absolute right-3 top-3 rounded-full bg-[#F2F3F5] px-3 py-1.5 text-[12px] font-semibold text-[#22324D]">参考风格</span>
                 </div>
               </div>
             </div>
@@ -444,6 +390,11 @@ export function ViralReplicationPage() {
           )}
         </div>
       </Modal>
+
+      {/* 右下帮助钮（对照旧版 legacy:153） */}
+      <button type="button" className="absolute bottom-6 right-8 h-14 w-14 rounded-full border-0 bg-white text-xl shadow-md">
+        ?
+      </button>
     </div>
   )
 }

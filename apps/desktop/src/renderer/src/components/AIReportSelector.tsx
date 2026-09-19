@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { ChevronDown, CircleHelp, Loader2, Search } from 'lucide-react'
+import { ChevronDown, CircleHelp, Loader2 } from 'lucide-react'
 import { api } from '../api/client'
 
 export type SuiteProduct = {
@@ -47,6 +47,9 @@ export function AIReportSelector({ value, onChange }: AIReportSelectorProps) {
     setLoadingProducts(true)
     try {
       const params = new URLSearchParams()
+      // 对照旧版语义：只列「已完成的商品报告」。旧版传 status=generated（legacy API 枚举），
+      // 桌面端后端 AnalysisRun.status 的权威完成值为 'success'（report.service.ts 唯一写入处），按真实枚举过滤
+      params.set('status', 'success')
       if (search.trim()) params.set('keyword', search.trim())
       const res = await api.get(`/api/reports${params.toString() ? `?${params.toString()}` : ''}`)
       const rows = Array.isArray(res.data) ? res.data : res.data?.items ?? []
@@ -62,8 +65,7 @@ export function AIReportSelector({ value, onChange }: AIReportSelectorProps) {
       }))
       setSuiteProducts(items)
     } catch {
-      // 静默失败，UI 仍会显示"暂无已完成的商品报告"
-      setSuiteProducts([])
+      // 静默失败，保留旧列表（对照旧版 legacy:80-81）
     } finally {
       setLoadingProducts(false)
     }
@@ -104,7 +106,7 @@ export function AIReportSelector({ value, onChange }: AIReportSelectorProps) {
             setProductDropdownOpen((current) => !current)
             if (!suiteProducts.length) void loadReports('')
           }}
-          className={`flex h-[44px] w-full cursor-pointer items-center justify-between rounded-lg border-0 px-3 text-left text-[13px] font-medium transition-colors ${
+          className={`flex h-[44px] w-full cursor-pointer items-center justify-between rounded-[8px] border-0 px-3 text-left text-[13px] font-medium transition-colors ${
             productDropdownOpen ? 'bg-white text-[#171A1D] ring-1 ring-[#3388ff]' : 'bg-[#F2F3F5] text-[#171A1D] hover:bg-[#ECEFF4]'
           }`}
         >
@@ -118,19 +120,16 @@ export function AIReportSelector({ value, onChange }: AIReportSelectorProps) {
           )}
         </button>
         {productDropdownOpen && (
-          <div className="absolute left-0 right-0 top-[50px] z-40 rounded-lg border border-[#E5EAF2] bg-white p-2 shadow-[0_14px_32px_rgba(15,23,41,.14)]">
-            <div className="relative mb-2">
-              <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#c0c4cc]" />
-              <input
-                value={productSearch}
-                onChange={(event) => setProductSearch(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') void loadReports(productSearch)
-                }}
-                placeholder="搜索报告关键词"
-                className="h-8 w-full rounded-lg border border-[#DDE3EC] bg-white pl-8 pr-3 text-[12px] text-[#171A1D] outline-none focus:border-[#3388ff]"
-              />
-            </div>
+          <div className="absolute left-0 right-0 top-[50px] z-40 rounded-[8px] border border-[#E5EAF2] bg-white p-2 shadow-[0_14px_32px_rgba(15,23,41,.14)]">
+            <input
+              value={productSearch}
+              onChange={(event) => setProductSearch(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') void loadReports(productSearch)
+              }}
+              placeholder="搜索报告关键词"
+              className="mb-2 h-8 w-full rounded-[8px] border border-[#DDE3EC] px-3 text-[12px] text-[#171A1D] outline-none focus:border-[#3388ff]"
+            />
             <div className="max-h-[230px] overflow-y-auto custom-scrollbar">
               {suiteProducts.length ? (
                 suiteProducts.map((product) => (
@@ -138,20 +137,20 @@ export function AIReportSelector({ value, onChange }: AIReportSelectorProps) {
                     key={product.value}
                     type="button"
                     onClick={() => selectReport(product)}
-                    className={`mb-1 w-full cursor-pointer rounded-lg border-0 px-3 py-2 text-left transition-colors last:mb-0 ${
+                    className={`mb-1 w-full cursor-pointer rounded-[8px] border-0 px-3 py-2 text-left transition-colors last:mb-0 ${
                       value === product.value ? 'bg-[#EAF4FF]' : 'bg-white hover:bg-[#F5F6F8]'
                     }`}
                   >
                     <div className={`truncate text-[13px] font-semibold ${value === product.value ? 'text-[#1683FF]' : 'text-[#171A1D]'}`}>
                       {product.label}
                     </div>
-                    <div className="mt-1 truncate text-[11px] text-[#8B949E]">
+                    <div className="mt-1 truncate text-[11px] font-normal text-[#8B949E]">
                       {product.keyword || '商品报告'} · {product.priceRange || '价格区间未记录'} · {product.count || 0} 个竞品
                     </div>
                   </button>
                 ))
               ) : (
-                <div className="rounded-lg bg-[#F8FAFC] px-3 py-4 text-center text-[12px] text-[#8B949E]">
+                <div className="rounded-[8px] bg-[#F8FAFC] px-3 py-4 text-center text-[12px] text-[#8B949E]">
                   {loadingProducts ? '正在读取报告' : '暂无已完成的商品报告'}
                 </div>
               )}
@@ -159,7 +158,7 @@ export function AIReportSelector({ value, onChange }: AIReportSelectorProps) {
             <button
               type="button"
               onClick={() => void loadReports(productSearch)}
-              className="mt-2 h-8 w-full cursor-pointer rounded-lg border-0 bg-[#F2F3F5] text-[12px] font-semibold text-[#3388ff] transition-colors hover:bg-[#EAF4FF]"
+              className="mt-2 h-8 w-full cursor-pointer rounded-[8px] border-0 bg-[#F2F3F5] text-[12px] font-semibold text-[#3388ff] transition-colors hover:bg-[#EAF4FF]"
             >
               刷新报告
             </button>
