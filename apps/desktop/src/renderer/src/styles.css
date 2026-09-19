@@ -114,6 +114,13 @@ html, body {
 .app-sidebar {
   user-select: none;
   -webkit-user-select: none;
+  overflow: hidden;
+}
+/* 展开/收起 300ms 过渡期间，菜单与标题文字按 nowrap 裁切而非挤压换行 */
+.app-sidebar .arco-menu-item,
+.app-sidebar .arco-menu-inline-header,
+.app-sidebar .arco-menu-item-inner {
+  white-space: nowrap;
 }
 /* Arco Menu 侧边栏主题覆写：对齐旧版菜单视觉基调（行高/圆角/激活底色/悬停色） */
 .sidebar-tree .arco-menu-inner {

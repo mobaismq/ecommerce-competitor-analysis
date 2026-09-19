@@ -255,9 +255,9 @@ export function AppLayout() {
       <aside
         className={`app-sidebar ${expanded ? 'w-[240px]' : 'w-[72px]'} relative z-30 h-full shrink-0 border-r border-[#e9edf3] bg-white flex flex-col transition-all duration-300`}
       >
-        <div className={`flex h-[68px] shrink-0 items-center border-b border-[#e9edf3] ${expanded ? 'gap-2.5 px-6' : 'justify-center'}`}>
-          <img src={brandLogo} alt="繁星" className="h-8 w-8 rounded-lg object-contain" />
-          {expanded && <span className="text-[18px] font-extrabold tracking-[-0.02em]">繁星</span>}
+        <div className={`flex h-[68px] shrink-0 items-center overflow-hidden whitespace-nowrap border-b border-[#e9edf3] ${expanded ? 'gap-2.5 px-6' : 'justify-center'}`}>
+          <img src={brandLogo} alt="繁星" className="h-8 w-8 shrink-0 rounded-lg object-contain" />
+          {expanded && <span className="shrink-0 text-[18px] font-extrabold tracking-[-0.02em]">繁星</span>}
         </div>
 
         <Menu
@@ -291,7 +291,7 @@ export function AppLayout() {
           ))}
         </Menu>
 
-        <div className={`${expanded ? 'px-5 pb-4 flex items-end justify-between' : 'pb-4 flex flex-col items-center gap-3'}`}>
+        <div className={`${expanded ? 'px-5 pb-4 flex items-center justify-between' : 'pb-4 flex flex-col items-center gap-3'}`}>
           <Popover trigger="hover" position="tl" content={accountMenuContent}>
             <div className="h-8 w-8 rounded-full bg-gradient-to-b from-[#80d4ff] to-[#d7efff] shadow-inner cursor-pointer" />
           </Popover>
@@ -300,7 +300,7 @@ export function AppLayout() {
             className="flex h-10 w-10 items-center justify-center border-0 bg-transparent rounded-lg text-[#86909C] transition-colors hover:bg-[#f5f6f8]"
             title={expanded ? '收起侧边栏' : '展开侧边栏'}
           >
-            {expanded ? <PanelLeftClose className="h-4 w-4" /> : <PanelLeftOpen className="h-4 w-4" />}
+            {expanded ? <PanelLeftClose className="h-5 w-5" /> : <PanelLeftOpen className="h-5 w-5" />}
           </button>
         </div>
       </aside>
