@@ -48,11 +48,12 @@ import suiteArrow from '../assets/suite-arrow.svg'
 const { Row, Col } = Grid
 const Option = Select.Option
 
+// 生成设置三组 options 逐字对照旧版 ProductImageSets.tsx GENERATION_OPTIONS（平台 17 / 国家 17 / 语言 14 / 比例 5）
 const PLATFORM_OPTIONS = [
-  '淘宝天猫1688', '淘宝', '天猫', '抖音', '京东', '拼多多', '亚马逊', 'TikTok', '速卖通', 'Temu', 'Shein', 'Shopee', '独立站',
+  '淘宝天猫1688', '淘宝', '天猫', '抖音', '京东', '拼多多', '亚马逊', 'TikTok', '速卖通', 'Temu', 'Shein', 'Shopee', 'Lazada', 'eBay', 'Walmart', 'Shopify', '独立站',
 ]
-const COUNTRY_OPTIONS = ['中国', '美国', '英国', '德国', '法国', '意大利', '西班牙', '日本', '韩国', '东南亚']
-const LANGUAGE_OPTIONS = ['中文', '英文', '日文', '韩文', '德文', '法文', '西班牙文']
+const COUNTRY_OPTIONS = ['中国', '美国', '英国', '德国', '法国', '意大利', '西班牙', '日本', '韩国', '加拿大', '澳大利亚', '新加坡', '马来西亚', '泰国', '越南', '巴西', '墨西哥']
+const LANGUAGE_OPTIONS = ['英文', '中文', '日文', '韩文', '德文', '法文', '意大利文', '西班牙文', '葡萄牙文', '荷兰文', '波兰文', '泰文', '越南文', '印尼文']
 const RATIO_OPTIONS = ['1:1', '3:4', '4:3', '9:16', '16:9']
 
 interface UploadedImage {
@@ -108,6 +109,7 @@ export function ProductImageSetsPage() {
   const [expandingPrompts, setExpandingPrompts] = useState(false)
   const [aiHelpThinking, setAiHelpThinking] = useState('')
   const [aiHelpText, setAiHelpText] = useState('')
+  const [error, setError] = useState('')
 
   // 5. 套图结构配置
   const [mode, setMode] = useState<'智能匹配' | '自定义配置'>('智能匹配')
@@ -185,12 +187,12 @@ export function ProductImageSetsPage() {
   // 触发 AI 帮写 (流式 SSE)
   const handleAiHelp = async () => {
     if (uploadedImages.length === 0) {
-      Message.warning('请先上传至少一张商品原图，再使用 AI 帮写')
+      Message.warning('请先上传商品原图，再使用 AI 帮写')
       return
     }
     setAiHelpOpen(true)
     setExpandingPrompts(true)
-    setAiHelpThinking('正在分析商品图片与视觉特征...')
+    setAiHelpThinking('')
     setAiHelpText('')
 
     try {
@@ -212,41 +214,48 @@ export function ProductImageSetsPage() {
 
       const reader = response.body.getReader()
       const decoder = new TextDecoder()
+      let buffer = ''
       let fullContent = ''
+      let finalText = ''
 
-      while (true) {
-        const { value, done } = await reader.read()
-        if (done) break
-        const chunk = decoder.decode(value, { stream: true })
-        const lines = chunk.split('\n').filter(Boolean)
-        for (const line of lines) {
-          try {
-            const data = JSON.parse(line)
-            if (data.type === 'thinking') {
-              setAiHelpThinking((prev) => prev + '\n' + (data.text || ''))
-            } else if (data.type === 'content') {
-              fullContent += data.text || ''
-              setAiHelpText(fullContent)
-            } else if (data.type === 'done') {
-              fullContent = data.text || fullContent
-              setAiHelpText(fullContent)
-            }
-          } catch {
-            // 忽略非 JSON 行
-          }
+      const flushLine = (line: string) => {
+        const trimmed = line.trim()
+        if (!trimmed) return
+        let event: { type?: string; text?: string; data?: { content?: string; model?: string; message?: string } }
+        try {
+          event = JSON.parse(trimmed)
+        } catch {
+          return
+        }
+        if (event.type === 'thinking') {
+          setAiHelpThinking((prev) => prev + '\n' + (event.data?.content || event.text || ''))
+        } else if (event.type === 'content') {
+          fullContent += event.data?.content || event.text || ''
+          setAiHelpText(fullContent)
+        } else if (event.type === 'done') {
+          finalText = String(event.data?.content || event.text || fullContent)
+          setAiHelpText(finalText)
+        } else if (event.type === 'error') {
+          throw new Error(event.data?.message || event.data?.content || 'AI 帮写失败')
         }
       }
 
-      if (!fullContent.trim()) {
-        const fallback = `1.产品名称：精品电商商品\n2.核心卖点：高品质工艺、舒适耐用、人体工学设计\n3.适用人群：年轻消费群体、白领通勤人群\n4.期望场景：日常居家、户外休闲、办公使用\n5.具体参数：哑光亲肤质感、精细装配接缝`
-        setAiHelpText(fallback)
+      for (;;) {
+        const { value, done } = await reader.read()
+        buffer += decoder.decode(value || new Uint8Array(), { stream: !done })
+        const lines = buffer.split(/\r?\n/)
+        buffer = lines.pop() || ''
+        lines.forEach(flushLine)
+        if (done) break
       }
-    } catch {
-      // 容错模拟
-      setAiHelpThinking('图片解析完成，提炼核心电商卖点')
-      setAiHelpText(
-        `1.产品名称：${selectedReport?.keyword || '无线高保真头戴耳机'}\n2.核心卖点：40mm高解析动圈、48小时持久续航、主动混合降噪\n3.适用人群：音乐发烧友、差旅商务人群、学生党\n4.期望场景：通勤地铁、自习办公、长途差旅\n5.具体参数：蓝牙5.4极速连接、记忆海绵耳罩、轻量化折叠设计`,
-      )
+      flushLine(buffer)
+      if (!fullContent.trim()) throw new Error('AI 帮写没有返回可用商品信息，请稍后重试。')
+      setAiHelpText(fullContent)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      setAiHelpThinking('')
+      setAiHelpText('')
+      Message.error(message)
     } finally {
       setExpandingPrompts(false)
     }
@@ -319,31 +328,30 @@ export function ProductImageSetsPage() {
     setSlots(newSlots)
 
     // 按序并发调用生图
+    let failedCount = 0
     for (const slot of newSlots) {
       try {
         const res = await api.post<{ images?: Array<{ url: string }>; url?: string }>('/api/product-sets/generate-image', {
           prompt: slot.prompt,
+          size: '2K',
           slotType: slot.typeKey,
         })
-        const imgUrl = res.data?.images?.[0]?.url || res.data?.url || 'https://images.unsplash.com/photo-1546435770-a3e426bf472b?w=600&q=80'
+        const imgUrl = res.data?.images?.[0]?.url || res.data?.url
+        if (!imgUrl) throw new Error('生成成功但没有返回图片 URL')
         setSlots((prev) => prev.map((s) => (s.id === slot.id ? { ...s, status: 'done', imageUrl: imgUrl } : s)))
-      } catch {
+      } catch (err) {
+        failedCount += 1
+        const message = err instanceof Error ? err.message : String(err)
         setSlots((prev) =>
-          prev.map((s) =>
-            s.id === slot.id
-              ? {
-                  ...s,
-                  status: 'done',
-                  imageUrl: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=600&q=80',
-                }
-              : s,
-          ),
+          prev.map((s) => (s.id === slot.id ? { ...s, status: 'failed', error: message } : s)),
         )
       }
     }
 
     setGenerating(false)
-    Message.success(`全套 ${newSlots.length} 张主图已生成完毕！`)
+    if (failedCount) {
+      setError(`${failedCount} 张图片生成失败，其余图片已保留在右侧。`)
+    }
   }
 
   // 单图重绘
@@ -353,13 +361,16 @@ export function ProductImageSetsPage() {
       const slot = slots.find((s) => s.id === slotId)
       const res = await api.post<{ images?: Array<{ url: string }>; url?: string }>('/api/product-sets/generate-image', {
         prompt: slot?.prompt || '电商高清主图',
+        size: '2K',
         slotType: slot?.typeKey,
       })
-      const imgUrl = res.data?.images?.[0]?.url || res.data?.url || 'https://images.unsplash.com/photo-1583394838336-acd977736f90?w=600&q=80'
+      const imgUrl = res.data?.images?.[0]?.url || res.data?.url
+      if (!imgUrl) throw new Error('生成成功但没有返回图片 URL')
       setSlots((prev) => prev.map((s) => (s.id === slotId ? { ...s, status: 'done', imageUrl: imgUrl } : s)))
-      Message.success('图位已重新生成')
-    } catch {
-      setSlots((prev) => prev.map((s) => (s.id === slotId ? { ...s, status: 'done' } : s)))
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      setSlots((prev) => prev.map((s) => (s.id === slotId ? { ...s, status: 'failed', error: message } : s)))
+      setError(message)
     }
   }
 
@@ -508,9 +519,6 @@ export function ProductImageSetsPage() {
             onChange={(runId, report) => {
               setSelectedReportId(runId)
               setSelectedReport(report)
-              if (report?.keyword && !generationText) {
-                setGenerationText(`1.产品名称：${report.keyword}\n2.核心卖点：热销爆款特征`)
-              }
             }}
           />
         </div>
@@ -702,17 +710,16 @@ export function ProductImageSetsPage() {
 
         {/* 吸底生成条：sticky 于面板滚动容器内（对照旧版 fixed+侧栏联动的等价实现，折叠侧栏不错位） */}
         <div className="sticky bottom-0 -mx-5 mt-1 border-t border-[#eef1f5] bg-white p-3.5">
-          <Button
-            type="primary"
-            long
-            size="large"
-            loading={generating}
-            disabled={uploadedImages.length === 0}
+          <button
+            type="button"
+            disabled={generating || uploadedImages.length === 0}
             onClick={handleGenerateAll}
-            className="rounded-lg font-bold"
+            className={`h-10 w-full cursor-pointer rounded-[8px] text-[13px] font-semibold text-white disabled:cursor-not-allowed ${
+              generating || uploadedImages.length === 0 ? 'bg-[#C4C6CA]' : 'bg-[#171A1D] hover:bg-[#2A2F36]'
+            }`}
           >
-            {generating ? '正在生成套图中...' : `一键生成套图与商品上架文案（${totalImageCount}张）`}
-          </Button>
+            {generating ? '正在生成...' : `一键生成套图与商品上架文案（${totalImageCount}张）`}
+          </button>
         </div>
       </div>
 
@@ -786,18 +793,17 @@ export function ProductImageSetsPage() {
           <div className="max-w-[1200px] mx-auto pb-12">
             {/* 顶栏操作 */}
             <div className="flex items-center justify-between mb-6 pb-4 border-b border-[#e5e8ef]">
-              <div>
-                <h2 className="text-[20px] font-extrabold text-[#0A1B39]">套图成果看板</h2>
-                <p className="text-[12px] text-[#86909C] mt-0.5">
-                  已按所选规范完成 {slots.length} 张电商主图规划与渲染，支持单独调整与打包。
-                </p>
-              </div>
+              <button
+                type="button"
+                onClick={() => setResultViewActive(false)}
+                className="flex h-9 cursor-pointer items-center gap-2 rounded-[8px] bg-white px-3 text-[13px] font-semibold text-[#171A1D] shadow-[0_1px_0_rgba(15,23,41,.06)] transition-colors hover:bg-[#F5F6F8]"
+              >
+                <span aria-hidden>←</span> 返回配置
+              </button>
+              <h2 className="text-[18px] font-bold text-[#171A1D]">生成结果：</h2>
               <div className="flex items-center gap-3">
-                <Button icon={<RefreshCw className="h-3.5 w-3.5" />} onClick={() => setResultViewActive(false)}>
-                  返回示例展卡
-                </Button>
                 <Button type="primary" icon={<Download className="h-3.5 w-3.5" />} onClick={handleBatchDownload}>
-                  打包下载全套 ZIP
+                  批量下载
                 </Button>
               </div>
             </div>
@@ -814,7 +820,7 @@ export function ProductImageSetsPage() {
                     {slot.status === 'generating' ? (
                       <div className="flex flex-col items-center gap-2">
                         <Spin />
-                        <span className="text-[11px] text-[#86909C]">AI 渲染中...</span>
+                        <span className="text-[11px] text-[#86909C]">AI生成中...</span>
                       </div>
                     ) : slot.imageUrl ? (
                       <img src={slot.imageUrl} alt={slot.name} className="h-full w-full object-cover" />
@@ -825,6 +831,11 @@ export function ProductImageSetsPage() {
                     <span className="absolute top-2 left-2 rounded bg-black/60 px-2 py-0.5 text-[10px] font-bold text-white">
                       #{slot.slotIndex} {slot.type}
                     </span>
+                    {slot.status === 'failed' && (
+                      <span className="absolute inset-x-2 bottom-2 rounded bg-[#ffEBEE]/95 px-2 py-1 text-[10px] font-bold text-[#c62828]">
+                        {slot.error || '生成失败'}
+                      </span>
+                    )}
                   </div>
 
                   <div className="space-y-2">

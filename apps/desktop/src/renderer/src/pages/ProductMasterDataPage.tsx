@@ -1,18 +1,62 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Button, Form, Input, InputNumber, Message, Modal, Select } from '@arco-design/web-react'
-import { ChevronDown, ChevronLeft, ChevronRight, FileImage, Loader2, Plus, RefreshCw, Search, X } from 'lucide-react'
+import { Calendar, ChevronDown, ChevronRight, Plus, Search, Upload, X } from 'lucide-react'
 import { nanoid } from 'nanoid'
 import { api } from '../api/client'
 import { PageHeader } from '../components/PageHeader'
+
+function ImageUpload({
+  size = 'md',
+  value,
+  onChange,
+}: {
+  size?: 'sm' | 'md'
+  value: string | null
+  onChange: (url: string | null) => void
+}) {
+  const inputRef = useRef<HTMLInputElement>(null)
+  const dim = size === 'sm' ? 'h-16 w-16' : 'h-20 w-20'
+  const iconSize = size === 'sm' ? 'h-5 w-5' : 'h-6 w-6'
+
+  const handleClick = () => inputRef.current?.click()
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const url = URL.createObjectURL(file)
+    onChange(url)
+    e.target.value = ''
+  }
+
+  return (
+    <div>
+      <input ref={inputRef} type="file" accept="image/*" className="hidden" onChange={handleChange} />
+      {value ? (
+        <div
+          className={`${dim} cursor-pointer overflow-hidden rounded-lg border border-[#e6e9ef] hover:border-[#409eff]`}
+          onClick={handleClick}
+        >
+          <img src={value} alt="" className="h-full w-full object-cover" />
+        </div>
+      ) : (
+        <div
+          className={`${dim} flex cursor-pointer items-center justify-center rounded-lg border border-dashed border-[#e6e9ef] bg-[#f9fafb] hover:border-[#409eff]`}
+          onClick={handleClick}
+        >
+          <Upload className={`${iconSize} text-[#86909C]`} />
+        </div>
+      )}
+    </div>
+  )
+}
 
 interface Sku {
   id?: string
   skuCode: string
   specName: string
+  specImage: string | null
+  costPrice: number
   standardPrice: number
-  costPrice?: number
-  stock: number
 }
 
 interface Product {
@@ -20,11 +64,14 @@ interface Product {
   productCode: string
   productName: string
   brand: string | null
-  categoryName?: string | null
-  productImage?: string
-  images?: string[]
-  status: string
+  productImage?: string | null
+  status: 'enabled' | 'disabled'
   skus: Sku[]
+  createdAt: string
+  updatedAt: string
+  // 展示用（格式化后的时间，源于 API 的 createdAt/updatedAt）
+  updateTime?: string
+  createTime?: string
 }
 
 const DEMO_FALLBACK: Product[] = [
@@ -33,16 +80,13 @@ const DEMO_FALLBACK: Product[] = [
     productCode: 'SP2026001',
     productName: '12线绿光激光水平仪',
     brand: '科迈斯',
-    categoryName: '五金工具/激光仪器',
-    productImage: 'https://images.unsplash.com/photo-1581092160607-ee22621dd758?w=300&q=80',
-    images: [
-      'https://images.unsplash.com/photo-1581092160607-ee22621dd758?w=600&q=80',
-      'https://images.unsplash.com/photo-1504384308090-c894fdcc538d?w=600&q=80',
-    ],
+    productImage: null,
     status: 'enabled',
+    createdAt: '2026-07-01T09:00:00.000Z',
+    updatedAt: '2026-07-15T10:30:00.000Z',
     skus: [
-      { id: 'sku-01', skuCode: 'SP2026001-A', specName: '12线绿光 · 标配单电', standardPrice: 268, costPrice: 130, stock: 200 },
-      { id: 'sku-02', skuCode: 'SP2026001-B', specName: '12线绿光 · 双电豪华版', standardPrice: 328, costPrice: 160, stock: 150 },
+      { id: 'sku-01', skuCode: 'SP2026001-A', specName: '12线绿光 · 标配单电', specImage: null, costPrice: 130, standardPrice: 268 },
+      { id: 'sku-02', skuCode: 'SP2026001-B', specName: '12线绿光 · 双电豪华版', specImage: null, costPrice: 160, standardPrice: 328 },
     ],
   },
   {
@@ -50,13 +94,13 @@ const DEMO_FALLBACK: Product[] = [
     productCode: 'SP2026002',
     productName: '主动降噪无线头戴蓝牙耳机',
     brand: '声阔灵动',
-    categoryName: '数码3C/影音数码',
-    productImage: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=300&q=80',
-    images: ['https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=600&q=80'],
+    productImage: null,
     status: 'enabled',
+    createdAt: '2026-06-20T11:00:00.000Z',
+    updatedAt: '2026-07-14T15:20:00.000Z',
     skus: [
-      { id: 'sku-03', skuCode: 'SP2026002-BK', specName: '极夜黑 · 标准版', standardPrice: 299, costPrice: 120, stock: 500 },
-      { id: 'sku-04', skuCode: 'SP2026002-WH', specName: '极光白 · 空间音频版', standardPrice: 349, costPrice: 145, stock: 350 },
+      { id: 'sku-03', skuCode: 'SP2026002-BK', specName: '极夜黑 · 标准版', specImage: null, costPrice: 120, standardPrice: 299 },
+      { id: 'sku-04', skuCode: 'SP2026002-WH', specName: '极光白 · 空间音频版', specImage: null, costPrice: 145, standardPrice: 349 },
     ],
   },
   {
@@ -64,60 +108,78 @@ const DEMO_FALLBACK: Product[] = [
     productCode: 'SP2026003',
     productName: '全价无谷高鲜肉天然成猫粮 5kg',
     brand: '喵之鲜',
-    categoryName: '宠物生活/主粮主食',
-    productImage: 'https://images.unsplash.com/photo-1589924691995-400dc9ecc119?w=300&q=80',
-    images: ['https://images.unsplash.com/photo-1589924691995-400dc9ecc119?w=600&q=80'],
+    productImage: null,
     status: 'enabled',
-    skus: [{ id: 'sku-05', skuCode: 'SP2026003-5K', specName: '鸡肉三文鱼配方 5kg', standardPrice: 188, costPrice: 85, stock: 400 }],
+    createdAt: '2026-06-15T14:30:00.000Z',
+    updatedAt: '2026-07-13T09:15:00.000Z',
+    skus: [{ id: 'sku-05', skuCode: 'SP2026003-5K', specName: '鸡肉三文鱼配方 5kg', specImage: null, costPrice: 85, standardPrice: 188 }],
   },
 ]
 
-function priceRange(skus: Sku[], key: 'costPrice' | 'standardPrice') {
-  const values = skus.map((s) => Number(s[key] || 0)).filter((v) => v > 0)
-  if (values.length === 0) return '—'
-  const min = Math.min(...values)
-  const max = Math.max(...values)
-  return min === max ? `¥${min}` : `¥${min}-¥${max}`
-}
-
-function statusBadge(status: string) {
-  return status === 'enabled' ? (
-    <span className="inline-flex items-center gap-1.5 rounded-full bg-[#e8f5e9] px-2.5 py-1 text-[12px] font-bold text-[#2e7d32]">
-      <span className="h-1.5 w-1.5 rounded-full bg-[#2e7d32]" />
-      启用中
-    </span>
-  ) : (
-    <span className="inline-flex items-center gap-1.5 rounded-full bg-[#f2f4f7] px-2.5 py-1 text-[12px] font-bold text-[#86909C]">
-      <span className="h-1.5 w-1.5 rounded-full bg-[#d0d5dd]" />
-      已停用
-    </span>
-  )
+function formatDateTime(iso?: string): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
 }
 
 export function ProductMasterDataPage() {
   const navigate = useNavigate()
-  const [form] = Form.useForm()
 
-  const [list, setList] = useState<Product[]>([])
+  const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(false)
 
-  // 查询条件（应用态，对照旧版查询/重置）
-  const [codeFilter, setCodeFilter] = useState('')
-  const [nameFilter, setNameFilter] = useState('')
-  const [brandFilter, setBrandFilter] = useState('')
-  const [filterStatus, setFilterStatus] = useState<string>('all')
-  const [applied, setApplied] = useState({ code: '', name: '', brand: '', status: 'all' })
+  // 查询条件
+  const [searchCode, setSearchCode] = useState('')
+  const [searchName, setSearchName] = useState('')
+  const [searchBrand, setSearchBrand] = useState('')
+  const [searchUpdateTimeStart, setSearchUpdateTimeStart] = useState('')
+  const [searchUpdateTimeEnd, setSearchUpdateTimeEnd] = useState('')
+  const [searchCreateTimeStart, setSearchCreateTimeStart] = useState('')
+  const [searchCreateTimeEnd, setSearchCreateTimeEnd] = useState('')
+  const [filterCode, setFilterCode] = useState('')
+  const [filterName, setFilterName] = useState('')
+  const [filterBrand, setFilterBrand] = useState('')
+  const [filterUpdateTimeStart, setFilterUpdateTimeStart] = useState('')
+  const [filterUpdateTimeEnd, setFilterUpdateTimeEnd] = useState('')
+  const [filterCreateTimeStart, setFilterCreateTimeStart] = useState('')
+  const [filterCreateTimeEnd, setFilterCreateTimeEnd] = useState('')
+  const [showUpdateTimeRange, setShowUpdateTimeRange] = useState(false)
+  const [showCreateTimeRange, setShowCreateTimeRange] = useState(false)
+  const updateTimeBtnRef = useRef<HTMLButtonElement>(null)
+  const createTimeBtnRef = useRef<HTMLButtonElement>(null)
+  const [updateTimePopupPos, setUpdateTimePopupPos] = useState({ top: 0, left: 0 })
+  const [createTimePopupPos, setCreateTimePopupPos] = useState({ top: 0, left: 0 })
 
-  const [modalVisible, setModalVisible] = useState(false)
-  const [editing, setEditing] = useState<Product | null>(null)
-  const [skus, setSkus] = useState<Sku[]>([{ skuCode: '', specName: '标配版', standardPrice: 199, stock: 100 }])
+  const toggleUpdateTimeRange = () => {
+    if (!showUpdateTimeRange && updateTimeBtnRef.current) {
+      const rect = updateTimeBtnRef.current.getBoundingClientRect()
+      setUpdateTimePopupPos({ top: rect.bottom + 4, left: rect.left })
+    }
+    setShowUpdateTimeRange(!showUpdateTimeRange)
+  }
 
-  const [deleteTarget, setDeleteTarget] = useState<Product | null>(null)
-  const [drawerProduct, setDrawerProduct] = useState<Product | null>(null)
-  const [galleryImages, setGalleryImages] = useState<string[]>([])
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
-  const [currentPage, setCurrentPage] = useState(1)
-  const pageSize = 8
+  const toggleCreateTimeRange = () => {
+    if (!showCreateTimeRange && createTimeBtnRef.current) {
+      const rect = createTimeBtnRef.current.getBoundingClientRect()
+      setCreateTimePopupPos({ top: rect.bottom + 4, left: rect.left })
+    }
+    setShowCreateTimeRange(!showCreateTimeRange)
+  }
+
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
+  const [showAddModal, setShowAddModal] = useState(false)
+  const [showDeleteModal, setShowDeleteModal] = useState(false)
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null)
+  const [deletingProduct, setDeletingProduct] = useState<Product | null>(null)
+
+  // 弹窗表单状态
+  const [productCode, setProductCode] = useState('')
+  const [productName, setProductName] = useState('')
+  const [productBrand, setProductBrand] = useState('')
+  const [productImage, setProductImage] = useState<string | null>(null)
+  const [skus, setSkus] = useState<Sku[]>([{ id: 'new-1', skuCode: '', specName: '', specImage: null, costPrice: 0, standardPrice: 0 }])
 
   // 数据流保持桌面端现状：GET /api/products/master + 演示兜底
   const load = useCallback(async () => {
@@ -126,13 +188,12 @@ export function ProductMasterDataPage() {
       const { data } = await api.get('/api/products/master')
       const items: Product[] = Array.isArray(data) ? data : []
       if (items.length > 0) {
-        setList(items)
+        setProducts(items)
       } else {
-        setList(DEMO_FALLBACK)
+        setProducts(DEMO_FALLBACK)
       }
     } catch {
-      Message.warning('加载商品主档失败，已载入本地示范主档')
-      setList(DEMO_FALLBACK)
+      setProducts(DEMO_FALLBACK)
     } finally {
       setLoading(false)
     }
@@ -142,85 +203,176 @@ export function ProductMasterDataPage() {
     void load()
   }, [load])
 
-  const openCreate = () => {
-    setEditing(null)
-    setSkus([{ skuCode: `SP-${Date.now().toString().slice(-6)}`, specName: '标准款', standardPrice: 199, stock: 100 }])
-    form.resetFields()
-    form.setFieldsValue({
-      productCode: `SP${new Date().getFullYear()}${Math.floor(1000 + Math.random() * 9000)}`,
-      status: 'enabled',
+  const displayProducts = useMemo(
+    () =>
+      products.map((p) => ({
+        ...p,
+        updateTime: formatDateTime(p.updatedAt),
+        createTime: formatDateTime(p.createdAt),
+      })),
+    [products],
+  )
+
+  const filteredProducts = useMemo(() => {
+    return displayProducts.filter((p) => {
+      if (filterCode && !p.productCode.toLowerCase().includes(filterCode.toLowerCase())) return false
+      if (filterName && !p.productName.toLowerCase().includes(filterName.toLowerCase())) return false
+      if (filterBrand && !(p.brand || '').toLowerCase().includes(filterBrand.toLowerCase())) return false
+      if (filterUpdateTimeStart && (p.updateTime || '') < filterUpdateTimeStart) return false
+      if (filterUpdateTimeEnd && (p.updateTime || '') > filterUpdateTimeEnd + ' 23:59:59') return false
+      if (filterCreateTimeStart && (p.createTime || '') < filterCreateTimeStart) return false
+      if (filterCreateTimeEnd && (p.createTime || '') > filterCreateTimeEnd + ' 23:59:59') return false
+      return true
     })
-    setModalVisible(true)
+  }, [displayProducts, filterCode, filterName, filterBrand, filterUpdateTimeStart, filterUpdateTimeEnd, filterCreateTimeStart, filterCreateTimeEnd])
+
+  const handleSearch = () => {
+    setFilterCode(searchCode)
+    setFilterName(searchName)
+    setFilterBrand(searchBrand)
+    setFilterUpdateTimeStart(searchUpdateTimeStart)
+    setFilterUpdateTimeEnd(searchUpdateTimeEnd)
+    setFilterCreateTimeStart(searchCreateTimeStart)
+    setFilterCreateTimeEnd(searchCreateTimeEnd)
+  }
+
+  const handleReset = () => {
+    setSearchCode('')
+    setSearchName('')
+    setSearchBrand('')
+    setSearchUpdateTimeStart('')
+    setSearchUpdateTimeEnd('')
+    setSearchCreateTimeStart('')
+    setSearchCreateTimeEnd('')
+    setFilterCode('')
+    setFilterName('')
+    setFilterBrand('')
+    setFilterUpdateTimeStart('')
+    setFilterUpdateTimeEnd('')
+    setFilterCreateTimeStart('')
+    setFilterCreateTimeEnd('')
+  }
+
+  const toggleExpand = (id: string) => {
+    setExpandedRows((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const openCreate = () => {
+    setEditingProduct(null)
+    setProductCode('')
+    setProductName('')
+    setProductBrand('')
+    setProductImage(null)
+    setSkus([{ id: 'new-1', skuCode: '', specName: '', specImage: null, costPrice: 0, standardPrice: 0 }])
+    setShowAddModal(true)
   }
 
   const openEdit = (p: Product) => {
-    setEditing(p)
-    setSkus(p.skus.length ? p.skus : [{ skuCode: `${p.productCode}-01`, specName: '标配', standardPrice: 199, stock: 100 }])
-    form.setFieldsValue({
-      productCode: p.productCode,
-      productName: p.productName,
-      brand: p.brand,
-      categoryName: p.categoryName,
-      status: p.status,
-    })
-    setModalVisible(true)
+    setEditingProduct(p)
+    setProductCode(p.productCode)
+    setProductName(p.productName)
+    setProductBrand(p.brand || '')
+    setProductImage(p.productImage || null)
+    setSkus(
+      p.skus.map((s) => ({
+        id: s.id,
+        skuCode: s.skuCode,
+        specName: s.specName || '',
+        specImage: s.specImage || null,
+        costPrice: Number(s.costPrice || 0),
+        standardPrice: Number(s.standardPrice || 0),
+      })),
+    )
+    setShowAddModal(true)
+  }
+
+  const addSku = () => {
+    setSkus((prev) => [...prev, { id: `new-${Date.now()}`, skuCode: '', specName: '', specImage: null, costPrice: 0, standardPrice: 0 }])
+  }
+
+  const updateSku = (index: number, field: keyof Sku, value: string | number | null) => {
+    setSkus((prev) => prev.map((sku, i) => (i === index ? { ...sku, [field]: value } : sku)))
+  }
+
+  const removeSku = (index: number) => {
+    setSkus((prev) => prev.filter((_, i) => i !== index))
   }
 
   // 保存（数据流保持桌面端现状：PATCH/POST + 本地容错）
   const handleSave = async () => {
-    const values = await form.validate()
-    const payload = {
-      productCode: values.productCode,
-      productName: values.productName,
-      brand: values.brand || undefined,
-      status: values.status ?? 'enabled',
-      skus,
+    const payload: {
+      productCode: string
+      productName: string
+      brand: string | null
+      productImage?: string
+      skus: { skuCode: string; specName: string; specImage?: string; costPrice: number; standardPrice: number }[]
+    } = {
+      productCode,
+      productName,
+      brand: productBrand || null,
+      productImage: productImage || undefined,
+      skus: skus.map((s) => ({
+        skuCode: s.skuCode,
+        specName: s.specName,
+        specImage: s.specImage || undefined,
+        costPrice: s.costPrice,
+        standardPrice: s.standardPrice,
+      })),
     }
     try {
-      if (editing) {
-        await api.patch(`/api/products/master/${editing.id}`, payload)
-        setList((prev) => prev.map((item) => (item.id === editing.id ? { ...item, ...values, skus } : item)))
+      if (editingProduct) {
+        await api.patch(`/api/products/master/${editingProduct.id}`, payload)
+        setProducts((prev) => prev.map((item) => (item.id === editingProduct.id ? ({ ...item, ...payload, status: item.status } as Product) : item)))
       } else {
         const { data } = await api.post('/api/products/master', payload)
         const createdId = data?.id || `prod-${nanoid(8)}`
-        setList((prev) => [
-          { id: createdId, ...values, skus, productImage: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=300&q=80' },
+        setProducts((prev) => [
+          { id: createdId, ...payload, status: 'enabled', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), brand: payload.brand ?? null } as Product,
           ...prev,
         ])
       }
-      Message.success(editing ? '主档商品已更新' : '主档商品已创建')
-      setModalVisible(false)
+      setShowAddModal(false)
     } catch {
       // 容错更新本地
-      if (editing) {
-        setList((prev) => prev.map((item) => (item.id === editing.id ? { ...item, ...values, skus } : item)))
+      if (editingProduct) {
+        setProducts((prev) => prev.map((item) => (item.id === editingProduct.id ? ({ ...item, ...payload, status: item.status } as Product) : item)))
       } else {
-        setList((prev) => [
-          { id: `prod-${nanoid(8)}`, ...values, skus, productImage: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=300&q=80' },
+        setProducts((prev) => [
+          {
+            id: `prod-${nanoid(8)}`,
+            ...payload,
+            status: 'enabled',
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            brand: payload.brand ?? null,
+          } as Product,
           ...prev,
         ])
       }
-      setModalVisible(false)
-      Message.success('已保存至主档')
+      setShowAddModal(false)
     }
   }
 
-  // 删除（数据流保持桌面端现状：DELETE + 本地移除）
   const handleRemove = async (p: Product) => {
     try {
       await api.delete(`/api/products/master/${p.id}`)
     } catch {}
-    setList((prev) => prev.filter((item) => item.id !== p.id))
-    setDeleteTarget(null)
-    Message.success(`已删除主档商品：${p.productName}`)
+    setProducts((prev) => prev.filter((item) => item.id !== p.id))
+    setShowDeleteModal(false)
+    setDeletingProduct(null)
   }
 
-  const handleViewSkus = (p: Product) => {
-    setDrawerProduct(p)
-  }
-
-  const handleViewGallery = (p: Product) => {
-    setGalleryImages(p.images && p.images.length > 0 ? p.images : [p.productImage || ''])
+  const toggleStatus = async (p: Product) => {
+    const next: 'enabled' | 'disabled' = p.status === 'enabled' ? 'disabled' : 'enabled'
+    try {
+      await api.patch(`/api/products/master/${p.id}`, { status: next })
+    } catch {}
+    setProducts((prev) => prev.map((x) => (x.id === p.id ? { ...x, status: next, updatedAt: new Date().toISOString() } : x)))
   }
 
   // 一键去发布（业务逻辑保持桌面端现状）
@@ -231,429 +383,558 @@ export function ProductMasterDataPage() {
         fromMaster: true,
         name: p.productName,
         price: avgPrice,
-        category: p.categoryName ? p.categoryName.split('/') : ['数码3C', '智能硬件'],
+        category: ['数码3C', '智能硬件'],
       },
     })
   }
 
-  const filteredList = useMemo(() => {
-    return list.filter((item) => {
-      const code = applied.code.trim().toLowerCase()
-      const name = applied.name.trim().toLowerCase()
-      const brand = applied.brand.trim().toLowerCase()
-      if (code && !item.productCode.toLowerCase().includes(code)) return false
-      if (name && !item.productName.toLowerCase().includes(name)) return false
-      if (brand && !(item.brand || '').toLowerCase().includes(brand)) return false
-      if (applied.status !== 'all' && item.status !== applied.status) return false
-      return true
-    })
-  }, [list, applied])
-
-  const totalPages = Math.max(1, Math.ceil(filteredList.length / pageSize))
-  const safePage = Math.min(currentPage, totalPages)
-  const pageList = filteredList.slice((safePage - 1) * pageSize, safePage * pageSize)
-
-  const toggleExpand = (id: string) => {
-    setExpandedIds((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
+  const handleDelete = (p: Product) => {
+    setDeletingProduct(p)
+    setShowDeleteModal(true)
   }
-
-  const searchInput = (value: string, onChange: (v: string) => void, placeholder: string) => (
-    <div className="relative min-w-0 flex-1">
-      <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#c0c4cc]" />
-      <input
-        type="text"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder="请输入"
-        className={`h-8 w-full rounded-lg border border-[#e6e9ef] bg-white pl-8 text-[13px] outline-none focus:border-[#409eff] ${value ? 'pr-7' : 'pr-3'}`}
-      />
-      {value && (
-        <button
-          type="button"
-          onClick={() => onChange('')}
-          aria-label="清空"
-          className="absolute right-2.5 top-1/2 -translate-y-1/2 cursor-pointer border-0 bg-transparent p-0 text-[#c0c4cc] hover:text-[#86909C]"
-        >
-          <X className="h-3.5 w-3.5" />
-        </button>
-      )}
-    </div>
-  )
 
   return (
     <div className="h-full overflow-auto bg-[#f4f7fb]">
       <div className="p-6">
         <PageHeader breadcrumbs={[{ label: '商品' }, { label: '商品主档' }]} className="mb-2" />
 
-        {/* 查询条件卡（对照旧版两行） */}
+        {/* 查询条件 */}
         <div className="mb-4 rounded-xl bg-white p-4">
           <div className="grid grid-cols-4 gap-3">
             <div className="flex items-center gap-2">
               <label className="shrink-0 text-[12px] text-[#86909C]">商品编码</label>
-              {searchInput(codeFilter, setCodeFilter, '请输入')}
+              <div className="relative flex-1">
+                <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#c0c4cc]" />
+                <input
+                  type="text"
+                  placeholder="请输入"
+                  value={searchCode}
+                  onChange={(e) => setSearchCode(e.target.value)}
+                  className="h-8 w-full rounded-lg border border-[#e6e9ef] bg-white pl-8 pr-7 text-[13px] outline-none focus:border-[#409eff]"
+                />
+                {searchCode && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchCode('')}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 cursor-pointer border-0 bg-transparent p-0 text-[#c0c4cc] hover:text-[#86909C]"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
             </div>
             <div className="flex items-center gap-2">
               <label className="shrink-0 text-[12px] text-[#86909C]">商品名称</label>
-              {searchInput(nameFilter, setNameFilter, '请输入')}
+              <div className="relative flex-1">
+                <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#c0c4cc]" />
+                <input
+                  type="text"
+                  placeholder="请输入"
+                  value={searchName}
+                  onChange={(e) => setSearchName(e.target.value)}
+                  className="h-8 w-full rounded-lg border border-[#e6e9ef] bg-white pl-8 pr-7 text-[13px] outline-none focus:border-[#409eff]"
+                />
+                {searchName && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchName('')}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 cursor-pointer border-0 bg-transparent p-0 text-[#c0c4cc] hover:text-[#86909C]"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
             </div>
             <div className="flex items-center gap-2">
               <label className="shrink-0 text-[12px] text-[#86909C]">品牌</label>
-              {searchInput(brandFilter, setBrandFilter, '请输入')}
+              <div className="relative flex-1">
+                <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#c0c4cc]" />
+                <input
+                  type="text"
+                  placeholder="请输入"
+                  value={searchBrand}
+                  onChange={(e) => setSearchBrand(e.target.value)}
+                  className="h-8 w-full rounded-lg border border-[#e6e9ef] bg-white pl-8 pr-7 text-[13px] outline-none focus:border-[#409eff]"
+                />
+                {searchBrand && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchBrand('')}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 cursor-pointer border-0 bg-transparent p-0 text-[#c0c4cc] hover:text-[#86909C]"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
             </div>
+            {/* 更新时间 */}
             <div className="flex items-center gap-2">
-              <label className="shrink-0 text-[12px] text-[#86909C]">主档状态</label>
-              <select
-                value={filterStatus}
-                onChange={(e) => setFilterStatus(e.target.value)}
-                className={`h-8 w-full appearance-none rounded-lg border border-[#e6e9ef] bg-white px-2.5 text-[13px] outline-none focus:border-[#409eff] ${filterStatus === 'all' ? 'text-[#98A2B3]' : 'text-[#0A1B39]'}`}
-                style={{
-                  backgroundImage:
-                    "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23c0c4cc' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E\")",
-                  backgroundRepeat: 'no-repeat',
-                  backgroundPosition: 'right 10px center',
-                }}
-              >
-                <option value="all">请选择</option>
-                <option value="enabled">启用中</option>
-                <option value="disabled">已停用</option>
-              </select>
+              <label className="shrink-0 text-[12px] text-[#86909C]">更新时间</label>
+              <div className="relative flex-1">
+                <button
+                  ref={updateTimeBtnRef}
+                  type="button"
+                  onClick={toggleUpdateTimeRange}
+                  className="flex h-8 w-full min-w-0 items-center justify-between rounded-lg border border-[#e6e9ef] bg-white px-2.5 text-left text-[13px] outline-none focus:border-[#409eff]"
+                >
+                  <span
+                    className={`truncate ${searchUpdateTimeStart || searchUpdateTimeEnd ? 'text-[#0A1B39]' : 'text-[#c0c4cc]'}`}
+                    title={searchUpdateTimeStart && searchUpdateTimeEnd ? `${searchUpdateTimeStart} 至 ${searchUpdateTimeEnd}` : ''}
+                  >
+                    {searchUpdateTimeStart && searchUpdateTimeEnd
+                      ? `${searchUpdateTimeStart} 至 ${searchUpdateTimeEnd}`
+                      : searchUpdateTimeStart
+                        ? `${searchUpdateTimeStart} 至`
+                        : searchUpdateTimeEnd
+                          ? `至 ${searchUpdateTimeEnd}`
+                          : '请选择日期范围'}
+                  </span>
+                  <Calendar className="ml-1 h-3.5 w-3.5 shrink-0 text-[#c0c4cc]" />
+                </button>
+                {(searchUpdateTimeStart || searchUpdateTimeEnd) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearchUpdateTimeStart('')
+                      setSearchUpdateTimeEnd('')
+                    }}
+                    className="absolute right-7 top-1/2 -translate-y-1/2 cursor-pointer border-0 bg-transparent p-0 text-[#c0c4cc] hover:text-[#86909C]"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+                {showUpdateTimeRange && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setShowUpdateTimeRange(false)} />
+                    <div
+                      className="fixed z-50 w-80 rounded-lg border border-[#e6e9ef] bg-white p-3 shadow-lg"
+                      style={{ top: `${updateTimePopupPos.top}px`, left: `${updateTimePopupPos.left}px` }}
+                    >
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1">
+                          <label className="mb-1 block text-[11px] text-[#86909C]">开始日期</label>
+                          <input
+                            type="date"
+                            value={searchUpdateTimeStart}
+                            onChange={(e) => setSearchUpdateTimeStart(e.target.value)}
+                            className="h-7 w-full rounded border border-[#e6e9ef] px-2 text-[12px] outline-none focus:border-[#409eff]"
+                          />
+                        </div>
+                        <span className="mt-4 text-[12px] text-[#86909C]">至</span>
+                        <div className="flex-1">
+                          <label className="mb-1 block text-[11px] text-[#86909C]">结束日期</label>
+                          <input
+                            type="date"
+                            value={searchUpdateTimeEnd}
+                            onChange={(e) => setSearchUpdateTimeEnd(e.target.value)}
+                            className="h-7 w-full rounded border border-[#e6e9ef] px-2 text-[12px] outline-none focus:border-[#409eff]"
+                          />
+                        </div>
+                      </div>
+                      <div className="mt-2 flex justify-end gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSearchUpdateTimeStart('')
+                            setSearchUpdateTimeEnd('')
+                            setShowUpdateTimeRange(false)
+                          }}
+                          className="h-6 rounded border border-[#dcdfe6] px-3 text-[12px] text-[#606266] hover:border-[#409eff] hover:text-[#409eff]"
+                        >
+                          清除
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setShowUpdateTimeRange(false)}
+                          className="h-6 rounded bg-[#409eff] px-3 text-[12px] text-white hover:bg-[#66b1ff]"
+                        >
+                          确定
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
           </div>
-          <div className="mt-3 flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                setApplied({ code: codeFilter, name: nameFilter, brand: brandFilter, status: filterStatus })
-                setCurrentPage(1)
-              }}
-              className="h-8 shrink-0 cursor-pointer rounded-lg border-0 bg-[#409eff] px-5 text-[13px] font-bold text-white hover:bg-[#66b1ff]"
-            >
-              查询
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setCodeFilter('')
-                setNameFilter('')
-                setBrandFilter('')
-                setFilterStatus('all')
-                setApplied({ code: '', name: '', brand: '', status: 'all' })
-                setCurrentPage(1)
-              }}
-              className="h-8 shrink-0 cursor-pointer rounded-lg border border-[#e6e9ef] bg-white px-4 text-[13px] text-[#0A1B39] hover:bg-[#f5f6f8]"
-            >
-              重置
-            </button>
-            <span className="ml-auto text-[13px] text-[#86909C]">
-              共检索到 <strong className="text-[#0A1B39]">{filteredList.length}</strong> 件标准主档商品
-            </span>
+          {/* 第二行：创建时间 + 按钮 */}
+          <div className="mt-3 grid grid-cols-4 gap-3">
+            <div className="flex items-center gap-2">
+              <label className="shrink-0 text-[12px] text-[#86909C]">创建时间</label>
+              <div className="relative flex-1">
+                <button
+                  ref={createTimeBtnRef}
+                  type="button"
+                  onClick={toggleCreateTimeRange}
+                  className="flex h-8 w-full min-w-0 items-center justify-between rounded-lg border border-[#e6e9ef] bg-white px-2.5 text-left text-[13px] outline-none focus:border-[#409eff]"
+                >
+                  <span
+                    className={`truncate ${searchCreateTimeStart || searchCreateTimeEnd ? 'text-[#0A1B39]' : 'text-[#c0c4cc]'}`}
+                    title={searchCreateTimeStart && searchCreateTimeEnd ? `${searchCreateTimeStart} 至 ${searchCreateTimeEnd}` : ''}
+                  >
+                    {searchCreateTimeStart && searchCreateTimeEnd
+                      ? `${searchCreateTimeStart} 至 ${searchCreateTimeEnd}`
+                      : searchCreateTimeStart
+                        ? `${searchCreateTimeStart} 至`
+                        : searchCreateTimeEnd
+                          ? `至 ${searchCreateTimeEnd}`
+                          : '请选择日期范围'}
+                  </span>
+                  <Calendar className="ml-1 h-3.5 w-3.5 shrink-0 text-[#c0c4cc]" />
+                </button>
+                {(searchCreateTimeStart || searchCreateTimeEnd) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearchCreateTimeStart('')
+                      setSearchCreateTimeEnd('')
+                    }}
+                    className="absolute right-7 top-1/2 -translate-y-1/2 cursor-pointer border-0 bg-transparent p-0 text-[#c0c4cc] hover:text-[#86909C]"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+                {showCreateTimeRange && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setShowCreateTimeRange(false)} />
+                    <div
+                      className="fixed z-50 w-80 rounded-lg border border-[#e6e9ef] bg-white p-3 shadow-lg"
+                      style={{ top: `${createTimePopupPos.top}px`, left: `${createTimePopupPos.left}px` }}
+                    >
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1">
+                          <label className="mb-1 block text-[11px] text-[#86909C]">开始日期</label>
+                          <input
+                            type="date"
+                            value={searchCreateTimeStart}
+                            onChange={(e) => setSearchCreateTimeStart(e.target.value)}
+                            className="h-7 w-full rounded border border-[#e6e9ef] px-2 text-[12px] outline-none focus:border-[#409eff]"
+                          />
+                        </div>
+                        <span className="mt-4 text-[12px] text-[#86909C]">至</span>
+                        <div className="flex-1">
+                          <label className="mb-1 block text-[11px] text-[#86909C]">结束日期</label>
+                          <input
+                            type="date"
+                            value={searchCreateTimeEnd}
+                            onChange={(e) => setSearchCreateTimeEnd(e.target.value)}
+                            className="h-7 w-full rounded border border-[#e6e9ef] px-2 text-[12px] outline-none focus:border-[#409eff]"
+                          />
+                        </div>
+                      </div>
+                      <div className="mt-2 flex justify-end gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSearchCreateTimeStart('')
+                            setSearchCreateTimeEnd('')
+                            setShowCreateTimeRange(false)
+                          }}
+                          className="h-6 rounded border border-[#dcdfe6] px-3 text-[12px] text-[#606266] hover:border-[#409eff] hover:text-[#409eff]"
+                        >
+                          清除
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setShowCreateTimeRange(false)}
+                          className="h-6 rounded bg-[#409eff] px-3 text-[12px] text-white hover:bg-[#66b1ff]"
+                        >
+                          确定
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleSearch}
+                className="h-8 rounded-lg bg-[#409eff] px-5 text-[13px] font-bold text-white transition-colors hover:bg-[#66b1ff]"
+              >
+                查询
+              </button>
+              <button
+                type="button"
+                onClick={handleReset}
+                className="h-8 rounded-lg border border-[#e6e9ef] bg-white px-5 text-[13px] font-bold text-[#0A1B39] transition-colors hover:bg-[#f5f6f8]"
+              >
+                重置
+              </button>
+            </div>
           </div>
         </div>
 
-        {/* 操作按钮行（对照旧版 flex gap-3；导入商品依赖旧契约，桌面端无接口不私造） */}
+        {/* 操作按钮 */}
         <div className="mb-4 flex gap-3">
           <button
             type="button"
             onClick={openCreate}
-            className="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-[#409eff] px-4 text-[13px] font-bold text-white hover:bg-[#66b1ff]"
+            className="h-9 rounded-lg bg-[#409eff] px-5 text-[14px] font-bold text-white hover:bg-[#66b1ff]"
           >
-            <Plus className="h-4 w-4" />
-            新增商品
+            <div className="flex items-center gap-1.5">
+              <Plus className="h-4 w-4" />
+              新增商品
+            </div>
           </button>
           <button
             type="button"
-            onClick={() => void load()}
-            className="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-lg border border-[#e6e9ef] bg-white px-4 text-[13px] text-[#0A1B39] hover:bg-[#f5f6f8]"
+            className="relative h-9 rounded-lg border border-[#e6e9ef] bg-white px-5 text-[14px] font-bold text-[#0A1B39] hover:bg-[#f5f6f8]"
+            onClick={() => {
+              const input = document.createElement('input')
+              input.type = 'file'
+              input.accept = '.xlsx,.xls'
+              input.onchange = (e) => {
+                const file = (e.target as HTMLInputElement).files?.[0]
+                if (file) {
+                  alert(`已选择文件：${file.name}`)
+                }
+              }
+              input.click()
+            }}
           >
-            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-            刷新
+            <div className="flex items-center gap-1.5">
+              <Upload className="h-4 w-4" />
+              导入商品
+            </div>
           </button>
         </div>
 
-        {/* 表格卡（对照旧版：展开 SKU 子表 + 分页 footer） */}
-        <div className="overflow-hidden rounded-xl bg-white">
+        {/* 表单信息 */}
+        <div className="rounded-xl bg-white">
           <div className="overflow-x-auto">
             <table className="w-full min-w-[1080px]">
               <thead>
-                <tr className="border-b border-[#eef1f5] bg-[#f9fafb]">
-                  <th className="w-10 px-3 py-3" />
-                  <th className="px-4 py-3 text-left text-[13px] font-medium text-[#86909C]">商品图片</th>
-                  <th className="px-4 py-3 text-left text-[13px] font-medium text-[#86909C]">商品编码</th>
-                  <th className="px-4 py-3 text-left text-[13px] font-medium text-[#86909C]">商品名称</th>
-                  <th className="px-4 py-3 text-left text-[13px] font-medium text-[#86909C]">品牌</th>
-                  <th className="px-4 py-3 text-left text-[13px] font-medium text-[#86909C]">成本价</th>
-                  <th className="px-4 py-3 text-left text-[13px] font-medium text-[#86909C]">标准售价</th>
-                  <th className="px-4 py-3 text-left text-[13px] font-medium text-[#86909C]">状态</th>
-                  <th className="px-4 py-3 text-left text-[13px] font-medium text-[#86909C]">操作</th>
+                <tr className="border-b border-[#e9edf3] text-left">
+                  <th className="py-3 pl-4 pr-2 text-[13px] font-medium text-[#86909C]"></th>
+                  <th className="py-3 pr-2 text-[13px] font-medium text-[#86909C]">商品图片</th>
+                  <th className="py-3 pr-2 text-[13px] font-medium text-[#86909C]">商品编码</th>
+                  <th className="py-3 pr-2 text-[13px] font-medium text-[#86909C]">商品名称</th>
+                  <th className="py-3 pr-2 text-[13px] font-medium text-[#86909C]">品牌</th>
+                  <th className="py-3 pr-2 text-[13px] font-medium text-[#86909C]">成本价</th>
+                  <th className="py-3 pr-2 text-[13px] font-medium text-[#86909C]">标准售价</th>
+                  <th className="py-3 pr-2 text-[13px] font-medium text-[#86909C]">状态</th>
+                  <th className="py-3 pr-2 text-[13px] font-medium text-[#86909C]">更新时间</th>
+                  <th className="py-3 pr-2 text-[13px] font-medium text-[#86909C]">创建时间</th>
+                  <th className="py-3 pr-4 text-[13px] font-medium text-[#86909C]">操作</th>
                 </tr>
               </thead>
               <tbody>
                 {loading && (
                   <tr>
-                    <td colSpan={9} className="px-4 py-12 text-center text-[14px] text-[#86909C]">
-                      <Loader2 className="mr-2 inline h-4 w-4 animate-spin" />
-                      加载中…
+                    <td colSpan={11} className="py-12 text-center">
+                      <div className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-[#e6e9ef] border-t-[#409eff]" />
                     </td>
                   </tr>
                 )}
                 {!loading &&
-                  pageList.map((product) => {
-                    const expanded = expandedIds.has(product.id)
+                  filteredProducts.map((product) => {
+                    const isExpanded = expandedRows.has(product.id)
+                    const minPrice = product.skus.length ? Math.min(...product.skus.map((s) => s.costPrice)) : 0
+                    const maxPrice = product.skus.length ? Math.max(...product.skus.map((s) => s.costPrice)) : 0
+                    const minStandardPrice = product.skus.length ? Math.min(...product.skus.map((s) => s.standardPrice)) : 0
+                    const maxStandardPrice = product.skus.length ? Math.max(...product.skus.map((s) => s.standardPrice)) : 0
+
                     return (
                       <ProductRow
                         key={product.id}
                         product={product}
-                        expanded={expanded}
+                        isExpanded={isExpanded}
+                        minPrice={minPrice}
+                        maxPrice={maxPrice}
+                        minStandardPrice={minStandardPrice}
+                        maxStandardPrice={maxStandardPrice}
                         onToggle={() => toggleExpand(product.id)}
-                        onViewSkus={handleViewSkus}
-                        onViewGallery={handleViewGallery}
-                        onEdit={openEdit}
-                        onDelete={(p) => setDeleteTarget(p)}
-                        onPublish={handleGoPublish}
-                        searchInput={searchInput}
+                        onEdit={() => openEdit(product)}
+                        onDelete={() => handleDelete(product)}
+                        onPublish={() => handleGoPublish(product)}
+                        onToggleStatus={() => void toggleStatus(product)}
                       />
                     )
                   })}
-                {!loading && pageList.length === 0 && (
-                  <tr>
-                    <td colSpan={9} className="px-4 py-14 text-center text-[14px] text-[#86909C]">
-                      暂无数据
-                    </td>
-                  </tr>
-                )}
               </tbody>
             </table>
           </div>
 
-          <div className="flex items-center justify-between border-t border-[#eef1f5] px-4 py-3">
-            <span className="text-[13px] text-[#86909C]">共 {filteredList.length} 条</span>
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                disabled={safePage === 1}
-                className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border border-[#eef1f5] bg-white text-[#344054] transition-colors hover:bg-[#f9fafb] disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                <ChevronLeft className="h-4 w-4" />
-              </button>
-              {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
-                <button
-                  key={page}
-                  type="button"
-                  onClick={() => setCurrentPage(page)}
-                  className={`flex h-8 min-w-[32px] cursor-pointer items-center justify-center rounded-lg px-2 text-[13px] transition-colors ${
-                    safePage === page ? 'border-0 bg-[#409eff] text-white' : 'border border-[#eef1f5] bg-white text-[#344054] hover:bg-[#f9fafb]'
-                  }`}
-                >
-                  {page}
-                </button>
-              ))}
-              <button
-                type="button"
-                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                disabled={safePage === totalPages}
-                className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border border-[#eef1f5] bg-white text-[#344054] transition-colors hover:bg-[#f9fafb] disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                <ChevronRight className="h-4 w-4" />
-              </button>
+          {/* 分页器 */}
+          <div className="flex items-center justify-between border-t border-[#f0f2f5] px-4 py-3">
+            <div className="text-[13px] text-[#86909C]">共 {filteredProducts.length} 条</div>
+            <div className="flex items-center gap-1">
+              <button className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#e6e9ef] bg-white text-[13px] text-[#86909C] hover:bg-[#f5f6f8]">&lt;</button>
+              <button className="flex h-8 w-8 items-center justify-center rounded-full bg-[#409eff] text-[13px] text-white">1</button>
+              <button className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#e6e9ef] bg-white text-[13px] text-[#0A1B39] hover:bg-[#f5f6f8]">2</button>
+              <button className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#e6e9ef] bg-white text-[13px] text-[#86909C] hover:bg-[#f5f6f8]">&gt;</button>
             </div>
           </div>
         </div>
       </div>
 
-      {/* 新增/编辑 Modal（对照旧版 w-600） */}
-      <Modal
-        title={editing ? `编辑主档商品：${editing.productName}` : '新建标准主档商品'}
-        visible={modalVisible}
-        onCancel={() => setModalVisible(false)}
-        onOk={() => void handleSave()}
-        okText="保存"
-        style={{ width: 600 }}
-        unmountOnExit
-      >
-        <Form form={form} layout="vertical">
-          <div className="mb-3 grid grid-cols-2 gap-4">
-            <Form.Item label="商品标准编码" field="productCode" rules={[{ required: true, message: '请输入编码' }]}>
-              <Input placeholder="例如：SP2026008" />
-            </Form.Item>
-            <Form.Item label="主档状态" field="status" initialValue="enabled">
-              <Select
-                options={[
-                  { label: '启用', value: 'enabled' },
-                  { label: '停用', value: 'disabled' },
-                ]}
-              />
-            </Form.Item>
-          </div>
+      {/* 新增/编辑弹窗 */}
+      {showAddModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="w-[600px] max-h-[80vh] overflow-auto rounded-xl bg-white p-6">
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-[18px] font-bold text-[#0A1B39]">{editingProduct ? '商品编辑' : '新增商品'}</h2>
+              <button type="button" onClick={() => setShowAddModal(false)} className="text-[#86909C] hover:text-[#0A1B39]">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
 
-          <Form.Item label="商品名称" field="productName" rules={[{ required: true, message: '请输入商品名称' }]}>
-            <Input placeholder="输入商品通用标准全名" allowClear />
-          </Form.Item>
-
-          <div className="mb-3 grid grid-cols-2 gap-4">
-            <Form.Item label="品牌名称" field="brand">
-              <Input placeholder="例如：科迈斯 / 自主品牌" />
-            </Form.Item>
-            <Form.Item label="品类归属" field="categoryName">
-              <Input placeholder="例如：数码3C/五金仪器" />
-            </Form.Item>
-          </div>
-
-          <div className="mb-2 flex items-center justify-between">
-            <span className="text-[13px] font-bold text-[#0A1B39]">SKU 规格细分 ({skus.length}项)</span>
-            <Button
-              size="mini"
-              type="text"
-              icon={<Plus className="h-3 w-3" />}
-              onClick={() =>
-                setSkus((prev) => [
-                  ...prev,
-                  { skuCode: `SP-${Date.now().toString().slice(-4)}`, specName: `规格 #${prev.length + 1}`, standardPrice: 199, stock: 100 },
-                ])
-              }
-            >
-              添加规格
-            </Button>
-          </div>
-
-          <div className="max-h-[220px] overflow-y-auto">
-            {skus.map((sku, index) => (
-              <div key={sku.id || index} className="mb-2 grid grid-cols-[140px_1fr_100px_70px_40px] items-center gap-2.5 rounded-lg bg-[#f8fafc] px-2 py-1.5">
-                <Input
-                  size="small"
-                  value={sku.skuCode}
-                  placeholder="编码"
-                  onChange={(val) => {
-                    const next = [...skus]
-                    next[index].skuCode = val
-                    setSkus(next)
-                  }}
-                />
-                <Input
-                  size="small"
-                  value={sku.specName}
-                  placeholder="规格名（如：标配版）"
-                  onChange={(val) => {
-                    const next = [...skus]
-                    next[index].specName = val
-                    setSkus(next)
-                  }}
-                />
-                <InputNumber
-                  size="small"
-                  value={sku.standardPrice ?? undefined}
-                  prefix="¥"
-                  placeholder="售价"
-                  onChange={(val) => {
-                    const next = [...skus]
-                    next[index].standardPrice = Number(val || 0)
-                    setSkus(next)
-                  }}
-                />
-                <InputNumber
-                  size="small"
-                  value={sku.stock ?? undefined}
-                  placeholder="库存"
-                  onChange={(val) => {
-                    const next = [...skus]
-                    next[index].stock = Number(val || 0)
-                    setSkus(next)
-                  }}
-                />
-                <Button
-                  size="mini"
-                  type="text"
-                  status="danger"
-                  icon={<X className="h-3 w-3" />}
-                  disabled={skus.length <= 1}
-                  onClick={() => setSkus((prev) => prev.filter((_, i) => i !== index))}
-                />
+            <div className="mb-6">
+              <h3 className="mb-3 text-[15px] font-bold text-[#0A1B39]">商品信息</h3>
+              <div className="space-y-4">
+                <div>
+                  <label className="mb-1.5 block text-[13px] text-[#86909C]">商品编码</label>
+                  <input
+                    type="text"
+                    value={productCode}
+                    onChange={(e) => setProductCode(e.target.value)}
+                    placeholder="商品编码请保持与ERP一致"
+                    className="h-9 w-full rounded-lg border border-[#e6e9ef] bg-white px-3 text-[14px] outline-none focus:border-[#409eff]"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-[13px] text-[#86909C]">商品名称</label>
+                  <input
+                    type="text"
+                    value={productName}
+                    onChange={(e) => setProductName(e.target.value)}
+                    placeholder="请输入"
+                    className="h-9 w-full rounded-lg border border-[#e6e9ef] bg-white px-3 text-[14px] outline-none focus:border-[#409eff]"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-[13px] text-[#86909C]">品牌</label>
+                  <input
+                    type="text"
+                    value={productBrand}
+                    onChange={(e) => setProductBrand(e.target.value)}
+                    placeholder="请输入"
+                    className="h-9 w-full rounded-lg border border-[#e6e9ef] bg-white px-3 text-[14px] outline-none focus:border-[#409eff]"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-[13px] text-[#86909C]">商品图片</label>
+                  <ImageUpload size="md" value={productImage} onChange={setProductImage} />
+                </div>
               </div>
-            ))}
-          </div>
-        </Form>
-      </Modal>
-
-      {/* SKU 明细抽屉（业务保留桌面端交互） */}
-      <Modal
-        title={drawerProduct ? `「${drawerProduct.productName}」规格明细清单` : 'SKU 清单'}
-        visible={Boolean(drawerProduct)}
-        onCancel={() => setDrawerProduct(null)}
-        footer={null}
-        style={{ width: 560 }}
-      >
-        {drawerProduct && (
-          <div>
-            <div className="mb-4 rounded-lg bg-[#f8fafc] p-3">
-              <p className="m-0 text-[13px] font-bold text-[#0A1B39]">商品编码: {drawerProduct.productCode}</p>
-              <p className="m-0 mt-1 text-[12px] text-[#86909C]">
-                品牌: {drawerProduct.brand || '自主品牌'} ｜ 状态: {drawerProduct.status === 'enabled' ? '启用中' : '已停用'}
-              </p>
             </div>
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-[#eef1f5] bg-[#f9fafb] text-left text-[12px] text-[#86909C]">
-                  <th className="px-3 py-2 font-medium">SKU 编码</th>
-                  <th className="px-3 py-2 font-medium">规格名称</th>
-                  <th className="px-3 py-2 font-medium">售价</th>
-                  <th className="px-3 py-2 font-medium">成本价</th>
-                  <th className="px-3 py-2 font-medium">库存</th>
-                </tr>
-              </thead>
-              <tbody>
-                {drawerProduct.skus.map((sku, i) => (
-                  <tr key={sku.id || sku.skuCode || i} className="border-b border-[#f0f2f5] text-[13px] text-[#344054]">
-                    <td className="px-3 py-2 font-mono">{sku.skuCode}</td>
-                    <td className="px-3 py-2">{sku.specName || '标准规格'}</td>
-                    <td className="px-3 py-2">¥{Number(sku.standardPrice || 0).toFixed(2)}</td>
-                    <td className="px-3 py-2">{sku.costPrice ? `¥${Number(sku.costPrice).toFixed(2)}` : '—'}</td>
-                    <td className="px-3 py-2">{sku.stock || 0} 件</td>
-                  </tr>
+
+            <div className="mb-6">
+              <h3 className="mb-3 text-[15px] font-bold text-[#0A1B39]">规格信息</h3>
+              <div className="space-y-4">
+                {skus.map((sku, index) => (
+                  <div key={sku.id || index} className="relative rounded-lg border border-[#e6e9ef] p-4">
+                    {skus.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeSku(index)}
+                        className="absolute right-2 top-2 text-[#c0c4cc] hover:text-[#f56c6c]"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    )}
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="mb-1.5 block text-[13px] text-[#86909C]">SKU编码</label>
+                        <input
+                          type="text"
+                          value={sku.skuCode}
+                          onChange={(e) => updateSku(index, 'skuCode', e.target.value)}
+                          placeholder="sku编码请保持与ERP一致"
+                          className="h-9 w-full rounded-lg border border-[#e6e9ef] bg-white px-3 text-[14px] outline-none focus:border-[#409eff]"
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-1.5 block text-[13px] text-[#86909C]">规格名称</label>
+                        <input
+                          type="text"
+                          value={sku.specName}
+                          onChange={(e) => updateSku(index, 'specName', e.target.value)}
+                          placeholder="请输入"
+                          className="h-9 w-full rounded-lg border border-[#e6e9ef] bg-white px-3 text-[14px] outline-none focus:border-[#409eff]"
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-1.5 block text-[13px] text-[#86909C]">成本价（元）</label>
+                        <input
+                          type="number"
+                          value={sku.costPrice || ''}
+                          onChange={(e) => updateSku(index, 'costPrice', Number(e.target.value))}
+                          placeholder="请输入"
+                          className="h-9 w-full rounded-lg border border-[#e6e9ef] bg-white px-3 text-[14px] outline-none focus:border-[#409eff]"
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-1.5 block text-[13px] text-[#86909C]">标准售价（元）</label>
+                        <input
+                          type="number"
+                          value={sku.standardPrice || ''}
+                          onChange={(e) => updateSku(index, 'standardPrice', Number(e.target.value))}
+                          placeholder="请输入"
+                          className="h-9 w-full rounded-lg border border-[#e6e9ef] bg-white px-3 text-[14px] outline-none focus:border-[#409eff]"
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-1.5 block text-[13px] text-[#86909C]">规格图片</label>
+                        <ImageUpload size="sm" value={sku.specImage} onChange={(url) => updateSku(index, 'specImage', url)} />
+                      </div>
+                    </div>
+                  </div>
                 ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Modal>
-
-      {/* 相册弹窗（业务保留） */}
-      <Modal title="商品主图与画廊" visible={galleryImages.length > 0} onCancel={() => setGalleryImages([])} footer={null} style={{ width: 680 }}>
-        <div className="grid grid-cols-2 gap-3.5">
-          {galleryImages.map((src, i) => (
-            <div key={i} className="h-[220px] overflow-hidden rounded-lg border border-[#e5e8ef]">
-              <img src={src} alt="" className="h-full w-full object-cover" />
+                <button type="button" onClick={addSku} className="flex items-center gap-1 text-[14px] text-[#409eff] hover:text-[#66b1ff]">
+                  <Plus className="h-4 w-4" />
+                  添加规格
+                </button>
+              </div>
             </div>
-          ))}
-        </div>
-      </Modal>
 
-      {/* 删除确认（对照旧版独立 Modal 红钮） */}
-      <Modal title="提示" visible={Boolean(deleteTarget)} onCancel={() => setDeleteTarget(null)} footer={null} style={{ width: 400 }}>
-        <p className="m-0 mb-5 text-[14px] text-[#344054]">
-          确认删除主档商品「{deleteTarget?.productName}」？删除后不可恢复。
-        </p>
-        <div className="flex gap-3">
-          <button
-            type="button"
-            onClick={() => setDeleteTarget(null)}
-            className="h-10 flex-1 cursor-pointer rounded-lg border border-[#e6e9ef] bg-white text-[14px] text-[#0A1B39] hover:bg-[#f5f6f8]"
-          >
-            取消
-          </button>
-          <button
-            type="button"
-            onClick={() => deleteTarget && void handleRemove(deleteTarget)}
-            className="h-10 flex-1 cursor-pointer rounded-lg border-0 bg-[#f56c6c] text-[14px] font-bold text-white hover:bg-[#e04b4b]"
-          >
-            确认删除
-          </button>
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setShowAddModal(false)}
+                className="h-9 rounded-lg border border-[#e6e9ef] bg-white px-5 text-[14px] font-bold text-[#0A1B39] hover:bg-[#f5f6f8]"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleSave()}
+                className="h-9 rounded-lg bg-[#409eff] px-5 text-[14px] font-bold text-white hover:bg-[#66b1ff]"
+              >
+                {editingProduct ? '保存' : '确定'}
+              </button>
+            </div>
+          </div>
         </div>
-      </Modal>
+      )}
+
+      {/* 删除确认弹窗 */}
+      {showDeleteModal && deletingProduct && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="w-[400px] rounded-xl bg-white p-6">
+            <h2 className="mb-3 text-[18px] font-bold text-[#0A1B39]">提示</h2>
+            <p className="mb-6 text-[14px] text-[#0A1B39]">确认删除该商品，删除后不可恢复？</p>
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setShowDeleteModal(false)}
+                className="h-9 rounded-lg border border-[#e6e9ef] bg-white px-5 text-[14px] font-bold text-[#0A1B39] hover:bg-[#f5f6f8]"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={() => deletingProduct && void handleRemove(deletingProduct)}
+                className="h-9 rounded-lg bg-[#f56c6c] px-5 text-[14px] font-bold text-white hover:bg-[#f78989]"
+              >
+                确定
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -661,112 +942,114 @@ export function ProductMasterDataPage() {
 /** 单行（含展开 SKU 子表），对照旧版行结构 */
 function ProductRow({
   product,
-  expanded,
+  isExpanded,
+  minPrice,
+  maxPrice,
+  minStandardPrice,
+  maxStandardPrice,
   onToggle,
-  onViewSkus,
-  onViewGallery,
   onEdit,
   onDelete,
   onPublish,
+  onToggleStatus,
 }: {
   product: Product
-  expanded: boolean
+  isExpanded: boolean
+  minPrice: number
+  maxPrice: number
+  minStandardPrice: number
+  maxStandardPrice: number
   onToggle: () => void
-  onViewSkus: (p: Product) => void
-  onViewGallery: (p: Product) => void
-  onEdit: (p: Product) => void
-  onDelete: (p: Product) => void
-  onPublish: (p: Product) => void
-  searchInput: (value: string, onChange: (v: string) => void, placeholder: string) => React.ReactNode
+  onEdit: () => void
+  onDelete: () => void
+  onPublish: () => void
+  onToggleStatus: () => void
 }) {
   return (
     <>
-      <tr className="border-b border-[#eef1f5] transition-colors hover:bg-[#fafafa]">
-        <td className="px-3 py-3">
+      <tr className="border-b border-[#f0f2f5] hover:bg-[#fafafa]">
+        <td className="py-3 pl-4 pr-2">
           <button
             type="button"
             onClick={onToggle}
-            className="grid h-6 w-6 cursor-pointer place-items-center rounded border-0 bg-transparent text-[#86909C] hover:bg-[#e9edf3]"
-            title={expanded ? '收起 SKU' : '展开 SKU'}
+            className="flex h-6 w-6 items-center justify-center rounded-full hover:bg-[#e9edf3]"
           >
-            {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+            {isExpanded ? <ChevronDown className="h-4 w-4 text-[#86909C]" /> : <ChevronRight className="h-4 w-4 text-[#86909C]" />}
           </button>
         </td>
-        <td className="px-4 py-3">
-          <div
-            className="h-12 w-12 cursor-pointer overflow-hidden rounded-md border border-[#e5e8ef] bg-[#f7f8fa]"
-            onClick={() => onViewGallery(product)}
-            title="查看相册"
-          >
-            {product.productImage ? (
-              <img src={product.productImage} alt="" className="h-full w-full object-cover" />
-            ) : (
-              <div className="grid h-full place-items-center text-[#86909C]">
-                <FileImage className="h-4 w-4" />
-              </div>
-            )}
+        <td className="py-3 pr-2">
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#f2f4f7]">
+            <svg className="h-5 w-5 text-[#c0c4cc]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0022.5 18.75V5.25A2.25 2.25 0 0020.25 3H3.75A2.25 2.25 0 001.5 5.25v13.5A2.25 2.25 0 003.75 21z"
+              />
+            </svg>
           </div>
         </td>
-        <td className="whitespace-nowrap px-4 py-3 font-mono text-[13px] font-bold text-[#0A1B39]">{product.productCode}</td>
-        <td className="px-4 py-3">
-          <p className="m-0 text-[13px] font-semibold text-[#0A1B39]">{product.productName}</p>
-          {product.categoryName && <p className="m-0 mt-0.5 text-[11px] text-[#86909C]">{product.categoryName}</p>}
+        <td className="py-3 pr-2 text-[14px] text-[#0A1B39]">{product.productCode}</td>
+        <td className="py-3 pr-2 text-[14px] text-[#0A1B39]">{product.productName}</td>
+        <td className="py-3 pr-2 text-[14px] text-[#0A1B39]">{product.brand}</td>
+        <td className="py-3 pr-2 text-[14px] text-[#0A1B39]">{minPrice === maxPrice ? `¥${minPrice}` : `¥${minPrice}-¥${maxPrice}`}</td>
+        <td className="py-3 pr-2 text-[14px] text-[#0A1B39]">
+          {minStandardPrice === maxStandardPrice ? `¥${minStandardPrice}` : `¥${minStandardPrice}-¥${maxStandardPrice}`}
         </td>
-        <td className="whitespace-nowrap px-4 py-3 text-[13px] text-[#344054]">{product.brand || '—'}</td>
-        <td className="whitespace-nowrap px-4 py-3 text-[13px] text-[#344054]">{priceRange(product.skus, 'costPrice')}</td>
-        <td className="whitespace-nowrap px-4 py-3 text-[13px] font-semibold text-[#344054]">{priceRange(product.skus, 'standardPrice')}</td>
-        <td className="whitespace-nowrap px-4 py-3">{statusBadge(product.status)}</td>
-        <td className="whitespace-nowrap px-4 py-3">
-          <div className="flex items-center gap-3 text-[13px]">
-            <button type="button" onClick={() => onEdit(product)} className="cursor-pointer border-0 bg-transparent p-0 text-[#3388ff] hover:text-[#1a6fe8]">
+        <td className="whitespace-nowrap py-3 pr-2">
+          <span className="inline-block rounded-full px-3 py-0.5 text-[12px] text-black">{product.status === 'enabled' ? '启用' : '停用'}</span>
+        </td>
+        <td className="py-3 pr-2 text-[14px] text-[#0A1B39]">{product.updateTime || ''}</td>
+        <td className="py-3 pr-2 text-[14px] text-[#0A1B39]">{product.createTime || ''}</td>
+        <td className="whitespace-nowrap py-3 pr-4">
+          <div className="flex items-center gap-3">
+            <button type="button" onClick={onEdit} className="text-[14px] text-[#409eff] hover:text-[#66b1ff]">
               编辑
             </button>
-            <button
-              type="button"
-              onClick={() => onViewSkus(product)}
-              className="cursor-pointer border-0 bg-transparent p-0 text-[#3388ff] hover:text-[#1a6fe8]"
-            >
-              {product.skus.length} 个规格
+            <button type="button" onClick={onToggleStatus} className="text-[14px] text-[#409eff] hover:text-[#66b1ff]">
+              {product.status === 'enabled' ? '停用' : '启用'}
             </button>
-            <button type="button" onClick={() => onPublish(product)} className="cursor-pointer border-0 bg-transparent p-0 text-[#3388ff] hover:text-[#1a6fe8]">
+            <button type="button" onClick={onPublish} className="text-[14px] text-[#409eff] hover:text-[#66b1ff]">
               去发布
             </button>
-            <button type="button" onClick={() => onDelete(product)} className="cursor-pointer border-0 bg-transparent p-0 text-[#c62828] hover:text-[#a02020]">
+            <button type="button" onClick={onDelete} className="text-[14px] text-[#409eff] hover:text-[#66b1ff]">
               删除
             </button>
           </div>
         </td>
       </tr>
-      {expanded && (
-        <tr className="bg-[#fafbfc]">
-          <td colSpan={9} className="px-4 py-3">
-            <p className="m-0 mb-2 text-[12px] font-bold text-[#4e5969]">规格明细（{product.skus.length} 组）：</p>
-            <div className="overflow-hidden rounded-lg border border-[#edf0f5] bg-white">
-              <table className="w-full">
-                <thead>
-                  <tr className="bg-[#fafbfc] text-left text-[12px] text-[#86909C]">
-                    <th className="px-3 py-2 font-medium">SKU 编码</th>
-                    <th className="px-3 py-2 font-medium">规格名称</th>
-                    <th className="px-3 py-2 font-medium">标准售价</th>
-                    <th className="px-3 py-2 font-medium">成本价</th>
-                    <th className="px-3 py-2 font-medium">可用库存</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {product.skus.map((sku, i) => (
-                    <tr key={sku.id || sku.skuCode || i} className="border-t border-[#f0f2f5] text-[13px] text-[#344054]">
-                      <td className="px-3 py-2 font-mono">{sku.skuCode}</td>
-                      <td className="px-3 py-2">{sku.specName || '标准规格'}</td>
-                      <td className="px-3 py-2">¥{Number(sku.standardPrice || 0).toFixed(2)}</td>
-                      <td className="px-3 py-2">{sku.costPrice ? `¥${Number(sku.costPrice).toFixed(2)}` : '—'}</td>
-                      <td className="px-3 py-2">{sku.stock || 0} 件</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </td>
-        </tr>
+      {isExpanded && (
+        <>
+          <tr className="border-b border-[#f0f2f5] bg-[#fafbfc]">
+            <td className="py-2 pl-4 pr-2"></td>
+            <td className="py-2 pr-2 text-[12px] font-medium text-[#86909C]">sku图片</td>
+            <td className="py-2 pr-2 text-[12px] font-medium text-[#86909C]">sku编码</td>
+            <td className="py-2 pr-2 text-[12px] font-medium text-[#86909C]">规格</td>
+            <td className="py-2 pr-2"></td>
+            <td className="py-2 pr-2 text-[12px] font-medium text-[#86909C]">成本价</td>
+            <td className="py-2 pr-2 text-[12px] font-medium text-[#86909C]">标准售价</td>
+            <td className="py-2 pr-2"></td>
+            <td className="py-2 pr-2"></td>
+            <td className="py-2 pr-2"></td>
+            <td className="py-2 pr-4"></td>
+          </tr>
+          {product.skus.map((sku, i) => (
+            <tr key={sku.id || sku.skuCode || i} className="border-b border-[#f0f2f5] bg-[#fafbfc]">
+              <td className="py-3 pl-4 pr-2"></td>
+              <td className="py-3 pr-2">
+                <div className="h-8 w-8 rounded bg-[#e9edf3]"></div>
+              </td>
+              <td className="py-3 pr-2 text-[13px] text-[#86909C]">{sku.skuCode}</td>
+              <td className="py-3 pr-2 text-[13px] text-[#86909C]">{sku.specName}</td>
+              <td className="py-3 pr-2"></td>
+              <td className="py-3 pr-2 text-[13px] text-[#86909C]">¥{sku.costPrice}</td>
+              <td className="py-3 pr-2 text-[13px] text-[#86909C]">¥{sku.standardPrice}</td>
+              <td className="py-3 pr-2"></td>
+              <td className="py-3 pr-2"></td>
+              <td className="py-3 pr-2"></td>
+              <td className="py-3 pr-4"></td>
+            </tr>
+          ))}
+        </>
       )}
     </>
   )

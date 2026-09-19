@@ -1,4 +1,4 @@
-import { Body, Controller, Get, NotFoundException, Param, Post, Req, UseGuards } from '@nestjs/common'
+import { Body, Controller, Get, NotFoundException, Param, Post, Query, Req, UseGuards } from '@nestjs/common'
 import { JwtAuthGuard } from '../auth/jwt-auth.guard'
 import { RequirePermission } from '../auth/permission.decorator'
 import { PermissionGuard } from '../auth/permission.guard'
@@ -22,9 +22,18 @@ export class ReportExportController {
 
   @Get()
   @RequirePermission('market:report:view')
-  list(@Req() request: { user: { tenantId: string } }) {
+  list(
+    @Req() request: { user: { tenantId: string } },
+    @Query('keyword') keyword?: string,
+    @Query('status') status?: string,
+  ) {
     return this.prisma.analysisRun.findMany({
-      where: { tenantId: request.user.tenantId },
+      where: {
+        tenantId: request.user.tenantId,
+        // 可选过滤：仅在调用方显式传参时生效，默认行为（不过滤）保持不变
+        ...(status?.trim() ? { status: status.trim() } : {}),
+        ...(keyword?.trim() ? { keyword: { contains: keyword.trim() } } : {}),
+      },
       orderBy: { updatedAt: 'desc' },
       take: 100,
     })
