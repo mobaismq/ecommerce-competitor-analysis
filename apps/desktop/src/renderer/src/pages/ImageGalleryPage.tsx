@@ -32,7 +32,9 @@ export function ImageGalleryPage() {
   const [keyword, setKeyword] = useState('')
   const [typeFilter, setTypeFilter] = useState('ALL')
   const [formatFilter, setFormatFilter] = useState('ALL')
-  const [applied, setApplied] = useState({ keyword: '', type: 'ALL', format: 'ALL' })
+  const [startDate, setStartDate] = useState('')
+  const [endDate, setEndDate] = useState('')
+  const [applied, setApplied] = useState({ keyword: '', type: 'ALL', format: 'ALL', start: '', end: '' })
   const [currentPage, setCurrentPage] = useState(1)
 
   // 轮播大图预览状态
@@ -82,7 +84,9 @@ export function ImageGalleryPage() {
         (applied.type === 'viral' && (name.includes('复刻') || name.includes('爆款'))) ||
         (applied.type === 'other' && !name.includes('主图') && !name.includes('详情') && !name.includes('复刻'))
 
-      return matchKeyword && matchFormat && matchType
+      const matchStart = !applied.start || (item.createdAt && item.createdAt >= applied.start)
+      const matchEnd = !applied.end || (item.createdAt && item.createdAt <= applied.end + ' 23:59:59')
+      return matchKeyword && matchFormat && matchType && matchStart && matchEnd
     })
   }, [imageAssets, applied])
 
@@ -154,14 +158,15 @@ export function ImageGalleryPage() {
       <div className="p-6">
         <PageHeader breadcrumbs={[{ label: '资产库' }, { label: '图库' }]} className="mb-2" />
 
-        {/* 查询条件卡（对照旧版 grid-cols-4） */}
-        <div className="mb-4 grid grid-cols-4 gap-3 rounded-xl bg-white p-4">
+        {/* 查询条件卡（对照旧版两行：筛选字段 + 查询/重置/批量下载） */}
+        <div className="mb-4 rounded-xl bg-white p-4">
+          <div className="grid grid-cols-4 gap-3">
           <div className="flex items-center gap-2">
             <label className="shrink-0 text-[12px] text-[#86909C]">图片名称</label>
             <XSearchInput
               value={keyword}
               onChange={setKeyword}
-              onEnter={() => setApplied({ keyword, type: typeFilter, format: formatFilter })}
+              onEnter={() => setApplied({ keyword, type: typeFilter, format: formatFilter, start: startDate, end: endDate })}
               placeholder="请输入"
             />
           </div>
@@ -208,37 +213,58 @@ export function ImageGalleryPage() {
             </select>
           </div>
 
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setApplied({ keyword, type: typeFilter, format: formatFilter })}
-              className="h-8 shrink-0 cursor-pointer rounded-lg border-0 bg-[#409eff] px-5 text-[13px] font-bold text-white hover:bg-[#66b1ff]"
-            >
-              查询
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setKeyword('')
-                setTypeFilter('ALL')
-                setFormatFilter('ALL')
-                setApplied({ keyword: '', type: 'ALL', format: 'ALL' })
-              }}
-              className="h-8 shrink-0 cursor-pointer rounded-lg border border-[#e6e9ef] bg-white px-4 text-[13px] text-[#0A1B39] hover:bg-[#f5f6f8]"
-            >
-              重置
-            </button>
-            <button
-              type="button"
-              onClick={handleBatchDownload}
-              disabled={zipping || filteredImages.length === 0}
-              className="ml-auto flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-[#dce3ee] bg-white px-3 text-[12px] font-semibold text-[#344054] hover:border-[#3388ff] hover:text-[#3388ff] disabled:cursor-not-allowed disabled:opacity-50"
-              title="批量下载前 20 张筛选结果"
-            >
-              {zipping ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
-              批量下载
-            </button>
           </div>
+          </div>
+
+          {/* 第二行：创建时间 + 查询/重置/批量下载（对照旧版第二行） */}
+        <div className="mt-3 flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <label className="shrink-0 text-[12px] text-[#86909C]">创建时间</label>
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="h-8 rounded-lg border border-[#e6e9ef] bg-white px-2 text-[13px] outline-none focus:border-[#409eff]"
+            />
+            <span className="text-[12px] text-[#86909C]">至</span>
+            <input
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="h-8 rounded-lg border border-[#e6e9ef] bg-white px-2 text-[13px] outline-none focus:border-[#409eff]"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={() => setApplied({ keyword, type: typeFilter, format: formatFilter, start: startDate, end: endDate })}
+            className="h-8 shrink-0 cursor-pointer rounded-lg border-0 bg-[#409eff] px-5 text-[13px] font-bold text-white hover:bg-[#66b1ff]"
+          >
+            查询
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setKeyword('')
+              setTypeFilter('ALL')
+              setFormatFilter('ALL')
+              setStartDate('')
+              setEndDate('')
+              setApplied({ keyword: '', type: 'ALL', format: 'ALL', start: '', end: '' })
+            }}
+            className="h-8 shrink-0 cursor-pointer rounded-lg border border-[#e6e9ef] bg-white px-4 text-[13px] text-[#0A1B39] hover:bg-[#f5f6f8]"
+          >
+            重置
+          </button>
+          <button
+            type="button"
+            onClick={handleBatchDownload}
+            disabled={zipping || filteredImages.length === 0}
+            className="ml-auto flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-[#dce3ee] bg-white px-3 text-[12px] font-semibold text-[#344054] hover:border-[#3388ff] hover:text-[#3388ff] disabled:cursor-not-allowed disabled:opacity-50"
+            title="批量下载前 20 张筛选结果"
+          >
+            {zipping ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+            批量下载
+          </button>
         </div>
 
         {/* 图片网格（对照旧版 grid-cols-8 密集网格） */}

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { XInput } from '../components/XInput'
 import { Button, Input, Message, Modal, Select } from '@arco-design/web-react'
-import { Download, Eye, Image as ImageIcon, Loader2, Plus, X } from 'lucide-react'
+import { Download, Eye, Loader2, Upload } from 'lucide-react'
 import { saveAs } from 'file-saver'
 import { nanoid } from 'nanoid'
 
@@ -87,33 +87,20 @@ export function ViralReplicationPage() {
     <div className="relative flex h-full bg-[#F2F4F7]">
       {/* ─── 左侧 360px 配置面板（对照旧版块序①~⑤） ─── */}
       <div className="h-full w-[360px] shrink-0 overflow-y-auto border-r border-[#E5E8EF] bg-white px-5 pt-5 pb-4">
-        {/* ① 产品原图（可选） */}
+        {/* ① 产品原图（可选）：对照旧版蓝虚线占位 + 灰钮，无预览无删除钮 */}
         <div className="mb-5">
-          <div className="mb-2 flex items-center justify-between">
-            <span className={LABEL_CLASS + ' mb-0'}>① 产品原图（可选）</span>
-          </div>
-          {productImage ? (
-            <div className="group relative h-[94px] overflow-hidden rounded-lg border border-[#e5e8ef] bg-[#fafbfc]">
-              <img src={productImage} alt="产品原图" className="h-full w-full object-contain p-1.5" />
-              <button
-                type="button"
-                onClick={() => setProductImage(null)}
-                className="absolute right-1.5 top-1.5 grid h-6 w-6 cursor-pointer place-items-center rounded-full border-0 bg-white/90 text-[#c62828] shadow-sm"
-                title="移除产品图"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          ) : (
+          <span className={LABEL_CLASS}>产品原图(可选)</span>
+          <div className="mb-0 flex h-[94px] flex-col items-center justify-center rounded-lg border border-dashed border-[#8CC4FF] bg-white">
             <button
               type="button"
               onClick={() => setProductImage(productCloth)}
-              className="flex h-[94px] w-full cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-[#8CC4FF] bg-[#f5faff] transition-colors hover:bg-[#eef7ff]"
+              className="mb-3 flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-[#F2F3F5] px-4 text-[13px] font-medium text-[#171A1D]"
             >
-              <Plus className="mb-1 h-5 w-5 text-[#3388ff]" />
-              <span className="text-[11px] text-[#86909C]">点击添加产品原图（演示环境用内置样图）</span>
+              <Upload className="h-4 w-4" />
+              上传产品图
             </button>
-          )}
+            <p className="m-0 text-[12px] text-[#8B949E]">有商品需替换时上传，无商品可跳过</p>
+          </div>
         </div>
 
         {/* ② 参考内容：双 tab + 上传区/链接 */}
@@ -138,31 +125,16 @@ export function ViralReplicationPage() {
           </div>
 
           {referenceMethod === 'upload' ? (
-            <div className="rounded-lg border border-dashed border-[#d8e0ea] bg-[#fafbfc] p-2.5">
-              <div className="mb-2 flex flex-wrap gap-2">
-                {referenceImages.map((src, idx) => (
-                  <div key={idx} className="group relative h-[62px] w-[62px] overflow-hidden rounded-md border border-[#e5e8ef]">
-                    <img src={src} alt={`参考图 ${idx + 1}`} className="h-full w-full object-cover" />
-                    <button
-                      type="button"
-                      onClick={() => setReferenceImages((prev) => prev.filter((_, i) => i !== idx))}
-                      className="absolute right-0.5 top-0.5 grid h-5 w-5 cursor-pointer place-items-center rounded-full border-0 bg-white/90 text-[#c62828] opacity-0 transition-opacity group-hover:opacity-100"
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                  </div>
-                ))}
-                {referenceImages.length < 20 && (
-                  <button
-                    type="button"
-                    onClick={addReferenceImages}
-                    className="grid h-[62px] w-[62px] cursor-pointer place-items-center rounded-md border border-dashed border-[#d8e0ea] bg-white text-[#86909C] hover:border-[#3388ff] hover:text-[#3388ff]"
-                  >
-                    <Plus className="h-4 w-4" />
-                  </button>
-                )}
-              </div>
-              <p className="m-0 text-[11px] text-[#98A2B3]">上传参考爆款图（演示环境用内置样图池）</p>
+            <div className="flex h-[94px] flex-col items-center justify-center rounded-lg border border-dashed border-[#E3E7EF] bg-white">
+              <button
+                type="button"
+                onClick={addReferenceImages}
+                className="mb-3 flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-[#F2F3F5] px-4 text-[13px] font-medium text-[#171A1D]"
+              >
+                <Upload className="h-4 w-4" />
+                上传参考图
+              </button>
+              <p className="m-0 text-[12px] text-[#8B949E]">最多20张</p>
             </div>
           ) : (
             <Input
@@ -180,7 +152,7 @@ export function ViralReplicationPage() {
           <span className={LABEL_CLASS}>③ 复刻程度</span>
           <div className="grid grid-cols-2 gap-3">
             {([
-              { key: 'style', title: '参考风格复刻', desc: '提取构图、光影与排版调性，融合你的产品重新演绎' },
+              { key: 'style', title: '参考风格', desc: '参考整体风格和结构，自动调整色彩和重构场景。' },
               { key: 'exact', title: '高度复刻', desc: '尽量保持参考图版式与元素位置，仅替换商品主体' },
             ] as const).map((item) => (
               <button
@@ -265,7 +237,7 @@ export function ViralReplicationPage() {
         ) : results.length === 0 ? (
           <div className="mx-auto flex min-h-full max-w-[980px] flex-col items-center justify-center py-8 text-center">
             <h1 className="m-0 text-[32px] font-extrabold text-[#0A1B39]">爆款图复刻</h1>
-            <p className="m-0 mt-2 text-[14px] text-[#86909C]">想参考的爆款 + 你的产品图 = 属于你的高转化专属爆款营销图</p>
+            <p className="m-0 mt-2 text-[14px] text-[#86909C]">想参考的爆款 + 你的产品图 = 你的爆款图</p>
 
             {/* 示例卡（对照旧版 h-[384px] w-[792px]：左336参考图+悬浮圆形产品图+双箭头+右2张162px） */}
             <div className="mt-8 flex h-[384px] w-[792px] items-center justify-center gap-4 rounded-2xl border border-[#eef2f8] bg-white p-5 shadow-[0_8px_32px_rgba(29,38,52,0.06)]">

@@ -1,17 +1,6 @@
-import { useState } from 'react'
-import { XInput } from '../components/XInput'
-import {
-  ChevronDown,
-  ChevronUp,
-  Download,
-  Eye,
-  GripVertical,
-  Loader2,
-  Plus,
-  Sparkles,
-  X,
-} from 'lucide-react'
-import { Button, Input, Message, Select } from '@arco-design/web-react'
+import { useRef, useState } from 'react'
+import { ChevronDown, ChevronUp, Download, Eye, Loader2, Plus, Sparkles, Upload, X } from 'lucide-react'
+import { Button, Message, Select } from '@arco-design/web-react'
 import { api } from '../api/client'
 import { saveAs } from 'file-saver'
 import { nanoid } from 'nanoid'
@@ -24,157 +13,180 @@ import modelScene from '../assets/model-scene.png'
 
 const Option = Select.Option
 
-interface DetailModuleDef {
-  key: string
-  title: string
-  desc: string
-  defaultPrompt: string
-}
-
-const ALL_MODULES: DetailModuleDef[] = [
-  { key: 'hero_banner', title: '首屏主视觉', desc: '传递核心品牌价值', defaultPrompt: '电商详情页首屏大Banner，宽幅现代轻奢科技构图，主体高清居中，极具张力的氛围光效，标杆质感。' },
-  { key: 'core_selling_point', title: '核心卖点图', desc: '突出差异化优势', defaultPrompt: '图解核心功能与差异化卖点，虚实结合展现强劲性能或精工材质，色彩鲜明有条理。' },
-  { key: 'usage_scene', title: '使用场景图', desc: '呈现真实使用场景', defaultPrompt: '自然温馨的高品质居家或现代办公日常场景，商品融入其中，光线柔和，极具真实代入感。' },
-  { key: 'multi_angles', title: '多角度图', desc: '多角度呈现外观', defaultPrompt: '前视图、45度立体侧视图与顶视图三联排布，多视角展示整体结构与比例线条。' },
-  { key: 'scene_atmosphere', title: '场景氛围图', desc: '营造品质格调', defaultPrompt: '电影级景深虚化与自然暖光侧照，商品置于优雅静谧空间中，展现尊贵生活美学。' },
-  { key: 'detail_close_up', title: '商品细节特写', desc: '微距放大材质工艺', defaultPrompt: '超近微距微光特写，极尽展现表面精美纹理、圆润倒角与接缝做工，金属质感细腻。' },
-  { key: 'brand_story', title: '品牌故事图', desc: '传达品牌理念', defaultPrompt: '品牌视觉沉淀，极简留白风格，手稿线条与实物交叠，传递专业研发精神。' },
-  { key: 'dimension_size', title: '尺寸/容量/尺码图', desc: '标明精确规格', defaultPrompt: '干净纯色背景，清晰直观的微标尺与数字标注，直观呈现长宽高尺寸与容量比例。' },
-  { key: 'effect_compare', title: '效果对比图', desc: '使用前后对比', defaultPrompt: '左右分屏强烈对比，左侧普通传统痛点，右侧使用本商品后的惊艳体验，视觉冲击力显著。' },
-  { key: 'spec_table', title: '详细参数/规格表', desc: '专业详尽参数', defaultPrompt: '规整高级的参数排版底图，搭配清晰的指标区域划分，专业严谨有说服力。' },
-  { key: 'craft_process', title: '工艺制作图', desc: '展示制造工艺', defaultPrompt: '分层爆炸图或工匠精细打磨视觉，展示内部核心部件结构与尖端工艺组合。' },
-  { key: 'accessories_list', title: '配件/赠品全家福', desc: '收货清单明了', defaultPrompt: '全套开箱全家福俯视平铺陈列，主机、配件、连接线、说明书及赠品规整摆放。' },
-  { key: 'series_display', title: '系列/多色展示图', desc: '多色彩组合可选', defaultPrompt: '多种经典配色商品一字排开或阶梯式陈列，展现丰富多选的色彩质感与潮流风格。' },
-  { key: 'ingredients_material', title: '材质/成分安全图', desc: '用料与认证展示', defaultPrompt: '环保材质、母婴级安全或国际认证标章展示，绿色自然轻奢调性，令人安心信赖。' },
-  { key: 'after_sales', title: '售后保障图', desc: '质保政策打消顾虑', defaultPrompt: '官方正品、全国联保、闪电发货、无忧退换售后服务专区标识图，专业可信赖。' },
-  { key: 'usage_guide', title: '使用建议/操作指导', desc: '上手指导说明', defaultPrompt: '1-2-3 极简操作步序指引示意图，图文简明易懂，展现贴心用户关怀。' },
+// 模块名与描述逐字对照旧版 APlusDetail.tsx MODULES（key 为桌面端生图 slotType）
+const MODULES: Array<{ title: string; desc: string; key: string }> = [
+  { title: '首屏主视觉', desc: '传递核心价值', key: 'hero_banner' },
+  { title: '核心卖点图', desc: '突出差异优势', key: 'core_selling_point' },
+  { title: '使用场景图', desc: '呈现真实使用场景', key: 'usage_scene' },
+  { title: '多角度图', desc: '多角度呈现外观', key: 'multi_angles' },
+  { title: '场景氛围图', desc: '展示使用场景', key: 'scene_atmosphere' },
+  { title: '商品细节图', desc: '放大材质与工艺', key: 'detail_close_up' },
+  { title: '品牌故事图', desc: '传达品牌理念', key: 'brand_story' },
+  { title: '尺寸/容量/尺码图', desc: '展示规格信息', key: 'dimension_size' },
+  { title: '效果对比图', desc: '使用前后效果对比', key: 'effect_compare' },
+  { title: '详细规格/参数表', desc: '展示详细商品数据', key: 'spec_table' },
+  { title: '工艺制作图', desc: '展示工艺制作过程', key: 'craft_process' },
+  { title: '配件/赠品图', desc: '明确收货的所有物品', key: 'accessories_list' },
+  { title: '系列展示图', desc: '多色或多SKU展示', key: 'series_display' },
+  { title: '商品成分图', desc: '展示配方/材质/成分', key: 'ingredients_material' },
+  { title: '售后保障图', desc: '说明质保退换政策', key: 'after_sales' },
+  { title: '使用建议图', desc: '商品使用的注意事项', key: 'usage_guide' },
 ]
+
+// 默认勾选对照旧版 checked 初始值
+const DEFAULT_CHECKED = ['首屏主视觉', '核心卖点图', '使用场景图', '多角度图', '场景氛围图', '商品细节图']
+
+const PLATFORM_OPTIONS = ['淘宝天猫1688', '京东', '拼多多', '抖店', '小红书', '亚马逊']
+const COUNTRY_OPTIONS = ['中国', '美国', '英国', '德国', '法国', '意大利', '西班牙', '日本', '韩国', '东南亚']
+const LANGUAGE_OPTIONS = ['中文', '英文', '日文', '韩文', '德语', '法语', '西班牙语']
+const RATIO_OPTIONS = ['1:1', '3:4', '4:3', '9:16', '16:9']
 
 interface SelectedModuleItem {
   instanceId: string
-  key: string
   title: string
+  key: string
   prompt: string
   status: 'idle' | 'generating' | 'done' | 'failed'
   imageUrl?: string
   error?: string
 }
 
-const PLATFORM_OPTIONS = ['淘宝天猫1688', '京东', '拼多多', '抖店', '小红书', '亚马逊']
+interface UploadedProductImage {
+  id: string
+  url: string
+}
 
 export function APlusDetailPage() {
-  // 表单状态
-  const [keyword, setKeyword] = useState('')
-  const [platform, setPlatform] = useState(PLATFORM_OPTIONS[0])
-  const [extraRequirements, setExtraRequirements] = useState('')
+  // 上传商品原图（对照旧版：uploadedImages，生成入口依赖它）
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const [uploadedImages, setUploadedImages] = useState<UploadedProductImage[]>([])
+  const [error, setError] = useState('')
 
   // 联动报告
   const [selectedReportId, setSelectedReportId] = useState('')
   const [currentReport, setCurrentReport] = useState<SuiteProduct | null>(null)
 
-  // 双步工作流：form（填表）→ strategy（查看规划出的模块提示词）→ 生图
-  const [step, setStep] = useState<'form' | 'strategy'>('form')
-  const [strategyExpanded, setStrategyExpanded] = useState(true)
+  // 生成设置（对照旧版 settings 四项）
+  const [settings, setSettings] = useState({ platform: '淘宝天猫1688', country: '中国', language: '中文', ratio: '1:1' })
 
-  // 选中的模块列表（有序）
-  const [selectedModules, setSelectedModules] = useState<SelectedModuleItem[]>([
-    { instanceId: 'mod-hero', key: 'hero_banner', title: '首屏主视觉', prompt: ALL_MODULES[0].defaultPrompt, status: 'idle' },
-    { instanceId: 'mod-selling', key: 'core_selling_point', title: '核心卖点图', prompt: ALL_MODULES[1].defaultPrompt, status: 'idle' },
-    { instanceId: 'mod-scene', key: 'usage_scene', title: '使用场景图', prompt: ALL_MODULES[2].defaultPrompt, status: 'idle' },
-    { instanceId: 'mod-detail', key: 'detail_close_up', title: '商品细节特写', prompt: ALL_MODULES[5].defaultPrompt, status: 'idle' },
-    { instanceId: 'mod-params', key: 'spec_table', title: '详细参数/规格表', prompt: ALL_MODULES[9].defaultPrompt, status: 'idle' },
-    { instanceId: 'mod-after', key: 'after_sales', title: '售后保障图', prompt: ALL_MODULES[14].defaultPrompt, status: 'idle' },
-  ])
+  // 商品卖点 & 要求 + AI 帮写
+  const [detailGenerationText, setDetailGenerationText] = useState('')
+  const [aiWriting, setAiWriting] = useState(false)
+
+  // 双步工作流
+  const [step, setStep] = useState<'form' | 'strategy'>('form')
+  const [strategyExpanded, setStrategyExpanded] = useState(false)
+
+  // 模块（勾选集合对照旧版 checked 初始值）
+  const [checked, setChecked] = useState<string[]>([...DEFAULT_CHECKED])
+  const [selectedModules, setSelectedModules] = useState<SelectedModuleItem[]>([])
+  const [orderedTitles, setOrderedTitles] = useState<string[]>([])
 
   const [batchGenerating, setBatchGenerating] = useState(false)
-  const [workflowPlanning, setWorkflowPlanning] = useState(false)
+  const [strategyStatus, setStrategyStatus] = useState<'idle' | 'generating' | 'ready'>('idle')
   const [previewModalUrl, setPreviewModalUrl] = useState<string | null>(null)
 
-  const selectedKeys = new Set(selectedModules.map((m) => m.key))
+  const checkedModules = MODULES.filter((m) => checked.includes(m.title))
+  const strategyModuleCount = checkedModules.length
+
+  const handleUploadFiles = (files: FileList | null) => {
+    const selected = Array.from(files || [])
+    if (!selected.length) return
+    const slots = 6 - uploadedImages.length
+    selected.slice(0, slots).forEach((file) => {
+      const reader = new FileReader()
+      reader.onload = (e) => {
+        if (e.target?.result) {
+          setUploadedImages((prev) => [...prev, { id: nanoid(8), url: e.target!.result as string }])
+        }
+      }
+      reader.readAsDataURL(file)
+    })
+    setError('')
+  }
+
+  const removeUploadedImage = (id: string) => {
+    setUploadedImages((prev) => prev.filter((img) => img.id !== id))
+  }
 
   const handleReportChange = (reportId: string, report: SuiteProduct | null) => {
     setSelectedReportId(reportId)
     setCurrentReport(report)
-    if (report && !keyword) {
-      setKeyword(report.keyword || report.label)
-    }
+    setError('')
+    setStrategyStatus('idle')
   }
 
-  const toggleModuleKey = (def: DetailModuleDef) => {
-    const existingIndex = selectedModules.findIndex((m) => m.key === def.key)
-    if (existingIndex >= 0) {
-      if (selectedModules.length <= 1) {
-        Message.warning('至少保留 1 个详情图模块')
-        return
+  // AI 帮写（桌面端本地模板起步；旧版为流式 AI，接入后替换）
+  const handleAiHelp = async () => {
+    if (!uploadedImages.length) return
+    setAiWriting(true)
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 600))
+      if (!detailGenerationText.trim()) {
+        setDetailGenerationText('1.产品名称：\n2.核心卖点：\n3.适用人群：\n4.期望场景：\n5.具体参数：')
       }
-      setSelectedModules((prev) => prev.filter((_, i) => i !== existingIndex))
-    } else {
-      setSelectedModules((prev) => [
-        ...prev,
-        { instanceId: `mod-${nanoid(8)}`, key: def.key, title: def.title, prompt: def.defaultPrompt, status: 'idle' },
-      ])
+    } finally {
+      setAiWriting(false)
     }
   }
 
-  const moveUp = (index: number) => {
-    if (index === 0) return
-    setSelectedModules((prev) => {
-      const next = [...prev]
-      ;[next[index - 1], next[index]] = [next[index], next[index - 1]]
-      return next
-    })
+  const toggleModule = (title: string) => {
+    setChecked((prev) => (prev.includes(title) ? prev.filter((t) => t !== title) : [...prev, title]))
   }
 
-  const moveDown = (index: number) => {
-    if (index === selectedModules.length - 1) return
-    setSelectedModules((prev) => {
-      const next = [...prev]
-      ;[next[index + 1], next[index]] = [next[index], next[index + 1]]
-      return next
-    })
-  }
-
-  // 智能生成详情工作流与提示词（数据流保持桌面端现状）
+  // 生成详情页规划和提示词（数据流保持桌面端现状：/api/product-sets/generate-detail-workflow）
   const handlePlanWorkflow = async () => {
-    if (!keyword.trim()) {
-      Message.warning('请先填写商品名称与核心定位')
-      return
-    }
-    setWorkflowPlanning(true)
+    if (!uploadedImages.length) return
+    setStrategyStatus('generating')
     try {
       const reportText = [
-        `商品名称: ${keyword}`,
-        `目标平台: ${platform || '淘宝天猫'}`,
-        `设计风格要求: ${extraRequirements || '现代轻奢，信息层级分明，专业视觉指引'}`,
-        currentReport ? `竞品核心卖点: ${currentReport.keyword}` : '',
+        `商品名称: ${currentReport?.keyword || currentReport?.label || ''}`,
+        `目标平台: ${settings.platform}`,
+        `目标国家: ${settings.country}`,
+        `目标语言: ${settings.language}`,
+        `输出比例: ${settings.ratio}`,
+        '【商品卖点与要求】',
+        detailGenerationText || '（未填写，按通用电商详情规范）',
       ]
         .filter(Boolean)
         .join('\n')
 
       const { data } = await api.post('/api/product-sets/generate-detail-workflow', {
         reportText,
-        promptSlots: selectedModules.map((m) => m.key),
+        promptSlots: checkedModules.map((m) => m.key),
       })
 
-      const returnedItems: Array<{ type: string; prompt: string; name?: string }> = data?.data || []
-      if (returnedItems.length > 0) {
-        setSelectedModules((prev) =>
-          prev.map((mod) => {
-            const matched = returnedItems.find((p) => p.type === mod.key)
-            return { ...mod, prompt: matched?.prompt || mod.prompt }
-          }),
-        )
-        Message.success(`已规划 ${selectedModules.length} 个详情切片图专属提示词！`)
-      } else {
-        Message.info('已应用通用电商详情图排版优化')
+      const returnedItems: Array<{ type: string; prompt: string }> = data?.data || []
+      const buildPrompt = (m: { title: string; key: string; desc: string }) => {
+        const matched = returnedItems.find((p) => p.type === m.key)
+        return matched?.prompt || `电商详情页「${m.title}」切片，${m.desc}。`
       }
+      setSelectedModules(
+        checkedModules.map((m) => ({
+          instanceId: nanoid(8),
+          title: m.title,
+          key: m.key,
+          prompt: buildPrompt(m),
+          status: 'idle' as const,
+        })),
+      )
+      setStrategyStatus('ready')
       setStep('strategy')
-      setStrategyExpanded(true)
+      setStrategyExpanded(false)
+      Message.success('已生成详情页规划与模块提示词')
     } catch {
       Message.warning('使用预设模板完成工作流规划')
+      setSelectedModules(
+        checkedModules.map((m) => ({
+          instanceId: nanoid(8),
+          title: m.title,
+          key: m.key,
+          prompt: `电商详情页「${m.title}」切片，${m.desc}。`,
+          status: 'idle' as const,
+        })),
+      )
+      setStrategyStatus('ready')
       setStep('strategy')
-    } finally {
-      setWorkflowPlanning(false)
     }
   }
 
@@ -182,20 +194,16 @@ export function APlusDetailPage() {
   const generateSingleModuleImage = async (instanceId: string) => {
     const target = selectedModules.find((m) => m.instanceId === instanceId)
     if (!target) return
-
     setSelectedModules((prev) =>
       prev.map((m) => (m.instanceId === instanceId ? { ...m, status: 'generating', error: undefined } : m)),
     )
-
     try {
       const { data } = await api.post('/api/product-sets/generate-image', {
         prompt: target.prompt,
         slotType: target.key,
       })
-
       const generatedUrl =
         data?.images?.[0]?.url || data?.url || 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=800&q=80'
-
       setSelectedModules((prev) =>
         prev.map((m) => (m.instanceId === instanceId ? { ...m, status: 'done', imageUrl: generatedUrl } : m)),
       )
@@ -212,10 +220,8 @@ export function APlusDetailPage() {
     }
   }
 
-  // 批量一键生成整套详情图
   const handleBatchGenerateAll = async () => {
     setBatchGenerating(true)
-    Message.info(`开始顺次生成 ${selectedModules.length} 张详情图模块...`)
     for (const mod of selectedModules) {
       await generateSingleModuleImage(mod.instanceId)
     }
@@ -228,44 +234,81 @@ export function APlusDetailPage() {
     Message.success('已下载')
   }
 
-  const handleBatchDownload = () => {
-    const doneMods = selectedModules.filter((m) => m.imageUrl)
-    if (doneMods.length === 0) {
-      Message.warning('当前暂无可下载的已生成详情图')
-      return
-    }
-    doneMods.forEach((m, idx) => {
-      setTimeout(() => {
-        handleDownloadImage(m.imageUrl!, `${idx + 1}_${m.title}.png`)
-      }, idx * 300)
-    })
-    Message.success(`已开始下载 ${doneMods.length} 张详情长图模块`)
-  }
+  const strategyModules = orderedTitles.length
+    ? (orderedTitles.map((title) => selectedModules.find((m) => m.title === title)).filter(Boolean) as SelectedModuleItem[])
+    : selectedModules
 
-  const INPUT_CLASS =
-    'w-full rounded-lg border border-[#dce3ee] bg-[#f9fafb] px-3 text-[13px] font-semibold text-[#0A1B39] outline-none transition-colors focus:border-[#3388ff] focus:bg-white'
+  const hasResults = selectedModules.some((m) => m.status !== 'idle')
 
   return (
     <div className="relative flex h-full bg-[#F2F4F7]">
-      {/* ===================== 左侧 360px 配置面板（双步工作流） ===================== */}
-      <div className="w-[360px] h-full shrink-0 overflow-y-auto border-r border-[#e5e8ef] bg-white px-5 pt-5 pb-4">
+      {/* ===================== 左侧 360px 配置面板（对照旧版 form/strategy 双步） ===================== */}
+      <div className="h-full w-[360px] shrink-0 overflow-y-auto border-r border-[#E5E8EF] bg-white px-5 pt-5 pb-4 custom-scrollbar">
         {step === 'form' ? (
           <>
-            {/* 商品原图（对照旧版 grid-cols-3 上传区） */}
-            <div className="mb-5">
-              <h2 className="mb-2 text-[14px] font-bold text-[#0A1B39]">商品原图</h2>
-              <div className="flex min-h-[94px] cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-[#c9d5e8] bg-[#fbfcfe] transition-colors hover:border-[#1683FF] hover:bg-[#f5f9ff]">
-                <Plus className="mb-1 h-5 w-5 text-[#86909C]" />
-                <p className="m-0 text-[11px] text-[#86909C]">详情图无需上传原图，直接使用报告联动（可扩展）</p>
-              </div>
+            {/* 商品原图上传（对照旧版：空态白底虚线+灰钮 / 已传 grid-cols-3 + 继续上传灰块） */}
+            <div className="mb-4">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                className="hidden"
+                onChange={(e) => {
+                  handleUploadFiles(e.target.files)
+                  e.currentTarget.value = ''
+                }}
+              />
+              {uploadedImages.length > 0 ? (
+                <div className="grid grid-cols-3 gap-3">
+                  {uploadedImages.map((img) => (
+                    <div key={img.id} className="group relative h-[82px] overflow-hidden rounded-lg bg-[#F2F3F5]">
+                      <img src={img.url} alt="" className="h-full w-full object-contain p-1" />
+                      <button
+                        type="button"
+                        onClick={() => removeUploadedImage(img.id)}
+                        className="absolute right-1 top-1 grid h-5 w-5 cursor-pointer place-items-center rounded-full border-0 bg-white/90 text-[#c62828] opacity-0 transition-opacity group-hover:opacity-100"
+                        aria-label="删除图片"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  ))}
+                  {uploadedImages.length < 6 && (
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="grid h-[82px] cursor-pointer place-items-center rounded-lg bg-[#F2F3F5] text-[#171A1D] transition-colors hover:bg-[#ECEFF4]"
+                      aria-label="继续上传商品图"
+                    >
+                      <Plus className="h-6 w-6" />
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div className="mb-4 flex h-[94px] flex-col items-center justify-center rounded-lg border border-dashed border-[#E3E7EF] bg-white">
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="mb-3 flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-[#F2F3F5] px-4 text-[13px] font-medium text-[#171A1D]"
+                  >
+                    <Upload className="h-4 w-4" />
+                    上传图片
+                  </button>
+                  <p className="m-0 text-[12px] text-[#8B949E]">同一产品，最多6张。</p>
+                </div>
+              )}
             </div>
 
-            {/* 选择 AI 报告 + 不引用 */}
-            <div className="mb-5">
-              <AIReportSelector
-                value={selectedReportId}
-                onChange={handleReportChange}
-              />
+            {error && (
+              <div className="mb-5 flex gap-2 rounded-lg border border-[#FFD7D7] bg-[#FFF5F5] p-3 text-[13px] font-semibold text-[#C03535]">
+                <span>{error}</span>
+              </div>
+            )}
+
+            {/* AI 报告联动 */}
+            <div className="mb-4">
+              <AIReportSelector value={selectedReportId} onChange={handleReportChange} />
               {selectedReportId && (
                 <button
                   type="button"
@@ -273,64 +316,90 @@ export function APlusDetailPage() {
                     setSelectedReportId('')
                     setCurrentReport(null)
                   }}
-                  className="mt-2 cursor-pointer border-0 bg-transparent p-0 text-[12px] font-semibold text-[#86909C] hover:text-[#3388ff]"
+                  className="-mt-2 mb-4 h-8 w-full cursor-pointer rounded-lg border-0 bg-[#F2F3F5] text-[12px] font-semibold text-[#5F6B7A] transition-colors hover:bg-[#E8EAED]"
                 >
-                  不引用 AI 报告
+                  不引用AI报告
                 </button>
               )}
             </div>
 
-            {/* 生成设置 grid-cols-2 */}
-            <div className="mb-5">
-              <h2 className="mb-2 text-[14px] font-bold text-[#0A1B39]">生成设置</h2>
-              <div className="grid grid-cols-2 gap-2">
-                <Select size="small" value={platform} onChange={setPlatform}>
-                  {PLATFORM_OPTIONS.map((p) => (
-                    <Option key={p} value={p}>
-                      {p}
-                    </Option>
+            {/* 生成设置（对照旧版四项 grid-cols-2） */}
+            <div className="mb-4">
+              <h2 className="mb-2 text-[14px] font-bold text-[#171A1D]">生成设置</h2>
+              <div className="grid grid-cols-2 gap-3">
+                <Select size="small" value={settings.platform} onChange={(v) => setSettings((s) => ({ ...s, platform: v }))}>
+                  {PLATFORM_OPTIONS.map((o) => (
+                    <Option key={o} value={o}>{o}</Option>
                   ))}
                 </Select>
-                <Input
-                  size="small"
-                  value={keyword}
-                  onChange={setKeyword}
-                  placeholder="商品名称与核心定位"
-                  allowClear
-                  className={INPUT_CLASS}
-                />
+                <Select size="small" value={settings.country} onChange={(v) => setSettings((s) => ({ ...s, country: v }))}>
+                  {COUNTRY_OPTIONS.map((o) => (
+                    <Option key={o} value={o}>{o}</Option>
+                  ))}
+                </Select>
+                <Select size="small" value={settings.language} onChange={(v) => setSettings((s) => ({ ...s, language: v }))}>
+                  {LANGUAGE_OPTIONS.map((o) => (
+                    <Option key={o} value={o}>{o}</Option>
+                  ))}
+                </Select>
+                <Select size="small" value={settings.ratio} onChange={(v) => setSettings((s) => ({ ...s, ratio: v }))}>
+                  {RATIO_OPTIONS.map((o) => (
+                    <Option key={o} value={o}>{o}</Option>
+                  ))}
+                </Select>
               </div>
             </div>
 
-            {/* 专属视觉调性要求 */}
-            <div className="mb-5">
-              <h2 className="mb-2 text-[14px] font-bold text-[#0A1B39]">专属视觉调性要求</h2>
-              <Input.TextArea
-                value={extraRequirements}
-                onChange={setExtraRequirements}
-                rows={4}
-                placeholder="例如：浅色极简轻奢风，文字信息与视觉留白舒适平衡，高档感十足"
-                className="rounded-lg text-[12px]"
-              />
+            {/* 商品卖点&要求 + AI 帮写胶囊（对照旧版） */}
+            <div className="mb-2 flex items-center justify-between">
+              <h2 className="m-0 text-[14px] font-bold text-[#171A1D]">
+                商品卖点&要求 <span className="cursor-help text-[13px] text-[#86909C]" title="填写产品名、卖点、人群和场景，AI 生图更精准">?</span>
+              </h2>
+              <button
+                type="button"
+                onClick={() => void handleAiHelp()}
+                disabled={aiWriting || !uploadedImages.length}
+                className="flex h-7 cursor-pointer items-center gap-1 rounded-full border border-[#D9E8FF] bg-white px-2.5 text-[12px] font-medium text-[#1683FF] shadow-sm disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {aiWriting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                {aiWriting ? '帮写中' : 'AI 帮写'}
+              </button>
             </div>
+            <textarea
+              className="mb-4 h-[114px] w-full resize-none rounded-lg border border-[#DDE3EC] bg-white p-3 text-[12px] leading-[20px] text-[#5F6B7A] outline-none focus:border-[#4690FF]"
+              value={detailGenerationText}
+              onChange={(event) => setDetailGenerationText(event.target.value)}
+              placeholder={'建议包含以下信息生成更精准：\n1.产品名称\n2.核心卖点\n3.适用人群\n4.期望场景\n5.具体参数'}
+            />
 
-            {/* 包含模块（多选）：grid-cols-2 16 个模块勾选钮（对照旧版） */}
-            <div className="mb-5">
-              <h2 className="mb-2 text-[14px] font-bold text-[#0A1B39]">包含模块（多选）</h2>
+            {/* 包含模块（多选）：对照旧版灰卡 + 勾选框样式 */}
+            <div className="mb-4">
+              <h2 className="m-0 mb-2 text-[14px] font-bold text-[#171A1D]">
+                包含模块（多选） <span className="cursor-help text-[13px] text-[#86909C]" title="勾选需要生成的详情图模块">?</span>
+              </h2>
               <div className="grid grid-cols-2 gap-3">
-                {ALL_MODULES.map((def) => {
-                  const checked = selectedKeys.has(def.key)
+                {MODULES.map((m) => {
+                  const isChecked = checked.includes(m.title)
                   return (
                     <button
-                      key={def.key}
+                      key={m.title}
                       type="button"
-                      onClick={() => toggleModuleKey(def)}
-                      className={`cursor-pointer rounded-lg border p-2.5 text-left transition-colors ${
-                        checked ? 'border-[#1683FF] bg-[#1683FF] text-white' : 'border-[#e5e8ef] bg-white text-[#0A1B39] hover:border-[#b8d7ff]'
-                      }`}
+                      onClick={() => toggleModule(m.title)}
+                      className="cursor-pointer rounded-lg bg-[#F2F3F5] p-3 text-left"
                     >
-                      <p className="m-0 text-[12px] font-bold">{def.title}</p>
-                      <p className={`m-0 mt-0.5 text-[10px] ${checked ? 'text-white/80' : 'text-[#86909C]'}`}>{def.desc}</p>
+                      <div className="flex items-center gap-2 text-[13px] font-semibold text-[#171A1D]">
+                        <span
+                          className={`grid h-4 w-4 shrink-0 place-items-center rounded-[4px] ${
+                            isChecked ? 'bg-[#1683FF] text-white' : 'border border-[#D7DCE3] bg-white text-transparent'
+                          }`}
+                        >
+                          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                            <path d="M2.5 6L5 8.5L9.5 3.5" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                        </span>
+                        <span className="truncate">{m.title}</span>
+                      </div>
+                      <p className="m-0 mt-1 text-[12px] text-[#8B949E]">{m.desc}</p>
                     </button>
                   )
                 })}
@@ -339,13 +408,11 @@ export function APlusDetailPage() {
           </>
         ) : (
           <>
-            {/* 详情页规划卡（对照旧版折叠 max-h-[112px] + 展开钮） */}
+            {/* 详情页规划（对照旧版折叠卡） */}
             <div className="mb-4 rounded-xl border border-[#e5e8ef] bg-white p-3">
-              <div className={`overflow-hidden transition-all ${strategyExpanded ? '' : 'max-h-[112px]'}`}>
-                <p className="m-0 text-[12px] font-bold leading-5 text-[#344054]">
-                  已按「{keyword || '当前商品'}」与目标平台「{platform}」规划 {selectedModules.length} 个详情切片模块及其专属提示词，
-                  可在下方逐条微调后开始生成。
-                </p>
+              <h2 className="m-0 mb-2 text-[14px] font-bold text-[#171A1D]">详情页规划</h2>
+              <div className={`overflow-hidden text-[12px] leading-5 text-[#5F6B7A] transition-all ${strategyExpanded ? '' : 'max-h-[112px]'}`}>
+                已为「{settings.platform} · {settings.country}」规划 {strategyModuleCount} 个详情模块，按顺序生成；可在下方逐条微调模块提示词后开始生成详情图。
               </div>
               <button
                 type="button"
@@ -357,21 +424,30 @@ export function APlusDetailPage() {
               </button>
             </div>
 
-            {/* 模块提示词列表（对照旧版 space-y-3 bg-[#F5F6F8] 项） */}
+            {/* 模块提示词（对照旧版列表，支持排序） */}
+            <div className="mb-2 flex items-center justify-between">
+              <h2 className="m-0 text-[14px] font-bold text-[#171A1D]">模块提示词</h2>
+              <span className="text-[12px] text-[#86909C]">{strategyModules.length} 个模块</span>
+            </div>
             <div className="space-y-3">
-              {selectedModules.map((mod, index) => (
+              {strategyModules.map((mod, index) => (
                 <div key={mod.instanceId} className="rounded-lg bg-[#F5F6F8] p-3">
                   <div className="mb-2 flex items-center justify-between gap-2">
-                    <div className="flex min-w-0 items-center gap-1.5 text-[#86909C]">
-                      <GripVertical className="h-3.5 w-3.5 shrink-0" />
-                      <span className="truncate text-[12px] font-bold text-[#0A1B39]">
-                        #{index + 1} {mod.title}
-                      </span>
-                    </div>
+                    <span className="truncate text-[12px] font-bold text-[#171A1D]">
+                      #{index + 1} {mod.title}
+                    </span>
                     <div className="flex shrink-0 items-center gap-1">
                       <button
                         type="button"
-                        onClick={() => moveUp(index)}
+                        onClick={() => {
+                          setOrderedTitles((prev) => {
+                            const titles = prev.length ? [...prev] : strategyModules.map((m) => m.title)
+                            const i = titles.indexOf(mod.title)
+                            if (i <= 0) return prev
+                            ;[titles[i - 1], titles[i]] = [titles[i], titles[i - 1]]
+                            return titles
+                          })
+                        }}
                         className="grid h-6 w-6 cursor-pointer place-items-center rounded border-0 bg-transparent text-[#86909C] hover:bg-white"
                         title="上移"
                       >
@@ -379,7 +455,15 @@ export function APlusDetailPage() {
                       </button>
                       <button
                         type="button"
-                        onClick={() => moveDown(index)}
+                        onClick={() => {
+                          setOrderedTitles((prev) => {
+                            const titles = prev.length ? [...prev] : strategyModules.map((m) => m.title)
+                            const i = titles.indexOf(mod.title)
+                            if (i < 0 || i >= titles.length - 1) return prev
+                            ;[titles[i + 1], titles[i]] = [titles[i], titles[i + 1]]
+                            return titles
+                          })
+                        }}
                         className="grid h-6 w-6 cursor-pointer place-items-center rounded border-0 bg-transparent text-[#86909C] hover:bg-white"
                         title="下移"
                       >
@@ -388,11 +472,8 @@ export function APlusDetailPage() {
                       <button
                         type="button"
                         onClick={() => {
-                          if (selectedModules.length <= 1) {
-                            Message.warning('至少保留 1 个详情图模块')
-                            return
-                          }
                           setSelectedModules((prev) => prev.filter((m) => m.instanceId !== mod.instanceId))
+                          setOrderedTitles((prev) => prev.filter((t) => t !== mod.title))
                         }}
                         className="grid h-6 w-6 cursor-pointer place-items-center rounded border-0 bg-transparent text-[#c62828] hover:bg-white"
                         title="移除"
@@ -413,186 +494,185 @@ export function APlusDetailPage() {
                   />
                 </div>
               ))}
+              {strategyModules.length === 0 && (
+                <div className="rounded-lg bg-[#F5F6F8] px-3 py-6 text-center text-[12px] text-[#8B949E]">
+                  暂无模块提示词，请返回上一步重新生成。
+                </div>
+              )}
             </div>
           </>
         )}
 
-        {/* 吸底操作条（strategy 步=上一步+生成详情图双钮；form 步=单钮） */}
+        {/* 吸底操作条（对照旧版：form 步深色全宽三态文案 / strategy 步上一步+生成详情图） */}
         <div className="sticky bottom-0 -mx-5 mt-4 border-t border-[#EEF1F5] bg-white p-4">
-          {step === 'form' ? (
-            <Button
-              type="primary"
-              long
-              size="large"
-              loading={workflowPlanning}
-              onClick={handlePlanWorkflow}
-              className="rounded-lg font-bold"
-            >
-              <Sparkles className="mr-1 inline h-4 w-4" />
-              生成详情工作流与提示词
-            </Button>
-          ) : (
+          {step === 'strategy' ? (
             <div className="flex gap-3">
-              <Button
-                size="large"
-                disabled={batchGenerating}
+              <button
+                type="button"
                 onClick={() => setStep('form')}
-                className="w-[96px] shrink-0 rounded-lg font-bold"
+                disabled={batchGenerating}
+                className="h-10 w-[96px] shrink-0 cursor-pointer rounded-lg border-0 bg-[#F2F3F5] text-[13px] font-semibold text-[#171A1D] transition-colors hover:bg-[#E8EAED] disabled:opacity-60"
               >
                 上一步
-              </Button>
-              <Button
-                type="primary"
-                long
-                size="large"
-                loading={batchGenerating}
+              </button>
+              <button
+                type="button"
                 onClick={handleBatchGenerateAll}
-                className="rounded-lg font-bold"
+                disabled={batchGenerating || strategyStatus !== 'ready' || !uploadedImages.length}
+                className={`h-10 flex-1 cursor-pointer rounded-lg border-0 text-[13px] font-semibold text-white transition-colors ${
+                  strategyStatus === 'ready' && uploadedImages.length && !batchGenerating
+                    ? 'bg-[#171A1D] hover:bg-[#2A2F36]'
+                    : 'bg-[#C4C6CA]'
+                } disabled:cursor-not-allowed`}
               >
-                {batchGenerating ? '正在生成详情图...' : `生成详情图（${selectedModules.length} 张）`}
-              </Button>
+                {batchGenerating ? '正在生成...' : `生成详情图（${strategyModuleCount}张）`}
+              </button>
             </div>
+          ) : (
+            <button
+              type="button"
+              onClick={handlePlanWorkflow}
+              disabled={!uploadedImages.length || strategyStatus === 'generating' || batchGenerating}
+              className={`h-10 w-full cursor-pointer rounded-lg border-0 text-[13px] font-semibold text-white transition-colors ${
+                uploadedImages.length && strategyStatus !== 'generating' && !batchGenerating
+                  ? 'bg-[#171A1D] hover:bg-[#2A2F36]'
+                  : 'bg-[#505154]'
+              } disabled:cursor-not-allowed`}
+            >
+              {strategyStatus === 'generating' ? '生成中...' : uploadedImages.length ? '生成详情页规划和提示词' : '请上传产品图'}
+            </button>
           )}
         </div>
       </div>
 
-      {/* ===================== 右侧画布区 ===================== */}
+      {/* ===================== 右侧画布区（对照旧版示例卡 + 结果视图） ===================== */}
       <div className="h-full min-w-0 flex-1 overflow-y-auto p-6 custom-scrollbar">
-        {selectedModules.every((m) => m.status !== 'done') ? (
-          /* 默认态：标题 + 示例展卡（对照旧版 h-[444px] w-[792px]） */
-          <div className="mx-auto flex min-h-full max-w-[1000px] flex-col items-center justify-center py-8 text-center">
-            <h1 className="m-0 text-[32px] font-extrabold text-[#0A1B39] tracking-tight">详情图</h1>
-            <p className="m-0 mt-2 text-[14px] text-[#86909C]">
-              上传商品图，AI 即刻生成 <span className="font-bold text-[#3388ff]">符合多电商平台规范</span> 的专业详情图。
-            </p>
-
-            <div className="mt-8 flex h-[444px] w-[792px] items-center justify-center gap-4 rounded-2xl border border-[#eef2f8] bg-white p-6 shadow-[0_8px_32px_rgba(29,38,52,0.06)]">
-              {/* 左：三产品图 grid-rows-3 */}
-              <div className="grid h-[396px] w-[123px] shrink-0 grid-rows-3 gap-2">
-                {[mainHeadphone, sceneDisplay, sellingPoint].map((src, i) => (
-                  <div key={i} className="overflow-hidden rounded-lg border border-[#f0f2f5] bg-[#fafbfc]">
-                    <img src={src} alt={`产品图 ${i + 1}`} className="h-full w-full object-cover" />
-                  </div>
-                ))}
-              </div>
-
-              <svg className="h-5 w-5 shrink-0 text-[#c0c4cc]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M5 12h14m-6-6 6 6-6 6" />
-              </svg>
-
-              {/* 中：详情长图 */}
-              <div className="h-[396px] w-[111px] shrink-0 overflow-hidden rounded-lg border border-[#f0f2f5] bg-[#fafbfc]">
-                <img src={modelScene} alt="详情长图" className="h-full w-full object-cover" />
-              </div>
-
-              <svg className="h-5 w-5 shrink-0 text-[#c0c4cc]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M5 12h14m-6-6 6 6-6 6" />
-              </svg>
-
-              {/* 右：六横幅 grid-cols-2 grid-rows-3 */}
-              <div className="grid h-[396px] w-[420px] shrink-0 grid-cols-2 grid-rows-3 gap-2">
-                {[detailExplain, sellingPoint, sceneDisplay, modelScene, mainHeadphone, detailExplain].map((src, i) => (
-                  <div key={i} className="overflow-hidden rounded-lg border border-[#f0f2f5] bg-[#fafbfc]">
-                    <img src={src} alt={`横幅 ${i + 1}`} className="h-full w-full object-cover" />
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        ) : (
-          /* 结果态：模块流网格（对照旧版 grid-cols-3） */
-          <div className="mx-auto max-w-[1200px] pb-12">
-            <div className="mb-6 flex items-center justify-between border-b border-[#e5e8ef] pb-4">
-              <div>
-                <h2 className="m-0 text-[20px] font-extrabold text-[#0A1B39]">详情图工作台</h2>
-                <p className="m-0 mt-0.5 text-[12px] text-[#86909C]">
-                  已完成 {selectedModules.filter((m) => m.status === 'done').length}/{selectedModules.length} 张详情切片生成，支持单独渲染与打包下载。
+        <div className={`flex min-h-full ${hasResults ? 'items-start justify-start' : 'items-center justify-center'}`}>
+          <div className={`w-full pb-10 text-center ${hasResults ? 'max-w-none' : 'max-w-[980px]'}`}>
+            {!hasResults && (
+              <>
+                <h1 className="m-0 text-[32px] font-bold leading-tight text-[#171A1D]">详情图</h1>
+                <p className="m-0 mt-3 text-[14px] leading-6 text-[#5F6B7A]">
+                  上传商品图，AI 即刻生成 <span className="font-semibold text-[#1683FF]">符合多电商平台规范</span> 的专业详情图。
                 </p>
-              </div>
-              <div className="flex items-center gap-3">
-                <Button
-                  icon={<Download className="h-3.5 w-3.5" />}
-                  onClick={handleBatchDownload}
-                  className="rounded-lg"
-                >
-                  打包下载详情图
-                </Button>
-              </div>
-            </div>
+              </>
+            )}
 
-            <div className="grid grid-cols-3 gap-4">
-              {selectedModules.map((mod, index) => (
-                <div key={mod.instanceId} className="overflow-hidden rounded-xl border border-[#e5eaf2] bg-white shadow-sm">
-                  <div className="relative mb-3 flex aspect-square items-center justify-center overflow-hidden rounded-lg bg-[#f4f7fb]">
-                    {mod.status === 'generating' ? (
-                      <div className="flex flex-col items-center gap-2">
-                        <Loader2 className="h-6 w-6 animate-spin text-[#3388ff]" />
-                        <span className="text-[11px] text-[#86909C]">AI 渲染中...</span>
-                      </div>
-                    ) : mod.imageUrl ? (
-                      <img
-                        src={mod.imageUrl}
-                        alt={mod.title}
-                        className="h-full w-full cursor-zoom-in object-cover"
-                        onClick={() => setPreviewModalUrl(mod.imageUrl!)}
-                      />
-                    ) : (
-                      <div className="text-center">
-                        <Eye className="mx-auto mb-1 h-8 w-8 text-[#c9d5e8]" />
-                        <span className="text-[11px] text-[#86909C]">等待生成</span>
-                      </div>
-                    )}
-                    <span className="absolute left-2 top-2 rounded bg-black/60 px-2 py-0.5 text-[10px] font-bold text-white">
-                      #{index + 1} {mod.title}
-                    </span>
-                    {mod.status === 'failed' && (
-                      <span className="absolute inset-x-2 bottom-2 rounded bg-[#ffEBEE]/95 px-2 py-1 text-[10px] font-bold text-[#c62828]">
-                        {mod.error || '生成失败'}
-                      </span>
-                    )}
+            <div className={hasResults ? 'mt-0' : 'mt-12'}>
+              {hasResults ? (
+                /* 结果视图 */
+                <div className="text-left">
+                  <div className="mb-5 flex items-center justify-between border-b border-[#e5e8ef] pb-4">
+                    <h2 className="m-0 text-[20px] font-extrabold text-[#171A1D]">详情图生成结果</h2>
+                    <Button
+                      icon={<Download className="h-3.5 w-3.5" />}
+                      onClick={() => {
+                        const done = selectedModules.filter((m) => m.imageUrl)
+                        if (!done.length) {
+                          Message.warning('当前暂无可下载的已生成详情图')
+                          return
+                        }
+                        done.forEach((m, idx) => setTimeout(() => handleDownloadImage(m.imageUrl!, `${idx + 1}_${m.title}.png`), idx * 300))
+                        Message.success(`已开始下载 ${done.length} 张详情长图模块`)
+                      }}
+                      className="rounded-lg"
+                    >
+                      打包下载详情图
+                    </Button>
                   </div>
-
-                  <div className="space-y-2 p-3.5 pt-0">
-                    <div className="flex items-center justify-between">
-                      <p className="m-0 truncate text-[13px] font-bold text-[#0A1B39]">{mod.title}</p>
-                      <span
-                        className={`rounded px-2 py-0.5 text-[10px] font-bold ${
-                          mod.status === 'done' ? 'bg-[#e8f5e9] text-[#2e7d32]' : mod.status === 'failed' ? 'bg-[#ffEBEE] text-[#c62828]' : 'bg-[#f0f7ff] text-[#3388ff]'
-                        }`}
-                      >
-                        {mod.status === 'done' ? '已生成' : mod.status === 'failed' ? '失败' : mod.status === 'generating' ? '生成中' : '待生成'}
-                      </span>
-                    </div>
-
-                    <p className="m-0 line-clamp-2 text-[11px] leading-4 text-[#86909C]">{mod.prompt}</p>
-
-                    <div className="flex items-center justify-between border-t border-[#f0f2f5] pt-2">
-                      <Button
-                        size="mini"
-                        type="text"
-                        loading={mod.status === 'generating'}
-                        onClick={() => generateSingleModuleImage(mod.instanceId)}
-                      >
-                        单独渲染
-                      </Button>
-                      {mod.imageUrl && (
-                        <Button
-                          size="mini"
-                          type="text"
-                          icon={<Download className="h-3 w-3" />}
-                          onClick={() => handleDownloadImage(mod.imageUrl!, `${index + 1}_${mod.title}.png`)}
-                        >
-                          下载
-                        </Button>
-                      )}
-                    </div>
+                  <div className="grid grid-cols-3 gap-4">
+                    {selectedModules.map((mod, index) => (
+                      <div key={mod.instanceId} className="overflow-hidden rounded-xl border border-[#e5eaf2] bg-white shadow-sm">
+                        <div className="relative mb-3 flex aspect-square items-center justify-center overflow-hidden rounded-lg bg-[#f4f7fb]">
+                          {mod.status === 'generating' ? (
+                            <div className="flex flex-col items-center gap-2">
+                              <Loader2 className="h-6 w-6 animate-spin text-[#3388ff]" />
+                              <span className="text-[11px] text-[#86909C]">AI 渲染中...</span>
+                            </div>
+                          ) : mod.imageUrl ? (
+                            <img src={mod.imageUrl} alt={mod.title} className="h-full w-full cursor-zoom-in object-cover" onClick={() => setPreviewModalUrl(mod.imageUrl!)} />
+                          ) : (
+                            <div className="text-center">
+                              <Eye className="mx-auto mb-1 h-8 w-8 text-[#c9d5e8]" />
+                              <span className="text-[11px] text-[#86909C]">等待生成</span>
+                            </div>
+                          )}
+                          <span className="absolute left-2 top-2 rounded bg-black/60 px-2 py-0.5 text-[10px] font-bold text-white">
+                            #{index + 1} {mod.title}
+                          </span>
+                          {mod.status === 'failed' && (
+                            <span className="absolute inset-x-2 bottom-2 rounded bg-[#ffEBEE]/95 px-2 py-1 text-[10px] font-bold text-[#c62828]">
+                              {mod.error || '生成失败'}
+                            </span>
+                          )}
+                        </div>
+                        <div className="space-y-2 p-3.5 pt-0">
+                          <p className="m-0 line-clamp-2 text-[11px] leading-4 text-[#86909C]">{mod.prompt}</p>
+                          <div className="flex items-center justify-between border-t border-[#f0f2f5] pt-2">
+                            <Button size="mini" type="text" loading={mod.status === 'generating'} onClick={() => generateSingleModuleImage(mod.instanceId)}>
+                              单独渲染
+                            </Button>
+                            {mod.imageUrl && (
+                              <Button size="mini" type="text" icon={<Download className="h-3 w-3" />} onClick={() => handleDownloadImage(mod.imageUrl!, `${index + 1}_${mod.title}.png`)}>
+                                下载
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
-              ))}
+              ) : (
+                /* 默认态：示例卡（对照旧版 h-444 w-792 rounded-20 + 三产品图/长图/六宫格浮层） */
+                <div className="mx-auto flex h-[444px] w-[792px] items-center gap-4 rounded-[20px] bg-white p-6 shadow-[0_18px_40px_rgba(31,37,45,.06)]">
+                  <div className="grid h-[396px] w-[123px] shrink-0 grid-rows-3 gap-1.5">
+                    {[mainHeadphone, sceneDisplay, sellingPoint].map((src, i) => (
+                      <div key={i} className="relative overflow-hidden rounded-[14px] bg-[#dbe4f0]">
+                        <img src={src} alt={`产品图 ${i + 1}`} className="h-full w-full object-contain" />
+                        {i === 2 && (
+                          <span className="absolute inset-x-2 bottom-2 rounded-full bg-black/35 py-1.5 text-center text-[12px] font-semibold text-white">上传产品图</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="flex h-[396px] w-10 shrink-0 items-center justify-center">
+                    <svg className="w-[40px] text-[#c0c4cc]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M5 12h14m-6-6 6 6-6 6" />
+                    </svg>
+                  </div>
+
+                  <div className="relative h-[396px] w-[111px] shrink-0 overflow-hidden rounded-[18px] bg-[#dbe4f0]">
+                    <img src={modelScene} alt="电商详情长图" className="h-full w-full object-contain" />
+                    <span className="absolute inset-x-2 bottom-2 rounded-full bg-black/45 py-1.5 text-center text-[12px] font-semibold text-white">生成电商长图</span>
+                  </div>
+
+                  <div className="grid h-[396px] w-[420px] shrink-0 grid-cols-2 grid-rows-3 gap-1.5 overflow-hidden rounded-[18px]">
+                    {[detailExplain, sellingPoint, sceneDisplay, modelScene, mainHeadphone, detailExplain].map((src, i) => (
+                      <div key={i} className="relative overflow-hidden bg-[#dbe4f0]">
+                        <img src={src} alt={`详情横幅 ${i + 1}`} className="h-full w-full object-contain" />
+                        {i === 5 && (
+                          <span className="absolute inset-x-2 bottom-2 rounded-full bg-black/50 py-1.5 text-center text-[12px] font-semibold text-white">符合多电商平台规范</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
-        )}
+        </div>
       </div>
+
+      {/* 右下帮助钮（对照旧版） */}
+      <button
+        type="button"
+        className="absolute bottom-6 right-8 grid h-14 w-14 cursor-pointer place-items-center rounded-full border-0 bg-white text-xl text-[#4e5969] shadow-md"
+        title="帮助"
+      >
+        ?
+      </button>
 
       {/* 大图预览 */}
       {previewModalUrl && (
