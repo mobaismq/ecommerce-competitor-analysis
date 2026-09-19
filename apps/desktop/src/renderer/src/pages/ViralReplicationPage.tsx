@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { XInput } from '../components/XInput'
 import { Button, Input, Message, Modal, Select } from '@arco-design/web-react'
-import { Download, Eye, Loader2, Upload } from 'lucide-react'
+import { Download, Eye, Loader2, Upload, X } from 'lucide-react'
 import { saveAs } from 'file-saver'
 import { nanoid } from 'nanoid'
 
@@ -36,9 +36,37 @@ export function ViralReplicationPage() {
   const [language, setLanguage] = useState('英文')
   const [ratio, setRatio] = useState('1:1')
 
+  const productInputRef = useRef<HTMLInputElement | null>(null)
+  const refImagesInputRef = useRef<HTMLInputElement | null>(null)
+
   const [generating, setGenerating] = useState(false)
   const [results, setResults] = useState<GeneratedImageItem[]>([])
   const [previewImage, setPreviewImage] = useState<GeneratedImageItem | null>(null)
+
+  // 上传产品图：真实文件选择 + FileReader 预览
+  const handleProductUpload = (file: File) => {
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      if (e.target?.result) setProductImage(e.target.result as string)
+    }
+    reader.readAsDataURL(file)
+  }
+
+  // 上传参考图：多选追加，最多 20 张
+  const handleRefImagesUpload = (files: FileList | null) => {
+    const list = Array.from(files || [])
+    if (!list.length) return
+    const slots = 20 - referenceImages.length
+    list.slice(0, slots).forEach((file) => {
+      const reader = new FileReader()
+      reader.onload = (e) => {
+        if (e.target?.result) {
+          setReferenceImages((prev) => (prev.length >= 20 ? prev : [...prev, e.target!.result as string]))
+        }
+      }
+      reader.readAsDataURL(file)
+    })
+  }
 
   // 复刻生成（业务逻辑保持桌面端现状：本地演示流）
   const handleStartReplicate = async () => {
@@ -90,16 +118,47 @@ export function ViralReplicationPage() {
         {/* ① 产品原图（可选）：对照旧版蓝虚线占位 + 灰钮，无预览无删除钮 */}
         <div className="mb-5">
           <span className={LABEL_CLASS}>产品原图(可选)</span>
-          <div className="mb-0 flex h-[94px] flex-col items-center justify-center rounded-lg border border-dashed border-[#8CC4FF] bg-white">
-            <button
-              type="button"
-              onClick={() => setProductImage(productCloth)}
-              className="mb-3 flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-[#F2F3F5] px-4 text-[13px] font-medium text-[#171A1D]"
-            >
-              <Upload className="h-4 w-4" />
-              上传产品图
-            </button>
-            <p className="m-0 text-[12px] text-[#8B949E]">有商品需替换时上传，无商品可跳过</p>
+          <input
+            ref={productInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => {
+              if (e.target.files?.[0]) handleProductUpload(e.target.files[0])
+              e.currentTarget.value = ''
+            }}
+          />
+          <div
+            className="group relative flex h-[94px] cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-[#8CC4FF] bg-white"
+            onClick={() => productInputRef.current?.click()}
+          >
+            {productImage ? (
+              <>
+                <img src={productImage} alt="产品原图" className="absolute inset-0 h-full w-full object-contain p-1.5" />
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setProductImage(null)
+                  }}
+                  className="absolute right-1.5 top-1.5 z-10 grid h-6 w-6 cursor-pointer place-items-center rounded-full border-0 bg-white/90 text-[#c62828] opacity-0 shadow-sm transition-opacity group-hover:opacity-100"
+                  title="移除产品图"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  className="mb-3 flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-[#F2F3F5] px-4 text-[13px] font-medium text-[#171A1D]"
+                >
+                  <Upload className="h-4 w-4" />
+                  上传产品图
+                </button>
+                <p className="m-0 text-[12px] text-[#8B949E]">有商品需替换时上传，无商品可跳过</p>
+              </>
+            )}
           </div>
         </div>
 
@@ -125,16 +184,49 @@ export function ViralReplicationPage() {
           </div>
 
           {referenceMethod === 'upload' ? (
-            <div className="flex h-[94px] flex-col items-center justify-center rounded-lg border border-dashed border-[#E3E7EF] bg-white">
-              <button
-                type="button"
-                onClick={addReferenceImages}
-                className="mb-3 flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-[#F2F3F5] px-4 text-[13px] font-medium text-[#171A1D]"
-              >
-                <Upload className="h-4 w-4" />
-                上传参考图
-              </button>
-              <p className="m-0 text-[12px] text-[#8B949E]">最多20张</p>
+            <div className="rounded-lg border border-dashed border-[#E3E7EF] bg-white">
+              <input
+                ref={refImagesInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                className="hidden"
+                onChange={(e) => {
+                  handleRefImagesUpload(e.target.files)
+                  e.currentTarget.value = ''
+                }}
+              />
+              {referenceImages.length > 0 && (
+                <div className="flex flex-wrap gap-2 p-2.5">
+                  {referenceImages.map((src, idx) => (
+                    <div key={idx} className="group relative h-[62px] w-[62px] overflow-hidden rounded-md border border-[#e5e8ef]">
+                      <img src={src} alt={`参考图 ${idx + 1}`} className="h-full w-full object-cover" />
+                      <button
+                        type="button"
+                        onClick={() => setReferenceImages((prev) => prev.filter((_, i) => i !== idx))}
+                        className="absolute right-0.5 top-0.5 grid h-5 w-5 cursor-pointer place-items-center rounded-full border-0 bg-white/90 text-[#c62828] opacity-0 transition-opacity group-hover:opacity-100"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {referenceImages.length < 20 && (
+                <div
+                  className="flex h-[94px] cursor-pointer flex-col items-center justify-center"
+                  onClick={() => refImagesInputRef.current?.click()}
+                >
+                  <button
+                    type="button"
+                    className="mb-3 flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-[#F2F3F5] px-4 text-[13px] font-medium text-[#171A1D]"
+                  >
+                    <Upload className="h-4 w-4" />
+                    上传参考图
+                  </button>
+                  <p className="m-0 text-[12px] text-[#8B949E]">最多20张</p>
+                </div>
+              )}
             </div>
           ) : (
             <Input
