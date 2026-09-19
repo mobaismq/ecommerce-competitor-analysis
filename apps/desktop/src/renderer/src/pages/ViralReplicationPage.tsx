@@ -204,7 +204,7 @@ export function ViralReplicationPage() {
                       <button
                         type="button"
                         onClick={() => setReferenceImages((prev) => prev.filter((_, i) => i !== idx))}
-                        className="absolute right-0.5 top-0.5 grid h-5 w-5 cursor-pointer place-items-center rounded-full border-0 bg-white/90 text-[#c62828] opacity-0 transition-opacity group-hover:opacity-100"
+                        className="absolute right-1 top-1 grid h-5 w-5 cursor-pointer place-items-center rounded-full border border-[#e5e8ef] bg-white text-[#c62828] shadow-sm opacity-0 transition-opacity group-hover:opacity-100"
                       >
                         <X className="h-3 w-3" />
                       </button>
