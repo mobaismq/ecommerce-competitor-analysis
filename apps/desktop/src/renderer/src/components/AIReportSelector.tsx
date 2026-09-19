@@ -1,9 +1,8 @@
-import { useEffect, useState, type ReactNode } from 'react'
-import { Select, Space, Tag, Tooltip, Typography } from '@arco-design/web-react'
-import { IconBook, IconQuestionCircle } from '@arco-design/web-react/icon'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { ChevronDown, CircleHelp, Loader2, Search } from 'lucide-react'
 import { api } from '../api/client'
 
-export interface SuiteProduct {
+export type SuiteProduct = {
   value: string
   label: string
   keyword?: string
@@ -14,104 +13,159 @@ export interface SuiteProduct {
   latestAt?: string
 }
 
-export function SectionTitle({ children, help = false, tooltip = '' }: { children: ReactNode; help?: boolean; tooltip?: string }) {
+// 标题样式对照旧版 SectionTitle（mb-4 flex gap-1 text-[14px] font-semibold text-[#171A1D] + CircleHelp）
+export function SectionTitle({ children, help = false }: { children: ReactNode; help?: boolean }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12 }}>
-      <Typography.Title heading={6} style={{ margin: 0, fontSize: 14, fontWeight: 700, color: '#1d2129' }}>
-        {children}
-      </Typography.Title>
-      {help && (
-        <Tooltip content={tooltip || '联动竞品分析报告，自动提取核心卖点、价格带与消费者痛点'}>
-          <IconQuestionCircle style={{ color: '#86909c', fontSize: 13, cursor: 'help' }} />
-        </Tooltip>
-      )}
-    </div>
+    <h2 className="mb-4 flex items-center gap-1 text-[14px] font-semibold text-[#171A1D]">
+      {children}
+      {help && <CircleHelp className="h-3.5 w-3.5 text-[#8B949E]" />}
+    </h2>
   )
 }
 
 export interface AIReportSelectorProps {
-  value?: string
+  /** 当前选中的报告 id（受控） */
+  value: string
+  /** 选中/清除报告时回调 */
   onChange: (reportId: string, report: SuiteProduct | null) => void
 }
 
 export function AIReportSelector({ value, onChange }: AIReportSelectorProps) {
-  const [reports, setReports] = useState<SuiteProduct[]>([])
-  const [loading, setLoading] = useState(false)
+  const containerRef = useRef<HTMLDivElement | null>(null)
+  const [suiteProducts, setSuiteProducts] = useState<SuiteProduct[]>([])
+  const [productSearch, setProductSearch] = useState('')
+  const [productDropdownOpen, setProductDropdownOpen] = useState(false)
+  const [loadingProducts, setLoadingProducts] = useState(false)
+  // 记录最近一次选中的报告对象，避免列表尚未刷新时显示空
+  const [recentSelected, setRecentSelected] = useState<SuiteProduct | null>(null)
 
-  async function loadReports() {
-    setLoading(true)
+  const matchedFromList = suiteProducts.find((item) => item.value === value) || null
+  const selectedReport = matchedFromList || (value === recentSelected?.value ? recentSelected : null)
+
+  // 数据流保持桌面端现状：GET /api/reports
+  async function loadReports(search = '') {
+    setLoadingProducts(true)
     try {
-      // 优先从新后端 /api/reports 加载
-      const res = await api.get('/api/reports')
+      const params = new URLSearchParams()
+      if (search.trim()) params.set('keyword', search.trim())
+      const res = await api.get(`/api/reports${params.toString() ? `?${params.toString()}` : ''}`)
       const rows = Array.isArray(res.data) ? res.data : res.data?.items ?? []
-      const items: SuiteProduct[] = rows.map((r: { id: string; title?: string; keyword?: string; status?: string; competitorCount?: number; priceRange?: string; createdAt?: string }) => ({
+      const items: SuiteProduct[] = rows.map((r: Record<string, unknown>) => ({
         value: String(r.id),
         label: String(r.title || r.keyword || `报告 #${r.id}`),
-        keyword: r.keyword || '竞品分析',
+        keyword: (r.keyword as string) || '商品报告',
         count: Number(r.competitorCount || 0),
-        priceRange: r.priceRange || '',
-        status: r.status,
-        reportId: r.id,
-        latestAt: r.createdAt,
+        priceRange: (r.priceMin != null && r.priceMax != null ? `¥${r.priceMin}-${r.priceMax}` : '') as string,
+        status: r.status as string,
+        reportId: r.id as string,
+        latestAt: r.createdAt as string,
       }))
-      setReports(items)
-      // 如果当前没有选中且有报告，自动触发第一项或匹配项
-      if (value) {
-        const found = items.find((it) => it.value === value)
-        if (found) onChange(found.value, found)
-      }
+      setSuiteProducts(items)
     } catch {
-      // 降级兜底
-      setReports([])
+      // 静默失败，UI 仍会显示"暂无已完成的商品报告"
+      setSuiteProducts([])
     } finally {
-      setLoading(false)
+      setLoadingProducts(false)
     }
   }
 
   useEffect(() => {
-    void loadReports()
+    void loadReports('')
   }, [])
 
+  // 点击下拉外部区域时自动收起
+  useEffect(() => {
+    if (!productDropdownOpen) return
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target
+      if (!(target instanceof Node)) return
+      if (containerRef.current && !containerRef.current.contains(target)) {
+        setProductDropdownOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handlePointerDown)
+    return () => document.removeEventListener('mousedown', handlePointerDown)
+  }, [productDropdownOpen])
+
+  function selectReport(product: SuiteProduct) {
+    setRecentSelected(product)
+    onChange(product.value, product)
+    setProductDropdownOpen(false)
+  }
+
+  // 以下结构逐字对照旧版 AIReportSelector.tsx
   return (
-    <div style={{ marginBottom: 16 }}>
-      <SectionTitle help tooltip="选择已完成的竞品分析报告，系统将自动把该报告的提炼卖点填充至生图提示词中">
-        联动竞品 AI 报告
-      </SectionTitle>
-      <Select
-        placeholder="请选择已生成的竞品分析报告..."
-        value={value}
-        loading={loading}
-        allowClear
-        showSearch
-        style={{ width: '100%' }}
-        onChange={(val) => {
-          if (!val) {
-            onChange('', null)
-            return
-          }
-          const item = reports.find((it) => it.value === String(val)) || null
-          onChange(String(val), item)
-        }}
-        renderFormat={(option) => {
-          const item = reports.find((it) => it.value === option?.value)
-          return item ? `${item.label} (${item.keyword} · ${item.count}个竞品)` : ((option as any)?.label ?? '')
-        }}
-      >
-        {reports.map((r) => (
-          <Select.Option key={r.value} value={r.value}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-              <Space size="small">
-                <IconBook style={{ color: '#165dff' }} />
-                <span style={{ fontWeight: 600 }}>{r.label}</span>
-              </Space>
-              <Space size="mini">
-                <Tag size="small" color="arcoblue">{r.keyword}</Tag>
-                {r.count > 0 && <Tag size="small">{r.count}竞品</Tag>}
-              </Space>
+    <>
+      <SectionTitle help>选择AI报告</SectionTitle>
+      <div ref={containerRef} className="relative mb-4">
+        <button
+          type="button"
+          onClick={() => {
+            setProductDropdownOpen((current) => !current)
+            if (!suiteProducts.length) void loadReports('')
+          }}
+          className={`flex h-[44px] w-full cursor-pointer items-center justify-between rounded-lg border-0 px-3 text-left text-[13px] font-medium transition-colors ${
+            productDropdownOpen ? 'bg-white text-[#171A1D] ring-1 ring-[#3388ff]' : 'bg-[#F2F3F5] text-[#171A1D] hover:bg-[#ECEFF4]'
+          }`}
+        >
+          <span className={`min-w-0 truncate ${selectedReport ? 'text-[#171A1D]' : 'text-[#8B949E]'}`}>
+            {selectedReport ? selectedReport.label : '选择已完成的商品报告'}
+          </span>
+          {loadingProducts ? (
+            <Loader2 className="h-4 w-4 shrink-0 animate-spin text-[#8B949E]" />
+          ) : (
+            <ChevronDown className={`h-5 w-5 shrink-0 text-[#0A1B39] transition-transform ${productDropdownOpen ? 'rotate-180' : ''}`} />
+          )}
+        </button>
+        {productDropdownOpen && (
+          <div className="absolute left-0 right-0 top-[50px] z-40 rounded-lg border border-[#E5EAF2] bg-white p-2 shadow-[0_14px_32px_rgba(15,23,41,.14)]">
+            <div className="relative mb-2">
+              <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#c0c4cc]" />
+              <input
+                value={productSearch}
+                onChange={(event) => setProductSearch(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') void loadReports(productSearch)
+                }}
+                placeholder="搜索报告关键词"
+                className="h-8 w-full rounded-lg border border-[#DDE3EC] bg-white pl-8 pr-3 text-[12px] text-[#171A1D] outline-none focus:border-[#3388ff]"
+              />
             </div>
-          </Select.Option>
-        ))}
-      </Select>
-    </div>
+            <div className="max-h-[230px] overflow-y-auto custom-scrollbar">
+              {suiteProducts.length ? (
+                suiteProducts.map((product) => (
+                  <button
+                    key={product.value}
+                    type="button"
+                    onClick={() => selectReport(product)}
+                    className={`mb-1 w-full cursor-pointer rounded-lg border-0 px-3 py-2 text-left transition-colors last:mb-0 ${
+                      value === product.value ? 'bg-[#EAF4FF]' : 'bg-white hover:bg-[#F5F6F8]'
+                    }`}
+                  >
+                    <div className={`truncate text-[13px] font-semibold ${value === product.value ? 'text-[#1683FF]' : 'text-[#171A1D]'}`}>
+                      {product.label}
+                    </div>
+                    <div className="mt-1 truncate text-[11px] text-[#8B949E]">
+                      {product.keyword || '商品报告'} · {product.priceRange || '价格区间未记录'} · {product.count || 0} 个竞品
+                    </div>
+                  </button>
+                ))
+              ) : (
+                <div className="rounded-lg bg-[#F8FAFC] px-3 py-4 text-center text-[12px] text-[#8B949E]">
+                  {loadingProducts ? '正在读取报告' : '暂无已完成的商品报告'}
+                </div>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => void loadReports(productSearch)}
+              className="mt-2 h-8 w-full cursor-pointer rounded-lg border-0 bg-[#F2F3F5] text-[12px] font-semibold text-[#3388ff] transition-colors hover:bg-[#EAF4FF]"
+            >
+              刷新报告
+            </button>
+          </div>
+        )}
+      </div>
+    </>
   )
 }
