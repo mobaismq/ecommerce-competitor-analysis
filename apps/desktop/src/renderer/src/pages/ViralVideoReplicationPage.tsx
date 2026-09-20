@@ -1,11 +1,11 @@
 import { useRef, useState } from 'react'
-import { Check, ChevronDown, ChevronUp, Copy, Download, Link2, Loader2, Play, Plus, Sparkles, Upload, X } from 'lucide-react'
+import { Check, ChevronDown, Copy, Download, Link2, Loader2, Lock, Play, Plus, Sparkles, Upload } from 'lucide-react'
 import { Button, Message, Modal, Select } from '@arco-design/web-react'
 import { SectionTitle } from '../components/AIReportSelector'
 import { api } from '../api/client'
 import { nanoid } from 'nanoid'
 
-// 8 种类型封面图
+// 8 种类型封面图（本地 assets，禁止外链）
 import imgUgc from '../assets/video-types/image-11.png'
 import imgDrama from '../assets/video-types/image-26.png'
 import imgOral from '../assets/video-types/image-27.png'
@@ -14,6 +14,11 @@ import imgUnbox from '../assets/video-types/image-9.png'
 import imgScene from '../assets/video-types/image-10.png'
 import imgCompare from '../assets/video-types/image-12.png'
 import imgTutorial from '../assets/video-types/image-1.png'
+
+// TODO(演示数据登记)：本页结果列表/封面/视频源均为前端本地演示数据，
+// 未对接真实后端。接入真实接口（POST /api/videos/replicate 的权威响应）
+// 后，应将 GeneratedVideoItem 的 coverUrl/videoUrl/scriptSummary 整体替换为
+// 服务端返回的字段，标题与文案不得再编造外链。
 
 const Option = Select.Option
 
@@ -24,25 +29,26 @@ interface VideoTypeCard {
   image: string
 }
 
+// 右画布类型卡矩阵：desc 逐字对齐旧版 VIDEO_TYPE_CARDS（legacy:14-21）
 const VIDEO_TYPES: VideoTypeCard[] = [
-  { id: 'ugc', label: 'UGC 种草', desc: '用户视角真实分享', image: imgUgc },
-  { id: 'drama', label: '带货短剧', desc: '微短剧反转剧情', image: imgDrama },
-  { id: 'oral', label: '产品口播', desc: '达人正脸讲解', image: imgOral },
-  { id: 'demo', label: '产品演示', desc: '核心功能实操', image: imgDemo },
-  { id: 'unbox', label: '开箱测评', desc: '真实拆箱仪式感', image: imgUnbox },
-  { id: 'scene', label: '场景种草', desc: '生活场景融入', image: imgScene },
-  { id: 'compare', label: '对比评测', desc: '竞品实测对比', image: imgCompare },
-  { id: 'tutorial', label: '教程视频', desc: '新手上手攻略', image: imgTutorial },
+  { id: 'ugc', label: 'UGC 种草', desc: '用户视角真实分享体验', image: imgUgc },
+  { id: 'drama', label: '带货短剧', desc: '短剧带货情节植入', image: imgDrama },
+  { id: 'oral', label: '产品口播', desc: '面对镜头讲解产品卖点', image: imgOral },
+  { id: 'demo', label: '产品演示', desc: '多角度展示 + 使用演示', image: imgDemo },
+  { id: 'unbox', label: '开箱测评', desc: '真实开箱 + 功能体验', image: imgUnbox },
+  { id: 'scene', label: '场景种草', desc: '生活场景自然融入产品', image: imgScene },
+  { id: 'compare', label: '对比评测', desc: '竞品对比突出优势', image: imgCompare },
+  { id: 'tutorial', label: '教程视频', desc: '使用教程 + 技巧分享', image: imgTutorial },
 ]
 
-const MARKETS = ['北美市场', '欧洲市场', '东南亚市场', '日韩市场', '中东市场', '拉美市场', '澳洲市场', '全球通用']
-const LANGUAGES = ['英语', '中文', '日语', '韩语', '德语', '法语', '西班牙语', '葡萄牙语', '阿拉伯语', '泰语', '越南语']
-const RATIOS = [
-  { label: 'TikTok / Reels · 9:16', value: '9:16' },
-  { label: '小红书笔记 · 3:4', value: '3:4' },
-  { label: '淘宝/天猫主图 · 1:1', value: '1:1' },
-  { label: 'YouTube / 亚马逊 · 16:9', value: '16:9' },
-]
+// 目标市场（旧版 legacy:24，无「市场」后缀）
+const MARKETS = ['北美', '欧洲', '东南亚', '日韩', '中东', '拉美', '澳洲', '全球']
+// 语言（旧版 legacy:25，共 13 项，含 日文/韩文/意大利文/印尼文）
+const LANGUAGES = ['英语', '中文', '日文', '韩文', '德文', '法文', '意大利文', '西班牙文', '葡萄牙文', '阿拉伯文', '泰文', '越南文', '印尼文']
+// 比例（旧版 legacy:26，共 6 项，含 抖音 · 9:16）
+const RATIOS = ['TikTok/Reels · 9:16', '抖音 · 9:16', '小红书 · 9:16', '淘宝主图 · 1:1', 'YouTube · 16:9', '亚马逊 · 16:9']
+// 左面板「视频类型」钮 options（旧版 legacy:27，含 TVC广告/痛点解决/开箱种草/反应展示）
+const VIDEO_TYPE_OPTIONS = ['UGC 种草', '带货短剧', '产品演示', '产品口播', 'TVC广告', '痛点解决', '开箱种草', '反应展示']
 const GEN_STEPS = ['卖点分析', '脚本生成', '画面渲染', '音频对齐']
 
 interface GeneratedVideoItem {
@@ -61,23 +67,19 @@ interface GeneratedVideoItem {
 export function ViralVideoReplicationPage() {
   const [activeTab, setActiveTab] = useState<'generate' | 'replicate'>('generate')
 
-  // 表单状态（业务逻辑保持桌面端现状）
-  const [selectedTypes, setSelectedTypes] = useState<string[]>(['ugc'])
-  const [market, setMarket] = useState('北美市场')
+  // 表单状态（对齐旧版默认值）
+  const [selectedTypes, setSelectedTypes] = useState<string[]>(['ugc']) // 右画布卡片
+  const [selectedTypeOptions, setSelectedTypeOptions] = useState<string[]>(['UGC 种草']) // 左面板类型钮
+  const [market, setMarket] = useState('北美')
   const [language, setLanguage] = useState('英语')
-  const [ratio, setRatio] = useState('9:16')
-  const [sellingPoints, setSellingPoints] = useState(
-    '1. 航空铝合金高刚性机身，轻薄亲肤佩戴\n2. 智能 AI 睡眠与心率全天候精准追踪\n3. 5ATM 深度防水，强劲续航达 14 天',
-  )
+  const [ratio, setRatio] = useState('TikTok/Reels · 9:16')
+  const [sellingPoints, setSellingPoints] = useState('')
   const [replicateUrl, setReplicateUrl] = useState('')
-  const [fissionCount, setFissionCount] = useState(2)
-  const [productImage, setProductImage] = useState<string>(
-    'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=500&q=80',
-  )
+  const [fissionCount, setFissionCount] = useState(1)
+  const [productImage, setProductImage] = useState<string>('')
   const [mode, setMode] = useState<'type' | 'script'>('type')
   const [authorized, setAuthorized] = useState(false)
   const [scriptText, setScriptText] = useState('')
-  const [aiWriting, setAiWriting] = useState(false)
 
   // 生成状态
   const [generating, setGenerating] = useState(false)
@@ -87,21 +89,14 @@ export function ViralVideoReplicationPage() {
 
   const productInputRef = useRef<HTMLInputElement | null>(null)
 
+  // 右画布类型卡：可取消至 0 个（旧版可空）
   const toggleType = (id: string) => {
-    setSelectedTypes((prev) =>
-      prev.includes(id) ? (prev.length > 1 ? prev.filter((t) => t !== id) : prev) : [...prev, id],
-    )
+    setSelectedTypes((prev) => (prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id]))
   }
 
-  // AI 帮写（旧版胶囊按钮；桌面端本地模板起步）
-  const handleAiHelp = async () => {
-    setAiWriting(true)
-    try {
-      await new Promise((resolve) => setTimeout(resolve, 500))
-      if (!sellingPoints.trim()) setSellingPoints('1.\n2.\n3.')
-    } finally {
-      setAiWriting(false)
-    }
+  // 左面板类型钮：可取消至 0 个（旧版可空）
+  const toggleTypeOption = (label: string) => {
+    setSelectedTypeOptions((prev) => (prev.includes(label) ? prev.filter((t) => t !== label) : [...prev, label]))
   }
 
   // 上传产品图（真实文件选择 + FileReader 预览）
@@ -115,7 +110,7 @@ export function ViralVideoReplicationPage() {
     reader.readAsDataURL(file)
   }
 
-  // 启动生成/复刻（数据流保持桌面端现状：/api/videos/replicate + 步骤动画）
+  // 本地演示生成流（按钮视觉为旧版灰禁三态，不可点击时不得触发生成）
   const handleStart = async () => {
     setGenerating(true)
     setGenerateStep(0)
@@ -123,8 +118,8 @@ export function ViralVideoReplicationPage() {
     try {
       await api
         .post('/api/videos/replicate', {
-          sourceUrl: replicateUrl || 'https://www.tiktok.com/demo-hot-video',
-          title: activeTab === 'generate' ? `原创爆款视频 (${selectedTypes.join(',')})` : '竞品爆款复刻视频',
+          sourceUrl: replicateUrl || '',
+          title: activeTab === 'generate' ? `原创爆款视频 (${selectedTypeOptions.join(',')})` : '竞品爆款复刻视频',
         })
         .catch(() => undefined)
     } catch {
@@ -144,9 +139,9 @@ export function ViralVideoReplicationPage() {
         title: `${activeTypeName} · 变体裂变 #${i + 1} (${market}定制)`,
         type: activeTypeName,
         ratio,
-        duration: ratio === '9:16' ? '0:35' : '1:00',
+        duration: ratio.includes('9:16') ? '0:35' : '1:00',
         coverUrl: VIDEO_TYPES.find((t) => t.id === selectedTypes[i % selectedTypes.length])?.image || imgUgc,
-        videoUrl: 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4',
+        videoUrl: VIDEO_TYPES.find((t) => t.id === selectedTypes[i % selectedTypes.length])?.image || imgUgc,
         fissionIndex: i + 1,
         scriptSummary: `【分镜1】前3秒视觉冲突：痛点暴击与特写展示\n【分镜2】核心功能演示：${sellingPoints.split('\n')[0] || '核心卖点'}\n【分镜3】行动号召 CTA：限时折扣抢购`,
         createTime: new Date().toLocaleTimeString(),
@@ -184,7 +179,7 @@ export function ViralVideoReplicationPage() {
 
         {activeTab === 'generate' ? (
           <>
-            {/* 上传产品图（对照旧版：蓝虚线 + 灰钮 + 两行文案） */}
+            {/* 上传产品图 */}
             <div className="mb-4">
               <SectionTitle help>上传产品图</SectionTitle>
               <input
@@ -211,7 +206,7 @@ export function ViralVideoReplicationPage() {
               </div>
             </div>
 
-            {/* 目标市场与语言（对照旧版 space-y-3） */}
+            {/* 目标市场与语言 */}
             <div className="mb-4 space-y-3">
               <SectionTitle>目标市场与语言</SectionTitle>
               <div className="grid grid-cols-2 gap-3">
@@ -228,21 +223,19 @@ export function ViralVideoReplicationPage() {
               </div>
               <Select size="small" value={ratio} onChange={setRatio} className="w-full">
                 {RATIOS.map((r) => (
-                  <Option key={r.value + r.label} value={r.value}>{r.label}</Option>
+                  <Option key={r} value={r}>{r}</Option>
                 ))}
               </Select>
             </div>
 
-            {/* 商品卖点 + AI 帮写胶囊（对照旧版） */}
+            {/* 商品卖点 + AI 帮写胶囊（旧版为静态钮，无假填充行为） */}
             <div className="mb-0 flex items-center justify-between">
               <SectionTitle help>商品卖点</SectionTitle>
               <button
                 type="button"
-                onClick={() => void handleAiHelp()}
-                disabled={aiWriting}
-                className="flex h-7 cursor-pointer items-center gap-1 rounded-full border border-[#D9E8FF] bg-white px-2.5 text-[12px] font-medium text-[#1683FF] shadow-sm disabled:cursor-not-allowed disabled:opacity-60"
+                className="flex h-7 cursor-pointer items-center gap-1 rounded-full border border-[#D9E8FF] bg-white px-2.5 text-[12px] font-medium text-[#1683FF] shadow-sm"
               >
-                {aiWriting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                <Sparkles className="h-3.5 w-3.5" />
                 AI 帮写
               </button>
             </div>
@@ -253,7 +246,7 @@ export function ViralVideoReplicationPage() {
               placeholder="输入商品核心卖点、适用人群、使用场景等信息..."
             />
 
-            {/* 视频类型：双 tab + 类型钮/脚本（对照旧版） */}
+            {/* 视频类型：双 tab + 类型钮（VIDEO_TYPE_OPTIONS）/脚本 */}
             <div className="mb-3">
               <SectionTitle>视频类型</SectionTitle>
               <div className="mb-3 grid grid-cols-2 rounded-lg bg-[#F2F3F5] p-0.5">
@@ -272,19 +265,18 @@ export function ViralVideoReplicationPage() {
               </div>
               {mode === 'type' ? (
                 <div className="grid grid-cols-2 gap-2">
-                  {VIDEO_TYPES.map((t) => {
-                    const active = selectedTypes.includes(t.id)
+                  {VIDEO_TYPE_OPTIONS.map((label) => {
+                    const active = selectedTypeOptions.includes(label)
                     return (
                       <button
-                        key={t.id}
+                        key={label}
                         type="button"
-                        onClick={() => toggleType(t.id)}
+                        onClick={() => toggleTypeOption(label)}
                         className={`cursor-pointer rounded-lg border p-2 text-left transition-colors ${
                           active ? 'border-[#3388FF] bg-[#EEF5FF] ring-1 ring-[#3388FF]' : 'border-[#e5e8ef] bg-white hover:border-[#b8d7ff]'
                         }`}
                       >
-                        <p className={`m-0 text-[12px] font-bold ${active ? 'text-[#3388ff]' : 'text-[#171A1D]'}`}>{t.label}</p>
-                        <p className="m-0 mt-0.5 text-[10px] leading-3.5 text-[#86909C]">{t.desc}</p>
+                        <p className={`m-0 text-[12px] font-bold ${active ? 'text-[#3388ff]' : 'text-[#171A1D]'}`}>{label}</p>
                       </button>
                     )
                   })}
@@ -294,14 +286,14 @@ export function ViralVideoReplicationPage() {
                   value={scriptText}
                   onChange={(e) => setScriptText(e.target.value)}
                   className="h-[100px] w-full resize-none rounded-lg border border-[#DDE3EC] bg-white p-3 text-[12px] leading-5 text-[#5F6B7A] outline-none focus:border-[#4690FF]"
-                  placeholder="输入自定义脚本，AI 将按脚本生成视频..."
+                  placeholder="输入你的视频脚本内容..."
                 />
               )}
             </div>
           </>
         ) : (
           <>
-            {/* 爆款复刻 tab（对照旧版：上传素材/参考视频/链接/授权/市场语言/卖点/裂变） */}
+            {/* 上传素材 */}
             <div className="mb-4">
               <SectionTitle help>上传素材</SectionTitle>
               <div className="flex h-[94px] cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-[#8CC4FF] bg-white" onClick={() => productInputRef.current?.click()}>
@@ -362,22 +354,14 @@ export function ViralVideoReplicationPage() {
               </div>
               <Select size="small" value={ratio} onChange={setRatio} className="w-full">
                 {RATIOS.map((r) => (
-                  <Option key={r.value + r.label} value={r.value}>{r.label}</Option>
+                  <Option key={r} value={r}>{r}</Option>
                 ))}
               </Select>
             </div>
 
-            <div className="mb-2 flex items-center justify-between">
+            {/* 商品卖点（可选）：旧版无 AI 帮写钮 */}
+            <div className="mb-2">
               <SectionTitle help>商品卖点（可选）</SectionTitle>
-              <button
-                type="button"
-                onClick={() => void handleAiHelp()}
-                disabled={aiWriting}
-                className="flex h-7 cursor-pointer items-center gap-1 rounded-full border border-[#D9E8FF] bg-white px-2.5 text-[12px] font-medium text-[#1683FF] shadow-sm disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {aiWriting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-                AI 帮写
-              </button>
             </div>
             <textarea
               value={sellingPoints}
@@ -386,7 +370,7 @@ export function ViralVideoReplicationPage() {
               placeholder="输入商品核心卖点，或重点复刻的内容。"
             />
 
-            {/* 爆款裂变（对照旧版灰卡 + 步进器） */}
+            {/* 爆款裂变（旧版无上限） */}
             <div className="mb-2">
               <SectionTitle>爆款裂变</SectionTitle>
               <div className="rounded-lg bg-[#F2F3F5] p-3">
@@ -406,7 +390,7 @@ export function ViralVideoReplicationPage() {
                     <span className="text-[14px] font-bold text-[#0A1B39]">{fissionCount}</span>
                     <button
                       type="button"
-                      onClick={() => setFissionCount((n) => Math.min(10, n + 1))}
+                      onClick={() => setFissionCount((n) => n + 1)}
                       className="grid h-8 w-8 cursor-pointer place-items-center rounded-lg border border-[#dce3ee] bg-white text-[#0A1B39] hover:border-[#3388ff]"
                     >
                       <Plus className="h-3.5 w-3.5" />
@@ -418,22 +402,24 @@ export function ViralVideoReplicationPage() {
           </>
         )}
 
-        {/* 吸底生成条（对照旧版双文案） */}
+        {/* 吸底生成条：还原旧版灰禁三态 + Lock + 徽标，未授权不可点（legacy:244-248） */}
         <div className="sticky bottom-0 -mx-5 mt-4 border-t border-[#EEF1F5] bg-white p-4">
-          <Button
-            type="primary"
-            long
-            size="large"
-            loading={generating}
-            onClick={handleStart}
-            className="rounded-lg font-bold"
+          <button
+            type="button"
+            disabled
+            onClick={() => void handleStart()}
+            className="flex h-10 w-full cursor-not-allowed items-center justify-center gap-2 rounded-[8px] bg-[#C4C6CA] text-[13px] font-semibold text-white"
           >
+            <Lock className="h-4 w-4" />
             {activeTab === 'generate' ? '生成 15s 爆款视频' : `复制 15s 爆款视频（共 ${fissionCount} 条）`}
-          </Button>
+            <span className="rounded bg-white/20 px-2 py-0.5 text-[11px]">
+              {activeTab === 'generate' ? '解锁权益' : '首条折扣'}
+            </span>
+          </button>
         </div>
       </div>
 
-      {/* ─── 右侧画布区（对照旧版：标题 + 白卡 w-864 grid-cols-4 视频类型卡矩阵） ─── */}
+      {/* ─── 右侧画布区 ─── */}
       <div className="h-full min-w-0 flex-1 overflow-y-auto p-6 custom-scrollbar">
         {generating ? (
           <div className="grid h-full place-items-center">
@@ -459,9 +445,9 @@ export function ViralVideoReplicationPage() {
         ) : (
           <div className="mx-auto flex min-h-full max-w-[1040px] flex-col items-center justify-center py-8 text-center">
             <h1 className="m-0 text-[32px] font-bold leading-tight text-[#171A1D]">爆款视频复刻</h1>
-            <p className="m-0 mt-3 text-[14px] leading-6 text-[#5F6B7A]">选择视频类型与目标市场，AI 生成多语言带货短视频与裂变变体</p>
+            <p className="m-0 mt-3 text-[14px] leading-6 text-[#5F6B7A]">上传商品图，AI 一键批量生成多类型高转化视频。</p>
 
-            <div className="mt-12 grid w-[864px] grid-cols-4 gap-4 rounded-[18px] bg-white p-8 shadow-[0_18px_40px_rgba(31,37,45,.06)]">
+            <div className="mt-12 grid w-[864px] grid-cols-4 gap-4 rounded-[20px] bg-white p-8 shadow-[0_18px_40px_rgba(31,37,45,.06)]">
               {VIDEO_TYPES.map((t) => {
                 const active = selectedTypes.includes(t.id)
                 return (
@@ -545,6 +531,11 @@ export function ViralVideoReplicationPage() {
           </div>
         )}
       </div>
+
+      {/* 帮助浮钮「?」（旧版 legacy:275） */}
+      <button type="button" className="absolute bottom-6 right-8 h-14 w-14 cursor-pointer rounded-full bg-white text-xl shadow-md">
+        ?
+      </button>
 
       {/* 视频播放 Modal */}
       <Modal

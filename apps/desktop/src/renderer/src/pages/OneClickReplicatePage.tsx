@@ -1,12 +1,30 @@
 import { useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { ArrowLeft, Check, Copy, Eye, Folder, Loader2, Plus, Sparkles, X } from 'lucide-react'
+import { ArrowLeft, Check, ChevronRight, CircleHelp, Copy, Eye, Folder, Loader2, Plus, Sparkles, Upload, X } from 'lucide-react'
 import { Button, Input, Message, Modal, Select } from '@arco-design/web-react'
 import { api } from '../api/client'
 import { saveAs } from 'file-saver'
 import { Link } from 'react-router-dom'
 import { PageHeader } from '../components/PageHeader'
 import { XInput } from '../components/XInput'
+import imgAudioMain from '../assets/video-types/image-9.png'
+import imgAudioScene from '../assets/video-types/image-10.png'
+import imgAudioModel from '../assets/video-types/image-11.png'
+import imgAudioDetail from '../assets/video-types/image-12.png'
+import imgWatch from '../assets/video-types/image-13.png'
+import imgDressRef from '../assets/video-types/image-26.png'
+import imgDressCopy from '../assets/video-types/image-27.png'
+import imgDressProduct from '../assets/video-types/image-1.png'
+
+/**
+ * 数据契约缺口登记（对齐旧版 OneClickReplicate.tsx 逐字复盘审计）
+ * - 旧版 ProductInfo 含 `sku / platform / imageCount / createdAt`；桌面端接口仅返回
+ *   `id / name / spuCode / brand / category / status`，均不提供上述字段。
+ * - 按「宁可少显示，不许编造」原则：`platform`、`imageCount`、`createdAt` 缺失时对应
+ *   UI 不渲染（商品卡/弹窗不再展示平台、图片数、创建时间），本地常量样本也不伪造。
+ * - 旧 `sku` ↔ 桌面 `spuCode`、旧 `platform` ↔ 桌面 `brand` 均不是同一字段，不做等价换算。
+ * - 结果/参考图：改用本地 assets（video-types/*.png），不再使用 Unsplash 外链。
+ */
 
 const Option = Select.Option
 
@@ -19,6 +37,13 @@ interface ProductItem {
   status: string
 }
 
+interface ProductAsset {
+  id: string
+  name: string
+  url: string
+  productId: string
+}
+
 interface ReplicateResult {
   id: string
   title: string
@@ -28,29 +53,41 @@ interface ReplicateResult {
   createTime: string
 }
 
+// 名称/ID/顺序逐字对齐旧版 MOCK_PRODUCTS（legacy:37-42）；字段使用桌面端接口既有维度。
 const DEFAULT_PRODUCTS: ProductItem[] = [
   { id: 'p1', name: '无线蓝牙耳机 Pro', spuCode: 'SPU-EP-001', brand: 'SoundWave', category: '数码配件', status: 'ACTIVE' },
-  { id: 'p2', name: '智能运动手表 Series 5', spuCode: 'SPU-SW-002', brand: 'FitLife', category: '智能穿戴', status: 'ACTIVE' },
-  { id: 'p3', name: '法式复古碎花连衣裙 夏季款', spuCode: 'SPU-DR-004', brand: 'ModeParis', category: '女装服饰', status: 'ACTIVE' },
-  { id: 'p4', name: '便携快充移动电源 20000mAh', spuCode: 'SPU-PB-003', brand: 'PowerFast', category: '数码配件', status: 'ACTIVE' },
+  { id: 'p2', name: '智能手表 Series 5', spuCode: 'SPU-SW-002', brand: 'FitLife', category: '智能穿戴', status: 'ACTIVE' },
+  { id: 'p3', name: '便携充电宝 20000mAh', spuCode: 'SPU-PB-003', brand: 'PowerFast', category: '数码配件', status: 'ACTIVE' },
+  { id: 'p4', name: '碎花连衣裙 夏季款', spuCode: 'SPU-DR-004', brand: 'ModeParis', category: '女装服饰', status: 'ACTIVE' },
 ]
 
-const CLONE_CATEGORIES = ['电商商品主图', '社媒广告图', '详情页模块图', '使用场景图', '核心卖点图', '营销海报图']
-const CLONE_LANGUAGES = ['中文', '英文', '日文', '韩文', '德语', '法语', '西班牙语', '东南亚多语言']
+// 已选商品资产缩略图（对齐旧版 MOCK_ASSETS 的 productId 归属，本地资源）
+const PRODUCT_ASSETS: ProductAsset[] = [
+  { id: 'a1', name: '耳机主图', url: imgAudioMain, productId: 'p1' },
+  { id: 'a2', name: '耳机场景', url: imgAudioScene, productId: 'p1' },
+  { id: 'a3', name: '模特展示', url: imgAudioModel, productId: 'p1' },
+  { id: 'a4', name: '细节特写', url: imgAudioDetail, productId: 'p1' },
+  { id: 'a5', name: '手表卖点图', url: imgWatch, productId: 'p2' },
+  { id: 'a6', name: '连衣裙参考图', url: imgDressRef, productId: 'p4' },
+  { id: 'a7', name: '连衣裙复刻图', url: imgDressCopy, productId: 'p4' },
+  { id: 'a8', name: '女装产品图', url: imgDressProduct, productId: 'p4' },
+]
+
+// 选项集合逐字对齐旧版 CLONE_OPTIONS（legacy:55-58）
+const CLONE_CATEGORIES = ['电商商品图', '社媒广告图', '详情页模块', '主图', '场景图', '卖点图', '海报图']
+const CLONE_LANGUAGES = ['英文', '中文', '日文', '韩文', '德文', '法文', '意大利文', '西班牙文', '葡萄牙文', '荷兰文', '波兰文', '泰文', '越南文', '印尼文']
 const CLONE_RATIOS = ['1:1', '3:4', '4:3', '9:16', '16:9']
 
 export function OneClickReplicatePage() {
-  const [selectedProductId, setSelectedProductId] = useState<string>('p1')
+  const [selectedProductId, setSelectedProductId] = useState<string>('')
   const [showProductModal, setShowProductModal] = useState(false)
   const [method, setMethod] = useState<'upload' | 'url'>('upload')
   const [referenceUrl, setReferenceUrl] = useState('')
-  const [referenceImages, setReferenceImages] = useState<string[]>([
-    'https://images.unsplash.com/photo-1546868871-7041f2a55e12?w=200',
-  ])
+  const [referenceImages, setReferenceImages] = useState<string[]>([])
   const [level, setLevel] = useState<'style' | 'high'>('high')
   const [replicateNote, setReplicateNote] = useState('')
-  const [category, setCategory] = useState('电商商品主图')
-  const [language, setLanguage] = useState('中文')
+  const [category, setCategory] = useState('电商商品图')
+  const [language, setLanguage] = useState('英文')
   const [ratio, setRatio] = useState('1:1')
 
   const [generating, setGenerating] = useState(false)
@@ -84,14 +121,15 @@ export function OneClickReplicatePage() {
   })
 
   const productList = remoteProducts && remoteProducts.length > 0 ? remoteProducts : DEFAULT_PRODUCTS
-  const currentProduct = productList.find((p) => p.id === selectedProductId) || productList[0]
+  const currentProduct = productList.find((p) => p.id === selectedProductId) ?? null
+  const selectedAssets = PRODUCT_ASSETS.filter((a) => a.productId === selectedProductId)
 
   // 处理上传参考图（业务逻辑保持桌面端现状：FileReader 转 dataURL）
   const handleCustomUpload = (file: File) => {
     const reader = new FileReader()
     reader.onload = (e) => {
       if (e.target?.result) {
-        setReferenceImages((prev) => [e.target!.result as string, ...prev].slice(0, 10))
+        setReferenceImages((prev) => [e.target!.result as string, ...prev].slice(0, 20))
         Message.success('参考图上传成功')
       }
     }
@@ -130,10 +168,10 @@ export function OneClickReplicatePage() {
       await new Promise((resolve) => setTimeout(resolve, 1800))
 
       const generated: ReplicateResult[] = [
-        { id: 'res-1', title: `${currentProduct.name} · 高度复刻主图`, url: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=800&q=80', badge: '高度复刻', ratio, createTime: new Date().toLocaleTimeString() },
-        { id: 'res-2', title: `${currentProduct.name} · 参考风格场景图`, url: 'https://images.unsplash.com/photo-1546868871-7041f2a55e12?w=800&q=80', badge: '参考风格', ratio, createTime: new Date().toLocaleTimeString() },
-        { id: 'res-3', title: `${currentProduct.name} · 质感特写爆款图`, url: 'https://images.unsplash.com/photo-1583394838336-acd977736f90?w=800&q=80', badge: '高度复刻', ratio, createTime: new Date().toLocaleTimeString() },
-        { id: 'res-4', title: `${currentProduct.name} · 氛围卖点图`, url: 'https://images.unsplash.com/photo-1572536147248-ac59a8abfa4b?w=800&q=80', badge: '参考风格', ratio, createTime: new Date().toLocaleTimeString() },
+        { id: 'res-1', title: `${currentProduct.name} - 高度复刻`, url: imgDressCopy, badge: '高度复刻', ratio, createTime: new Date().toLocaleTimeString() },
+        { id: 'res-2', title: `${currentProduct.name} - 参考风格`, url: imgDressRef, badge: '参考风格', ratio, createTime: new Date().toLocaleTimeString() },
+        { id: 'res-3', title: `${currentProduct.name} - 变体 A`, url: imgAudioScene, badge: '高度复刻', ratio, createTime: new Date().toLocaleTimeString() },
+        { id: 'res-4', title: `${currentProduct.name} - 变体 B`, url: imgAudioModel, badge: '参考风格', ratio, createTime: new Date().toLocaleTimeString() },
       ]
       setResults(generated)
       Message.success('一键复刻完成，已生成 4 张专属爆款图')
@@ -154,7 +192,7 @@ export function OneClickReplicatePage() {
   return (
     <div className="relative flex h-full bg-[#f4f7fb]">
       {/* ─── 左侧 360px 配置面板（无 border-r，对照旧版） ─── */}
-      <div className="h-full w-[360px] shrink-0 overflow-y-auto bg-white px-5 pt-6 pb-4">
+      <div className="h-full w-[360px] shrink-0 overflow-y-auto bg-white px-4 pt-7 pb-28 custom-scrollbar sm:px-6">
         <Link
           to="/asset/image-gallery"
           className="mb-4 inline-flex items-center gap-1.5 text-[13px] text-[#667085] hover:text-[#3388ff]"
@@ -183,6 +221,15 @@ export function OneClickReplicatePage() {
                   更换
                 </button>
               </div>
+              {selectedAssets.length > 0 && (
+                <div className="mt-3 flex gap-2 overflow-x-auto">
+                  {selectedAssets.map((a) => (
+                    <div key={a.id} className="h-14 w-14 shrink-0 overflow-hidden rounded-lg bg-[#f2f4f7]">
+                      <img src={a.url} alt={a.name} className="h-full w-full object-cover" />
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           ) : (
             <button
@@ -191,14 +238,17 @@ export function OneClickReplicatePage() {
               className="flex h-[80px] w-full cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-[#8CC4FF] bg-[#f5faff] text-[#3388ff] transition-colors hover:bg-[#eef7ff]"
             >
               <Folder className="mb-1 h-5 w-5" />
-              <span className="text-[12px] font-bold">从商品主档中选择</span>
+              <span className="text-[12px] font-bold">点击选择商品</span>
             </button>
           )}
         </div>
 
         {/* ② 参考内容：双 tab + 虚线区/链接 */}
         <div className="mb-5">
-          <span className={LABEL_CLASS}>② 参考内容</span>
+          <span className={LABEL_CLASS}>
+            ② 参考内容
+            <CircleHelp className="mb-0.5 ml-1 inline h-3.5 w-3.5 text-[#86909C]" />
+          </span>
           <div className="mb-2 flex rounded-lg bg-[#f2f4f7] p-1">
             {(['upload', 'url'] as const).map((m) => (
               <button
@@ -240,7 +290,7 @@ export function OneClickReplicatePage() {
                     </button>
                   </div>
                 ))}
-                {referenceImages.length < 10 && (
+                {referenceImages.length < 20 && (
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
@@ -250,16 +300,19 @@ export function OneClickReplicatePage() {
                   </button>
                 )}
               </div>
-              <p className="m-0 text-[11px] text-[#98A2B3]">最多 10 张参考图，支持本地多选上传</p>
+              <p className="m-0 text-[11px] text-[#98A2B3]">最多 20 张</p>
             </div>
           ) : (
-            <Input
-              value={referenceUrl}
-              onChange={setReferenceUrl}
-              placeholder="粘贴参考爆款链接"
-              allowClear
-              className="h-11 rounded-lg"
-            />
+            <div>
+              <Input
+                value={referenceUrl}
+                onChange={setReferenceUrl}
+                placeholder="粘贴商品链接或图片链接..."
+                allowClear
+                className="h-11 rounded-lg"
+              />
+              <p className="m-0 mt-2 text-[12px] text-[#86909C]">支持亚马逊、TikTok、速卖通等平台链接</p>
+            </div>
           )}
         </div>
 
@@ -293,7 +346,7 @@ export function OneClickReplicatePage() {
             value={replicateNote}
             onChange={setReplicateNote}
             rows={3}
-            placeholder="例：文案统一英文、模特不变、仅替换商品"
+            placeholder="例如：文案统一用英文、模特保持完全不变、参考图不变只替换商品。"
             className="rounded-lg text-[12px]"
           />
         </div>
@@ -335,6 +388,7 @@ export function OneClickReplicatePage() {
             long
             size="large"
             loading={generating}
+            disabled={!selectedProductId || generating}
             onClick={handleStartReplicate}
             className="rounded-lg font-bold"
           >
@@ -357,28 +411,45 @@ export function OneClickReplicatePage() {
                 <Loader2 className="h-10 w-10 animate-spin text-[#3388ff]" />
                 <Sparkles className="absolute -right-2 -top-1 h-4 w-4 text-[#f57c00]" />
               </div>
-              <p className="m-0 text-[14px] text-[#4e5969]">AI 正在深度复刻中，请稍候...</p>
+              <p className="m-0 text-[18px] font-bold text-[#0A1B39]">正在复刻中...</p>
+              <p className="m-0 text-[14px] text-[#86909C]">AI 正在分析参考图并生成专属爆款图，请稍候</p>
             </div>
           </div>
         ) : results.length === 0 ? (
-          /* 空态：三步流程示意卡（对照旧版 md:grid-cols-3） */
-          <div className="rounded-2xl bg-white p-8 shadow-[0_8px_32px_rgba(29,38,52,.06)]">
-            <div className="grid grid-cols-1 items-center gap-4 md:grid-cols-3">
+          /* 空态：三步流程示意卡（逐字对齐旧版 :287-304，去掉新增序号，保留连接箭头） */
+          <div className="mt-8 rounded-2xl bg-white p-6 shadow-[0_18px_50px_rgba(29,38,52,.06)] sm:p-8">
+            <div className="grid grid-cols-1 items-center gap-8 md:grid-cols-3 md:gap-6">
               {[
-                { icon: Folder, title: '选择商品', desc: '从商品主档中选定要复刻的商品' },
-                { icon: Copy, title: '导入参考内容', desc: '上传参考爆款图或粘贴链接' },
-                { icon: Sparkles, title: '生成复刻', desc: 'AI 按复刻程度输出专属爆款图' },
-              ].map((step, idx) => (
+                {
+                  selected: Boolean(currentProduct),
+                  icon: currentProduct ? Check : Folder,
+                  title: '选择商品',
+                  desc: currentProduct ? `已选：${currentProduct.name}` : '从资产库中选择要复刻的商品',
+                },
+                { selected: false, icon: Upload, title: '上传参考图', desc: '上传或导入你想复刻的爆款图片' },
+                { selected: false, icon: Sparkles, title: '一键生成', desc: 'AI 自动复刻，生成高度还原的爆款图' },
+              ].map((step) => (
                 <div key={step.title} className="flex flex-col items-center text-center">
-                  <div className="grid h-16 w-16 place-items-center rounded-2xl bg-[#f0f7ff] text-[#3388ff]">
+                  <div
+                    className={`mb-4 grid h-16 w-16 place-items-center rounded-2xl ${
+                      step.selected ? 'bg-[#e8f5e9] text-[#2e7d32]' : 'bg-[#f2f4f7] text-[#86909C]'
+                    }`}
+                  >
                     <step.icon className="h-7 w-7" />
                   </div>
-                  <p className="m-0 mt-3 text-[14px] font-bold text-[#0A1B39]">
-                    {idx + 1}. {step.title}
-                  </p>
-                  <p className="m-0 mt-1 text-[12px] text-[#86909C]">{step.desc}</p>
+                  <p className="m-0 text-[15px] font-bold text-[#0A1B39]">{step.title}</p>
+                  <p className="m-0 mt-1.5 text-[13px] text-[#86909C]">{step.desc}</p>
                 </div>
               ))}
+            </div>
+
+            {/* 连接箭头（旧版 :308-315） */}
+            <div className="mt-6 flex items-center justify-center gap-4 text-[#c8d3e2]">
+              <div className="h-px flex-1 bg-[#e9edf3]" />
+              <ChevronRight className="h-5 w-5" />
+              <div className="h-px flex-1 bg-[#e9edf3]" />
+              <ChevronRight className="h-5 w-5" />
+              <div className="h-px flex-1 bg-[#e9edf3]" />
             </div>
           </div>
         ) : (
@@ -421,14 +492,17 @@ export function OneClickReplicatePage() {
                       </button>
                     </div>
                     <span
-                      className={`absolute left-2 top-2 rounded-full px-2.5 py-1 text-[11px] font-bold ${
+                      className={`absolute right-3 top-3 rounded-full px-2.5 py-1 text-[11px] font-bold ${
                         item.badge === '高度复刻' ? 'bg-[#3388ff] text-white' : 'bg-[#e8f5e9] text-[#2e7d32]'
                       }`}
                     >
                       {item.badge}
                     </span>
                   </div>
-                  <p className="m-0 truncate px-3 py-2.5 text-[12px] font-bold text-[#0A1B39]">{item.title}</p>
+                  <div className="px-3 py-2.5">
+                    <p className="m-0 truncate text-[12px] font-bold text-[#0A1B39]">{item.title}</p>
+                    <p className="m-0 mt-1 text-[12px] text-[#86909C]">{item.badge} · 刚刚生成</p>
+                  </div>
                 </div>
               ))}
             </div>
