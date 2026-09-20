@@ -22,9 +22,61 @@ export interface RunReportResult {
   status: string
 }
 
+interface RichSku {
+  name: string | null
+  price: number | null
+}
+
+interface LoadedProduct {
+  id: string
+  title: string | null
+  price: number | null
+  shopName: string | null
+  rawJson: Prisma.JsonValue | null
+  skus: RichSku[]
+  reviews: string[]
+  qas: string[]
+}
+
+interface RepresentativeProduct {
+  title: string | null
+  shopName: string | null
+  price: number | null
+  skuCount: number
+  skus: RichSku[]
+}
+
+interface RichPriceBand extends PriceBand {
+  avgPrice: number | null
+  representativeProducts: RepresentativeProduct[]
+}
+
+interface InsightRow {
+  type: string
+  title: string
+  content: string
+}
+
+const POSITIVE_TERMS = ['性价比', '质量', '耐用', '好用', '满意', '实惠', '清晰', '精准', '便携', '防水', '美观', '方便']
+const NEGATIVE_TERMS = ['差', '不行', '失望', '容易坏', '坏了', '退货', '难用', '偏贵', '太小', '漏', '慢', '脏']
+const NEED_TERMS = ['希望', '需要', '建议', '能不能', '多久', '怎么', '是否', '支持']
+
 function buildReportNo() {
   const date = new Date().toISOString().slice(0, 10).replace(/-/g, '')
   return `R${date}${randomBytes(4).toString('hex').toUpperCase()}`
+}
+
+function extractJson(text?: string): Record<string, any> | null {
+  if (!text) return null
+  const cleaned = text.replace(/```(?:json)?/gi, '').trim()
+  const start = cleaned.indexOf('{')
+  const end = cleaned.lastIndexOf('}')
+  if (start === -1 || end === -1 || end <= start) return null
+  try {
+    return JSON.parse(cleaned.slice(start, end + 1))
+  } catch {
+    return null
+  }
 }
 
 @Injectable()
@@ -49,6 +101,16 @@ export class ReportService {
       }
     }
 
+    // 装载该采集任务的全部商品快照（含 SKU / 问大家 / 评价），作为富报告的确定性数据来源
+    const collectionJob = await this.prisma.collectionJob.findUnique({ where: { jobId: job.id } })
+    const products = collectionJob ? await this.loadProducts(collectionJob.id) : []
+    const competitorCount = products.length
+    const baseBands = buildPriceBands(products.map((p) => p.price).filter((n): n is number => n != null && Number.isFinite(n)))
+    const richPriceBands = this.buildRichPriceBands(products, baseBands)
+
+    const reviewTexts = products.flatMap((p) => p.reviews)
+    const qaTexts = products.flatMap((p) => p.qas)
+
     const attemptKey = buildAttemptKey({
       jobId: job.id,
       capability: 'text',
@@ -58,20 +120,44 @@ export class ReportService {
     const aiResult = await this.router.execute(
       'text',
       {
-        prompt: `基于已采集数据生成竞品分析报告（jobId=${job.id}）`,
-        system: '你是电商竞品分析报告助手，请输出结构化结论。',
+        prompt: this.buildAiPrompt({
+          keyword: collectionJob?.keyword ?? job.type,
+          competitorCount,
+          priceBands: richPriceBands,
+          reviewTexts,
+          qaTexts,
+        }),
+        system: '你是电商竞品分析报告助手。请仅输出一个合法 JSON 对象，不要输出任何多余文字、Markdown 或代码块。',
         maxTokens: Number(process.env.ARK_OVERALL_REPORT_MAX_OUTPUT_TOKENS ?? 10000),
       },
       { tenantId: input.tenantId, jobId: job.id, attemptKey, userId: input.userId ?? job.userId ?? undefined },
     )
 
-    const collectionJob = await this.prisma.collectionJob.findUnique({ where: { jobId: job.id } })
-    const competitorCount = collectionJob
-      ? await this.prisma.productSnapshot.count({ where: { collectionJobId: collectionJob.id } })
-      : 0
-    const priceBands = collectionJob ? await this.computePriceBands(collectionJob.id) : []
-    const insights = this.buildInsights(aiResult.text)
-    const reportJson = { summary: aiResult.text ?? '', priceBands, insights }
+    const parsed = extractJson(aiResult.text)
+    const sellingPoints = Array.isArray(parsed?.sellingPoints) && parsed.sellingPoints.length
+      ? parsed.sellingPoints
+      : this.termCounts(reviewTexts, POSITIVE_TERMS)
+    const painPoints = Array.isArray(parsed?.painPoints) && parsed.painPoints.length
+      ? parsed.painPoints.map((x: unknown) => String(x))
+      : this.termCounts(reviewTexts, NEGATIVE_TERMS).map((t) => t.term)
+    const userDemands = Array.isArray(parsed?.userDemands) && parsed.userDemands.length
+      ? parsed.userDemands.map((x: unknown) => String(x))
+      : this.termCounts(qaTexts, NEED_TERMS).map((t) => t.term)
+    const opportunities = Array.isArray(parsed?.opportunities) && parsed.opportunities.length
+      ? parsed.opportunities.map((x: unknown) => String(x))
+      : []
+    const summary = typeof parsed?.summary === 'string' && parsed.summary.trim() ? parsed.summary : (aiResult.text ?? '')
+
+    const insights = this.buildInsights({ summary, sellingPoints, painPoints, userDemands, opportunities })
+    const reportJson = {
+      summary,
+      priceBands: richPriceBands,
+      sellingPoints,
+      painPoints,
+      userDemands,
+      opportunities,
+      insights,
+    }
     const reportHash = createHash('sha256').update(JSON.stringify(reportJson)).digest('hex')
     const reportNo = buildReportNo()
 
@@ -102,9 +188,9 @@ export class ReportService {
       })
 
       await tx.analysisPriceBand.deleteMany({ where: { analysisRunId: saved.id } })
-      if (priceBands.length > 0) {
+      if (baseBands.length > 0) {
         await tx.analysisPriceBand.createMany({
-          data: priceBands.map((band) => ({
+          data: baseBands.map((band) => ({
             analysisRunId: saved.id,
             bandName: band.bandName,
             priceMin: band.priceMin,
@@ -119,7 +205,7 @@ export class ReportService {
           data: insights.map((insight) => ({
             analysisRunId: saved.id,
             type: insight.type,
-            title: insight.title ? insight.title.slice(0, 191) : null,
+            title: insight.title.slice(0, 191),
             content: insight.content ? insight.content.slice(0, 191) : null,
           })),
         })
@@ -148,23 +234,126 @@ export class ReportService {
     }
   }
 
-  private async computePriceBands(collectionJobId: string): Promise<PriceBand[]> {
+  /** 装载商品快照及其 SKU / 问大家 / 评价（schema 无 relation 字段，故分表查询后归并） */
+  private async loadProducts(collectionJobId: string): Promise<LoadedProduct[]> {
     const rows = await this.prisma.productSnapshot.findMany({
       where: { collectionJobId },
-      select: { price: true },
       orderBy: { price: 'asc' },
     })
-    const prices = rows.map((row) => Number(row.price))
-    return buildPriceBands(prices)
+    const ids = rows.map((r) => r.id)
+    if (!ids.length) return []
+
+    const [skus, qas, reviews] = await Promise.all([
+      this.prisma.productSkuSnapshot.findMany({ where: { productSnapshotId: { in: ids } } }),
+      this.prisma.productQaSnapshot.findMany({ where: { productSnapshotId: { in: ids } } }),
+      this.prisma.productReviewSnapshot.findMany({ where: { productSnapshotId: { in: ids } } }),
+    ])
+
+    const skuByP = new Map<string, RichSku[]>()
+    for (const s of skus) {
+      const arr = skuByP.get(s.productSnapshotId) ?? []
+      arr.push({ name: s.name, price: Number(s.price) })
+      skuByP.set(s.productSnapshotId, arr)
+    }
+    const qaByP = new Map<string, string[]>()
+    for (const q of qas) {
+      if (!q.question) continue
+      const arr = qaByP.get(q.productSnapshotId) ?? []
+      arr.push(q.question)
+      qaByP.set(q.productSnapshotId, arr)
+    }
+    const revByP = new Map<string, string[]>()
+    for (const r of reviews) {
+      if (!r.content) continue
+      const arr = revByP.get(r.productSnapshotId) ?? []
+      arr.push(r.content)
+      revByP.set(r.productSnapshotId, arr)
+    }
+
+    return rows.map((r) => ({
+      id: r.id,
+      title: r.title,
+      price: Number(r.price),
+      shopName: r.shopName,
+      rawJson: r.rawJson,
+      skus: skuByP.get(r.id) ?? [],
+      reviews: revByP.get(r.id) ?? [],
+      qas: qaByP.get(r.id) ?? [],
+    }))
   }
 
-  private buildInsights(text?: string) {
+  /** 为每个价格带补均价与代表商品（有 SKU 优先、价格居中的代表款） */
+  private buildRichPriceBands(products: LoadedProduct[], baseBands: PriceBand[]): RichPriceBand[] {
+    return baseBands.map((band) => {
+      const inBand = products.filter((p) => p.price != null && p.price >= band.priceMin && p.price <= band.priceMax)
+      const prices = inBand.map((p) => p.price as number)
+      const avgPrice = prices.length ? Math.round((prices.reduce((a, b) => a + b, 0) / prices.length) * 100) / 100 : null
+      const representativeProducts = [...inBand]
+        .sort((a, b) => b.skus.length - a.skus.length || (a.price ?? 0) - (b.price ?? 0))
+        .slice(0, 3)
+        .map((p) => ({
+          title: p.title,
+          shopName: p.shopName,
+          price: p.price,
+          skuCount: p.skus.length,
+          skus: p.skus,
+        }))
+      return { ...band, avgPrice, representativeProducts }
+    })
+  }
+
+  /** 简单关键词频度聚合（AI 不可用时的诚实兜底，基于真实评价/问大家文本） */
+  private termCounts(texts: string[], terms: string[]): Array<{ term: string; count: number }> {
+    const result: Array<{ term: string; count: number }> = []
+    for (const term of terms) {
+      let count = 0
+      for (const text of texts) if (text.includes(term)) count += 1
+      if (count > 0) result.push({ term, count })
+    }
+    return result.sort((a, b) => b.count - a.count).slice(0, 8)
+  }
+
+  private buildAiPrompt(opts: {
+    keyword: string
+    competitorCount: number
+    priceBands: RichPriceBand[]
+    reviewTexts: string[]
+    qaTexts: string[]
+  }): string {
+    const bandLines = opts.priceBands.map((b) => {
+      const reps = b.representativeProducts
+        .map((p) => `${p.title ?? '无标题'}(${p.shopName ?? '未知店铺'} ¥${p.price ?? '-'})`)
+        .join(' | ')
+      return `- ${b.bandName}元：${b.productCount}款，均价¥${b.avgPrice ?? '-'}${reps ? `；代表：${reps}` : ''}`
+    }).join('\n')
+    const reviewSample = opts.reviewTexts.slice(0, 60).join('\n').slice(0, 2000)
+    const qaSample = opts.qaTexts.slice(0, 60).join('\n').slice(0, 1200)
     return [
-      {
-        type: 'summary',
-        title: 'AI 总结',
-        content: text ? text.slice(0, 500) : '未生成总结',
-      },
-    ]
+      `基于已采集竞品数据生成竞品分析报告。`,
+      `关键词：${opts.keyword}`,
+      `竞品样本数：${opts.competitorCount}`,
+      `价格带概况：\n${bandLines}`,
+      reviewSample ? `评价样本（前若干条，用于判断卖点/痛点）：\n${reviewSample}` : '（无评价样本）',
+      qaSample ? `问大家样本（前若干条，用于判断用户需求）：\n${qaSample}` : '（无问大家样本）',
+      ``,
+      `请输出 JSON：{"summary":"整体结论","sellingPoints":[{"term":"卖点词","count":次数}],"painPoints":["痛点"],"userDemands":["用户需求"],"opportunities":["机会点"]}`,
+    ].join('\n')
+  }
+
+  private buildInsights(opts: {
+    summary: string
+    sellingPoints: Array<{ term: string; count: number }>
+    painPoints: string[]
+    userDemands: string[]
+    opportunities: string[]
+  }): InsightRow[] {
+    const rows: InsightRow[] = [{ type: 'summary', title: 'AI 总结', content: opts.summary.slice(0, 500) || '未生成总结' }]
+    if (opts.sellingPoints.length) {
+      rows.push({ type: 'selling_point', title: '核心卖点', content: opts.sellingPoints.map((s) => `${s.term}(${s.count})`).join('、') })
+    }
+    if (opts.painPoints.length) rows.push({ type: 'pain_point', title: '差评痛点', content: opts.painPoints.slice(0, 8).join('、') })
+    if (opts.userDemands.length) rows.push({ type: 'user_demand', title: '用户需求', content: opts.userDemands.slice(0, 8).join('、') })
+    if (opts.opportunities.length) rows.push({ type: 'opportunity', title: '机会点', content: opts.opportunities.slice(0, 8).join('、') })
+    return rows
   }
 }

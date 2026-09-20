@@ -60,6 +60,15 @@ export class ProductResultDto {
   @IsString()
   shopName?: string
 
+  // 采集侧可选回传：月销与商品主图。表无对应标量列，导入时写入 ProductSnapshot.rawJson，供富报告使用。
+  @IsOptional()
+  @IsInt()
+  sold?: number
+
+  @IsOptional()
+  @IsString()
+  imageUrl?: string
+
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })

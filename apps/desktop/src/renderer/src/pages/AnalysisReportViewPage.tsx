@@ -6,10 +6,36 @@ import { Message } from '@arco-design/web-react'
 import { api } from '../api/client'
 import { PageHeader } from '../components/PageHeader'
 
-// 数据契约对齐后端 GET /api/reports/:id 返回结构：
-// AnalysisRun（含 reportJson）+ priceBands（analysisPriceBand 表：bandName/priceMin/priceMax/productCount）。
-// 注意：AnalysisRun 无 priceMin/priceMax 标量，也无 summaryJson；报告区间与 AI 总结需从 priceBands / reportJson 读取。
-interface PriceBand {
+// 富报告契约对齐后端报告生成 report.service reportJson：除 summary 外含富价格带（代表商品）、卖点/痛点/需求/机会。
+interface RichSku {
+  name?: string | null
+  price?: number | null
+}
+interface RichPriceBand {
+  bandName: string
+  priceMin: number
+  priceMax: number
+  productCount: number
+  avgPrice?: number | null
+  representativeProducts?: Array<{
+    title?: string | null
+    shopName?: string | null
+    price?: number | null
+    skuCount?: number
+    skus?: RichSku[]
+  }>
+}
+interface RichReportJson {
+  summary?: string
+  priceBands?: RichPriceBand[]
+  sellingPoints?: Array<{ term: string; count: number }>
+  painPoints?: string[]
+  userDemands?: string[]
+  opportunities?: string[]
+}
+
+// 列表接口 priceBands（analysisPriceBand 表：仅计数）作为无富结构时的回退
+interface TablePriceBand {
   id: string
   bandName: string
   priceMin: number | null
@@ -23,16 +49,12 @@ interface AnalysisReportDetail {
   jobId: string
   status: string
   competitorCount: number | null
-  reportJson: {
-    summary?: string
-    insights?: Array<{ type: string; title?: string; content?: string }>
-  } | null
+  reportJson?: RichReportJson | null
   updatedAt: string
   createdAt: string
-  priceBands?: PriceBand[]
+  priceBands?: TablePriceBand[]
 }
 
-// SectionCard 对照旧版 AnalysisReportView 的统一区块（mb-5 rounded-2xl bg-white p-6 shadow + 编号色块）
 function SectionCard({
   badge,
   badgeColor,
@@ -61,7 +83,6 @@ function SectionCard({
 }
 
 export function AnalysisReportViewPage() {
-  // id/keyword 兼容两种入口：主路由 report/view?id=（旧版查询串契约）与别名 analysis/reports/:id
   const params = useParams<{ id: string }>()
   const [searchParams] = useSearchParams()
   const id = searchParams.get('id') || params.id
@@ -69,7 +90,6 @@ export function AnalysisReportViewPage() {
   const navigate = useNavigate()
   const [exporting, setExporting] = useState(false)
 
-  // 数据流保持桌面端现状：GET /api/reports/:id + POST export
   const { data: report, isLoading, refetch, isError } = useQuery<AnalysisReportDetail>({
     queryKey: ['report-detail', id],
     queryFn: async () => {
@@ -132,29 +152,30 @@ export function AnalysisReportViewPage() {
     )
   }
 
-  // priceBands 来自后端 analysisPriceBand（bandName/priceMin/priceMax/productCount），无销量/销额字段
-  const priceBands = report.priceBands || []
-  const totalProducts = report.competitorCount ?? priceBands.reduce((sum, b) => sum + (b.productCount || 0), 0)
-  const reportJson = report.reportJson || {}
-  const summaryText = reportJson.summary?.trim() || ''
-
-  // 价格区间：从 priceBands 推导整体范围（AnalysisRun 无 priceMin/priceMax 标量）
-  const rangeMin = priceBands.length ? Math.min(...priceBands.map((b) => b.priceMin ?? Infinity)) : null
-  const rangeMax = priceBands.length ? Math.max(...priceBands.map((b) => b.priceMax ?? -Infinity)) : null
+  const rj = report.reportJson || {}
+  const summaryText = rj.summary?.trim() || ''
+  // 富价格带优先，回退列表接口 analysisPriceBand 表（仅计数）
+  const richBands = (rj.priceBands as RichPriceBand[] | undefined) || []
+  const tableBands = report.priceBands || []
+  const bands = richBands.length ? richBands : tableBands
+  const totalProducts = report.competitorCount ?? bands.reduce((sum, b) => sum + (b.productCount || 0), 0)
+  const rangeMin = bands.length ? Math.min(...bands.map((b) => b.priceMin ?? Infinity)) : null
+  const rangeMax = bands.length ? Math.max(...bands.map((b) => b.priceMax ?? -Infinity)) : null
+  const sellingPoints = rj.sellingPoints || []
+  const painPoints = rj.painPoints || []
+  const userDemands = rj.userDemands || []
+  const opportunities = rj.opportunities || []
+  const hasRichStory = Boolean(richBands.length || sellingPoints.length || painPoints.length || userDemands.length || opportunities.length)
 
   return (
     <div className="h-full overflow-y-auto bg-[#f4f7fb] p-6 custom-scrollbar">
-      <PageHeader
-        breadcrumbs={backBreadcrumbs.map((item, idx) => (idx === 3 ? { label: keyword ? '报告查看' : '报告查看' } : item))}
-      />
+      <PageHeader breadcrumbs={backBreadcrumbs.map((item, idx) => (idx === 3 ? { label: '报告查看' } : item))} />
 
-      {/* 返回链接（对照旧版） */}
       <Link to="/market/competitive/report" className="mb-3 inline-flex items-center gap-1.5 text-[13px] text-[#3388ff] hover:text-[#1a6fe8]">
         <ArrowLeft className="h-3.5 w-3.5" />
         返回报告列表
       </Link>
 
-      {/* 标题行（对照旧版 h1 text-[28px] + 右侧操作） */}
       <div className="mb-5 flex items-center justify-between gap-3">
         <h1 className="m-0 text-[28px] font-extrabold text-[#0A1B39]">
           {report.reportNo || `报告 ${report.id.slice(0, 10).toUpperCase()}`}
@@ -189,17 +210,12 @@ export function AnalysisReportViewPage() {
         </div>
       </div>
 
-      {/* 报告说明卡（对照旧版 rounded-2xl grid-cols-4 指标块） */}
       <div className="mb-5 grid grid-cols-4 gap-4 rounded-2xl bg-white p-5 shadow-[0_8px_32px_rgba(29,38,52,.06)]">
         {[
           { label: '样本竞品总数', value: `${totalProducts} 件`, color: 'text-[#3388ff]' },
-          {
-            label: '核心价格区间',
-            value: rangeMin != null && rangeMax != null ? `¥${rangeMin} - ¥${rangeMax}` : '暂无',
-            color: 'text-[#2e7d32]',
-          },
-          { label: '细分价格带数量', value: `${priceBands.length} 个`, color: 'text-[#722ed1]' },
-          { label: '总分析月销量', value: '暂无', color: 'text-[#f57c00]' },
+          { label: '核心价格区间', value: rangeMin != null && rangeMax != null ? `¥${rangeMin} - ¥${rangeMax}` : '暂无', color: 'text-[#2e7d32]' },
+          { label: '细分价格带数量', value: `${bands.length} 个`, color: 'text-[#722ed1]' },
+          { label: '总分析月销量', value: '未采集', color: 'text-[#f57c00]' },
         ].map((item) => (
           <div key={item.label}>
             <p className="m-0 text-[12px] font-semibold text-[#86909C]">{item.label}</p>
@@ -208,40 +224,138 @@ export function AnalysisReportViewPage() {
         ))}
       </div>
 
-      {/* ¥ 价格区间分析（数据：priceBands；后端当前仅提供价格区间与竞品数） */}
-      <SectionCard badge="¥" badgeColor="bg-[#22a06b]" title="价格区间分析" subtitle="各价格带竞品密度与分布">
-        {priceBands.length === 0 ? (
+      {/* ¥ 价格区间分析（含均价与代表商品） */}
+      <SectionCard badge="¥" badgeColor="bg-[#22a06b]" title="价格区间分析" subtitle="各价格带竞品分布、均价与代表商品">
+        {bands.length === 0 ? (
           <p className="m-0 py-10 text-center text-[14px] text-[#86909C]">暂无价格带数据</p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[640px]">
+            <table className="w-full min-w-[760px]">
               <thead>
                 <tr className="border-b border-[#eef1f5] bg-[#f9fafb]">
                   <th className="whitespace-nowrap px-4 py-3 text-left text-[13px] font-medium text-[#86909C]">价格区间</th>
-                  <th className="whitespace-nowrap px-4 py-3 text-left text-[13px] font-medium text-[#86909C]">竞品商品数</th>
+                  <th className="whitespace-nowrap px-4 py-3 text-right text-[13px] font-medium text-[#86909C]">竞品数</th>
+                  <th className="whitespace-nowrap px-4 py-3 text-right text-[13px] font-medium text-[#86909C]">均价</th>
+                  <th className="whitespace-nowrap px-4 py-3 text-left text-[13px] font-medium text-[#86909C]">代表商品</th>
                 </tr>
               </thead>
               <tbody>
-                {priceBands.map((band) => (
-                  <tr key={band.id} className="border-b border-[#eef1f5] transition-colors hover:bg-[#f9fafb]">
-                    <td className="whitespace-nowrap px-4 py-3.5 text-[14px] font-bold text-[#0A1B39]">
-                      ¥{band.priceMin} - ¥{band.priceMax}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3.5 text-[14px] text-[#344054]">{band.productCount} 款商品</td>
-                  </tr>
-                ))}
+                {bands.map((band, idx) => {
+                  const reps = 'representativeProducts' in band ? ((band as RichPriceBand).representativeProducts || []) : []
+                  return (
+                    <tr key={band.bandName || idx} className="border-b border-[#eef1f5] transition-colors hover:bg-[#f9fafb]">
+                      <td className="whitespace-nowrap px-4 py-3.5 text-[14px] font-bold text-[#0A1B39]">
+                        ¥{band.priceMin} - ¥{band.priceMax}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3.5 text-right text-[14px] text-[#344054]">{band.productCount} 款</td>
+                      <td className="whitespace-nowrap px-4 py-3.5 text-right text-[14px] text-[#344054]">
+                        {'avgPrice' in band && band.avgPrice != null ? `¥${band.avgPrice}` : '—'}
+                      </td>
+                      <td className="px-4 py-3.5">
+                        {reps.length ? (
+                          <div className="flex flex-col gap-1.5">
+                            {reps.slice(0, 3).map((p, i) => (
+                              <div key={i} className="truncate text-[13px] text-[#344054]">
+                                <span className="font-semibold text-[#0A1B39]">{p.title || '无标题'}</span>
+                                <span className="ml-2 text-[#98A2B3]">{p.shopName || '未知店铺'}</span>
+                                <span className="ml-2 font-semibold text-[#ff4d00]">¥{p.price ?? '-'}</span>
+                                {p.skuCount ? <span className="ml-2 text-[#98A2B3]">{p.skuCount} SKU</span> : null}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-[13px] text-[#98A2B3]">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
         )}
       </SectionCard>
 
-      {/* SELL AI 总结（数据：reportJson.summary） */}
-      <SectionCard badge="S" badgeColor="bg-[#7a5af8]" title="AI 策略总结" subtitle="AI 提炼的核心结论与策略建议">
-        <div className="rounded-xl border border-[#eef1f5] bg-[#f8fafc] p-4 text-[14px] leading-7 text-[#344054]">
-          {summaryText || '暂无 AI 策略总结。'}
-        </div>
-      </SectionCard>
+      {!hasRichStory ? (
+        // 无富结构（老报告）时仅展示 AI 策略总结
+        <SectionCard badge="S" badgeColor="bg-[#7a5af8]" title="AI 策略总结" subtitle="AI 提炼的核心结论与策略建议">
+          <div className="rounded-xl border border-[#eef1f5] bg-[#f8fafc] p-4 text-[14px] leading-7 text-[#344054]">
+            {summaryText || '暂无 AI 策略总结。'}
+          </div>
+        </SectionCard>
+      ) : (
+        <>
+          {/* 卖点 */}
+          <SectionCard badge="S" badgeColor="bg-[#7a5af8]" title="核心卖点" subtitle="AI 从竞品标题、评价与问大家提炼的高频卖点">
+            {sellingPoints.length ? (
+              <div className="flex flex-wrap gap-2">
+                {sellingPoints.map((pt, idx) => (
+                  <span key={`${pt.term}-${idx}`} className={`rounded-full px-3.5 py-1.5 text-[13px] font-bold ${idx < 3 ? 'bg-[#f0f7ff] text-[#3388ff]' : 'bg-[#f2f4f7] text-[#4e5969]'}`}>
+                    {pt.term}
+                    {pt.count != null && <span className="ml-1.5 font-medium opacity-70">({pt.count}次)</span>}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p className="m-0 py-6 text-center text-[14px] text-[#86909C]">暂无卖点提炼数据</p>
+            )}
+          </SectionCard>
+
+          {/* 痛点与机会 */}
+          <SectionCard badge="A" badgeColor="bg-[#f57c00]" title="用户痛点与机会点" subtitle="高频差评痛点、用户需求与差异化机会方向">
+            <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+              <div className="rounded-xl border border-[#ffd7d7] bg-[#fff9f9] p-4">
+                <p className="m-0 mb-3 text-[13px] font-extrabold text-[#c62828]">差评与痛点</p>
+                {painPoints.length ? (
+                  <ul className="m-0 flex list-none flex-col gap-2.5 p-0">
+                    {painPoints.map((item, idx) => (
+                      <li key={idx} className="flex items-start gap-2 text-[13px] text-[#8c3a3a]">
+                        <span className="font-extrabold">•</span>
+                        <span>{item}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="m-0 text-[13px] text-[#98A2B3]">暂无数据</p>
+                )}
+              </div>
+              <div className="flex flex-col gap-5">
+                <div className="rounded-xl border border-[#b7eb8f] bg-[#f6ffed] p-4">
+                  <p className="m-0 mb-3 text-[13px] font-extrabold text-[#2e7d32]">用户需求</p>
+                  {userDemands.length ? (
+                    <div className="flex flex-wrap gap-2">
+                      {userDemands.map((item, idx) => (
+                        <span key={idx} className="rounded-lg bg-[#e8f5e9] px-3 py-1 text-[13px] text-[#2e7d32]">{item}</span>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="m-0 text-[13px] text-[#98A2B3]">暂无数据</p>
+                  )}
+                </div>
+                <div className="rounded-xl border border-[#d8ebff] bg-[#f5faff] p-4">
+                  <p className="m-0 mb-3 text-[13px] font-extrabold text-[#3388ff]">差异化机会点</p>
+                  {opportunities.length ? (
+                    <div className="flex flex-wrap gap-2">
+                      {opportunities.map((item, idx) => (
+                        <span key={idx} className="rounded-lg bg-[#f0f7ff] px-3 py-1 text-[13px] text-[#3388ff]">{item}</span>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="m-0 text-[13px] text-[#98A2B3]">暂无数据</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          </SectionCard>
+
+          {/* AI 策略总结 */}
+          <SectionCard badge="T" badgeColor="bg-[#7a5af8]" title="AI 策略总结" subtitle="AI 提炼的核心结论与策略建议">
+            <div className="rounded-xl border border-[#eef1f5] bg-[#f8fafc] p-4 text-[14px] leading-7 text-[#344054]">
+              {summaryText || '暂无 AI 策略总结。'}
+            </div>
+          </SectionCard>
+        </>
+      )}
     </div>
   )
 }

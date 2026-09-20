@@ -56,6 +56,11 @@ export class CollectionJobService {
       const productCount = dto.products?.length ?? 0
       for (const product of dto.products ?? []) {
         const snapshotTime = new Date(dto.dataSnapshotDate)
+        // 采集侧可选回传的月销/商品主图写入 rawJson（无则不动），供富报告使用
+        const rawJson: Prisma.InputJsonValue | undefined =
+          product.sold !== undefined || product.imageUrl !== undefined
+            ? { sold: product.sold, imageUrl: product.imageUrl }
+            : undefined
         await tx.productSnapshot.upsert({
           where: {
             collectionJobId_externalProductId: {
@@ -68,6 +73,7 @@ export class CollectionJobService {
             price: product.price,
             shopId: product.shopId,
             shopName: product.shopName,
+            rawJson,
             snapshotTime,
             dataSnapshotDate: dto.dataSnapshotDate,
           },
@@ -79,6 +85,7 @@ export class CollectionJobService {
             price: product.price,
             shopId: product.shopId,
             shopName: product.shopName,
+            rawJson,
             snapshotTime,
             dataSnapshotDate: dto.dataSnapshotDate,
           },
