@@ -196,15 +196,12 @@ export function ProductImageSetsPage() {
     setAiHelpText('')
 
     try {
-      const mainImg = uploadedImages.find((img) => img.isMain) || uploadedImages[0]
       const response = await fetch('/api/product-sets/expand-prompts-stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           settings,
           baseText: generationText,
-          image: mainImg.url,
-          images: uploadedImages.map((img) => img.url),
         }),
       })
 
@@ -335,6 +332,9 @@ export function ProductImageSetsPage() {
           prompt: slot.prompt,
           size: '2K',
           slotType: slot.typeKey,
+          image: uploadedImages.find((i) => i.isMain)?.url || uploadedImages[0]?.url,
+          images: uploadedImages.map((i) => i.url),
+          ratio: settings.ratio,
         })
         const imgUrl = res.data?.images?.[0]?.url || res.data?.url
         if (!imgUrl) throw new Error('生成成功但没有返回图片 URL')
@@ -363,6 +363,9 @@ export function ProductImageSetsPage() {
         prompt: slot?.prompt || '电商高清主图',
         size: '2K',
         slotType: slot?.typeKey,
+        image: uploadedImages.find((i) => i.isMain)?.url || uploadedImages[0]?.url,
+        images: uploadedImages.map((i) => i.url),
+        ratio: settings.ratio,
       })
       const imgUrl = res.data?.images?.[0]?.url || res.data?.url
       if (!imgUrl) throw new Error('生成成功但没有返回图片 URL')

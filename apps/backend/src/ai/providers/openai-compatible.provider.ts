@@ -126,13 +126,35 @@ export class OpenAICompatibleProvider implements AiProvider {
   }
 
   async generateImage(request: AiImageRequest): Promise<AiResult> {
-    const { payload, durationMs } = await this.requestJson(this.endpoint('images/generations'), {
+    const endpoint = this.config.imageEndpoint ?? 'images/generations'
+    const isOpenRouterImages = endpoint.replace(/^\/+/, '') === 'images'
+    const referenceImages = request.referenceImageUrls ?? []
+
+    // 普通 OpenAI 兼容端点（images/generations）：只发文本生图，不带参考图/quality/aspect_ratio。
+    // OpenRouter 图生图端点（/images，对齐旧版）：支持 input_references + aspect_ratio + quality。
+    const body: Record<string, unknown> = {
       model: this.config.model ?? 'gpt-image-1',
       prompt: request.prompt,
       n: request.count ?? 1,
-      size: request.size ?? '1024x1024',
-    })
-    const images = (payload.data ?? []).map((item: { url?: string; b64_json?: string }) => item.url ?? item.b64_json ?? '')
+    }
+    if (isOpenRouterImages) {
+      body.quality = 'low'
+      if (request.aspectRatio) body.aspect_ratio = request.aspectRatio
+      if (referenceImages.length) {
+        body.input_references = referenceImages.map((url) => ({ type: 'image_url', image_url: { url } }))
+      }
+    } else {
+      body.size = request.size ?? '1024x1024'
+    }
+
+    const { payload, durationMs } = await this.requestJson(this.endpoint(endpoint), body)
+    const images = (payload.data ?? [])
+      .map((item: { url?: string; b64_json?: string; media_type?: string }) => {
+        if (item.url) return item.url
+        if (item.b64_json) return `data:${item.media_type || 'image/png'};base64,${item.b64_json}`
+        return ''
+      })
+      .filter(Boolean)
     return {
       status: 'success',
       images,

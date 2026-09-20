@@ -16,6 +16,7 @@ export interface AiImageRequest {
   size?: string
   count?: number
   referenceImageUrls?: string[]
+  aspectRatio?: string
 }
 
 export interface AiResult {
@@ -35,6 +36,8 @@ export interface ProviderConfig {
   apiKey?: string
   model?: string
   timeoutMs?: number
+  /** 图片端点覆盖：如 openrouter 传 'images'（对齐旧版 /images），缺省走 images/generations */
+  imageEndpoint?: string
 }
 
 export interface AiProvider {

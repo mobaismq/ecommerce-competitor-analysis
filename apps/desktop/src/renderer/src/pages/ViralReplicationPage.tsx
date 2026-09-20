@@ -91,6 +91,10 @@ export function ViralReplicationPage() {
         prompt,
         count: 4,
         jobId: 'viral-replication',
+        // 图生图参考图：商品原图 + 上传的爆款参考图（后端去重并限 4 张）
+        image: productImage || referenceImages[0],
+        images: [...(productImage ? [productImage] : []), ...referenceImages].filter(Boolean),
+        ratio,
       })
       const urls: string[] = (data?.images || [])
         .map((item: { url?: string; dataUrl?: string }) => item.url || item.dataUrl || '')

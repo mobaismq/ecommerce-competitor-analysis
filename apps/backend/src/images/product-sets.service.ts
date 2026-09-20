@@ -13,7 +13,6 @@ import {
   parseJsonFromText,
   type PromptSettings,
 } from './image-prompt'
-import { storeMockImage } from './mock-image-storage'
 
 export interface GeneratePromptsInput {
   settings?: PromptSettings
@@ -22,6 +21,12 @@ export interface GeneratePromptsInput {
   information?: string
   promptSlots?: unknown[]
   selectedSlots?: unknown[]
+}
+
+/** 图生图参考图归一化（对齐旧版 normalizeReferenceImages）：images 数组优先、去重、trim、上限 4 张 */
+export function normalizeReferenceImages(image?: string, images?: string[]): string[] {
+  const raw = Array.isArray(images) && images.length > 0 ? images : image ? [image] : []
+  return Array.from(new Set(raw.map((item) => String(item || '').trim()).filter(Boolean))).slice(0, 4)
 }
 
 @Injectable()
@@ -51,22 +56,41 @@ export class ProductSetsService {
     return { ok: true, prompts, model: ai.model }
   }
 
-  async generateImage(input: { prompt: string; size?: string; count?: number; jobId?: string; tenantId: string }) {
+  async generateImage(input: {
+    prompt: string
+    size?: string
+    count?: number
+    jobId?: string
+    tenantId: string
+    image?: string
+    images?: string[]
+    ratio?: string
+    watermark?: boolean
+  }) {
     const attemptKey = buildAttemptKey({ jobId: input.jobId ?? 'product-sets', capability: 'image', suffix: 'generate' })
     const ai = await this.router.execute(
       'image',
-      { prompt: input.prompt, count: input.count ?? 1, size: input.size ?? '1024x1024' },
+      {
+        prompt: input.prompt,
+        count: input.count ?? 1,
+        size: input.size,
+        referenceImageUrls: normalizeReferenceImages(input.image, input.images),
+        aspectRatio: input.ratio?.trim() || undefined,
+      },
       { tenantId: input.tenantId, jobId: input.jobId ?? 'product-sets', attemptKey },
     )
-    const stored = storeMockImage(input.jobId ?? 'product-sets', 0)
-    const urls = ai.images?.length ? ai.images : [`mock://${stored.storageKey}`]
+    const urls = ai.images ?? []
+    if (urls.length === 0) {
+      // 无真实返回时诚实空态，不伪造 mock 占位图
+      return { ok: true, images: [], assetId: null }
+    }
     const asset = await this.prisma.generatedAsset.create({
       data: {
         tenantId: input.tenantId,
         jobId: input.jobId ?? null,
-        storageKey: stored.storageKey,
-        mimeType: stored.mimeType,
-        size: stored.size,
+        storageKey: `product-sets/${input.jobId ?? 'product-sets'}/image-0.png`,
+        mimeType: 'image/png',
+        size: 0,
         sourceUrl: urls[0],
       },
     })

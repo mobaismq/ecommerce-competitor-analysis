@@ -1,4 +1,4 @@
-import { IsInt, IsNotEmpty, IsObject, IsOptional, IsString } from 'class-validator'
+import { IsArray, IsBoolean, IsInt, IsNotEmpty, IsObject, IsOptional, IsString } from 'class-validator'
 import { Type } from 'class-transformer'
 
 export class GeneratePromptsDto {
@@ -41,6 +41,24 @@ export class GenerateImageDto {
   @IsOptional()
   @IsString()
   jobId?: string
+
+  // 图生图参考图契约（对齐旧版 generateProductSetImage）：参考图做 input_references，最多 4 张
+  @IsOptional()
+  @IsString()
+  image?: string
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  images?: string[]
+
+  @IsOptional()
+  @IsString()
+  ratio?: string
+
+  @IsOptional()
+  @IsBoolean()
+  watermark?: boolean
 }
 
 export class GenerateDetailWorkflowDto {

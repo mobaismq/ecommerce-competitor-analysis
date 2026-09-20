@@ -28,6 +28,10 @@ export class ProductSetsController {
       size: body.size,
       count: body.count,
       jobId: body.jobId,
+      image: body.image,
+      images: body.images,
+      ratio: body.ratio,
+      watermark: body.watermark,
       tenantId: request.user.tenantId,
     })
   }

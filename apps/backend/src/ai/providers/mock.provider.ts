@@ -50,7 +50,7 @@ export class MockAiProvider implements AiProvider {
       status: 'success',
       images,
       model: this.model,
-      rawPayload: { kind: 'mock-image', prompt: request.prompt, size: request.size },
+      rawPayload: { kind: 'mock-image', prompt: request.prompt, size: request.size, referenceImageUrls: request.referenceImageUrls },
       tokenIn: countTokens(request.prompt),
       tokenOut: 0,
       durationMs: 7,

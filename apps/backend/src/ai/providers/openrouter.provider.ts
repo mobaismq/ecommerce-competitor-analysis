@@ -10,6 +10,8 @@ export class OpenRouterProvider extends OpenAICompatibleProvider {
       baseUrl: config.baseUrl ?? process.env.OPENROUTER_BASE_URL ?? 'https://openrouter.ai/api/v1',
       apiKey: config.apiKey ?? process.env.OPENROUTER_API_KEY,
       model: config.model ?? process.env.OPENROUTER_VISION_MODEL ?? 'deepseek/deepseek-v4-flash-vision-exp',
+      // OpenRouter 图生图端点对齐旧版 /images（支持 input_references 参考图）
+      imageEndpoint: config.imageEndpoint ?? 'images',
     })
   }
 }

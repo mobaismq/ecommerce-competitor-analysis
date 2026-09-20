@@ -108,3 +108,84 @@ describe('OpenAICompatibleProvider (原生 fetch 替换 ky)', () => {
     await expect(provider.generateText({ prompt: 'x' })).rejects.toBeInstanceOf(AiCallError)
   })
 })
+
+describe('OpenAICompatibleProvider.generateImage（图生图参考图回迁）', () => {
+  const originalFetch = global.fetch
+
+  afterEach(() => {
+    global.fetch = originalFetch
+  })
+
+  it('openrouter /images 端点：带参考图时组装 input_references + aspect_ratio + quality', async () => {
+    let captured: { url: string; body: Record<string, unknown> } | undefined
+    global.fetch = (async (url: unknown, init: unknown) => {
+      captured = { url: String(url), body: JSON.parse((init as RequestInit).body as string) }
+      return { ok: true, status: 200, json: async () => ({ data: [{ url: 'https://cdn/1.png' }] }) }
+    }) as unknown as typeof fetch
+
+    const provider = new OpenAICompatibleProvider({
+      baseUrl: 'https://openrouter.ai/api/v1',
+      apiKey: 'key',
+      model: 'openai/gpt-image-2',
+      imageEndpoint: 'images',
+    })
+    const result = await provider.generateImage({
+      prompt: '主图',
+      // 去重/上限 4 张由 service 层 normalizeReferenceImages 保证，provider 1:1 映射
+      referenceImageUrls: ['https://ref/1.png', 'https://ref/2.png'],
+      aspectRatio: '1:1',
+    })
+
+    expect(captured?.url).toBe('https://openrouter.ai/api/v1/images')
+    expect(captured?.body).toMatchObject({
+      model: 'openai/gpt-image-2',
+      prompt: '主图',
+      n: 1,
+      quality: 'low',
+      aspect_ratio: '1:1',
+    })
+    expect(captured?.body.input_references).toEqual([
+      { type: 'image_url', image_url: { url: 'https://ref/1.png' } },
+      { type: 'image_url', image_url: { url: 'https://ref/2.png' } },
+    ])
+    expect(result.images).toEqual(['https://cdn/1.png'])
+  })
+
+  it('openrouter /images 端点：无参考图时不带 input_references，仍发 quality', async () => {
+    let captured: { url: string; body: Record<string, unknown> } | undefined
+    global.fetch = (async (url: unknown, init: unknown) => {
+      captured = { url: String(url), body: JSON.parse((init as RequestInit).body as string) }
+      return { ok: true, status: 200, json: async () => ({ data: [{ url: 'https://cdn/a.png' }] }) }
+    }) as unknown as typeof fetch
+
+    const provider = new OpenAICompatibleProvider({ baseUrl: 'https://openrouter.ai/api/v1', imageEndpoint: 'images' })
+    const result = await provider.generateImage({ prompt: 'p' })
+    expect(captured?.url).toBe('https://openrouter.ai/api/v1/images')
+    expect(captured?.body.input_references).toBeUndefined()
+    expect(captured?.body.quality).toBe('low')
+    expect(result.images).toEqual(['https://cdn/a.png'])
+  })
+
+  it('普通 images/generations 端点：无参考图时保持原文本生图（size 参数，不带 input_references/aspect_ratio）', async () => {
+    let captured: { url: string; body: Record<string, unknown> } | undefined
+    global.fetch = (async (url: unknown, init: unknown) => {
+      captured = { url: String(url), body: JSON.parse((init as RequestInit).body as string) }
+      return { ok: true, status: 200, json: async () => ({ data: [{ url: 'https://cdn/a.png' }] }) }
+    }) as unknown as typeof fetch
+
+    const provider = new OpenAICompatibleProvider({ baseUrl: 'https://api.openai.com/v1', apiKey: 'k', model: 'gpt-image-1' })
+    const result = await provider.generateImage({ prompt: 'p', size: '512x512' })
+    expect(captured?.url).toBe('https://api.openai.com/v1/images/generations')
+    expect(captured?.body).toMatchObject({ size: '512x512' })
+    expect(captured?.body.input_references).toBeUndefined()
+    expect(captured?.body.aspect_ratio).toBeUndefined()
+    expect(result.images).toEqual(['https://cdn/a.png'])
+  })
+
+  it('b64_json 转 data: URL（media_type 缺省为 image/png）', async () => {
+    global.fetch = (async () => ({ ok: true, status: 200, json: async () => ({ data: [{ b64_json: 'QUJD', media_type: 'image/png' }] }) })) as unknown as typeof fetch
+    const provider = new OpenAICompatibleProvider({ baseUrl: 'https://x/v1' })
+    const result = await provider.generateImage({ prompt: 'p' })
+    expect(result.images?.[0]).toBe('data:image/png;base64,QUJD')
+  })
+})

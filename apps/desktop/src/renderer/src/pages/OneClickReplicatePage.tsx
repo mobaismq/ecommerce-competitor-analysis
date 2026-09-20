@@ -133,10 +133,15 @@ export function OneClickReplicatePage() {
         replicateNote ? `补充要求：${replicateNote}` : '',
       ].filter(Boolean).join('；')
 
+      const refUrl = referenceUrl.trim()
       const { data } = await api.post('/api/product-sets/generate-image', {
         prompt,
         count: 4,
         jobId: `one-click-replicate-${currentProduct.id}`,
+        // 图生图参考图：商品主图 + 上传参考图 + SKU 图（+ 导入链接）；后端去重并限 4 张
+        image: currentProduct.productImage || referenceImages[0],
+        images: [...referenceImages, ...(refUrl ? [refUrl] : []), ...currentProduct.skuImages].filter(Boolean),
+        ratio,
       })
       const urls: string[] = (data?.images || [])
         .map((item: { url?: string; dataUrl?: string }) => item.url || item.dataUrl || '')
