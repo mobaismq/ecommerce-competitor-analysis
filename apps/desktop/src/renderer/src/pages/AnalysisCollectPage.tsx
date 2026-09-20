@@ -43,10 +43,10 @@ export function AnalysisCollectPage() {
   const navigate = useNavigate()
 
   // 表单状态（对照旧版受控字段）
-  const [keyword, setKeyword] = useState('智能手表')
+  const [keyword, setKeyword] = useState('')
   const [minPrice, setMinPrice] = useState<string>('')
   const [maxPrice, setMaxPrice] = useState<string>('')
-  const [competitorCount, setCompetitorCount] = useState('20')
+  const [competitorCount, setCompetitorCount] = useState('')
   const [searchPages, setSearchPages] = useState('8')
   const [autoParse, setAutoParse] = useState(true)
 
@@ -75,7 +75,7 @@ export function AnalysisCollectPage() {
     return parseRpaProgress(logs, activeParams?.competitorCount || 20)
   }, [logs, activeParams?.competitorCount])
 
-  const total = activeParams?.competitorCount || 20
+  const total = activeParams?.competitorCount || 0
   const collected = parsedProgress.current ?? (status === 'completed' ? total : 0)
   const percent = parsedProgress.percent ?? (total > 0 ? Math.min(100, Math.round((collected / total) * 100)) : 0)
   const isRunning = status === 'running'
@@ -223,10 +223,10 @@ export function AnalysisCollectPage() {
   }
 
   const handleReset = () => {
-    setKeyword('智能手表')
+    setKeyword('')
     setMinPrice('')
     setMaxPrice('')
-    setCompetitorCount('20')
+    setCompetitorCount('')
     setSearchPages('8')
     setAutoParse(true)
     setStatus('idle')
@@ -311,8 +311,8 @@ export function AnalysisCollectPage() {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className={FIELD_LABEL_CLASS}>竞品数量 (Top N)</label>
-                <XInput value={competitorCount} onChange={setCompetitorCount} disabled={isRunning} placeholder="1-100 之间" inputMode="numeric" />
+                <label className={FIELD_LABEL_CLASS}>竞品数量</label>
+                <XInput value={competitorCount} onChange={setCompetitorCount} disabled={isRunning} placeholder="请输入采集竞品数量，1-100之间" inputMode="numeric" />
                 <p className="m-0 mt-1 text-[12px] text-[#86909C]">限制 1 ~ 100 件商品</p>
               </div>
               <div>

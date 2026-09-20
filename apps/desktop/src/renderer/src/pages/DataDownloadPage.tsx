@@ -90,7 +90,7 @@ const MODES = [
 ]
 
 const SPEED_PROFILES = [
-  { label: '快速：更少等待，保留 20s 导出冷却', value: 'fast' },
+  { label: '快速：更少等待，仍保留 20 秒导出冷却', value: 'fast' },
   { label: '均衡：默认加速，保留安全冷却', value: 'balanced' },
   { label: '保守：更慢，风控更稳', value: 'conservative' },
 ]
@@ -431,7 +431,7 @@ export function DataDownloadPage() {
 
             <Divider style={{ margin: '12px 0 16px 0' }} />
 
-            <Form form={form} layout="vertical" initialValues={{ topN: 100, searchPages: 8, speedProfile: 'fast', mode: 'download-and-import', importMysql: true, fake: true }}>
+            <Form form={form} layout="vertical" initialValues={{ productName: '手表', topN: 100, searchPages: 8, speedProfile: 'fast', mode: 'download-and-import', importMysql: true, fake: true }}>
               <Form.Item
                 label="商品名称 / 搜索词"
                 field="productName"
@@ -492,7 +492,7 @@ export function DataDownloadPage() {
                 }}
               >
                 <Form.Item field="importMysql" style={{ marginBottom: 8 }}>
-                  <Checkbox defaultChecked>下载完成后自动清洗并结构化入库</Checkbox>
+                  <Checkbox defaultChecked>下载完成后自动入库</Checkbox>
                 </Form.Item>
                 <Form.Item field="fake" style={{ marginBottom: 0 }}>
                   <Checkbox defaultChecked>

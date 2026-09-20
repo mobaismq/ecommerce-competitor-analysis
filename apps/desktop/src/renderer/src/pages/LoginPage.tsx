@@ -135,7 +135,7 @@ export function LoginPage() {
                     localStorage.setItem(REMEMBER_USERNAME_KEY, event.target.value)
                   }}
                   autoComplete="username"
-                  placeholder="账号名称 / 手机号"
+                  placeholder="账号名称/手机号"
                   required
                   className="h-[44px] w-full rounded-lg border border-[#dce3ee] bg-[#f8f9fb] px-4 text-[14px] text-[#0A1B39] outline-none transition-colors placeholder:text-[#98A2B3] focus:border-[#3388ff] focus:bg-white focus:ring-2 focus:ring-[#d8ebff]"
                 />

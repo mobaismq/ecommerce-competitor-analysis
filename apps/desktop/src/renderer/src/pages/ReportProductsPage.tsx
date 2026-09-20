@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { Message } from '@arco-design/web-react'
 import {
   BrainCircuit,
@@ -13,12 +13,10 @@ import {
 } from 'lucide-react'
 import { api } from '../api/client'
 import { PageHeader } from '../components/PageHeader'
-import { XInput } from '../components/XInput'
 
 interface ProductSku {
-  skuId: string
-  title?: string
-  name?: string | null
+  skuId: string | null
+  name: string | null
   info?: string
   price?: number | null
   stockQty?: number | null
@@ -27,20 +25,20 @@ interface ProductSku {
 
 interface Product {
   id: string
-  productId: string
-  title?: string | null
-  shopName?: string | null
-  productUrl?: string | null
-  price?: number | null
-  priceRange?: string | null
-  soldCount?: number | null
-  salesAmount?: number | null
-  skuCount?: number | null
-  imageUrl?: string | null
-  imageCount?: number | null
+  productId: string | null
+  title: string | null
+  shopName: string | null
+  productUrl: string | null
+  price: number | null
+  priceRange: string | null
+  soldCount: number | null
+  salesAmount: number | null
+  skuCount: number | null
+  imageUrl: string | null
+  imageCount: number | null
   skus: ProductSku[]
-  mainImageAnalysisId?: string | null
-  mainImageAnalyzedAt?: string | null
+  mainImageAnalysisId: string | null
+  mainImageAnalyzedAt: string | null
 }
 
 interface CollectionInfo {
@@ -51,23 +49,15 @@ interface CollectionInfo {
   collectTime?: string
 }
 
-interface MainImageAnalysisReport {
-  productId: string
-  title: string
-  imageUrl: string
-  sellingPoints: string[]
-  visualAesthetics: {
-    composition: string
-    lighting: string
-    colorTone: string
-    background: string
-  }
-  textLayout: {
-    hasText: boolean
-    textRatio: string
-    readability: string
-  }
-  suggestions: string[]
+// 主图分析报告（对照桌面端 GET /api/reports/:id/main-image-analysis/:productId）
+// 后端仅保存 resultJson.summary（视觉分析摘录），因此只渲染诚实空态与内联数据，不伪造卖点/构图等结构化段落。
+interface MainImageAnalysisDetail {
+  id: string
+  productId: string | null
+  imageUrl: string | null
+  visionModel: string | null
+  resultJson: { summary?: string } | null
+  createdAt: string | null
 }
 
 const PAGE_SIZE = 10
@@ -81,7 +71,7 @@ function formatMoney(value?: number | null) {
 }
 
 function formatCount(value?: number | null) {
-  if (value == null || isNaN(Number(value))) return '0'
+  if (value == null || isNaN(Number(value))) return '-'
   return Number(value).toLocaleString('zh-CN')
 }
 
@@ -91,9 +81,9 @@ export function ReportProductsPage() {
   // id 兼容：主路由 products?id=（旧版查询串契约）与别名 analysis/reports/:id/products
   const id = searchParams.get('id') || params.id
   const keywordParam = searchParams.get('keyword') || ''
-  const navigate = useNavigate()
 
   const [collection, setCollection] = useState<CollectionInfo | null>(null)
+  const [source, setSource] = useState('')
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(false)
   const [loadError, setLoadError] = useState('')
@@ -104,7 +94,7 @@ export function ReportProductsPage() {
   const [batchProgress, setBatchProgress] = useState({ done: 0, total: 0, currentTitle: '' })
 
   const [reportModalProduct, setReportModalProduct] = useState<Product | null>(null)
-  const [reportDetail, setReportDetail] = useState<MainImageAnalysisReport | null>(null)
+  const [reportDetail, setReportDetail] = useState<MainImageAnalysisDetail | null>(null)
   const [reportModalLoading, setReportModalLoading] = useState(false)
 
   const [currentPage, setCurrentPage] = useState(1)
@@ -118,31 +108,24 @@ export function ReportProductsPage() {
       const { data } = await api.get(`/api/reports/${id}/products`)
       if (data) {
         setCollection(data.collection || null)
+        setSource(data.source || '')
         const rawProducts: Product[] = (data.products || []).map((p: Record<string, unknown>, idx: number) => ({
-          id: String(p.id || `p_${idx}`),
-          productId: String(p.productId || `prod_${1000 + idx}`),
-          title: String(p.title || `竞品商品 #${idx + 1}`),
-          shopName: String(p.shopName || '官方旗舰店'),
-          productUrl: String(p.productUrl || `https://item.taobao.com/item.htm?id=${p.productId || idx}`),
-          price: Number(p.price) || 199,
-          priceRange: String(p.priceRange || '¥169 - ¥259'),
-          soldCount: Number(p.soldCount) || Math.floor(500 + Math.random() * 5000),
-          salesAmount: Number(p.salesAmount) || Math.floor(100000 + Math.random() * 500000),
-          skuCount: Array.isArray(p.skus) ? p.skus.length : 3,
-          imageUrl: String(
-            p.imageUrl ||
-              'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=500&q=80',
-          ),
-          imageCount: Number(p.imageCount) || 5,
-          skus: Array.isArray(p.skus) && p.skus.length > 0
-            ? (p.skus as ProductSku[])
-            : [
-                { skuId: 's1', title: '曜石黑 · 标配版', price: 199, stockQty: 850 },
-                { skuId: 's2', title: '星光白 · 运动款', price: 229, stockQty: 620 },
-                { skuId: 's3', title: '钛合金灰 · 尊享版', price: 269, stockQty: 340 },
-              ],
-          mainImageAnalysisId: (p.mainImageAnalysisId as string | null) || (idx % 2 === 0 ? `analysis_${idx}` : null),
-          mainImageAnalyzedAt: (p.mainImageAnalyzedAt as string | null) || (idx % 2 === 0 ? '2026-09-17 12:00' : null),
+          // 只做真实字段直连映射；后端缺失字段保持 null，UI 层诚实回退，绝不伪造兜底数据
+          id: p.id != null ? String(p.id) : `p_${idx}`,
+          productId: p.productId != null ? String(p.productId) : null,
+          title: p.title != null ? String(p.title) : null,
+          shopName: p.shopName != null ? String(p.shopName) : null,
+          productUrl: p.productUrl != null ? String(p.productUrl) : null,
+          price: p.price != null ? Number(p.price) : null,
+          priceRange: p.priceRange != null ? String(p.priceRange) : null,
+          soldCount: p.soldCount != null ? Number(p.soldCount) : null,
+          salesAmount: p.salesAmount != null ? Number(p.salesAmount) : null,
+          skuCount: p.skuCount != null ? Number(p.skuCount) : null,
+          imageUrl: p.imageUrl != null ? String(p.imageUrl) : null,
+          imageCount: p.imageCount != null ? Number(p.imageCount) : null,
+          skus: Array.isArray(p.skus) ? (p.skus as ProductSku[]) : [],
+          mainImageAnalysisId: p.mainImageAnalysisId != null ? String(p.mainImageAnalysisId) : null,
+          mainImageAnalyzedAt: p.mainImageAnalyzedAt != null ? String(p.mainImageAnalyzedAt) : null,
         }))
         setProducts(rawProducts)
       }
@@ -157,109 +140,102 @@ export function ReportProductsPage() {
     loadProducts()
   }, [loadProducts])
 
-  // 单品主图 AI 分析（业务逻辑保持桌面端现状）
+  // 单品主图 AI 分析（对照旧版：POST 真实接口，用返回的 id/analyzedAt 落库，不伪造）
   const handleAnalyzeSingle = async (product: Product) => {
     setAnalyzingProductId(product.id)
     try {
-      await api.post(`/api/reports/${id}/main-image-analysis`, {
+      const { data } = await api.post(`/api/reports/${id}/main-image-analysis`, {
         productId: product.productId,
+        productUrl: product.productUrl,
         title: product.title,
         imageUrl: product.imageUrl,
         price: product.price,
         soldCount: product.soldCount,
         skus: product.skus,
       })
-      Message.success(`商品「${product.title?.slice(0, 10)}...」主图分析完成`)
-    } catch {
-      // 演示环境优雅降级
-      Message.success('主图多模态分析完成并生成特征报告')
-    } finally {
+      const analysisId = data?.id != null ? String(data.id) : null
+      const analyzedAt = data?.analyzedAt != null ? String(data.analyzedAt) : null
       setProducts((prev) =>
         prev.map((item) =>
           item.id === product.id
-            ? { ...item, mainImageAnalysisId: `analysis_${nanoidSafe()}`, mainImageAnalyzedAt: new Date().toLocaleString() }
+            ? { ...item, mainImageAnalysisId: analysisId, mainImageAnalyzedAt: analyzedAt }
             : item,
         ),
       )
+      Message.success(`商品「${product.title?.slice(0, 10)}...」主图分析入库完成`)
+    } catch {
+      Message.error('主图分析入库失败')
+    } finally {
       setAnalyzingProductId(null)
     }
   }
 
-  const nanoidSafe = () => Math.random().toString(36).slice(2, 12)
-
-  // 批量主图分析队列（业务逻辑保持桌面端现状）
+  // 批量主图分析队列（对照旧版：仅处理有主图且未入库的商品）
   const handleBatchAnalyze = async () => {
-    const unAnalyzed = products.filter((p) => !p.mainImageAnalysisId)
-    if (unAnalyzed.length === 0) {
-      Message.info('当前列表中所有商品主图均已完成 AI 分析')
+    const pending = products.filter((p) => p.imageUrl && !p.mainImageAnalysisId)
+    if (pending.length === 0) {
+      Message.info('当前列表没有需要入库的商品。')
       return
     }
 
     setBatchRunning(true)
-    setBatchProgress({ done: 0, total: unAnalyzed.length, currentTitle: unAnalyzed[0].title || '' })
+    setBatchProgress({ done: 0, total: pending.length, currentTitle: '' })
 
-    for (let i = 0; i < unAnalyzed.length; i++) {
-      const prod = unAnalyzed[i]
-      setBatchProgress({ done: i, total: unAnalyzed.length, currentTitle: prod.title || '' })
+    for (let i = 0; i < pending.length; i++) {
+      const prod = pending[i]
+      setBatchProgress({ done: i, total: pending.length, currentTitle: prod.title || '' })
 
       try {
-        await api.post(`/api/reports/${id}/main-image-analysis`, {
+        const { data } = await api.post(`/api/reports/${id}/main-image-analysis`, {
           productId: prod.productId,
+          productUrl: prod.productUrl,
           title: prod.title,
           imageUrl: prod.imageUrl,
+          price: prod.price,
+          soldCount: prod.soldCount,
+          skus: prod.skus,
         })
+        const analysisId = data?.id != null ? String(data.id) : null
+        const analyzedAt = data?.analyzedAt != null ? String(data.analyzedAt) : null
+        setProducts((prev) =>
+          prev.map((item) =>
+            item.id === prod.id ? { ...item, mainImageAnalysisId: analysisId, mainImageAnalyzedAt: analyzedAt } : item,
+          ),
+        )
       } catch {
-        // ignore
+        // 单条失败不中断队列，继续后续
       }
-
-      setProducts((prev) =>
-        prev.map((item) =>
-          item.id === prod.id
-            ? { ...item, mainImageAnalysisId: `analysis_${nanoidSafe()}`, mainImageAnalyzedAt: new Date().toLocaleString() }
-            : item,
-        ),
-      )
-
-      await new Promise((res) => setTimeout(res, 400))
     }
 
-    setBatchProgress({ done: unAnalyzed.length, total: unAnalyzed.length, currentTitle: '全部完成' })
+    setBatchProgress({ done: pending.length, total: pending.length, currentTitle: '全部完成' })
     setBatchRunning(false)
-    Message.success(`批量分析完成！成功解析 ${unAnalyzed.length} 款竞品主图`)
   }
 
-  // 查看主图 AI 报告 Modal（内容构造保持桌面端现状）
-  const handleOpenReportModal = (product: Product) => {
+  // 查看主图 AI 报告（对照旧版：GET 真实报告，渲染后端实际保存的字段）
+  const handleOpenReportModal = async (product: Product) => {
     setReportModalProduct(product)
     setReportModalLoading(true)
-
-    const mockReport: MainImageAnalysisReport = {
-      productId: product.productId,
-      title: product.title || '智能手表',
-      imageUrl: product.imageUrl || '',
-      sellingPoints: ['超清 AMOLED 视网膜大屏', '航空级钛合金机身', '5ATM 专业防水', '14 天长效续航', '蓝牙 5.3 极速低延迟'],
-      visualAesthetics: {
-        composition: '45 度微仰角悬浮透视，主体居中偏右 10%，视觉重心稳健聚焦。',
-        lighting: '双侧冷白补光，边缘带有细微金属反光高光带，营造高级工业科技质感。',
-        colorTone: '深邃哑光灰黑主调，搭配蓝色界面荧光，具备强烈的专业与沉浸氛围。',
-        background: '极简浅灰色纯净棚拍背景，无杂乱投影干扰，主体轮廓极为锐利。',
-      },
-      textLayout: {
-        hasText: true,
-        textRatio: '15%（符合电商平台低文本覆盖率规范，不影响算法推荐流曝光权重）',
-        readability: '高对比度白色粗黑体，位于左上角主视觉动线入口，一眼清晰可读。',
-      },
-      suggestions: [
-        '建议在首屏详情图中增加传感器微距爆炸图，进一步凸显测血氧/心率的硬核功能。',
-        '副视角可补充模特日常佩戴场景（商务/运动），增加生活代入感。',
-        '针对当前价格带，突出「质保三年、免费换新」的服务保障标签可提升进店转化率。',
-      ],
-    }
-
-    setTimeout(() => {
-      setReportDetail(mockReport)
+    setReportDetail(null)
+    try {
+      const { data } = await api.get(`/api/reports/${id}/main-image-analysis/${product.productId}`)
+      const analysis = data?.analysis ?? null
+      if (analysis) {
+        setReportDetail({
+          id: analysis.id != null ? String(analysis.id) : '',
+          productId: analysis.productId != null ? String(analysis.productId) : null,
+          imageUrl: analysis.imageUrl != null ? String(analysis.imageUrl) : null,
+          visionModel: analysis.visionModel != null ? String(analysis.visionModel) : null,
+          resultJson: analysis.resultJson as MainImageAnalysisDetail['resultJson'] | null,
+          createdAt: analysis.createdAt != null ? String(analysis.createdAt) : null,
+        })
+      } else {
+        setReportDetail(null)
+      }
+    } catch {
+      setReportDetail(null)
+    } finally {
       setReportModalLoading(false)
-    }, 200)
+    }
   }
 
   const handleOpenExternal = (url?: string | null) => {
@@ -277,7 +253,7 @@ export function ReportProductsPage() {
       const inTitle = (p.title || '').toLowerCase().includes(kw)
       const inId = (p.productId || '').toLowerCase().includes(kw)
       const inShop = (p.shopName || '').toLowerCase().includes(kw)
-      const inSku = p.skus.some((s) => (s.title || s.name || s.skuId).toLowerCase().includes(kw))
+      const inSku = p.skus.some((s) => (s.name || s.skuId || '').toLowerCase().includes(kw))
       return inTitle || inId || inShop || inSku
     })
   }, [products, search])
@@ -289,7 +265,6 @@ export function ReportProductsPage() {
   const totalPages = Math.max(1, Math.ceil(filteredProducts.length / PAGE_SIZE))
   const safePage = Math.min(currentPage, totalPages)
   const pageProducts = filteredProducts.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
-  const analyzedCount = products.filter((p) => p.mainImageAnalysisId).length
 
   const renderPageNumbers = () => {
     const pages: number[] = []
@@ -361,7 +336,7 @@ export function ReportProductsPage() {
         <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
           <div className="rounded-xl bg-[#f8fafc] p-4">
             <p className="m-0 text-[12px] text-[#86909C]">商品数量</p>
-            <p className="m-0 mt-1 text-[20px] font-bold text-[#0A1B39]">{collection?.productCount || products.length}</p>
+            <p className="m-0 mt-1 text-[20px] font-bold text-[#0A1B39]">{collection?.productCount || 0}</p>
           </div>
           <div className="rounded-xl bg-[#f8fafc] p-4">
             <p className="m-0 text-[12px] text-[#86909C]">价格区间</p>
@@ -372,8 +347,8 @@ export function ReportProductsPage() {
             <p className="m-0 mt-1 text-[15px] font-bold text-[#0A1B39]">{collection?.collectTime || '-'}</p>
           </div>
           <div className="rounded-xl bg-[#f8fafc] p-4">
-            <p className="m-0 text-[12px] text-[#86909C]">主图已分析</p>
-            <p className="m-0 mt-1 text-[15px] font-bold text-[#0A1B39]">{analyzedCount} / {products.length}</p>
+            <p className="m-0 text-[12px] text-[#86909C]">数据来源</p>
+            <p className="m-0 mt-1 text-[15px] font-bold text-[#0A1B39]">{source || '-'}</p>
           </div>
         </div>
       </section>
@@ -383,7 +358,7 @@ export function ReportProductsPage() {
         <div className="mb-5 flex flex-wrap items-center justify-between gap-4">
           <div>
             <h2 className="m-0 text-[18px] font-bold text-[#0A1B39]">商品清单</h2>
-            <p className="m-0 mt-1 text-[13px] text-[#86909C]">共 {filteredProducts.length} 个商品，每页 {PAGE_SIZE} 个</p>
+            <p className="m-0 mt-1 text-[13px] text-[#86909C]">共 {products.length} 个商品，每页 {PAGE_SIZE} 个</p>
           </div>
           <div className="flex w-full flex-wrap items-center justify-end gap-3 xl:w-auto">
             <button
@@ -453,13 +428,15 @@ export function ReportProductsPage() {
                   </div>
 
                   <div className="min-w-0 self-center">
-                    <h3 className="m-0 line-clamp-2 text-[14px] font-semibold leading-6 text-[#0A1B39]">{product.title}</h3>
+                    <h3 className="m-0 line-clamp-2 text-[14px] font-semibold leading-6 text-[#0A1B39]">{product.title || ''}</h3>
                     <div className="mt-2 flex flex-wrap gap-1.5 text-[12px]">
-                      <span className="rounded-lg bg-[#f8fafc] px-2 py-1 text-[#667085]">ID {product.productId}</span>
+                      {product.productId && <span className="rounded-lg bg-[#f8fafc] px-2 py-1 text-[#667085]">ID {product.productId}</span>}
                       {product.shopName && (
                         <span className="max-w-[160px] truncate rounded-lg bg-[#f8fafc] px-2 py-1 text-[#667085]">{product.shopName}</span>
                       )}
-                      <span className="rounded-lg bg-[#f8fafc] px-2 py-1 text-[#667085]">图片 {product.imageCount}</span>
+                      {product.imageCount != null && (
+                        <span className="rounded-lg bg-[#f8fafc] px-2 py-1 text-[#667085]">图片 {product.imageCount}</span>
+                      )}
                     </div>
                   </div>
 
@@ -478,8 +455,8 @@ export function ReportProductsPage() {
                       <div className="max-h-[92px] overflow-y-auto pr-1 custom-scrollbar">
                         <div className="flex flex-wrap gap-1.5">
                           {product.skus.map((sku, index) => (
-                            <div key={`${sku.skuId || sku.title}-${index}`} className="max-w-full rounded-lg bg-[#f8fafc] px-2 py-1.5">
-                              <p className="m-0 line-clamp-1 text-[12px] text-[#0A1B39]">{sku.title || sku.name || sku.skuId}</p>
+                            <div key={`${sku.skuId || sku.name}-${index}`} className="max-w-full rounded-lg bg-[#f8fafc] px-2 py-1.5">
+                              <p className="m-0 line-clamp-1 text-[12px] text-[#0A1B39]">{sku.name || sku.skuId || ''}</p>
                               <div className="mt-0.5 flex items-center gap-2 text-[11px]">
                                 {sku.skuId && <span className="text-[#98A2B3]">SKU {sku.skuId}</span>}
                                 <span className="text-[#ff4d00]">{formatMoney(sku.price)}</span>
@@ -562,7 +539,7 @@ export function ReportProductsPage() {
         )}
       </section>
 
-      {/* 主图分析报告 Modal（对照旧版弹层骨架，内容为桌面端既有报告结构） */}
+      {/* 主图分析报告 Modal（对照旧版弹层骨架；内容以桌面端后端实际保存字段为准，缺失即诚实空态） */}
       {reportModalProduct && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-5" onClick={() => setReportModalProduct(null)}>
           <div
@@ -572,12 +549,11 @@ export function ReportProductsPage() {
             <div className="flex items-start justify-between gap-4 border-b border-[#eef1f5] px-6 py-5">
               <div className="min-w-0">
                 <p className="m-0 text-[13px] font-bold text-[#3388ff]">主图分析报告</p>
-                <h3 className="m-0 mt-1 line-clamp-2 text-[20px] font-bold text-[#0A1B39]">{reportDetail?.title || reportModalProduct.title}</h3>
+                <h3 className="m-0 mt-1 line-clamp-2 text-[20px] font-bold text-[#0A1B39]">{reportModalProduct.title || ''}</h3>
                 <div className="mt-2 flex flex-wrap gap-2 text-[12px] text-[#667085]">
-                  <span className="rounded-lg bg-[#f8fafc] px-2.5 py-1">ID {reportModalProduct.productId}</span>
-                  {reportModalProduct.mainImageAnalyzedAt && (
-                    <span className="rounded-lg bg-[#f8fafc] px-2.5 py-1">{reportModalProduct.mainImageAnalyzedAt}</span>
-                  )}
+                  {reportModalProduct.productId && <span className="rounded-lg bg-[#f8fafc] px-2.5 py-1">ID {reportModalProduct.productId}</span>}
+                  {reportDetail?.visionModel && <span className="rounded-lg bg-[#f8fafc] px-2.5 py-1">{reportDetail.visionModel}</span>}
+                  {reportDetail?.createdAt && <span className="rounded-lg bg-[#f8fafc] px-2.5 py-1">{reportDetail.createdAt}</span>}
                 </div>
               </div>
               <button
@@ -590,17 +566,19 @@ export function ReportProductsPage() {
             </div>
 
             <div className="max-h-[calc(86vh-116px)] overflow-y-auto p-6 custom-scrollbar">
-              {reportModalLoading || !reportDetail ? (
+              {reportModalLoading ? (
                 <div className="grid place-items-center py-20 text-[14px] text-[#86909C]">
                   <Loader2 className="mr-2 inline h-4 w-4 animate-spin" />
                   读取中...
                 </div>
+              ) : !reportDetail ? (
+                <div className="grid place-items-center py-20 text-[14px] text-[#86909C]">该商品暂无主图分析数据</div>
               ) : (
                 <div className="grid grid-cols-[180px_1fr] gap-5">
                   <div>
                     <div className="aspect-square overflow-hidden rounded-xl bg-[#f2f4f7]">
-                      {reportDetail.imageUrl ? (
-                        <img src={reportDetail.imageUrl} alt={reportDetail.title} className="h-full w-full object-contain" />
+                      {reportDetail.imageUrl || reportModalProduct.imageUrl ? (
+                        <img src={reportDetail.imageUrl || reportModalProduct.imageUrl || ''} alt={reportModalProduct.title || ''} className="h-full w-full object-contain" />
                       ) : (
                         <div className="grid h-full place-items-center text-[#b0b7c3]">
                           <ImageIcon className="h-9 w-9" />
@@ -621,44 +599,18 @@ export function ReportProductsPage() {
 
                   <div className="flex flex-col gap-4">
                     <div className="rounded-xl bg-[#f8fafc] p-4">
-                      <p className="m-0 mb-2 text-[13px] font-bold text-[#0A1B39]">图片卖点</p>
-                      <div className="flex flex-wrap gap-2">
-                        {reportDetail.sellingPoints.map((point, index) => (
-                          <span key={index} className="rounded-lg bg-white px-2.5 py-1 text-[12px] text-[#344054]">{point}</span>
-                        ))}
-                      </div>
+                      <p className="m-0 mb-2 text-[13px] font-bold text-[#0A1B39]">主图分析摘要</p>
+                      <p className="m-0 whitespace-pre-wrap text-[13px] leading-6 text-[#344054]">
+                        {reportDetail.resultJson?.summary || '该商品未生成主图分析摘要'}
+                      </p>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="rounded-xl bg-[#f8fafc] p-4">
-                        <p className="m-0 mb-2 text-[13px] font-bold text-[#0A1B39]">视觉构图与光影</p>
-                        <div className="space-y-2 text-[12px] leading-5 text-[#344054]">
-                          <p className="m-0">构图：{reportDetail.visualAesthetics.composition}</p>
-                          <p className="m-0">用光：{reportDetail.visualAesthetics.lighting}</p>
-                          <p className="m-0">色调：{reportDetail.visualAesthetics.colorTone}</p>
-                          <p className="m-0">背景：{reportDetail.visualAesthetics.background}</p>
-                        </div>
-                      </div>
-                      <div className="rounded-xl bg-[#f8fafc] p-4">
-                        <p className="m-0 mb-2 text-[13px] font-bold text-[#0A1B39]">文字版面</p>
-                        <div className="space-y-2 text-[12px] leading-5 text-[#344054]">
-                          <p className="m-0">是否含文字：{reportDetail.textLayout.hasText ? '是' : '否'}</p>
-                          <p className="m-0">文字占比：{reportDetail.textLayout.textRatio}</p>
-                          <p className="m-0">可读性：{reportDetail.textLayout.readability}</p>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="rounded-xl bg-[#f8fafc] p-4">
-                      <p className="m-0 mb-2 text-[13px] font-bold text-[#0A1B39]">后续可复用建议</p>
-                      <div className="space-y-2">
-                        {reportDetail.suggestions.map((item, index) => (
-                          <div key={index} className="rounded-lg bg-white px-3 py-2 text-[12px] leading-5 text-[#344054]">
-                            {item}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
+                    <details className="rounded-xl bg-[#0b1220] p-4">
+                      <summary className="cursor-pointer text-[13px] text-white">查看原始 JSON</summary>
+                      <pre className="mt-3 max-h-[280px] overflow-auto whitespace-pre-wrap text-[12px] leading-5 text-[#d7e1f5] custom-scrollbar">
+                        {JSON.stringify(reportDetail.resultJson || {}, null, 2)}
+                      </pre>
+                    </details>
                   </div>
                 </div>
               )}

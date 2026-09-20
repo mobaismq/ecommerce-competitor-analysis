@@ -121,7 +121,7 @@ export function DataAgentChatPage() {
         },
       )
 
-      const answer = res.data?.answer || '没有获取到有效回答'
+      const answer = res.data?.answer || '没有得到可用回答。'
       setMessages((prev) => [
         ...prev,
         {
@@ -140,7 +140,7 @@ export function DataAgentChatPage() {
   return (
     <div className="min-h-full bg-[#f6f8fb] px-6 py-5">
       <PageHeader
-        breadcrumbs={[{ label: '市场' }, { label: '竞品分析' }, { label: '智能问答' }]}
+        breadcrumbs={[{ label: '市场' }, { label: '竞品分析' }, { label: '数据智能体' }]}
         trailing={
           <button
             type="button"

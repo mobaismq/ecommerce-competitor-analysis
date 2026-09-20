@@ -14,9 +14,9 @@ export function PhoneVerificationPage() {
 
   return (
     <div className="h-full overflow-y-auto bg-[#f4f7fb] p-6 custom-scrollbar">
-      <PageHeader title="手机验证" />
+      <PageHeader title="手机号验证" />
       <div className="mx-auto max-w-[600px] rounded-2xl bg-white p-8 shadow-sm">
-        <h1 className="mb-8 text-[24px] font-bold text-[#0A1B39]">手机验证</h1>
+        <h1 className="mb-8 text-[24px] font-bold text-[#0A1B39]">手机号验证</h1>
 
         <div className="border-b border-[#f0f2f5] py-4">
           <div className="flex items-center gap-3">

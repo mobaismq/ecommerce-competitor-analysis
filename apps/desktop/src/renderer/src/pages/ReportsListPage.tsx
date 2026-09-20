@@ -13,9 +13,20 @@ interface AnalysisRun {
   reportNo: string | null
   status: string
   competitorCount: number | null
-  priceMin: number | null
-  priceMax: number | null
+  keyword?: string | null
   updatedAt: string
+  reportJson?: {
+    priceBands?: Array<{ priceMin: number; priceMax: number }>
+  } | null
+}
+
+// 价格区间来自报告生成时写入的 reportJson.priceBands（AnalysisRun 无 priceMin/priceMax 标量字段）
+function priceRange(row: AnalysisRun): string {
+  const bands = row.reportJson?.priceBands || []
+  if (!bands.length) return '—'
+  const min = Math.min(...bands.map((b) => b.priceMin))
+  const max = Math.max(...bands.map((b) => b.priceMax))
+  return `¥${min} ~ ¥${max}`
 }
 
 type StatusView = { text: string; className: string }
@@ -148,6 +159,7 @@ export function ReportsListPage() {
       const kw = appliedKeyword.trim().toLowerCase()
       const matchKeyword =
         !kw ||
+        (row.keyword && row.keyword.toLowerCase().includes(kw)) ||
         (row.reportNo && row.reportNo.toLowerCase().includes(kw)) ||
         row.jobId.toLowerCase().includes(kw) ||
         row.id.toLowerCase().includes(kw)
@@ -264,7 +276,7 @@ export function ReportsListPage() {
           <table className="w-full">
             <thead>
               <tr className="border-b border-[#eef1f5] bg-[#f9fafb]">
-                <th className="whitespace-nowrap px-4 py-3.5 text-left text-[13px] font-medium text-[#86909C]">报告编号</th>
+                <th className="whitespace-nowrap px-4 py-3.5 text-left text-[13px] font-medium text-[#86909C]">关键词</th>
                 <th className="whitespace-nowrap px-4 py-3.5 text-left text-[13px] font-medium text-[#86909C]">价格区间</th>
                 <th className="whitespace-nowrap px-4 py-3.5 text-left text-[13px] font-medium text-[#86909C]">竞品数量</th>
                 <th className="whitespace-nowrap px-4 py-3.5 text-left text-[13px] font-medium text-[#86909C]">更新时间</th>
@@ -290,11 +302,9 @@ export function ReportsListPage() {
                   return (
                     <tr key={row.id} className="border-b border-[#eef1f5] transition-colors hover:bg-[#f9fafb]">
                       <td className="whitespace-nowrap px-4 py-4 text-[14px] text-[#0A1B39]">
-                        {row.reportNo || `REP-${row.id.slice(0, 10).toUpperCase()}`}
+                        {row.keyword || row.reportNo || `REP-${row.id.slice(0, 10).toUpperCase()}`}
                       </td>
-                      <td className="whitespace-nowrap px-4 py-4 text-[14px] text-[#344054]">
-                        {row.priceMin != null && row.priceMax != null ? `¥${row.priceMin} ~ ¥${row.priceMax}` : '—'}
-                      </td>
+                      <td className="whitespace-nowrap px-4 py-4 text-[14px] text-[#344054]">{priceRange(row)}</td>
                       <td className="whitespace-nowrap px-4 py-4 text-[14px] text-[#344054]">{row.competitorCount ?? '—'}</td>
                       <td className="whitespace-nowrap px-4 py-4 text-[14px] text-[#86909C]">{formatDateTime(row.updatedAt)}</td>
                       <td className="whitespace-nowrap px-4 py-4">

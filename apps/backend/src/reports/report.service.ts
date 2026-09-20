@@ -80,6 +80,7 @@ export class ReportService {
         where: { jobId: job.id },
         update: {
           status: 'success',
+          keyword: collectionJob?.keyword ?? null,
           reportNo,
           reportHash,
           competitorCount,
@@ -91,6 +92,7 @@ export class ReportService {
           jobId: job.id,
           analysisType: job.type === 'analysis' ? 'market' : 'report',
           status: 'success',
+          keyword: collectionJob?.keyword ?? null,
           reportNo,
           reportHash,
           competitorCount,

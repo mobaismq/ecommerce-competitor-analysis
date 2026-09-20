@@ -10,7 +10,8 @@ export function AccountInfoPage() {
     { label: '账号名称', value: user?.username ?? '-', action: null },
     {
       label: '绑定手机号',
-      value: user?.displayName ?? '-',
+      // 桌面端数据契约无手机号字段：宁可显示占位也不伪造（旧版为 mock「136******46」）
+      value: (user as { phone?: string } | null)?.phone ?? '-',
       action: { text: '修改手机号', target: '/settings/change-phone' },
     },
     {

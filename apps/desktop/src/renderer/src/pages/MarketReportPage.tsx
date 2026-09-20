@@ -119,7 +119,7 @@ interface HistoryReport {
 export function MarketReportPage() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
-  const initialKeyword = searchParams.get('keyword') || '智能手表'
+  const initialKeyword = searchParams.get('keyword') || '手表'
 
   const [form] = Form.useForm()
   const [keyword, setKeyword] = useState(initialKeyword)
@@ -127,7 +127,6 @@ export function MarketReportPage() {
   const [generating, setGenerating] = useState(false)
   const [generateStep, setGenerateStep] = useState(0)
   const [showGenerateModal, setShowGenerateModal] = useState(false)
-  const [demoMode, setDemoMode] = useState(false)
 
   // 报告数据
   const [bands, setBands] = useState<PriceBandItem[]>([])
@@ -162,7 +161,7 @@ export function MarketReportPage() {
   // 价格带预览计算与生成逻辑
   const executePreview = async (kw = keyword, showToast = false) => {
     const values = await form.validate().catch(() => ({}))
-    const currentKeyword = kw || values.keyword || '智能手表'
+    const currentKeyword = kw || values.keyword || '手表'
     setLoading(true)
     try {
       const params = new URLSearchParams()
@@ -183,104 +182,40 @@ export function MarketReportPage() {
       let fetchedBands: PriceBandItem[] = []
       try {
         const { data } = await api.get(`/api/reports/market-bands-preview?${params.toString()}`)
-        if (data?.profitSimulation && Array.isArray(data.profitSimulation)) {
-          fetchedBands = data.profitSimulation.map((b: Record<string, unknown>, index: number) => {
-            const priceBandStr = String(b.priceBand || `价格带 ${index + 1}`)
-            const parts = priceBandStr.split('-').map((s) => parseFloat(s.trim()))
-            const pMin = isNaN(parts[0]) ? 100 * index : parts[0]
-            const pMax = isNaN(parts[1]) ? pMin + 100 : parts[1]
+        // 只直连后端真实字段：priceBands 提供带区间与样本数，profitSimulation 提供财务测算；
+        // 卖点/需求/问大家/作图提示词/展示图后端当前不返回，一律保持空，杜绝伪造兜底。
+        const realBands = Array.isArray(data?.priceBands) ? (data.priceBands as Record<string, unknown>[]) : []
+        const realProfit = Array.isArray(data?.profitSimulation) ? (data.profitSimulation as Record<string, unknown>[]) : []
+        if (realBands.length) {
+          fetchedBands = realBands.map((b, index) => {
+            const bandName = String(b.bandName ?? b.priceBand ?? `价格带 ${index + 1}`)
+            const min = Number(b.priceMin) || 0
+            const max = Number(b.priceMax) || 0
+            const targetPrice = Number(b.targetPrice)
+            const profit = realProfit.find((pr) => String(pr.priceBand) === bandName) ?? realProfit[index] ?? {}
             return {
-              priceBand: priceBandStr,
-              competitorCount: Number(b.competitorCount) || Math.floor(15 + Math.random() * 25),
-              priceMin: pMin,
-              priceMax: pMax,
-              priceAvg: (pMin + pMax) / 2,
-              soldCountTotal: Math.floor(2000 + Math.random() * 10000),
-              salesAmountTotal: Math.floor(100000 + Math.random() * 500000),
-              targetPrice: Number(b.targetPrice) || (pMin + pMax) / 2,
-              totalCost: Number(b.totalCost) || (Number(b.targetPrice) || 100) * 0.65,
-              grossProfit: Number(b.grossProfit) || (Number(b.targetPrice) || 100) * 0.35,
-              grossMargin: Number(b.grossMargin) || 0.35,
-              targetMarginPrice: Number(b.targetMarginPrice) || (Number(b.targetPrice) || 100) * 1.2,
-              sellingPoints: [
-                { term: `${currentKeyword}核心卖点A`, count: 18 - index * 3 },
-                { term: `品质工艺高标`, count: 14 - index * 2 },
-                { term: `长效续航耐用`, count: 11 },
-                { term: `轻量化舒适佩戴`, count: 9 },
-              ],
-              demands: [
-                { term: `期望质感更高级`, count: 12 },
-                { term: `要求操作更简便`, count: 10 },
-                { term: `关注售后质保`, count: 7 },
-              ],
-              qaExamples: [
-                { question: `这个${currentKeyword}日常使用耐刮防摔吗？`, answer: '采用强化航空级合金表壳与防刮玻璃，日常磕碰不易留痕。' },
-                { question: '续航时间正常能用几天？', answer: '典型使用场景续航可达 7-10 天，重度使用约 4-5 天。' },
-              ],
-              imagePrompts: {
-                mainImage: `Ultra-high-definition commercial product photography of ${currentKeyword}, studio lighting, floating angle, metallic texture, 8k resolution, minimalist modern background.`,
-                detailImage: `Exploded diagram showing internal high-precision sensors and multi-core processor of ${currentKeyword}, professional technological aesthetics, clean layout.`,
-                buyerShow: `Lifestyle photograph, young professional wearing ${currentKeyword} in modern cafe or sports scenario, natural sunlight, depth of field.`,
-              },
-              displayImages: [
-                { url: 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=500', title: `${currentKeyword}旗舰版`, price: pMin + 15 },
-                { url: 'https://images.unsplash.com/photo-1546868871-7041f2a55e12?w=500', title: `${currentKeyword}运动专业版`, price: pMin + 45 },
-                { url: 'https://images.unsplash.com/photo-1508685096489-7aacd43bd3b1?w=500', title: `${currentKeyword}长续航版`, price: pMin + 60 },
-              ],
+              priceBand: bandName,
+              competitorCount: Number(b.productCount) || 0,
+              priceMin: min,
+              priceMax: max,
+              priceAvg: Number(b.priceAvg) || Math.round(((min + max) / 2) * 100) / 100 || 0,
+              soldCountTotal: Number(b.soldCountTotal) || 0,
+              salesAmountTotal: Number(b.salesAmountTotal) || 0,
+              targetPrice: Number(profit.targetPrice) || (Number.isFinite(targetPrice) ? targetPrice : min),
+              totalCost: Number(profit.totalCost) || 0,
+              grossProfit: Number(profit.grossProfit) || 0,
+              grossMargin: Number(profit.grossMargin) || 0,
+              targetMarginPrice: Number(profit.targetMarginPrice) || 0,
+              sellingPoints: [],
+              demands: [],
+              qaExamples: [],
+              imagePrompts: {},
+              displayImages: [],
             }
           })
         }
       } catch {
-        // 后端无法连接时走优雅离线模拟
-      }
-
-      if (fetchedBands.length === 0) {
-        // 构造标准的 4 个价格带
-        const defaultRanges = [
-          { band: '0-150', min: 0, max: 150, target: 129, sold: 18500, margin: 0.28 },
-          { band: '150-300', min: 150, max: 300, target: 249, sold: 34200, margin: 0.42 },
-          { band: '300-500', min: 300, max: 500, target: 399, sold: 21800, margin: 0.38 },
-          { band: '500以上', min: 500, max: 999, target: 699, sold: 8900, margin: 0.45 },
-        ]
-        fetchedBands = defaultRanges.map((r, i) => ({
-          priceBand: r.band,
-          competitorCount: 25 + i * 5,
-          priceMin: r.min,
-          priceMax: r.max,
-          priceAvg: (r.min + r.max) / 2,
-          soldCountTotal: r.sold,
-          salesAmountTotal: Math.round(r.sold * r.target),
-          targetPrice: r.target,
-          totalCost: Math.round(r.target * (1 - r.margin)),
-          grossProfit: Math.round(r.target * r.margin),
-          grossMargin: r.margin,
-          targetMarginPrice: Math.round(r.target * 1.15),
-          sellingPoints: [
-            { term: `${currentKeyword}超长续航`, count: 24 - i * 4 },
-            { term: `精准运动传感器`, count: 18 - i * 3 },
-            { term: `高清视网膜显示屏`, count: 15 },
-            { term: `50米专业防水`, count: 11 },
-          ],
-          demands: [
-            { term: `要求测量数据准确`, count: 16 },
-            { term: `希望表带透气亲肤`, count: 13 },
-            { term: `需要支持多种运动模式`, count: 9 },
-          ],
-          qaExamples: [
-            { question: `支持游泳佩戴记录吗？`, answer: '支持 5ATM 专业防水级别，可佩戴于泳池游泳及冷水淋浴。' },
-            { question: '安卓和苹果手机都能连吗？', answer: '全面兼容 Android 8.0+ 及 iOS 12.0+ 手机，蓝牙 5.3 极速配对。' },
-          ],
-          imagePrompts: {
-            mainImage: `Commercial studio photograph of a premium ${currentKeyword}, crystal clear display, polished ceramic bezel, matte black strap, 8k resolution, dramatic rim lighting.`,
-            detailImage: `Detailed infographic macro shot of the health sensor array on ${currentKeyword}, clean typography, futuristic medical tech style.`,
-            buyerShow: `Candid wrist shot of ${currentKeyword} during morning jog in modern city park, golden hour light, shallow depth of field.`,
-          },
-          displayImages: [
-            { url: 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=500', title: `${currentKeyword} 标准版`, price: r.target },
-            { url: 'https://images.unsplash.com/photo-1546868871-7041f2a55e12?w=500', title: `${currentKeyword} 尊享款`, price: r.target + 50 },
-            { url: 'https://images.unsplash.com/photo-1508685096489-7aacd43bd3b1?w=500', title: `${currentKeyword} 越野版`, price: r.target + 120 },
-          ],
-        }))
+        // 后端不可用时保持空态，不做离线伪造
       }
 
       setBands(fetchedBands)
@@ -342,39 +277,37 @@ export function MarketReportPage() {
         setKeyword(kw)
         form.setFieldValue('keyword', kw)
         if (data.priceBands && Array.isArray(data.priceBands)) {
-          const transformed: PriceBandItem[] = data.priceBands.map((pb: Record<string, unknown>, idx: number) => ({
-            priceBand: `¥${pb.priceMin} - ¥${pb.priceMax}`,
-            competitorCount: Number(pb.productCount) || 20,
-            priceMin: Number(pb.priceMin) || 0,
-            priceMax: Number(pb.priceMax) || 100,
-            priceAvg: (Number(pb.priceMin) + Number(pb.priceMax)) / 2,
-            soldCountTotal: Number(pb.salesVolume) || 1000,
-            salesAmountTotal: Number(pb.salesAmount) || 50000,
-            targetPrice: (Number(pb.priceMin) + Number(pb.priceMax)) / 2,
-            totalCost: ((Number(pb.priceMin) + Number(pb.priceMax)) / 2) * 0.65,
-            grossProfit: ((Number(pb.priceMin) + Number(pb.priceMax)) / 2) * 0.35,
-            grossMargin: 0.35,
-            targetMarginPrice: ((Number(pb.priceMin) + Number(pb.priceMax)) / 2) * 1.15,
-            sellingPoints: [{ term: '热销卖点', count: 12 - idx }],
-            demands: [{ term: '买家核心诉求', count: 8 }],
-            qaExamples: [{ question: '商品质量如何？', answer: '用户整体好评率达 98.6%。' }],
-            imagePrompts: {
-              mainImage: `Commercial photography for ${kw}, studio background.`,
-              detailImage: `Detail macro shot of ${kw}.`,
-              buyerShow: `User in real-world scenario with ${kw}.`,
-            },
-            displayImages: [
-              { url: 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=500', title: kw, price: Number(pb.priceMin) },
-            ],
-          }))
+          const transformed: PriceBandItem[] = data.priceBands.map((pb: Record<string, unknown>) => {
+            const min = Number(pb.priceMin) || 0
+            const max = Number(pb.priceMax) || 0
+            return {
+              priceBand: String(pb.bandName) || `${min} - ${max}`,
+              competitorCount: Number(pb.productCount) || 0,
+              priceMin: min,
+              priceMax: max,
+              priceAvg: Number(pb.priceAvg) || Math.round(((min + max) / 2) * 100) / 100 || 0,
+              soldCountTotal: Number(pb.salesVolume) || 0,
+              salesAmountTotal: Number(pb.salesAmount) || 0,
+              targetPrice: Number(pb.targetPrice) || 0,
+              totalCost: Number(pb.totalCost) || 0,
+              grossProfit: Number(pb.grossProfit) || 0,
+              grossMargin: Number(pb.grossMargin) || 0,
+              targetMarginPrice: Number(pb.targetMarginPrice) || 0,
+              sellingPoints: [],
+              demands: [],
+              qaExamples: [],
+              imagePrompts: {},
+              displayImages: [],
+            }
+          })
           setBands(transformed)
         }
         setSummary({
           id: data.id,
           reportNo: data.reportNo || data.id,
           keyword: kw,
-          competitorCount: data.competitorCount || 100,
-          priceBandCount: data.priceBands?.length || 4,
+          competitorCount: Number(data.competitorCount) || 0,
+          priceBandCount: data.priceBands?.length || 0,
           updatedAt: data.updatedAt,
         })
         setHistoryDrawerOpen(false)
@@ -535,7 +468,7 @@ export function MarketReportPage() {
 
       {/* 参数输入与大模型触发区域 */}
       <Card bordered style={{ borderRadius: 8, marginBottom: 16 }}>
-        <Form form={form} layout="vertical" initialValues={{ keyword: initialKeyword, costPrice: 60, targetMargin: 35 }}>
+        <Form form={form} layout="vertical" initialValues={{ keyword: initialKeyword, costPrice: 100, targetMargin: 35 }}>
           <Row gutter={20}>
             <Col span={8}>
               <Form.Item label="分析关键词" field="keyword" rules={[{ required: true, message: '请输入关键词' }]}>

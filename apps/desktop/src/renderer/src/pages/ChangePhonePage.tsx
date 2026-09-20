@@ -38,7 +38,7 @@ export function ChangePhonePage() {
                 rules={[{ required: true, message: '请输入新手机号' }, { match: /^1\d{10}$/, message: '手机号格式不正确' }]}
                 className="mb-0 flex-1"
               >
-                <Input placeholder="请输入 11 位手机号" maxLength={11} />
+                <Input placeholder="请输入新手机号" maxLength={11} />
               </Form.Item>
             </div>
           </div>

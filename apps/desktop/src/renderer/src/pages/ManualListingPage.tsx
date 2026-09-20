@@ -315,45 +315,30 @@ export function ManualListingPage() {
   // 商品主档列表（供一键引用）
   const [masterProducts, setMasterProducts] = useState<Array<{ id: string; name: string; code: string; defaultPrice?: number }>>([])
 
-  // SKU 矩阵列表
+  // SKU 矩阵列表（不再预置伪造样图/假数据；由用户真实上传或留空）
   const [skus, setSkus] = useState<SkuItem[]>([
     {
       id: 'sku-1',
-      specName: '经典黑 · 标配版',
-      specImage: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=200&q=80',
+      specName: '',
       price: 299,
       originPrice: 399,
       stock: 500,
       skuCode: 'ECA-BK-001',
-      barcode: '6901234567891',
       isListed: true,
     },
     {
       id: 'sku-2',
-      specName: '极光白 · 降噪升级版',
-      specImage: 'https://images.unsplash.com/photo-1546435770-a3e426bf472b?w=200&q=80',
+      specName: '',
       price: 349,
       originPrice: 459,
       stock: 300,
       skuCode: 'ECA-WH-002',
-      barcode: '6901234567892',
       isListed: true,
     },
   ])
 
-  // 主图列表（最多 5 张）
-  const [mainImages, setMainImages] = useState<ImageItem[]>([
-    {
-      id: 'img-1',
-      url: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=500&q=80',
-      isMain: true,
-    },
-    {
-      id: 'img-2',
-      url: 'https://images.unsplash.com/photo-1546435770-a3e426bf472b?w=500&q=80',
-      isWhiteBg: true,
-    },
-  ])
+  // 主图列表（最多 5 张，空态诚实呈现，不预置样图）
+  const [mainImages, setMainImages] = useState<ImageItem[]>([])
 
   // 批量填充 Modal 控制
   const [batchModalVisible, setBatchModalVisible] = useState(false)
@@ -375,11 +360,8 @@ export function ManualListingPage() {
         platform: s.platform || '淘宝',
       })))
     } catch {
-      setStores([
-        { id: 'store-1', name: '天猫官方数码旗舰店', platform: '天猫' },
-        { id: 'store-2', name: '淘宝企业专营店', platform: '淘宝' },
-        { id: 'store-3', name: '京东POP数码自营专区', platform: '京东' },
-      ])
+      // 加载失败：诚实空态，不伪造店铺列表
+      setStores([])
     } finally {
       setLoadingStores(false)
     }
@@ -397,11 +379,8 @@ export function ManualListingPage() {
         defaultPrice: p.defaultPrice,
       })))
     } catch {
-      setMasterProducts([
-        { id: 'master-1', name: '激光水平仪 12线绿光强光', code: 'SP2026001', defaultPrice: 268 },
-        { id: 'master-2', name: '无线降噪主动蓝牙耳机', code: 'SP2026002', defaultPrice: 299 },
-        { id: 'master-3', name: '天然全价无谷成猫粮 5kg', code: 'SP2026003', defaultPrice: 188 },
-      ])
+      // 加载失败：诚实空态，不伪造商品主档
+      setMasterProducts([])
     }
   }, [])
 
@@ -553,8 +532,10 @@ export function ManualListingPage() {
         title: '发布成功',
         content: `商品「${values.title}」已成功提交至${currentPlatform}，已生成平台草稿或上架记录。`,
       })
-    } catch {
-      Message.success(`[演示环境] 商品「${values.title}」已完成${currentPlatform}规格校验并本地建档！`)
+    } catch (error: unknown) {
+      // 发布失败：诚实报错，不伪造「演示环境建档成功」
+      const msg = (error as { response?: { data?: { message?: string } } })?.response?.data?.message
+      Message.error(msg ?? '发布失败，请稍后重试')
     } finally {
       setSubmitting(false)
     }
@@ -778,14 +759,15 @@ export function ManualListingPage() {
           form={form}
           layout="vertical"
           initialValues={{
-            title: '2026新款 绿光强光激光水平仪 高精度自动安平贴墙贴地仪',
-            subTitle: '超长待机 16线高亮绿光 德国进口光源',
-            categoryPath: ['数码3C', '五金工具', '激光水平仪'],
-            brand: '科迈斯',
-            shippingOrigin: ['广东省', '深圳市', '南山区'],
-            freightTemplate: '全国包邮模板',
-            serviceGuarantees: ['7天无理由退换', '正品保障', '坏损包赔'],
-            detailContent: '【产品卖点】\n1. 采用进口高亮度绿色半导体激光器，光线明亮细腻。\n2. ±3°自动安平报警系统。\n3. 超大容量锂电池组，支持连续工作18小时。',
+            // 不再预置伪造的示例商品数据；各字段留空，由用户填写（旧版亦为平台各自空默认）
+            title: '',
+            subTitle: '',
+            categoryPath: undefined,
+            brand: '',
+            shippingOrigin: undefined,
+            freightTemplate: '',
+            serviceGuarantees: [],
+            detailContent: '',
           }}
         >
           <Tabs activeTab={activeTabKey} onChange={setActiveTabKey} type="rounded">

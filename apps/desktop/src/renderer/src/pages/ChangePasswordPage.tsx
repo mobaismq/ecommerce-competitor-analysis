@@ -57,7 +57,7 @@ export function ChangePasswordPage() {
                 ]}
                 className="mb-0 flex-1"
               >
-                <Input.Password placeholder="6-20 位字母、数字、特殊字符" />
+                <Input.Password placeholder="请输入新密码（6-20字母、数字、特殊字符）" />
               </Form.Item>
             </div>
           </div>
