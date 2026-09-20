@@ -1,9 +1,7 @@
 import { useRef, useState } from 'react'
-import { Check, ChevronDown, Copy, Download, Link2, Loader2, Lock, Play, Plus, Sparkles, Upload } from 'lucide-react'
-import { Button, Message, Modal, Select } from '@arco-design/web-react'
+import { Check, ChevronDown, Link2, Lock, Play, Plus, Sparkles, Upload } from 'lucide-react'
+import { Select } from '@arco-design/web-react'
 import { SectionTitle } from '../components/AIReportSelector'
-import { api } from '../api/client'
-import { nanoid } from 'nanoid'
 
 // 8 种类型封面图（本地 assets，禁止外链）
 import imgUgc from '../assets/video-types/image-11.png'
@@ -14,11 +12,6 @@ import imgUnbox from '../assets/video-types/image-9.png'
 import imgScene from '../assets/video-types/image-10.png'
 import imgCompare from '../assets/video-types/image-12.png'
 import imgTutorial from '../assets/video-types/image-1.png'
-
-// TODO(演示数据登记)：本页结果列表/封面/视频源均为前端本地演示数据，
-// 未对接真实后端。接入真实接口（POST /api/videos/replicate 的权威响应）
-// 后，应将 GeneratedVideoItem 的 coverUrl/videoUrl/scriptSummary 整体替换为
-// 服务端返回的字段，标题与文案不得再编造外链。
 
 const Option = Select.Option
 
@@ -49,20 +42,6 @@ const LANGUAGES = ['英语', '中文', '日文', '韩文', '德文', '法文', '
 const RATIOS = ['TikTok/Reels · 9:16', '抖音 · 9:16', '小红书 · 9:16', '淘宝主图 · 1:1', 'YouTube · 16:9', '亚马逊 · 16:9']
 // 左面板「视频类型」钮 options（旧版 legacy:27，含 TVC广告/痛点解决/开箱种草/反应展示）
 const VIDEO_TYPE_OPTIONS = ['UGC 种草', '带货短剧', '产品演示', '产品口播', 'TVC广告', '痛点解决', '开箱种草', '反应展示']
-const GEN_STEPS = ['卖点分析', '脚本生成', '画面渲染', '音频对齐']
-
-interface GeneratedVideoItem {
-  id: string
-  title: string
-  type: string
-  ratio: string
-  duration: string
-  coverUrl: string
-  videoUrl: string
-  fissionIndex: number
-  scriptSummary: string
-  createTime: string
-}
 
 export function ViralVideoReplicationPage() {
   const [activeTab, setActiveTab] = useState<'generate' | 'replicate'>('generate')
@@ -80,12 +59,6 @@ export function ViralVideoReplicationPage() {
   const [mode, setMode] = useState<'type' | 'script'>('type')
   const [authorized, setAuthorized] = useState(false)
   const [scriptText, setScriptText] = useState('')
-
-  // 生成状态
-  const [generating, setGenerating] = useState(false)
-  const [generateStep, setGenerateStep] = useState(0)
-  const [results, setResults] = useState<GeneratedVideoItem[]>([])
-  const [previewVideo, setPreviewVideo] = useState<GeneratedVideoItem | null>(null)
 
   const productInputRef = useRef<HTMLInputElement | null>(null)
 
@@ -108,54 +81,6 @@ export function ViralVideoReplicationPage() {
       if (e.target?.result) setProductImage(e.target.result as string)
     }
     reader.readAsDataURL(file)
-  }
-
-  // 本地演示生成流（按钮视觉为旧版灰禁三态，不可点击时不得触发生成）
-  const handleStart = async () => {
-    setGenerating(true)
-    setGenerateStep(0)
-
-    try {
-      await api
-        .post('/api/videos/replicate', {
-          sourceUrl: replicateUrl || '',
-          title: activeTab === 'generate' ? `原创爆款视频 (${selectedTypeOptions.join(',')})` : '竞品爆款复刻视频',
-        })
-        .catch(() => undefined)
-    } catch {
-      // ignore
-    }
-
-    const s1 = setTimeout(() => setGenerateStep(1), 1000)
-    const s2 = setTimeout(() => setGenerateStep(2), 2200)
-    const s3 = setTimeout(() => setGenerateStep(3), 3600)
-    const s4 = setTimeout(() => {
-      setGenerateStep(4)
-      setGenerating(false)
-
-      const activeTypeName = VIDEO_TYPES.find((t) => t.id === selectedTypes[0])?.label || 'UGC 种草'
-      const generatedList: GeneratedVideoItem[] = Array.from({ length: fissionCount }).map((_, i) => ({
-        id: `vid_${nanoid(8)}_${i + 1}`,
-        title: `${activeTypeName} · 变体裂变 #${i + 1} (${market}定制)`,
-        type: activeTypeName,
-        ratio,
-        duration: ratio.includes('9:16') ? '0:35' : '1:00',
-        coverUrl: VIDEO_TYPES.find((t) => t.id === selectedTypes[i % selectedTypes.length])?.image || imgUgc,
-        videoUrl: VIDEO_TYPES.find((t) => t.id === selectedTypes[i % selectedTypes.length])?.image || imgUgc,
-        fissionIndex: i + 1,
-        scriptSummary: `【分镜1】前3秒视觉冲突：痛点暴击与特写展示\n【分镜2】核心功能演示：${sellingPoints.split('\n')[0] || '核心卖点'}\n【分镜3】行动号召 CTA：限时折扣抢购`,
-        createTime: new Date().toLocaleTimeString(),
-      }))
-
-      setResults(generatedList)
-      Message.success(`视频${activeTab === 'generate' ? '生成' : '复刻'}完成！成功输出 ${fissionCount} 条高画质成品`)
-    }, 4800)
-    void [s1, s2, s3, s4]
-  }
-
-  const handleCopyScript = (txt: string) => {
-    navigator.clipboard.writeText(txt)
-    Message.success('分镜脚本已复制')
   }
 
   return (
@@ -407,7 +332,6 @@ export function ViralVideoReplicationPage() {
           <button
             type="button"
             disabled
-            onClick={() => void handleStart()}
             className="flex h-10 w-full cursor-not-allowed items-center justify-center gap-2 rounded-[8px] bg-[#C4C6CA] text-[13px] font-semibold text-white"
           >
             <Lock className="h-4 w-4" />
@@ -421,115 +345,44 @@ export function ViralVideoReplicationPage() {
 
       {/* ─── 右侧画布区 ─── */}
       <div className="h-full min-w-0 flex-1 overflow-y-auto p-6 custom-scrollbar">
-        {generating ? (
-          <div className="grid h-full place-items-center">
-            <div className="w-[640px] rounded-2xl bg-white p-8 text-center shadow-[0_8px_32px_rgba(29,38,52,.06)]">
-              <Loader2 className="mx-auto mb-4 h-8 w-8 animate-spin text-[#3388ff]" />
-              <div className="mb-5 flex items-center justify-between">
-                {GEN_STEPS.map((label, i) => (
-                  <div key={label} className="flex flex-col items-center gap-1.5">
-                    <div
-                      className={`grid h-8 w-8 place-items-center rounded-full text-[12px] font-bold ${
-                        i <= generateStep ? 'bg-[#3388ff] text-white' : 'bg-[#f2f4f7] text-[#98A2B3]'
-                      }`}
-                    >
-                      {i + 1}
+        <div className="mx-auto flex min-h-full max-w-[1040px] flex-col items-center justify-center py-8 text-center">
+          <h1 className="m-0 text-[32px] font-bold leading-tight text-[#171A1D]">爆款视频复刻</h1>
+          <p className="m-0 mt-3 text-[14px] leading-6 text-[#5F6B7A]">上传商品图，AI 一键批量生成多类型高转化视频。</p>
+
+          <div className="mt-12 grid w-[864px] grid-cols-4 gap-4 rounded-[20px] bg-white p-8 shadow-[0_18px_40px_rgba(31,37,45,.06)]">
+            {VIDEO_TYPES.map((t) => {
+              const active = selectedTypes.includes(t.id)
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => toggleType(t.id)}
+                  className={`cursor-pointer overflow-hidden rounded-2xl border bg-white text-left transition-all ${
+                    active ? 'border-[#3388ff] shadow-[0_8px_24px_rgba(51,136,255,.18)]' : 'border-[#e5e8ef]'
+                  }`}
+                >
+                  <div className="relative h-[125px] bg-[#f2f4f7]">
+                    <img src={t.image} alt={t.label} className="h-full w-full object-cover opacity-85" />
+                    <div className="absolute inset-0 grid place-items-center">
+                      <div className="grid h-11 w-11 place-items-center rounded-full bg-white/85 text-[#3388ff] shadow">
+                        <Play className="ml-0.5 h-5 w-5 fill-[#3388ff]" />
+                      </div>
                     </div>
-                    <span className={`text-[12px] font-bold ${i <= generateStep ? 'text-[#0A1B39]' : 'text-[#98A2B3]'}`}>{label}</span>
+                    {active && (
+                      <span className="absolute right-2 top-2 grid h-6 w-6 place-items-center rounded-full bg-[#3388FF] text-white">
+                        <Check className="h-3.5 w-3.5" />
+                      </span>
+                    )}
                   </div>
-                ))}
-              </div>
-              <p className="m-0 text-[13px] text-[#86909C]">Sora / Hunyuan 多模态视频大模型渲染中，请稍候...</p>
-            </div>
+                  <div className="h-[70px] px-2.5 py-2 text-left">
+                    <p className={`m-0 text-[12px] font-bold ${active ? 'text-[#3388ff]' : 'text-[#171A1D]'}`}>{t.label}</p>
+                    <p className="m-0 mt-0.5 line-clamp-2 text-[10px] leading-3.5 text-[#86909C]">{t.desc}</p>
+                  </div>
+                </button>
+              )
+            })}
           </div>
-        ) : (
-          <div className="mx-auto flex min-h-full max-w-[1040px] flex-col items-center justify-center py-8 text-center">
-            <h1 className="m-0 text-[32px] font-bold leading-tight text-[#171A1D]">爆款视频复刻</h1>
-            <p className="m-0 mt-3 text-[14px] leading-6 text-[#5F6B7A]">上传商品图，AI 一键批量生成多类型高转化视频。</p>
-
-            <div className="mt-12 grid w-[864px] grid-cols-4 gap-4 rounded-[20px] bg-white p-8 shadow-[0_18px_40px_rgba(31,37,45,.06)]">
-              {VIDEO_TYPES.map((t) => {
-                const active = selectedTypes.includes(t.id)
-                return (
-                  <button
-                    key={t.id}
-                    type="button"
-                    onClick={() => toggleType(t.id)}
-                    className={`relative h-[290px] w-[180px] cursor-pointer overflow-hidden rounded-xl border-0 bg-[#fafbfc] p-0 text-left transition-shadow ${
-                      active ? 'ring-2 ring-[#3388FF]' : 'hover:shadow-md'
-                    }`}
-                  >
-                    <div className="relative h-[220px] w-full overflow-hidden">
-                      <img src={t.image} alt={t.label} className="h-full w-full object-cover" />
-                      <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/55 to-transparent" />
-                      <div className="absolute inset-0 grid place-items-center">
-                        <div className="grid h-11 w-11 place-items-center rounded-full bg-white/85 text-[#3388ff] shadow">
-                          <Play className="ml-0.5 h-5 w-5 fill-[#3388ff]" />
-                        </div>
-                      </div>
-                      {active && (
-                        <span className="absolute right-2 top-2 grid h-6 w-6 place-items-center rounded-full bg-[#3388FF] text-white">
-                          <Check className="h-3.5 w-3.5" />
-                        </span>
-                      )}
-                    </div>
-                    <div className="h-[70px] px-2.5 py-2 text-left">
-                      <p className={`m-0 text-[12px] font-bold ${active ? 'text-[#3388ff]' : 'text-[#171A1D]'}`}>{t.label}</p>
-                      <p className="m-0 mt-0.5 line-clamp-2 text-[10px] leading-3.5 text-[#86909C]">{t.desc}</p>
-                    </div>
-                  </button>
-                )
-              })}
-            </div>
-
-            {results.length > 0 && (
-              <div className="mt-8 w-full text-left">
-                <div className="mb-3 flex items-center justify-between">
-                  <h2 className="m-0 text-[18px] font-extrabold text-[#171A1D]">生成成果列表（{results.length} 条成品）</h2>
-                  <Button size="small" icon={<Download className="h-3.5 w-3.5" />} className="rounded-lg">
-                    打包下载全部 MP4
-                  </Button>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  {results.map((vid) => (
-                    <div key={vid.id} className="overflow-hidden rounded-xl border border-[#e5e8ef] bg-white">
-                      <div
-                        className="relative h-[200px] cursor-pointer bg-black"
-                        onClick={() => setPreviewVideo(vid)}
-                      >
-                        <img src={vid.coverUrl} alt={vid.title} className="h-full w-full object-cover opacity-85" />
-                        <div className="absolute inset-0 grid place-items-center bg-black/25">
-                          <div className="grid h-12 w-12 place-items-center rounded-full bg-[#3388ff]/90 text-white">
-                            <Play className="ml-0.5 h-5 w-5 fill-white" />
-                          </div>
-                        </div>
-                        <span className="absolute left-2 top-2 rounded bg-[#3388ff] px-1.5 py-0.5 text-[11px] font-bold text-white">{vid.type}</span>
-                        <span className="absolute bottom-2 right-2 rounded bg-black/70 px-1.5 py-0.5 text-[11px] text-white">{vid.duration}</span>
-                      </div>
-                      <div className="p-3">
-                        <p className="m-0 truncate text-[14px] font-bold text-[#171A1D]">{vid.title}</p>
-                        <p className="m-0 mt-1.5 rounded bg-[#f8fafc] p-2 text-[12px] leading-5 text-[#4e5969]">{vid.scriptSummary}</p>
-                        <div className="mt-2 flex items-center justify-between">
-                          <span className="text-[11px] text-[#86909C]">
-                            画幅: {vid.ratio} ｜ {vid.createTime}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => handleCopyScript(vid.scriptSummary)}
-                            className="flex cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-[12px] font-semibold text-[#3388ff] hover:text-[#1a6fe8]"
-                          >
-                            <Copy className="h-3.5 w-3.5" />
-                            脚本
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
+        </div>
       </div>
 
       {/* 帮助浮钮「?」（旧版 legacy:275） */}
@@ -537,27 +390,6 @@ export function ViralVideoReplicationPage() {
         ?
       </button>
 
-      {/* 视频播放 Modal */}
-      <Modal
-        title={previewVideo?.title || '视频播放预览'}
-        visible={Boolean(previewVideo)}
-        onCancel={() => setPreviewVideo(null)}
-        footer={
-          <Button type="primary" onClick={() => setPreviewVideo(null)} className="rounded-lg">
-            关闭预览
-          </Button>
-        }
-        style={{ width: 640 }}
-      >
-        {previewVideo && (
-          <div>
-            <video src={previewVideo.videoUrl} controls autoPlay className="max-h-[60vh] w-full rounded-lg bg-black" />
-            <p className="m-0 mt-3 whitespace-pre-wrap rounded-lg bg-[#f8fafc] p-3 text-[12px] leading-5 text-[#4e5969]">
-              {previewVideo.scriptSummary}
-            </p>
-          </div>
-        )}
-      </Modal>
     </div>
   )
 }

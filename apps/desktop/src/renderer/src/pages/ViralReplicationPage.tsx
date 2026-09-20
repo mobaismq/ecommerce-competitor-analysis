@@ -3,6 +3,7 @@ import { Button, Input, Message, Modal, Select } from '@arco-design/web-react'
 import { CircleHelp, Download, Eye, Loader2, Upload } from 'lucide-react'
 import { saveAs } from 'file-saver'
 import { nanoid } from 'nanoid'
+import { api } from '../api/client'
 
 import referenceAd from '../assets/video-types/image-26.png'
 import highCopyAd from '../assets/video-types/image-27.png'
@@ -68,7 +69,7 @@ export function ViralReplicationPage() {
     })
   }
 
-  // 复刻生成（业务逻辑保持桌面端现状：本地演示流）
+  // 复刻生成：调用真实生图接口；失败保持错误提示，不渲染本地假图。
   const handleStartReplicate = async () => {
     if (referenceImages.length === 0) {
       Message.warning('请至少上传一张参考爆款图')
@@ -77,19 +78,37 @@ export function ViralReplicationPage() {
 
     setGenerating(true)
     try {
-      // 模拟高精度生图等待
-      await new Promise((resolve) => setTimeout(resolve, 2000))
+      const levelLabel = replicateLevel === 'style' ? '参考风格' : '高度复刻'
+      const prompt = [
+        `生成${category}`,
+        `复刻程度：${levelLabel}`,
+        `画面比例：${ratio}`,
+        `文案语言：${language}`,
+        customRequirements ? `统一复刻要求：${customRequirements}` : '',
+      ].filter(Boolean).join('；')
 
-      const generated: GeneratedImageItem[] = [
-        { id: `res-${nanoid(8)}-1`, title: '爆款复刻 · 高度还原营销图', url: highCopyAd, badge: '高度复刻', ratio, createTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) },
-        { id: `res-${nanoid(8)}-2`, title: '爆款复刻 · 风格化场景融合图', url: styleCopyAd, badge: '参考风格', ratio, createTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) },
-        { id: `res-${nanoid(8)}-3`, title: '爆款复刻 · 核心卖点强化图', url: referenceAd, badge: '高度复刻', ratio, createTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) },
-        { id: `res-${nanoid(8)}-4`, title: '爆款复刻 · 氛围感变体展示图', url: productCloth, badge: '参考风格', ratio, createTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) },
-      ]
+      const { data } = await api.post('/api/product-sets/generate-image', {
+        prompt,
+        count: 4,
+        jobId: 'viral-replication',
+      })
+      const urls: string[] = (data?.images || [])
+        .map((item: { url?: string; dataUrl?: string }) => item.url || item.dataUrl || '')
+        .filter(Boolean)
+      if (!urls.length) throw new Error('生成接口没有返回图片')
+
+      const generated: GeneratedImageItem[] = urls.map((url, i) => ({
+        id: `res-${nanoid(8)}-${i + 1}`,
+        title: `爆款复刻 · ${category}`,
+        url,
+        badge: i % 2 === 0 ? '高度复刻' : '参考风格',
+        ratio,
+        createTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      }))
       setResults(generated)
-      Message.success('爆款图复刻完成，已生成 4 张专属爆款图')
-    } catch {
-      Message.error('复刻生成失败，请重试')
+      Message.success('爆款图复刻完成')
+    } catch (error) {
+      Message.error(error instanceof Error && error.message ? error.message : '复刻生成失败，请重试')
     } finally {
       setGenerating(false)
     }
@@ -251,7 +270,7 @@ export function ViralReplicationPage() {
           </div>
         </div>
 
-        {/* 吸底生成条（对照旧版：恒灰 bg-[#C4C6CA]、文案恒为「一键复刻爆款图」；点击触发本地演示生成流） */}
+        {/* 吸底生成条（对照旧版：恒灰 bg-[#C4C6CA]、文案恒为「一键复刻爆款图」；点击调用真实生图接口） */}
         <div className="sticky bottom-0 -mx-5 mt-2 border-t border-[#EEF1F5] bg-white p-4">
           <button
             type="button"

@@ -7,41 +7,39 @@ import { saveAs } from 'file-saver'
 import { Link } from 'react-router-dom'
 import { PageHeader } from '../components/PageHeader'
 import { XInput } from '../components/XInput'
-import imgAudioMain from '../assets/video-types/image-9.png'
-import imgAudioScene from '../assets/video-types/image-10.png'
-import imgAudioModel from '../assets/video-types/image-11.png'
-import imgAudioDetail from '../assets/video-types/image-12.png'
-import imgWatch from '../assets/video-types/image-13.png'
-import imgDressRef from '../assets/video-types/image-26.png'
-import imgDressCopy from '../assets/video-types/image-27.png'
-import imgDressProduct from '../assets/video-types/image-1.png'
-
 /**
- * 数据契约缺口登记（对齐旧版 OneClickReplicate.tsx 逐字复盘审计）
- * - 旧版 ProductInfo 含 `sku / platform / imageCount / createdAt`；桌面端接口仅返回
- *   `id / name / spuCode / brand / category / status`，均不提供上述字段。
- * - 按「宁可少显示，不许编造」原则：`platform`、`imageCount`、`createdAt` 缺失时对应
- *   UI 不渲染（商品卡/弹窗不再展示平台、图片数、创建时间），本地常量样本也不伪造。
- * - 旧 `sku` ↔ 桌面 `spuCode`、旧 `platform` ↔ 桌面 `brand` 均不是同一字段，不做等价换算。
- * - 结果/参考图：改用本地 assets（video-types/*.png），不再使用 Unsplash 外链。
+ * 数据契约：
+ * - 商品列表走真实 /api/products/master（productName/productCode/brand/productImage/skus）。
+ * - 桌面端没有旧版 MOCK_PRODUCTS 的 sku/platform/imageCount/createdAt 契约；缺失字段不渲染、不伪造。
+ * - 商品资产缩略图使用 productImage 与 skus[].specImage 的真实图片；无图则诚实空态。
+ * - 生成结果走 /api/product-sets/generate-image；无结果时不渲染任何本地样图。
  */
 
 const Option = Select.Option
+
+interface MasterProduct {
+  id: string
+  productCode: string
+  productName: string
+  brand: string | null
+  productImage?: string | null
+  status: string
+  skus?: Array<{ id: string; specImage?: string | null }>
+}
 
 interface ProductItem {
   id: string
   name: string
   spuCode: string
   brand: string
-  category: string
-  status: string
+  productImage?: string | null
+  skuImages: string[]
 }
 
 interface ProductAsset {
   id: string
   name: string
   url: string
-  productId: string
 }
 
 interface ReplicateResult {
@@ -52,26 +50,6 @@ interface ReplicateResult {
   ratio: string
   createTime: string
 }
-
-// 名称/ID/顺序逐字对齐旧版 MOCK_PRODUCTS（legacy:37-42）；字段使用桌面端接口既有维度。
-const DEFAULT_PRODUCTS: ProductItem[] = [
-  { id: 'p1', name: '无线蓝牙耳机 Pro', spuCode: 'SPU-EP-001', brand: 'SoundWave', category: '数码配件', status: 'ACTIVE' },
-  { id: 'p2', name: '智能手表 Series 5', spuCode: 'SPU-SW-002', brand: 'FitLife', category: '智能穿戴', status: 'ACTIVE' },
-  { id: 'p3', name: '便携充电宝 20000mAh', spuCode: 'SPU-PB-003', brand: 'PowerFast', category: '数码配件', status: 'ACTIVE' },
-  { id: 'p4', name: '碎花连衣裙 夏季款', spuCode: 'SPU-DR-004', brand: 'ModeParis', category: '女装服饰', status: 'ACTIVE' },
-]
-
-// 已选商品资产缩略图（对齐旧版 MOCK_ASSETS 的 productId 归属，本地资源）
-const PRODUCT_ASSETS: ProductAsset[] = [
-  { id: 'a1', name: '耳机主图', url: imgAudioMain, productId: 'p1' },
-  { id: 'a2', name: '耳机场景', url: imgAudioScene, productId: 'p1' },
-  { id: 'a3', name: '模特展示', url: imgAudioModel, productId: 'p1' },
-  { id: 'a4', name: '细节特写', url: imgAudioDetail, productId: 'p1' },
-  { id: 'a5', name: '手表卖点图', url: imgWatch, productId: 'p2' },
-  { id: 'a6', name: '连衣裙参考图', url: imgDressRef, productId: 'p4' },
-  { id: 'a7', name: '连衣裙复刻图', url: imgDressCopy, productId: 'p4' },
-  { id: 'a8', name: '女装产品图', url: imgDressProduct, productId: 'p4' },
-]
 
 // 选项集合逐字对齐旧版 CLONE_OPTIONS（legacy:55-58）
 const CLONE_CATEGORIES = ['电商商品图', '社媒广告图', '详情页模块', '主图', '场景图', '卖点图', '海报图']
@@ -96,33 +74,28 @@ export function OneClickReplicatePage() {
 
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
-  // 数据流保持桌面端现状：商品主档列表（远端优先，兜底默认）
-  const { data: remoteProducts } = useQuery<ProductItem[]>({
+  // 数据流：真实商品主档；空列表/接口失败保持诚实空态，不回填假商品。
+  const { data: remoteProducts, isLoading: productsLoading } = useQuery<MasterProduct[]>({
     queryKey: ['products-master'],
     queryFn: async () => {
-      try {
-        const res = await api.get<ProductItem[]>('/api/products/master')
-        if (Array.isArray(res.data) && res.data.length > 0) {
-          return res.data
-        }
-      } catch {
-        // ignore
-      }
-      try {
-        const res = await api.get<ProductItem[]>('/api/products')
-        if (Array.isArray(res.data) && res.data.length > 0) {
-          return res.data
-        }
-      } catch {
-        // ignore
-      }
-      return DEFAULT_PRODUCTS
+      const res = await api.get<MasterProduct[]>('/api/products/master')
+      return Array.isArray(res.data) ? res.data : []
     },
   })
 
-  const productList = remoteProducts && remoteProducts.length > 0 ? remoteProducts : DEFAULT_PRODUCTS
+  const productList = (remoteProducts || []).map((p) => ({
+    id: p.id,
+    name: p.productName,
+    spuCode: p.productCode,
+    brand: p.brand || '',
+    productImage: p.productImage || null,
+    skuImages: (p.skus || []).map((sku) => sku.specImage || '').filter(Boolean),
+  }))
   const currentProduct = productList.find((p) => p.id === selectedProductId) ?? null
-  const selectedAssets = PRODUCT_ASSETS.filter((a) => a.productId === selectedProductId)
+  const selectedAssets: ProductAsset[] = [
+    ...(currentProduct?.productImage ? [{ id: `${currentProduct.id}-main`, name: '商品主图', url: currentProduct.productImage }] : []),
+    ...(currentProduct?.skuImages || []).map((url, i) => ({ id: `${currentProduct?.id}-sku-${i}`, name: `规格图 ${i + 1}`, url })),
+  ]
 
   // 处理上传参考图（业务逻辑保持桌面端现状：FileReader 转 dataURL）
   const handleCustomUpload = (file: File) => {
@@ -140,7 +113,7 @@ export function OneClickReplicatePage() {
     setReferenceImages((prev) => prev.filter((_, i) => i !== idx))
   }
 
-  // 一键复刻（业务逻辑保持桌面端现状：提示词引擎调用 + 本地演示生图）
+  // 一键复刻：调用真实生图接口；失败保持错误提示，不渲染本地假图。
   const handleStartReplicate = async () => {
     if (!currentProduct) {
       Message.warning('请先选择需要复刻的商品')
@@ -150,33 +123,39 @@ export function OneClickReplicatePage() {
     setResults([])
 
     try {
-      // 优先尝试调后端真实提示词规则引擎或生图链路
-      try {
-        await api.post('/api/product-sets/generate-prompts', {
-          productName: currentProduct.name,
-          category,
-          language,
-          ratio,
-          level,
-          referenceNote: replicateNote,
-        })
-      } catch {
-        // 后端若处于离线降级状态则平滑过渡
-      }
+      const levelLabel = level === 'style' ? '参考风格' : '高度复刻'
+      const prompt = [
+        `生成${category}`,
+        `商品：${currentProduct.name}`,
+        `复刻程度：${levelLabel}`,
+        `画面比例：${ratio}`,
+        `文案语言：${language}`,
+        replicateNote ? `补充要求：${replicateNote}` : '',
+      ].filter(Boolean).join('；')
 
-      // 模拟高质 AI 批量生成渲染
-      await new Promise((resolve) => setTimeout(resolve, 1800))
+      const { data } = await api.post('/api/product-sets/generate-image', {
+        prompt,
+        count: 4,
+        jobId: `one-click-replicate-${currentProduct.id}`,
+      })
+      const urls: string[] = (data?.images || [])
+        .map((item: { url?: string; dataUrl?: string }) => item.url || item.dataUrl || '')
+        .filter(Boolean)
 
-      const generated: ReplicateResult[] = [
-        { id: 'res-1', title: `${currentProduct.name} - 高度复刻`, url: imgDressCopy, badge: '高度复刻', ratio, createTime: new Date().toLocaleTimeString() },
-        { id: 'res-2', title: `${currentProduct.name} - 参考风格`, url: imgDressRef, badge: '参考风格', ratio, createTime: new Date().toLocaleTimeString() },
-        { id: 'res-3', title: `${currentProduct.name} - 变体 A`, url: imgAudioScene, badge: '高度复刻', ratio, createTime: new Date().toLocaleTimeString() },
-        { id: 'res-4', title: `${currentProduct.name} - 变体 B`, url: imgAudioModel, badge: '参考风格', ratio, createTime: new Date().toLocaleTimeString() },
-      ]
+      if (!urls.length) throw new Error('生成接口没有返回图片')
+
+      const generated: ReplicateResult[] = urls.map((url, i) => ({
+        id: `res-${i + 1}-${url.slice(-12)}`,
+        title: `${currentProduct.name} - ${category}`,
+        url,
+        badge: i % 2 === 0 ? '高度复刻' : '参考风格',
+        ratio,
+        createTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      }))
       setResults(generated)
-      Message.success('一键复刻完成，已生成 4 张专属爆款图')
-    } catch {
-      Message.error('复刻生成异常，请重试')
+      Message.success('一键复刻完成')
+    } catch (error) {
+      Message.error(error instanceof Error && error.message ? error.message : '复刻生成异常，请重试')
     } finally {
       setGenerating(false)
     }
@@ -535,7 +514,7 @@ export function OneClickReplicatePage() {
                 <div className="min-w-0">
                   <p className="m-0 truncate text-[13px] font-bold text-[#0A1B39]">{p.name}</p>
                   <p className="m-0 mt-0.5 text-[11px] text-[#86909C]">
-                    {p.spuCode} · {p.brand} · {p.category}
+                    {p.spuCode}{p.brand ? ` · ${p.brand}` : ''}
                   </p>
                 </div>
                 {p.id === currentProduct?.id && (

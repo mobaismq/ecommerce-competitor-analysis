@@ -74,48 +74,6 @@ interface Product {
   createTime?: string
 }
 
-const DEMO_FALLBACK: Product[] = [
-  {
-    id: 'prod-001',
-    productCode: 'SP2026001',
-    productName: '12线绿光激光水平仪',
-    brand: '科迈斯',
-    productImage: null,
-    status: 'enabled',
-    createdAt: '2026-07-01T09:00:00.000Z',
-    updatedAt: '2026-07-15T10:30:00.000Z',
-    skus: [
-      { id: 'sku-01', skuCode: 'SP2026001-A', specName: '12线绿光 · 标配单电', specImage: null, costPrice: 130, standardPrice: 268 },
-      { id: 'sku-02', skuCode: 'SP2026001-B', specName: '12线绿光 · 双电豪华版', specImage: null, costPrice: 160, standardPrice: 328 },
-    ],
-  },
-  {
-    id: 'prod-002',
-    productCode: 'SP2026002',
-    productName: '主动降噪无线头戴蓝牙耳机',
-    brand: '声阔灵动',
-    productImage: null,
-    status: 'enabled',
-    createdAt: '2026-06-20T11:00:00.000Z',
-    updatedAt: '2026-07-14T15:20:00.000Z',
-    skus: [
-      { id: 'sku-03', skuCode: 'SP2026002-BK', specName: '极夜黑 · 标准版', specImage: null, costPrice: 120, standardPrice: 299 },
-      { id: 'sku-04', skuCode: 'SP2026002-WH', specName: '极光白 · 空间音频版', specImage: null, costPrice: 145, standardPrice: 349 },
-    ],
-  },
-  {
-    id: 'prod-003',
-    productCode: 'SP2026003',
-    productName: '全价无谷高鲜肉天然成猫粮 5kg',
-    brand: '喵之鲜',
-    productImage: null,
-    status: 'enabled',
-    createdAt: '2026-06-15T14:30:00.000Z',
-    updatedAt: '2026-07-13T09:15:00.000Z',
-    skus: [{ id: 'sku-05', skuCode: 'SP2026003-5K', specName: '鸡肉三文鱼配方 5kg', specImage: null, costPrice: 85, standardPrice: 188 }],
-  },
-]
-
 function formatDateTime(iso?: string): string {
   if (!iso) return ''
   const d = new Date(iso)
@@ -181,19 +139,15 @@ export function ProductMasterDataPage() {
   const [productImage, setProductImage] = useState<string | null>(null)
   const [skus, setSkus] = useState<Sku[]>([{ id: 'new-1', skuCode: '', specName: '', specImage: null, costPrice: 0, standardPrice: 0 }])
 
-  // 数据流保持桌面端现状：GET /api/products/master + 演示兜底
+  // 数据流：GET /api/products/master，空态/失败态诚实呈现，不做假数据兜底
   const load = useCallback(async () => {
     setLoading(true)
     try {
       const { data } = await api.get('/api/products/master')
       const items: Product[] = Array.isArray(data) ? data : []
-      if (items.length > 0) {
-        setProducts(items)
-      } else {
-        setProducts(DEMO_FALLBACK)
-      }
+      setProducts(items)
     } catch {
-      setProducts(DEMO_FALLBACK)
+      setProducts([])
     } finally {
       setLoading(false)
     }
@@ -753,6 +707,11 @@ export function ProductMasterDataPage() {
                       />
                     )
                   })}
+                {!loading && filteredProducts.length === 0 && (
+                  <tr>
+                    <td colSpan={11} className="py-12 text-center text-[13px] text-[#86909C]">暂无数据</td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
