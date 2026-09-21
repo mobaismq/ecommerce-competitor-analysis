@@ -48,6 +48,7 @@ interface AnalysisReportDetail {
   reportNo: string | null
   jobId: string
   status: string
+  keyword?: string | null
   competitorCount: number | null
   reportJson?: RichReportJson | null
   updatedAt: string
@@ -258,10 +259,12 @@ export function AnalysisReportViewPage() {
 
       <div className="mb-5 grid grid-cols-4 gap-4 rounded-2xl bg-white p-5 shadow-[0_8px_32px_rgba(29,38,52,.06)]">
         {[
+          { label: '分析关键词', value: keyword || report.keyword || '—', color: 'text-[#3388ff]' },
           { label: '样本竞品总数', value: `${totalProducts} 件`, color: 'text-[#3388ff]' },
           { label: '核心价格区间', value: rangeMin != null && rangeMax != null ? `¥${rangeMin} - ¥${rangeMax}` : '暂无', color: 'text-[#2e7d32]' },
           { label: '细分价格带数量', value: `${bands.length} 个`, color: 'text-[#722ed1]' },
           { label: '总分析月销量', value: '未采集', color: 'text-[#f57c00]' },
+          { label: '采集时间', value: report.createdAt ? new Date(report.createdAt).toLocaleString() : '—', color: 'text-[#86909C]' },
         ].map((item) => (
           <div key={item.label}>
             <p className="m-0 text-[12px] font-semibold text-[#86909C]">{item.label}</p>

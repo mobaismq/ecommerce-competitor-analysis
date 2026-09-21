@@ -70,6 +70,12 @@ interface DisplayImage {
   price?: number
 }
 
+interface CompetitorLink {
+  title?: string
+  url?: string
+  price?: number
+}
+
 interface PriceBandItem {
   priceBand: string
   competitorCount: number
@@ -92,6 +98,7 @@ interface PriceBandItem {
     buyerShow?: string
   }
   displayImages: DisplayImage[]
+  competitorLinks: CompetitorLink[]
 }
 
 interface ReportSummary {
@@ -193,13 +200,16 @@ export function MarketReportPage() {
             const max = Number(b.priceMax) || 0
             const targetPrice = Number(b.targetPrice)
             const profit = realProfit.find((pr) => String(pr.priceBand) === bandName) ?? realProfit[index] ?? {}
+            const links = Array.isArray(b.competitorLinks) ? (b.competitorLinks as unknown[]) : []
+            const titles = Array.isArray(b.competitorTitles) ? (b.competitorTitles as unknown[]) : []
+            const images = Array.isArray(b.displayImages) ? (b.displayImages as unknown[]) : []
             return {
               priceBand: bandName,
               competitorCount: Number(b.productCount) || 0,
               priceMin: min,
               priceMax: max,
-              priceAvg: Number(b.priceAvg) || Math.round(((min + max) / 2) * 100) / 100 || 0,
-              soldCountTotal: Number(b.soldCountTotal) || 0,
+              priceAvg: Number(b.avgPrice) || Math.round(((min + max) / 2) * 100) / 100 || 0,
+              soldCountTotal: Number(b.soldTotal) || 0,
               salesAmountTotal: Number(b.salesAmountTotal) || 0,
               targetPrice: Number(profit.targetPrice) || (Number.isFinite(targetPrice) ? targetPrice : min),
               totalCost: Number(profit.totalCost) || 0,
@@ -210,7 +220,16 @@ export function MarketReportPage() {
               demands: [],
               qaExamples: [],
               imagePrompts: {},
-              displayImages: [],
+              displayImages: images.map((img, i) => ({
+                url: String(img),
+                title: String(titles[i] ?? ''),
+                price: 0,
+              })),
+              competitorLinks: links.map((url, i) => ({
+                url: String(url),
+                title: String(titles[i] ?? ''),
+                price: 0,
+              })),
             }
           })
         }
@@ -330,6 +349,7 @@ export function MarketReportPage() {
               qaExamples: [],
               imagePrompts: {},
               displayImages: [],
+              competitorLinks: [],
             }
           })
           setBands(transformed)
@@ -403,6 +423,11 @@ export function MarketReportPage() {
       title: '竞品样本数',
       dataIndex: 'competitorCount',
       render: (v: number) => <Text>{v} 款</Text>,
+    },
+    {
+      title: '均价',
+      dataIndex: 'priceAvg',
+      render: (v: number) => (v > 0 ? <Text bold>¥{v.toFixed(2)}</Text> : <Text type="secondary">-</Text>),
     },
     {
       title: '销量总和',
@@ -737,6 +762,25 @@ export function MarketReportPage() {
                 ))}
               </div>
             </Card>
+
+            {/* 竞品链接（对照旧版 MarketReport competitor_links） */}
+            {selectedBand.competitorLinks.length > 0 && (
+              <Card title="竞品链接" bordered style={{ marginBottom: 16 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {selectedBand.competitorLinks.map((link, idx) => (
+                    <a
+                      key={idx}
+                      href={link.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{ color: 'var(--color-primary-6)', fontSize: 13 }}
+                    >
+                      {link.title || link.url}
+                    </a>
+                  ))}
+                </div>
+              </Card>
+            )}
 
             {/* 卖点与痛点洞察 */}
             <Card title="AI 提炼高频卖点与买家痛点" bordered style={{ marginBottom: 16 }}>
