@@ -1,5 +1,6 @@
 import { loadBackendEnv } from '../src/env'
 import { PrismaService } from '../src/prisma.service'
+import { StorageDriverService } from '../src/storage/storage.service'
 import { VideoProviderRegistry } from '../src/videos/video-registry'
 import { VideoReplicationService } from '../src/videos/video.service'
 
@@ -11,7 +12,7 @@ async function main() {
   const suffix = Date.now().toString(36)
 
   const registry = new VideoProviderRegistry()
-  const service = new VideoReplicationService(prisma, registry)
+  const service = new VideoReplicationService(prisma, registry, new StorageDriverService())
 
   const replicated = await service.replicate({
     tenantId: tenant.id,

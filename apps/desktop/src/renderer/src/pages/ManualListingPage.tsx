@@ -538,6 +538,10 @@ export function ManualListingPage() {
         skus,
         mainImages: mainImages.map((img) => img.url),
         detailContent: values.detailContent,
+        originPlace: values.originPlace,
+        warranty: values.warranty,
+        shippingTime: values.shippingTime,
+        serviceGuarantees: values.serviceGuarantees,
       }
       const platformCode = PLATFORM_CODE[currentPlatform] ?? 'taobao'
 
@@ -817,7 +821,11 @@ export function ManualListingPage() {
 
                 <Row gutter={20}>
                   <Col span={8}>
-                    <Form.Item label="商品品牌" field="brand">
+                    <Form.Item
+                      label="商品品牌"
+                      field="brand"
+                      rules={currentPlatform === '京东' ? [{ required: true, message: '京东必填字段：请填写品牌' }] : []}
+                    >
                       <Input placeholder="输入品牌名称" />
                     </Form.Item>
                   </Col>

@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsOptional, IsString } from 'class-validator'
+import { IsNotEmpty, IsNumber, IsOptional, IsString } from 'class-validator'
 
 export class CreateJobDto {
   @IsString()
@@ -24,4 +24,23 @@ export class CreateJobDto {
   @IsOptional()
   @IsString()
   providerProfileId?: string
+
+  @IsOptional()
+  @IsNumber()
+  minPrice?: number
+
+  @IsOptional()
+  @IsNumber()
+  maxPrice?: number
+
+  @IsOptional()
+  @IsNumber()
+  topN?: number
+
+  @IsOptional()
+  @IsNumber()
+  searchPages?: number
+
+  @IsOptional()
+  autoParse?: boolean
 }

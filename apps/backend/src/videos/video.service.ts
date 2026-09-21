@@ -1,6 +1,8 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
 import { nanoid } from 'nanoid'
+import { readFileSync } from 'node:fs'
 import { PrismaService } from '../prisma.service'
+import { StorageDriverService } from '../storage/storage.service'
 import { VideoProviderRegistry } from './video-registry'
 
 @Injectable()
@@ -8,6 +10,7 @@ export class VideoReplicationService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly registry: VideoProviderRegistry,
+    private readonly storageDriverService: StorageDriverService,
   ) {}
 
   async replicate(input: { tenantId: string; sourceUrl?: string; sourceStorageKey?: string; title?: string }) {
@@ -69,5 +72,16 @@ export class VideoReplicationService {
       orderBy: { createdAt: 'desc' },
       take: 100,
     })
+  }
+
+  /** 流式读取视频文件（按 mediaAsset 查询，配合 /api/videos/:id/raw）。 */
+  async raw(assetId: string, tenantId: string) {
+    const asset = await this.prisma.mediaAsset.findFirst({ where: { id: assetId, tenantId } })
+    if (!asset) throw new NotFoundException('视频素材不存在')
+    const driver = this.storageDriverService.getDriver()
+    const meta = await driver.head(asset.storageKey)
+    if (!meta) throw new NotFoundException('视频文件不存在')
+    const absolute = await driver.getReadUrl(asset.storageKey)
+    return { buffer: readFileSync(absolute), mimeType: meta.mimeType }
   }
 }

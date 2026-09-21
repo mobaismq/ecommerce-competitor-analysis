@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common'
+import { Body, Controller, Get, Param, Post, Req, Res, UseGuards } from '@nestjs/common'
 import { IsNotEmpty, IsOptional, IsString } from 'class-validator'
 import { JwtAuthGuard } from '../auth/jwt-auth.guard'
 import { VideoReplicationService } from './video.service'
@@ -30,6 +30,12 @@ export class VideoController {
   @Post('replicate')
   replicate(@Req() request: { user: { tenantId: string } }, @Body() body: ReplicateVideoDto) {
     return this.service.replicate({ tenantId: request.user.tenantId, ...body })
+  }
+
+  @Get(':assetId/raw')
+  async raw(@Req() request: { user: { tenantId: string } }, @Param('assetId') assetId: string, @Res() response: any) {
+    const { buffer, mimeType } = await this.service.raw(assetId, request.user.tenantId)
+    response.type(mimeType).send(buffer)
   }
 
   @Get(':jobId')

@@ -238,19 +238,20 @@ export function APlusDetailPage() {
 
       const { data } = await api.post('/api/product-sets/generate-detail-workflow', {
         reportText,
-        promptSlots: checkedModules.map((m) => m.key),
+        // 后端 normalizeDetailModuleType 仅识别中文模块名（DETAIL_MODULE_ORDER），故传 title 而非英文 key
+        promptSlots: checkedModules.map((m) => m.title),
       })
 
       const returnedItems: Array<{ type: string; prompt: string; name?: string }> = data?.data || []
       const prompts = returnedItems.filter((p) => p.type && p.prompt)
       if (prompts.length < checkedModules.length) throw new Error('详情图提示词返回不完整，请重试。')
-      const byType = new Map(prompts.map((p) => [p.type, p.prompt]))
+      const byTitle = new Map(prompts.map((p) => [p.type, p.prompt]))
       setSelectedModules(
         checkedModules.map((m) => ({
           instanceId: nanoid(8),
           title: m.title,
           key: m.key,
-          prompt: byType.get(m.key) || '',
+          prompt: byTitle.get(m.title) || '',
           status: 'idle' as const,
         })),
       )
@@ -275,6 +276,11 @@ export function APlusDetailPage() {
       const { data } = await api.post('/api/product-sets/generate-image', {
         prompt: target.prompt,
         size: '2K',
+        // 对照旧版：透传商品主图/全部上传图/宽高比/去水印，供图生图参考
+        image: uploadedImages[0]?.url || '',
+        images: uploadedImages.map((item) => item.url),
+        ratio: settings.ratio,
+        watermark: false,
       })
       const generatedUrl = data?.images?.[0]?.url || data?.images?.[0]?.dataUrl
       if (!generatedUrl) throw new Error('生成成功但没有返回图片 URL')

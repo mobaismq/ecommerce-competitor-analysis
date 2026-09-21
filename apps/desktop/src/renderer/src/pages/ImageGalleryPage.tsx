@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { ChevronLeft, ChevronRight, Download, Eye, Loader2, Search } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Download, Eye, Loader2, Search, Trash2 } from 'lucide-react'
 import { Button, Message, Modal } from '@arco-design/web-react'
 import { api } from '../api/client'
 import { saveAs } from 'file-saver'
@@ -43,7 +43,7 @@ export function ImageGalleryPage() {
   const [zipping, setZipping] = useState(false)
 
   // 数据流保持桌面端现状：GET /api/assets + react-query
-  const { data = [], isLoading } = useQuery<Asset[]>({
+  const { data = [], isLoading, refetch } = useQuery<Asset[]>({
     queryKey: ['assets'],
     queryFn: async () => {
       const response = await api.get<Asset[]>('/api/assets')
@@ -138,6 +138,25 @@ export function ImageGalleryPage() {
     } finally {
       setTimeout(() => setZipping(false), 2000)
     }
+  }
+
+  // 删除图片（确认后调用后端删除端点并刷新列表，形成闭环）
+  const handleDelete = async (asset: Asset) => {
+    const name = asset.originalName || asset.storageKey.split('/').pop() || asset.storageKey
+    Modal.confirm({
+      title: '删除图片',
+      content: `确定删除「${name}」吗？删除后不可恢复。`,
+      okButtonProps: { status: 'danger' },
+      onOk: async () => {
+        try {
+          await api.delete(`/api/product-sets/generated-images/${asset.id}`)
+          Message.success('图片已删除')
+          void refetch()
+        } catch {
+          Message.error('删除图片失败')
+        }
+      },
+    })
   }
 
   const totalPages = Math.max(1, Math.ceil(filteredImages.length / PAGE_SIZE))
@@ -319,6 +338,16 @@ export function ImageGalleryPage() {
                         title="下载"
                       >
                         {downloadingId === asset.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+                      </span>
+                      <span
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          void handleDelete(asset)
+                        }}
+                        className="grid h-8 w-8 place-items-center rounded-full bg-white/90 text-[#0A1B39] hover:bg-white"
+                        title="删除"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
                       </span>
                     </div>
                   </div>

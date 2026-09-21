@@ -202,6 +202,9 @@ export function ProductImageSetsPage() {
         body: JSON.stringify({
           settings,
           baseText: generationText,
+          // 对照旧版：AI 帮写透传商品原图，供视觉上下文参考
+          image: uploadedImages[0]?.url || '',
+          images: uploadedImages.map((item) => item.url),
         }),
       })
 

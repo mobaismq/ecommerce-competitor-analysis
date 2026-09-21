@@ -27,6 +27,13 @@ export class JobService {
       if (!profile || !profile.enabled) throw new BadRequestException('ProviderProfile 不存在或已禁用')
     }
     const initialStage = dto.type === 'analysis' ? 'collecting' : 'queued'
+    const params = {
+      ...(dto.minPrice !== undefined ? { minPrice: dto.minPrice } : {}),
+      ...(dto.maxPrice !== undefined ? { maxPrice: dto.maxPrice } : {}),
+      ...(dto.topN !== undefined ? { topN: dto.topN } : {}),
+      ...(dto.searchPages !== undefined ? { searchPages: dto.searchPages } : {}),
+      ...(dto.autoParse !== undefined ? { autoParse: dto.autoParse } : {}),
+    }
     let job
     try {
       job = await this.prisma.job.create({
@@ -38,6 +45,7 @@ export class JobService {
           stage: initialStage,
           providerProfileId: dto.providerProfileId,
           userId,
+          ...(Object.keys(params).length ? { paramsJson: params as Prisma.InputJsonValue } : {}),
         },
       })
     } catch (error) {

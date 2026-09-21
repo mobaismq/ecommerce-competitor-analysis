@@ -50,4 +50,20 @@ export class PublishListingDto {
   @IsOptional()
   @IsString()
   detailContent?: string
+
+  @IsOptional()
+  @IsString()
+  originPlace?: string
+
+  @IsOptional()
+  @IsString()
+  warranty?: string
+
+  @IsOptional()
+  @IsString()
+  shippingTime?: string
+
+  @IsOptional()
+  @IsString()
+  serviceGuarantees?: string
 }

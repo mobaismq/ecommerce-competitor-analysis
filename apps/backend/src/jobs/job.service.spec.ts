@@ -77,6 +77,41 @@ describe('JobService', () => {
       )
     })
 
+    it('采集参数持久化到 paramsJson，供真实采集链路读取', async () => {
+      prisma.job.create.mockResolvedValue({ id: 'job-collect-1' })
+
+      const res = await service.create(
+        {
+          type: 'analysis',
+          businessKey: 'biz-key-collect',
+          minPrice: 10,
+          maxPrice: 99,
+          topN: 50,
+          searchPages: 8,
+          autoParse: true,
+        },
+        'tenant-1',
+      )
+
+      expect(res.created).toBe(true)
+      expect(prisma.job.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          status: 'queued',
+          stage: 'collecting',
+          paramsJson: expect.objectContaining({ minPrice: 10, maxPrice: 99, topN: 50, searchPages: 8, autoParse: true }),
+        }),
+      })
+    })
+
+    it('无采集参数时 paramsJson 不写入', async () => {
+      prisma.job.create.mockResolvedValue({ id: 'job-plain-1' })
+
+      await service.create({ type: 'analysis', businessKey: 'biz-plain' }, 'tenant-1')
+
+      const call = prisma.job.create.mock.calls[0][0]
+      expect(call.data.paramsJson).toBeUndefined()
+    })
+
     it('businessKey 重复时幂等返回已有任务且不重复入队', async () => {
       const p2002Error = new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
         code: 'P2002',

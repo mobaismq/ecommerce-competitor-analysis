@@ -217,6 +217,22 @@ export function AnalysisCollectPage() {
       clearInterval(demoTimerRef.current)
       demoTimerRef.current = null
     }
+    // 真实服务端模式：调用任务取消接口，让后端落库 cancelled 并停止后续推进
+    if (jobId && !demoMode) {
+      void api
+        .post(`/api/jobs/${jobId}/cancel`)
+        .then(() => {
+          setStatus('stopped')
+          setLogs((prev) => prev + `\n[${new Date().toLocaleTimeString()}] ⚠️ 已向后端发起取消，任务将停止。`)
+          Message.warning('采集任务已停止')
+        })
+        .catch(() => {
+          setStatus('stopped')
+          setLogs((prev) => prev + `\n[${new Date().toLocaleTimeString()}] ⚠️ 用户手动停止了当前采集任务（取消请求未生效）。`)
+          Message.warning('采集任务已停止（本地）')
+        })
+      return
+    }
     setStatus('stopped')
     setLogs((prev) => prev + `\n[${new Date().toLocaleTimeString()}] ⚠️ 用户手动停止了当前采集任务。`)
     Message.warning('采集任务已停止')

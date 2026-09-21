@@ -136,6 +136,7 @@ model Job {
   userId            String?
   agentId           String?
   providerProfileId String?
+  paramsJson        Json?
   errorCode         String?
   errorMessage      String?
   retryCount        Int       @default(0)

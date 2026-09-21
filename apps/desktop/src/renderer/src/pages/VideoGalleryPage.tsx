@@ -29,7 +29,8 @@ function formatBytes(bytes: number) {
 
 function rawUrl(id: string) {
   const baseURL = api.defaults.baseURL || 'http://127.0.0.1:8787'
-  return `${baseURL}/api/assets/${id}/raw`
+  // 视频素材走 /api/videos/:id/raw（mediaAsset 表），与图片 assets/raw 区分
+  return `${baseURL}/api/videos/${id}/raw`
 }
 
 export function VideoGalleryPage() {
