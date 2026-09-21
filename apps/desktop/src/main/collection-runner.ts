@@ -4,7 +4,7 @@ import { basename, extname, join } from 'node:path'
 import type { PrismaClient } from '../generated/prisma'
 import { assertCollectionMode, buildCollectionPlan, type CollectionMode, type CollectionStage } from './collection-modes'
 import { saveLocalResult, submitResultIfSyncEnabled, type SubmitSyncOptions } from './result-store'
-import { runPython } from './python-runner'
+import { runPython, runPythonTracked } from './python-runner'
 
 export interface CollectionInput {
   productName?: string
@@ -70,7 +70,7 @@ async function defaultDownloader(context: CollectionRunContext): Promise<Collect
   const args: string[] = []
   if (context.input.productName) args.push('--product-name', context.input.productName)
   if (context.input.productUrl) args.push('--product-url', context.input.productUrl)
-  const result = await runPython(script, args, { cwd: context.workDir })
+  const result = await runPythonTracked(script, args, { cwd: context.workDir }, context.jobId)
   if (result.exitCode !== 0) {
     throw new Error(`download script failed (${result.exitCode}): ${result.stderr.trim()}`)
   }

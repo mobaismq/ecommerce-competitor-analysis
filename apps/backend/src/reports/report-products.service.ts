@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
+import { Prisma } from '@prisma/client'
 import { AiCapability } from '../ai/ai.types'
 import { ProviderRouter } from '../ai/provider-router.service'
 import { PrismaService } from '../prisma.service'
@@ -36,19 +37,33 @@ export class ReportProductsService {
     return run
   }
 
-  async productsView(runId: string, tenantId: string, keyword?: string) {
+  async productsView(
+    runId: string,
+    tenantId: string,
+    options: { keyword?: string; productId?: string; shopName?: string; skuKeyword?: string; page?: number; pageSize?: number } = {},
+  ) {
     const run = await this.resolveRun(runId, tenantId)
     const collectionJob = await this.prisma.collectionJob.findUnique({ where: { jobId: run.jobId } })
     if (!collectionJob) {
-      return { ok: true, source: 'run', collection: null, products: [] }
+      return { ok: true, source: 'run', collection: null, products: [], total: 0 }
     }
 
-    const where = { collectionJobId: collectionJob.id, ...(keyword ? { title: { contains: keyword } } : {}) }
-    const rows = await this.prisma.productSnapshot.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-      take: 500,
-    })
+    const where: Prisma.ProductSnapshotWhereInput = {
+      collectionJobId: collectionJob.id,
+      ...(options.keyword?.trim() ? { title: { contains: options.keyword.trim() } } : {}),
+      ...(options.productId?.trim() ? { externalProductId: { contains: options.productId.trim() } } : {}),
+      ...(options.shopName?.trim() ? { shopName: { contains: options.shopName.trim() } } : {}),
+    }
+    const page = options.page && options.page > 0 ? options.page : undefined
+    const pageSize = options.pageSize && options.pageSize > 0 ? Math.min(options.pageSize, 100) : undefined
+    let rows = await this.prisma.productSnapshot.findMany({ where, orderBy: { createdAt: 'desc' }, take: 500 })
+    let total: number | null = null
+    if (page !== undefined && pageSize !== undefined) {
+      ;[rows, total] = await Promise.all([
+        this.prisma.productSnapshot.findMany({ where, orderBy: { createdAt: 'desc' }, skip: (page - 1) * pageSize, take: pageSize }),
+        this.prisma.productSnapshot.count({ where }),
+      ])
+    }
 
     const productIds = rows.map((r) => r.id)
     const [skuRows, analysisRows] = await Promise.all([
@@ -69,13 +84,18 @@ export class ReportProductsService {
 
     const products = rows.map((r) => {
       const analysis = analysisByProduct.get(r.externalProductId)
+      const raw = (r.rawJson as { imageUrl?: string; productUrl?: string; sold?: number; salesAmount?: number; priceRange?: string; imageCount?: number } | null) ?? {}
       return {
         id: r.id,
         productId: r.externalProductId,
         title: r.title,
         shopName: r.shopName,
         price: Number(r.price),
-        imageUrl: (r.rawJson as { imageUrl?: string } | null)?.imageUrl ?? null,
+        imageUrl: raw.imageUrl ?? null,
+        productUrl: raw.productUrl ?? null,
+        sold: raw.sold ?? null,
+        salesAmount: raw.salesAmount ?? null,
+        imageCount: raw.imageCount ?? null,
         skus: (skusByProduct.get(r.id) ?? []).map((s) => ({
           skuId: s.skuId,
           name: s.name,
@@ -87,6 +107,11 @@ export class ReportProductsService {
       }
     })
 
+    const skuKeyword = options.skuKeyword?.trim()
+    const filtered = skuKeyword
+      ? products.filter((p) => p.skus.some((s) => s.name?.toLowerCase().includes(skuKeyword.toLowerCase()) || s.skuId?.toLowerCase().includes(skuKeyword.toLowerCase())))
+      : products
+
     return {
       ok: true,
       source: 'collection',
@@ -94,10 +119,13 @@ export class ReportProductsService {
         id: collectionJob.id,
         keyword: collectionJob.keyword,
         priceRange: (collectionJob.rawResultJson as { priceRange?: string } | null)?.priceRange ?? null,
-        productCount: products.length,
+        productCount: total ?? products.length,
         collectTime: collectionJob.createdAt,
       },
-      products,
+      products: filtered,
+      total: total ?? (page ? filtered.length : undefined),
+      page,
+      pageSize,
     }
   }
 
@@ -109,22 +137,41 @@ export class ReportProductsService {
       // 离线/无真实 Key 时由 ProviderRouter 解析到 Mock；不循环触发真实视觉模型
       const result = await this.router.execute(
         'vision',
-        { prompt: '分析该商品主图：概括视觉卖点、画面元素与文案', system: '你是电商主图视觉分析师。', images: [input.imageUrl], maxTokens: 2000 },
+        {
+          prompt: '分析该商品主图：输出 JSON，字段含 ocr、selling_points、qa_user_needs、audience_and_scene、listing_suggestions、image_overall_plan；若无法结构化则输出纯文本摘要',
+          system: '你是电商主图视觉分析师，优先返回结构化 JSON。',
+          images: [input.imageUrl],
+          maxTokens: 2000,
+        },
         { tenantId: input.tenantId, jobId: run.jobId, attemptKey: `report:${run.id}:vision:${input.productId ?? 'p'}`, userId: input.userId },
       )
       text = result.text
       model = result.model
     }
+    const structured = text ? this.parseVisionJson(text) : null
     const saved = await this.prisma.mainImageAnalysis.create({
       data: {
         analysisRunId: run.id,
         productId: input.productId,
         imageUrl: input.imageUrl,
         visionModel: model,
-        resultJson: { summary: text ?? '未提供主图，未执行视觉分析' },
+        resultJson: (structured ?? { summary: text ?? '未提供主图，未执行视觉分析' }) as Prisma.InputJsonValue,
       },
     })
-    return { id: saved.id, analyzedAt: saved.createdAt }
+    return { id: saved.id, analyzedAt: saved.createdAt, structured: Boolean(structured) }
+  }
+
+  /** 视觉分析结果：若模型返回合法 JSON 则保留结构化字段，否则回退为纯文本 summary（诚实呈现，不伪造）。 */
+  private parseVisionJson(text: string): Record<string, unknown> | null {
+    const start = text.indexOf('{')
+    const end = text.lastIndexOf('}')
+    if (start === -1 || end <= start) return null
+    try {
+      const parsed = JSON.parse(text.slice(start, end + 1))
+      return parsed && typeof parsed === 'object' ? parsed : null
+    } catch {
+      return null
+    }
   }
 
   async priceBandsPreview(input: {
@@ -180,7 +227,10 @@ export class ReportProductsService {
     targetMargin?: number
   }) {
     const collectionJob = await this.prisma.collectionJob.findFirst({
-      where: input.keyword ? { keyword: { contains: input.keyword.trim() } } : undefined,
+      where: {
+        tenantId: input.tenantId,
+        ...(input.keyword?.trim() ? { keyword: { contains: input.keyword.trim() } } : {}),
+      },
       orderBy: { createdAt: 'desc' },
     })
     if (!collectionJob) {
@@ -188,7 +238,7 @@ export class ReportProductsService {
     }
     const rows = await this.prisma.productSnapshot.findMany({
       where: { collectionJobId: collectionJob.id },
-      select: { price: true },
+      select: { price: true, externalProductId: true, title: true, shopName: true, rawJson: true },
       orderBy: { price: 'asc' },
     })
     const priceBands = buildPriceBands(rows.map((r) => Number(r.price)))
@@ -207,7 +257,22 @@ export class ReportProductsService {
         targetMarginPrice: (input.targetMargin ?? 0) > 0 ? totalCost / (1 - (input.targetMargin ?? 0) - feeRate) : 0,
       }
     })
-    return { ok: true, priceBands, profitSimulation, collection: { id: collectionJob.id, keyword: collectionJob.keyword, productCount: rows.length } }
+    const bands = priceBands.map((band) => {
+      const inBand = rows.filter((r) => {
+        const price = Number(r.price)
+        return price >= (band.priceMin ?? -Infinity) && price <= (band.priceMax ?? Infinity)
+      })
+      return {
+        ...band,
+        avgPrice: inBand.length ? Math.round((inBand.reduce((sum, r) => sum + Number(r.price), 0) / inBand.length) * 100) / 100 : 0,
+        competitorLinks: inBand.slice(0, 3).map((r) => (r.rawJson as { productUrl?: string } | null)?.productUrl ?? null).filter(Boolean),
+        displayImages: inBand.slice(0, 3).map((r) => (r.rawJson as { imageUrl?: string } | null)?.imageUrl ?? null).filter(Boolean),
+        competitorTitles: inBand.slice(0, 3).map((r) => r.title ?? null).filter(Boolean),
+        soldTotal: inBand.reduce((sum, r) => sum + Number((r.rawJson as { sold?: number } | null)?.sold ?? 0), 0),
+        salesAmountTotal: inBand.reduce((sum, r) => sum + Number((r.rawJson as { salesAmount?: number } | null)?.salesAmount ?? 0), 0),
+      }
+    })
+    return { ok: true, priceBands: bands, profitSimulation, collection: { id: collectionJob.id, keyword: collectionJob.keyword, productCount: rows.length } }
   }
 
   async getMainImageAnalysis(runId: string, productId: string, tenantId: string) {

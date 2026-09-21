@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common'
+import { Body, Controller, Delete, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common'
 import { DataScopeGuard } from '../auth/data-scope.guard'
 import { JwtAuthGuard } from '../auth/jwt-auth.guard'
 import { RequirePermission } from '../auth/permission.decorator'
@@ -28,5 +28,11 @@ export class DepartmentController {
   @RequirePermission('system:manage')
   update(@Req() request: { user: { tenantId: string } }, @Param('id') id: string, @Body() body: UpdateDepartmentDto) {
     return this.departmentService.update(request.user.tenantId, id, body)
+  }
+
+  @Delete(':id')
+  @RequirePermission('system:manage')
+  remove(@Req() request: { user: { tenantId: string } }, @Param('id') id: string) {
+    return this.departmentService.remove(request.user.tenantId, id)
   }
 }

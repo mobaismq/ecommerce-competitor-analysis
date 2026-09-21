@@ -181,4 +181,48 @@ describe('JobService', () => {
       expect(localQueue.enqueue).not.toHaveBeenCalled()
     })
   })
+
+  describe('list', () => {
+    it('带分页参数时返回 { rows, total, page, pageSize } 并应用租户过滤', async () => {
+      prisma.job.findMany = jest.fn().mockResolvedValue([{ id: 'j-1' }])
+      prisma.job.count = jest.fn().mockResolvedValue(1)
+      const res = await service.list('tenant-1', { type: 'analysis', page: 2, pageSize: 10 })
+      expect(res).toMatchObject({ page: 2, pageSize: 10, total: 1 })
+      expect(prisma.job.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ tenantId: 'tenant-1', type: 'analysis' }),
+          skip: 10,
+          take: 10,
+        }),
+      )
+    })
+
+    it('不传分页时返回数组（兼容旧调用）', async () => {
+      prisma.job.findMany = jest.fn().mockResolvedValue([{ id: 'j-1' }])
+      const res = await service.list('tenant-1', {})
+      expect(Array.isArray(res)).toBe(true)
+    })
+  })
+
+  describe('cancel', () => {
+    it('取消进行中任务落库 cancelled 并记录完成时间', async () => {
+      prisma.job.findFirst.mockResolvedValue({ id: 'j-run', tenantId: 'tenant-1', status: 'running', stage: 'collecting' })
+      prisma.job.update.mockResolvedValue({ id: 'j-run', status: 'cancelled' })
+      const res = await service.cancel('j-run', 'tenant-1')
+      expect(prisma.job.update).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'j-run' }, data: expect.objectContaining({ status: 'cancelled', finishedAt: expect.any(Date) }) }),
+      )
+      expect(res.status).toBe('cancelled')
+    })
+
+    it('终态任务不可取消', async () => {
+      prisma.job.findFirst.mockResolvedValue({ id: 'j-done', status: 'success' })
+      await expect(service.cancel('j-done', 'tenant-1')).rejects.toThrow('仅进行中或排队任务可取消')
+    })
+
+    it('任务不存在抛出 NotFoundException', async () => {
+      prisma.job.findFirst.mockResolvedValue(null)
+      await expect(service.cancel('none', 'tenant-1')).rejects.toThrow(NotFoundException)
+    })
+  })
 })

@@ -10,7 +10,16 @@ export class UpdateRoleDto {
   description?: string
 
   @IsOptional()
+  @IsString()
+  status?: string
+
+  @IsOptional()
   @IsArray()
   @IsString({ each: true })
   permissionIds?: string[]
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  storeIds?: string[]
 }

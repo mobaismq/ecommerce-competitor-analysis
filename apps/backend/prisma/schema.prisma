@@ -15,14 +15,16 @@ model Tenant {
 }
 
 model Department {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   tenantId  String
   name      String
   parentId  String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 
   @@index([tenantId])
+  @@index([tenantId, deletedAt])
 }
 
 model User {
@@ -58,10 +60,13 @@ model Role {
   code        String
   name        String
   description String?
+  status      String   @default("active")
+  deletedAt   DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   @@unique([tenantId, code])
+  @@index([tenantId, status])
 }
 
 model Permission {
@@ -109,10 +114,13 @@ model Store {
   externalId    String?
   status        String?
   authExpiresAt DateTime?
+  authorizedBy  String?
+  deletedAt     DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
   @@index([tenantId, platformId])
+  @@index([tenantId, deletedAt])
 }
 
 model Job {

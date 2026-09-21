@@ -12,8 +12,24 @@ export class ReportProductsController {
 
   @Get(':id/products')
   @RequirePermission('market:report:view')
-  products(@Req() request: { user: { tenantId: string } }, @Param('id') id: string, @Query('keyword') keyword?: string) {
-    return this.service.productsView(id, request.user.tenantId, keyword)
+  products(
+    @Req() request: { user: { tenantId: string } },
+    @Param('id') id: string,
+    @Query('keyword') keyword?: string,
+    @Query('productId') productId?: string,
+    @Query('shopName') shopName?: string,
+    @Query('skuKeyword') skuKeyword?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.service.productsView(id, request.user.tenantId, {
+      keyword,
+      productId,
+      shopName,
+      skuKeyword,
+      page: page ? Number(page) : undefined,
+      pageSize: pageSize ? Number(pageSize) : undefined,
+    })
   }
 
   @Post(':id/main-image-analysis')

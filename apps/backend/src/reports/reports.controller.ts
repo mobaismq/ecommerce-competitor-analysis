@@ -26,17 +26,47 @@ export class ReportExportController {
     @Req() request: { user: { tenantId: string } },
     @Query('keyword') keyword?: string,
     @Query('status') status?: string,
+    @Query('startTime') startTime?: string,
+    @Query('endTime') endTime?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
   ) {
-    return this.prisma.analysisRun.findMany({
+    const where = {
+      tenantId: request.user.tenantId,
+      ...(status?.trim() ? { status: status.trim() } : {}),
+      ...(keyword?.trim() ? { keyword: { contains: keyword.trim() } } : {}),
+      ...((startTime || endTime)
+        ? { updatedAt: { ...(startTime ? { gte: new Date(startTime) } : {}), ...(endTime ? { lte: new Date(`${endTime}T23:59:59.999Z`) } : {}) } }
+        : {}),
+    }
+    const parsedPage = page ? Number(page) : undefined
+    const parsedPageSize = pageSize ? Math.min(Number(pageSize), 100) : undefined
+    if (!parsedPage || !parsedPageSize) {
+      return this.prisma.analysisRun.findMany({ where, orderBy: { updatedAt: 'desc' }, take: 100 })
+    }
+    return Promise.all([
+      this.prisma.analysisRun.findMany({ where, orderBy: { updatedAt: 'desc' }, skip: (parsedPage - 1) * parsedPageSize, take: parsedPageSize }),
+      this.prisma.analysisRun.count({ where }),
+    ]).then(([rows, total]) => ({ rows, total, page: parsedPage, pageSize: parsedPageSize }))
+  }
+
+  @Get('latest')
+  @RequirePermission('market:report:view')
+  latest(@Req() request: { user: { tenantId: string } }, @Query('keyword') keyword?: string) {
+    return this.prisma.analysisRun.findFirst({
       where: {
         tenantId: request.user.tenantId,
-        // 可选过滤：仅在调用方显式传参时生效，默认行为（不过滤）保持不变
-        ...(status?.trim() ? { status: status.trim() } : {}),
+        status: { in: ['success', 'completed'] },
         ...(keyword?.trim() ? { keyword: { contains: keyword.trim() } } : {}),
       },
       orderBy: { updatedAt: 'desc' },
-      take: 100,
     })
+  }
+
+  @Get(':id/analysis-view')
+  @RequirePermission('market:report:view')
+  analysisView(@Req() request: { user: { tenantId: string } }, @Param('id') id: string) {
+    return this.getById(request, id)
   }
 
   @Get(':id')
@@ -53,7 +83,19 @@ export class ReportExportController {
       where: { analysisRunId: report.id },
       orderBy: { priceMin: 'asc' },
     })
-    return { ...report, priceBands }
+    const bandIds = priceBands.map((band) => band.id)
+    const [insights, bandProducts] = await Promise.all([
+      this.prisma.analysisInsight.findMany({ where: { analysisRunId: report.id }, orderBy: { createdAt: 'asc' } }),
+      bandIds.length ? this.prisma.analysisBandProduct.findMany({ where: { priceBandId: { in: bandIds } } }) : Promise.resolve([]),
+    ])
+    return {
+      ...report,
+      priceBands: priceBands.map((band) => ({
+        ...band,
+        representativeProducts: bandProducts.filter((product) => product.priceBandId === band.id),
+      })),
+      insights,
+    }
   }
 
   @Post(':runId/export')

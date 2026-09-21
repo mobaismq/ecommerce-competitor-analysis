@@ -240,32 +240,64 @@ export function MarketReportPage() {
 
   useEffect(() => {
     executePreview(initialKeyword, false)
+    // 自动恢复最近一次该关键词已生成的报告
+    void (async () => {
+      try {
+        const { data } = await api.get(`/api/reports/latest?keyword=${encodeURIComponent(initialKeyword)}`)
+        if (data?.id) await handleSelectHistoryReport(data)
+      } catch {
+        // 无最近报告时不报错，保持初始化预览
+      }
+    })()
   }, [initialKeyword])
 
-  // 启动大模型深度分析生成报告流程
+  // 启动大模型深度分析生成报告流程（真实链路：创建 analysis job → 轮询状态 → 刷新历史）
   const handleStartAIGeneration = () => {
+    const kw = String(keyword || '手表')
+    if (!kw.trim()) {
+      Message.error('请先输入分析关键词')
+      return
+    }
     setShowGenerateModal(true)
     setGenerateStep(0)
     setGenerating(true)
 
-    // 模拟多步大模型视觉分析与聚类流水线
-    const t1 = setTimeout(() => setGenerateStep(1), 1200)
-    const t2 = setTimeout(() => setGenerateStep(2), 2600)
-    const t3 = setTimeout(() => setGenerateStep(3), 4200)
-    const t4 = setTimeout(() => {
-      setGenerateStep(4)
-      setGenerating(false)
-      Message.success('大模型深度竞品分析报告生成完成！')
-      executePreview(keyword)
-      loadHistoryReports()
-    }, 5500)
+    void (async () => {
+      try {
+        setGenerateStep(1)
+        const created = await api.post('/api/jobs', {
+          type: 'analysis',
+          keyword: kw.trim(),
+          analysisType: 'market',
+          businessKey: `market|${kw.trim().toLowerCase()}|market`,
+        })
+        const jobId = created.data?.jobId
+        if (!jobId) throw new Error('未返回任务编号')
 
-    return () => {
-      clearTimeout(t1)
-      clearTimeout(t2)
-      clearTimeout(t3)
-      clearTimeout(t4)
-    }
+        // 轮询任务状态（真实分析生成，不做定时器假完成）
+        for (let attempt = 0; attempt < 600; attempt += 1) {
+          await new Promise((resolve) => setTimeout(resolve, 1000))
+          setGenerateStep(Math.min(3, 1 + Math.floor(attempt / 40)))
+          const status = await api.get(`/api/jobs/${jobId}`)
+          const s = status.data?.status
+          if (s === 'success') {
+            setGenerateStep(4)
+            setGenerating(false)
+            Message.success('大模型深度竞品分析报告生成完成！')
+            executePreview(kw.trim())
+            loadHistoryReports()
+            return
+          }
+          if (s === 'failure' || s === 'cancelled') {
+            throw new Error(status.data?.errorMessage || `任务${s}`)
+          }
+        }
+        throw new Error('生成超时')
+      } catch (err) {
+        setGenerating(false)
+        Message.error(`报告生成失败：${err instanceof Error ? err.message : String(err)}`)
+      }
+    })()
   }
 
   // 载入历史报告

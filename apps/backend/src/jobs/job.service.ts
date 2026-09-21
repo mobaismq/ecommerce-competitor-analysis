@@ -5,6 +5,14 @@ import { resolveQueueName } from '../queue/queue-names'
 import { PrismaService } from '../prisma.service'
 import { CreateJobDto } from './dto/create-job.dto'
 
+export interface ListJobsOptions {
+  type?: string
+  status?: string
+  keyword?: string
+  page?: number
+  pageSize?: number
+}
+
 @Injectable()
 export class JobService {
   constructor(
@@ -54,6 +62,40 @@ export class JobService {
 
   find(id: string, tenantId: string) {
     return this.prisma.job.findFirst({ where: { id, tenantId } })
+  }
+
+  async list(tenantId: string, options: ListJobsOptions = {}) {
+    const { type, status, keyword } = options
+    const where: Prisma.JobWhereInput = {
+      tenantId,
+      ...(type?.trim() ? { type: type.trim() } : {}),
+      ...(status?.trim() ? { status: status.trim() } : {}),
+      ...(keyword?.trim() ? { businessKey: { contains: keyword.trim() } } : {}),
+    }
+    const page = options.page && options.page > 0 ? options.page : undefined
+    const pageSize = options.pageSize && options.pageSize > 0 ? Math.min(options.pageSize, 100) : undefined
+    if (page === undefined || pageSize === undefined) {
+      return this.prisma.job.findMany({ where, orderBy: { createdAt: 'desc' } })
+    }
+    const [rows, total] = await Promise.all([
+      this.prisma.job.findMany({ where, orderBy: { createdAt: 'desc' }, skip: (page - 1) * pageSize, take: pageSize }),
+      this.prisma.job.count({ where }),
+    ])
+    return { rows, total, page, pageSize }
+  }
+
+  /** 取消任务：仅在可取消状态（queued/running/collecting/analyzing/reporting）生效，并落库终态 cancelled。 */
+  async cancel(id: string, tenantId: string) {
+    const job = await this.prisma.job.findFirst({ where: { id, tenantId } })
+    if (!job) throw new NotFoundException('任务不存在')
+    const cancellable = ['queued', 'running', 'collecting', 'analyzing', 'reporting']
+    if (!cancellable.includes(job.status)) {
+      throw new BadRequestException('仅进行中或排队任务可取消')
+    }
+    return this.prisma.job.update({
+      where: { id },
+      data: { status: 'cancelled', stage: job.stage, finishedAt: new Date() },
+    })
   }
 
   async retry(id: string, tenantId: string) {

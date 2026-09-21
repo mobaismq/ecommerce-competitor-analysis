@@ -1,4 +1,4 @@
-import { IsOptional, IsString } from 'class-validator'
+import { IsBoolean, IsOptional, IsString } from 'class-validator'
 
 export class UpdateStoreDto {
   @IsOptional()
@@ -12,4 +12,16 @@ export class UpdateStoreDto {
   @IsOptional()
   @IsString()
   status?: string
+
+  @IsOptional()
+  @IsString()
+  authorizedBy?: string
+
+  @IsOptional()
+  @IsString()
+  authExpiresAt?: string
+
+  @IsOptional()
+  @IsBoolean()
+  isDeleted?: boolean
 }

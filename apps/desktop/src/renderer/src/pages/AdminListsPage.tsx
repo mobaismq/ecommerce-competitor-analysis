@@ -482,6 +482,11 @@ export function AdminRolesPage() {
     refresh(roles.refetch, api.post('/api/roles', { code: form.code.trim(), name: form.name.trim() }))
     setForm({ code: '', name: '' })
   }
+  const toggle = (row: RoleRow) =>
+    refresh(roles.refetch, api.patch(`/api/roles/${row.id}`, { status: (row as RoleRow & { status?: string }).status === 'disabled' ? 'active' : 'disabled' }))
+  const remove = (row: RoleRow) => {
+    if (window.confirm(`确定删除角色 ${row.name}？`)) refresh(roles.refetch, api.delete(`/api/roles/${row.id}`))
+  }
   return (
     <div className="h-full overflow-y-auto bg-[#f4f7fb] p-6 custom-scrollbar">
       <PageHeader breadcrumbs={[{ label: '设置' }, { label: '角色管理' }]} />
@@ -507,6 +512,8 @@ export function AdminRolesPage() {
             <tr className="border-b border-[#eef1f5] bg-[#f9fafb] text-left text-[13px] font-medium text-[#86909C]">
               <th className="px-5 py-3 font-medium">编码</th>
               <th className="px-5 py-3 font-medium">名称</th>
+              <th className="px-5 py-3 font-medium">状态</th>
+              <th className="px-5 py-3 font-medium">操作</th>
             </tr>
           </thead>
           <tbody>
@@ -514,11 +521,22 @@ export function AdminRolesPage() {
               <tr key={row.id} className="border-b border-[#eef1f5] text-[13px] text-[#344054] hover:bg-[#f9fafb]">
                 <td className="px-5 py-3 font-mono">{row.code}</td>
                 <td className="px-5 py-3">{row.name}</td>
+                <td className="px-5 py-3">{(row as RoleRow & { status?: string }).status === 'disabled' ? '停用' : '启用'}</td>
+                <td className="px-5 py-3">
+                  <div className="flex gap-2">
+                    <button type="button" onClick={() => toggle(row)} className="cursor-pointer border-0 bg-transparent p-0 text-[13px] text-[#3388ff] hover:underline">
+                      启停
+                    </button>
+                    <button type="button" onClick={() => remove(row)} className="cursor-pointer border-0 bg-transparent p-0 text-[13px] text-[#f53f3f] hover:underline">
+                      删除
+                    </button>
+                  </div>
+                </td>
               </tr>
             ))}
             {(roles.data ?? []).length === 0 && (
               <tr>
-                <td colSpan={2} className="px-5 py-10 text-center text-[13px] text-[#86909C]">暂无数据</td>
+                <td colSpan={4} className="px-5 py-10 text-center text-[13px] text-[#86909C]">暂无数据</td>
               </tr>
             )}
           </tbody>
@@ -528,11 +546,49 @@ export function AdminRolesPage() {
   )
 }
 
+interface StoreRow {
+  id: string
+  name: string
+  status?: string | null
+  externalId?: string | null
+  platform?: { name?: string } | null
+}
+
 export function AdminStoresPage() {
-  const stores = useQuery({ queryKey: ['stores'], queryFn: async () => (await api.get<Array<Record<string, string>>>(`/api/stores`)).data })
+  const stores = useQuery({ queryKey: ['stores'], queryFn: async () => (await api.get<StoreRow[]>(`/api/stores`)).data })
+  const [form, setForm] = useState({ name: '', externalId: '' })
+  const create = async (event: React.FormEvent) => {
+    event.preventDefault()
+    if (!form.name.trim()) {
+      alert('请填写店铺名称')
+      return
+    }
+    refresh(stores.refetch, api.post('/api/stores', { name: form.name.trim(), externalId: form.externalId.trim() || undefined }))
+    setForm({ name: '', externalId: '' })
+  }
+  const toggle = (row: StoreRow) => refresh(stores.refetch, api.patch(`/api/stores/${row.id}`, { status: row.status === 'disabled' ? 'active' : 'disabled' }))
+  const remove = (row: StoreRow) => {
+    if (window.confirm(`确定删除店铺 ${row.name}？`)) refresh(stores.refetch, api.delete(`/api/stores/${row.id}`))
+  }
   return (
     <div className="h-full overflow-y-auto bg-[#f4f7fb] p-6 custom-scrollbar">
       <PageHeader breadcrumbs={[{ label: '设置' }, { label: '店铺管理' }]} />
+      <section className="mb-4 rounded-xl bg-white p-5 shadow-[0_8px_32px_rgba(29,38,52,.06)]">
+        <h2 className="m-0 mb-4 text-[15px] font-extrabold text-[#0A1B39]">新增店铺</h2>
+        <form className="grid grid-cols-3 items-end gap-3" onSubmit={create}>
+          <label className="grid gap-1.5 text-[12px] text-[#86909C]">
+            店铺名称
+            <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required placeholder="请输入店铺名称" className="h-9 rounded-lg border border-[#dce3ee] bg-[#f9fafb] px-2.5 text-[13px] font-semibold text-[#0A1B39] outline-none focus:border-[#3388ff] focus:bg-white" />
+          </label>
+          <label className="grid gap-1.5 text-[12px] text-[#86909C]">
+            平台店铺 ID
+            <input value={form.externalId} onChange={(e) => setForm({ ...form, externalId: e.target.value })} placeholder="选填" className="h-9 rounded-lg border border-[#dce3ee] bg-[#f9fafb] px-2.5 text-[13px] font-semibold text-[#0A1B39] outline-none focus:border-[#3388ff] focus:bg-white" />
+          </label>
+          <button type="submit" className="h-9 cursor-pointer rounded-lg border-0 bg-[#3388ff] text-[13px] font-bold text-white hover:bg-[#1a6fe8]">
+            新增店铺
+          </button>
+        </form>
+      </section>
       <section className="overflow-hidden rounded-xl bg-white shadow-[0_8px_32px_rgba(29,38,52,.06)]">
         <div className="flex items-center justify-between border-b border-[#eef1f5] px-5 py-4">
           <h2 className="m-0 text-[15px] font-extrabold text-[#0A1B39]">店铺列表（{(stores.data ?? []).length}）</h2>
@@ -549,19 +605,34 @@ export function AdminStoresPage() {
           <thead>
             <tr className="border-b border-[#eef1f5] bg-[#f9fafb] text-left text-[13px] font-medium text-[#86909C]">
               <th className="px-5 py-3 font-medium">名称</th>
+              <th className="px-5 py-3 font-medium">平台</th>
+              <th className="px-5 py-3 font-medium">平台店铺 ID</th>
               <th className="px-5 py-3 font-medium">状态</th>
+              <th className="px-5 py-3 font-medium">操作</th>
             </tr>
           </thead>
           <tbody>
-            {(stores.data ?? []).map((row, index) => (
-              <tr key={index} className="border-b border-[#eef1f5] text-[13px] text-[#344054] hover:bg-[#f9fafb]">
+            {(stores.data ?? []).map((row) => (
+              <tr key={row.id} className="border-b border-[#eef1f5] text-[13px] text-[#344054] hover:bg-[#f9fafb]">
                 <td className="px-5 py-3">{row.name}</td>
-                <td className="px-5 py-3">{row.status ?? '-'}</td>
+                <td className="px-5 py-3">{row.platform?.name ?? '-'}</td>
+                <td className="px-5 py-3 font-mono">{row.externalId ?? '-'}</td>
+                <td className="px-5 py-3">{row.status === 'disabled' ? '停用' : row.status ?? '-'}</td>
+                <td className="px-5 py-3">
+                  <div className="flex gap-2">
+                    <button type="button" onClick={() => toggle(row)} className="cursor-pointer border-0 bg-transparent p-0 text-[13px] text-[#3388ff] hover:underline">
+                      启停
+                    </button>
+                    <button type="button" onClick={() => remove(row)} className="cursor-pointer border-0 bg-transparent p-0 text-[13px] text-[#f53f3f] hover:underline">
+                      删除
+                    </button>
+                  </div>
+                </td>
               </tr>
             ))}
             {(stores.data ?? []).length === 0 && (
               <tr>
-                <td colSpan={2} className="px-5 py-10 text-center text-[13px] text-[#86909C]">暂无数据</td>
+                <td colSpan={5} className="px-5 py-10 text-center text-[13px] text-[#86909C]">暂无数据</td>
               </tr>
             )}
           </tbody>

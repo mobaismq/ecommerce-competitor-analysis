@@ -135,12 +135,6 @@ function DateRangePicker({
 export function ReportsListPage() {
   const navigate = useNavigate()
 
-  // 数据流保持桌面端现状：GET /api/reports + react-query
-  const { data, isLoading } = useQuery<AnalysisRun[]>({
-    queryKey: ['analysis-runs'],
-    queryFn: async () => (await api.get<AnalysisRun[]>('/api/reports')).data,
-  })
-
   // 查询条件（对照旧版：输入态 + 查询后应用态）
   const [searchKeyword, setSearchKeyword] = useState('')
   const [startTime, setStartTime] = useState('')
@@ -152,30 +146,29 @@ export function ReportsListPage() {
   const [appliedStatus, setAppliedStatus] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
 
-  const rows = data || []
+  // 数据流：GET /api/reports 服务端查询 + 分页（兼容旧版 status=not_generated 等状态）
+  const { data, isLoading } = useQuery<{ rows: AnalysisRun[]; total: number }>({
+    queryKey: ['analysis-runs', appliedKeyword, appliedStartTime, appliedEndTime, appliedStatus, currentPage],
+    queryFn: async () => {
+      const params = new URLSearchParams()
+      if (appliedKeyword.trim()) params.set('keyword', appliedKeyword.trim())
+      if (appliedStatus) params.set('status', appliedStatus)
+      if (appliedStartTime) params.set('startTime', appliedStartTime)
+      if (appliedEndTime) params.set('endTime', appliedEndTime)
+      params.set('page', String(currentPage))
+      params.set('pageSize', String(PAGE_SIZE))
+      const res = await api.get<{ rows: AnalysisRun[]; total: number }>(`/api/reports?${params.toString()}`)
+      // 兼容：返回纯数组时的兜底
+      if (Array.isArray(res.data)) return { rows: res.data as unknown as AnalysisRun[], total: res.data.length }
+      return res.data
+    },
+  })
 
-  const filteredRows = useMemo(() => {
-    return rows.filter((row) => {
-      const kw = appliedKeyword.trim().toLowerCase()
-      const matchKeyword =
-        !kw ||
-        (row.keyword && row.keyword.toLowerCase().includes(kw)) ||
-        (row.reportNo && row.reportNo.toLowerCase().includes(kw)) ||
-        row.jobId.toLowerCase().includes(kw) ||
-        row.id.toLowerCase().includes(kw)
-      const matchStart = !appliedStartTime || row.updatedAt >= appliedStartTime
-      const matchEnd = !appliedEndTime || row.updatedAt <= appliedEndTime + ' 23:59:59'
-      const matchStatus =
-        !appliedStatus ||
-        row.status === appliedStatus ||
-        (appliedStatus === 'completed' && (row.status === 'completed' || row.status === 'success'))
-      return matchKeyword && matchStart && matchEnd && matchStatus
-    })
-  }, [rows, appliedKeyword, appliedStartTime, appliedEndTime, appliedStatus])
-
-  const totalPages = Math.ceil(filteredRows.length / PAGE_SIZE) || 1
+  const rows = data?.rows || []
+  const total = data?.total ?? rows.length
+  const totalPages = Math.ceil(total / PAGE_SIZE) || 1
   const safePage = Math.min(currentPage, totalPages)
-  const pageRows = filteredRows.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
+  const pageRows = rows
 
   useEffect(() => {
     setCurrentPage(1)
@@ -197,6 +190,7 @@ export function ReportsListPage() {
     setAppliedStartTime('')
     setAppliedEndTime('')
     setAppliedStatus('')
+    setCurrentPage(1)
   }
 
   const renderPageNumbers = () => {
@@ -351,9 +345,9 @@ export function ReportsListPage() {
           </div>
         )}
 
-        {filteredRows.length > 0 && (
+        {pageRows.length > 0 && (
           <div className="flex items-center justify-between border-t border-[#eef1f5] px-6 py-4">
-            <span className="text-[13px] text-[#86909C]">共 {filteredRows.length} 条</span>
+            <span className="text-[13px] text-[#86909C]">共 {total} 条</span>
             <div className="flex items-center gap-1.5">
               <button
                 type="button"

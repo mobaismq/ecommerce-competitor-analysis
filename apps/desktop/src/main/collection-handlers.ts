@@ -6,7 +6,7 @@ import type { PrismaClient } from '../generated/prisma'
 import { assertCollectionMode, type CollectionMode } from './collection-modes'
 import { runLocalCollection } from './collection-runner'
 import { logger } from './logger'
-import { resolveEmbeddedPython } from './python-runner'
+import { resolveEmbeddedPython, killPythonProcesses } from './python-runner'
 
 export interface CollectionStartInput {
   productName?: string
@@ -150,6 +150,8 @@ export function registerCollectionHandlers(prisma: PrismaClient) {
     running = false
     currentJobId = null
     try {
+      // 真正终止 Python 子进程，避免后台继续写入结果
+      killPythonProcesses(targetJobId)
       await prisma.localJob.updateMany({
         where: { jobId: targetJobId },
         data: {
