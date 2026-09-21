@@ -521,8 +521,17 @@ export function MarketReportPage() {
                   <Form.Item field="shippingCost" label="运费(¥)" noStyle>
                     <InputNumber placeholder="物流费 ¥" min={0} />
                   </Form.Item>
+                  <Form.Item field="packagingCost" label="包装成本(¥)" noStyle>
+                    <InputNumber placeholder="包装 ¥" min={0} />
+                  </Form.Item>
+                  <Form.Item field="laborCost" label="人工成本(¥)" noStyle>
+                    <InputNumber placeholder="人工 ¥" min={0} />
+                  </Form.Item>
                   <Form.Item field="platformFeeRate" label="平台扣点(%)" noStyle>
                     <InputNumber placeholder="如 5" min={0} max={100} />
+                  </Form.Item>
+                  <Form.Item field="adFeeRate" label="推广费率(%)" noStyle>
+                    <InputNumber placeholder="如 10" min={0} max={100} />
                   </Form.Item>
                   <Form.Item field="targetMargin" label="目标利润率(%)" noStyle>
                     <InputNumber placeholder="如 35" min={0} max={100} />

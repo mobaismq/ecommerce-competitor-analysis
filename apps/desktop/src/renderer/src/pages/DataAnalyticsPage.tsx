@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { AlertTriangle, Zap } from 'lucide-react'
 import { PageHeader } from '../components/PageHeader'
 
 // 数据看板：后端当前未提供 analytics 接口，旧版（DataAnalytics.tsx）与桌面端此前均硬编码示例数据。
@@ -148,7 +149,18 @@ export function DataAnalyticsPage() {
                   <td style={{ padding: '10px 12px', textAlign: 'right' }}>{p.clicks && p.impressions ? `${((p.clicks / p.impressions) * 100).toFixed(1)}%` : '-'}</td>
                   <td style={{ padding: '10px 12px', textAlign: 'right' }}>{p.conversions}</td>
                   <td style={{ padding: '10px 12px', textAlign: 'right' }}>{p.conversions && p.clicks ? `${((p.conversions / p.clicks) * 100).toFixed(1)}%` : '-'}</td>
-                  <td style={{ padding: '10px 12px', textAlign: 'right', color: '#86909c', fontSize: 12 }}>查看预警</td>
+                  <td style={{ padding: '10px 12px', textAlign: 'right' }}>
+                    <div className="flex items-center justify-end gap-2">
+                      <button type="button" className="flex cursor-pointer items-center gap-1 rounded-lg bg-[#fff7e6] px-3 py-1.5 text-[12px] font-bold text-[#fa8c16] hover:bg-[#ffe7ba] transition-colors">
+                        <AlertTriangle className="h-3.5 w-3.5" />
+                        查看预警
+                      </button>
+                      <button type="button" className="flex cursor-pointer items-center gap-1 rounded-lg bg-[#e6f7ff] px-3 py-1.5 text-[12px] font-bold text-[#1890ff] hover:bg-[#bae7ff] transition-colors">
+                        <Zap className="h-3.5 w-3.5" />
+                        去优化
+                      </button>
+                    </div>
+                  </td>
                 </tr>
               ))}
               {filtered.length === 0 && (

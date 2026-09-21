@@ -707,7 +707,7 @@ export function ProductMasterDataPage() {
               <tbody>
                 {loading && (
                   <tr>
-                    <td colSpan={11} className="py-12 text-center">
+                    <td colSpan={12} className="py-12 text-center">
                       <div className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-[#e6e9ef] border-t-[#409eff]" />
                     </td>
                   </tr>
@@ -739,7 +739,7 @@ export function ProductMasterDataPage() {
                   })}
                 {!loading && filteredProducts.length === 0 && (
                   <tr>
-                    <td colSpan={11} className="py-12 text-center text-[13px] text-[#86909C]">暂无数据</td>
+                    <td colSpan={12} className="py-12 text-center text-[13px] text-[#86909C]">暂无数据</td>
                   </tr>
                 )}
               </tbody>
@@ -1015,6 +1015,7 @@ function ProductRow({
             <td className="py-2 pr-2 text-[12px] font-medium text-[#86909C]">sku编码</td>
             <td className="py-2 pr-2 text-[12px] font-medium text-[#86909C]">规格</td>
             <td className="py-2 pr-2"></td>
+            <td className="py-2 pr-2"></td>
             <td className="py-2 pr-2 text-[12px] font-medium text-[#86909C]">成本价</td>
             <td className="py-2 pr-2 text-[12px] font-medium text-[#86909C]">标准售价</td>
             <td className="py-2 pr-2"></td>
@@ -1030,6 +1031,7 @@ function ProductRow({
               </td>
               <td className="py-3 pr-2 text-[13px] text-[#86909C]">{sku.skuCode}</td>
               <td className="py-3 pr-2 text-[13px] text-[#86909C]">{sku.specName}</td>
+              <td className="py-3 pr-2"></td>
               <td className="py-3 pr-2"></td>
               <td className="py-3 pr-2 text-[13px] text-[#86909C]">¥{sku.costPrice}</td>
               <td className="py-3 pr-2 text-[13px] text-[#86909C]">¥{sku.standardPrice}</td>

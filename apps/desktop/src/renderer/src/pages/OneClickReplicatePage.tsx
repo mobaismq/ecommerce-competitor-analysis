@@ -102,7 +102,7 @@ export function OneClickReplicatePage() {
     const reader = new FileReader()
     reader.onload = (e) => {
       if (e.target?.result) {
-        setReferenceImages((prev) => [e.target!.result as string, ...prev].slice(0, 20))
+        setReferenceImages((prev) => [e.target!.result as string, ...prev].slice(0, 4))
         Message.success('参考图上传成功')
       }
     }
@@ -140,7 +140,12 @@ export function OneClickReplicatePage() {
         jobId: `one-click-replicate-${currentProduct.id}`,
         // 图生图参考图：商品主图 + 上传参考图 + SKU 图（+ 导入链接）；后端去重并限 4 张
         image: currentProduct.productImage || referenceImages[0],
-        images: [...referenceImages, ...(refUrl ? [refUrl] : []), ...currentProduct.skuImages].filter(Boolean),
+        images: [
+          ...(currentProduct.productImage ? [currentProduct.productImage] : []),
+          ...referenceImages,
+          ...(refUrl ? [refUrl] : []),
+          ...currentProduct.skuImages,
+        ].filter(Boolean).slice(0, 4),
         ratio,
       })
       const urls: string[] = (data?.images || [])
@@ -274,7 +279,7 @@ export function OneClickReplicatePage() {
                     </button>
                   </div>
                 ))}
-                {referenceImages.length < 20 && (
+                {referenceImages.length < 4 && (
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
@@ -284,7 +289,7 @@ export function OneClickReplicatePage() {
                   </button>
                 )}
               </div>
-              <p className="m-0 text-[11px] text-[#98A2B3]">最多 20 张</p>
+              <p className="m-0 text-[11px] text-[#98A2B3]">最多 4 张</p>
             </div>
           ) : (
             <div>

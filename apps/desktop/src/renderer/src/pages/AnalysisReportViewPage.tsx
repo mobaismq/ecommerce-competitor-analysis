@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { ArrowLeft, Download, Loader2, RefreshCw } from 'lucide-react'
+import { ArrowLeft, Download, Loader2, RefreshCw, X } from 'lucide-react'
 import { Message } from '@arco-design/web-react'
 import { api } from '../api/client'
 import { PageHeader } from '../components/PageHeader'
@@ -89,6 +89,45 @@ export function AnalysisReportViewPage() {
   const keyword = searchParams.get('keyword') || ''
   const navigate = useNavigate()
   const [exporting, setExporting] = useState(false)
+
+  // 利润测算（对照旧版 AnalysisReportView calculateProfit/resetProfitModal，纯前端）
+  const [profitModal, setProfitModal] = useState(false)
+  const [sellingPrice, setSellingPrice] = useState('')
+  const [productCost, setProductCost] = useState('')
+  const [warehouseCost, setWarehouseCost] = useState('2')
+  const [afterSalesCost, setAfterSalesCost] = useState('5')
+  const [profitResult, setProfitResult] = useState<{
+    grossProfit: number
+    grossMargin: number
+    netProfit: number
+    netMargin: number
+  } | null>(null)
+
+  const calculateProfit = () => {
+    const price = parseFloat(sellingPrice)
+    const cost = parseFloat(productCost)
+    const warehouse = parseFloat(warehouseCost) || 0
+    const afterSales = parseFloat(afterSalesCost) || 0
+    if (isNaN(price) || isNaN(cost) || price <= 0) return
+    const taxRate = 0.05
+    const commissionRate = 0.08
+    const grossProfit = price - cost
+    const grossMargin = (grossProfit / price) * 100
+    const tax = price * taxRate
+    const commission = price * commissionRate
+    const netProfit = price - cost - warehouse - afterSales - tax - commission
+    const netMargin = (netProfit / price) * 100
+    setProfitResult({ grossProfit, grossMargin: Math.round(grossMargin * 100) / 100, netProfit, netMargin: Math.round(netMargin * 100) / 100 })
+  }
+
+  const openProfitModal = () => {
+    setSellingPrice('')
+    setProductCost('')
+    setWarehouseCost('2')
+    setAfterSalesCost('5')
+    setProfitResult(null)
+    setProfitModal(true)
+  }
 
   const { data: report, isLoading, refetch, isError } = useQuery<AnalysisReportDetail>({
     queryKey: ['report-detail', id],
@@ -181,6 +220,13 @@ export function AnalysisReportViewPage() {
           {report.reportNo || `报告 ${report.id.slice(0, 10).toUpperCase()}`}
         </h1>
         <div className="flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={openProfitModal}
+            className="flex h-9 cursor-pointer items-center rounded-lg border border-[#3388ff] bg-white px-3 text-[13px] font-semibold text-[#3388ff] hover:bg-[#f0f7ff]"
+          >
+            利润测算
+          </button>
           <button
             type="button"
             onClick={() => void refetch()}
@@ -355,6 +401,120 @@ export function AnalysisReportViewPage() {
             </div>
           </SectionCard>
         </>
+      )}
+
+      {/* 利润测算弹窗（对照旧版 AnalysisReportView） */}
+      {profitModal && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/40" onClick={() => setProfitModal(false)}>
+          <div
+            className="w-[min(480px,90vw)] rounded-2xl bg-white p-6 shadow-[0_24px_64px_rgba(29,38,52,.2)]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-6 flex items-center justify-between">
+              <h2 className="text-[18px] text-[#0A1B39]">利润测算</h2>
+              <button
+                onClick={() => setProfitModal(false)}
+                className="grid h-8 w-8 place-items-center rounded-full bg-[#f2f4f7] text-[#86909C] hover:bg-[#eceff4]"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="mb-1.5 block text-[12px] text-[#667085]">售价</label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    value={sellingPrice}
+                    onChange={(e) => setSellingPrice(e.target.value)}
+                    placeholder="请输入商品售价"
+                    inputMode="decimal"
+                    className="h-10 w-full rounded-lg border border-[#dce3ee] bg-[#f9fafb] px-3 pr-12 text-[13px] text-[#0A1B39] outline-none focus:border-[#3388ff] focus:bg-white"
+                  />
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[12px] text-[#86909C]">元</span>
+                </div>
+              </div>
+
+              <div>
+                <label className="mb-1.5 block text-[12px] text-[#667085]">商品成本</label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    value={productCost}
+                    onChange={(e) => setProductCost(e.target.value)}
+                    placeholder="请输入商品成本"
+                    inputMode="decimal"
+                    className="h-10 w-full rounded-lg border border-[#dce3ee] bg-[#f9fafb] px-3 pr-12 text-[13px] text-[#0A1B39] outline-none focus:border-[#3388ff] focus:bg-white"
+                  />
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[12px] text-[#86909C]">元</span>
+                </div>
+              </div>
+
+              <div>
+                <label className="mb-1.5 block text-[12px] text-[#667085]">仓配成本</label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    value={warehouseCost}
+                    onChange={(e) => setWarehouseCost(e.target.value)}
+                    inputMode="decimal"
+                    className="h-10 w-full rounded-lg border border-[#dce3ee] bg-[#f9fafb] px-3 pr-12 text-[13px] text-[#0A1B39] outline-none focus:border-[#3388ff] focus:bg-white"
+                  />
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[12px] text-[#86909C]">元</span>
+                </div>
+              </div>
+
+              <div>
+                <label className="mb-1.5 block text-[12px] text-[#667085]">售后成本</label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    value={afterSalesCost}
+                    onChange={(e) => setAfterSalesCost(e.target.value)}
+                    inputMode="decimal"
+                    className="h-10 w-full rounded-lg border border-[#dce3ee] bg-[#f9fafb] px-3 pr-12 text-[13px] text-[#0A1B39] outline-none focus:border-[#3388ff] focus:bg-white"
+                  />
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[12px] text-[#86909C]">元</span>
+                </div>
+              </div>
+
+              <button
+                onClick={calculateProfit}
+                className="h-11 w-full rounded-lg bg-[#3388ff] text-[14px] text-white shadow-[0_8px_24px_rgba(47,130,255,.25)] transition-all hover:bg-[#1a6fe8]"
+              >
+                利润测算
+              </button>
+
+              {profitResult && (
+                <div className="rounded-lg bg-[#f8fafc] p-4">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <p className="text-[12px] text-[#86909C]">毛利润</p>
+                      <p className="text-[18px] text-[#0A1B39]">¥{profitResult.grossProfit.toFixed(2)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[12px] text-[#86909C]">毛利率</p>
+                      <p className="text-[18px] text-[#2e7d32]">{profitResult.grossMargin.toFixed(2)}%</p>
+                    </div>
+                    <div>
+                      <p className="text-[12px] text-[#86909C]">纯利润</p>
+                      <p className={`text-[18px] ${profitResult.netProfit >= 0 ? 'text-[#0A1B39]' : 'text-[#e53935]'}`}>
+                        ¥{profitResult.netProfit.toFixed(2)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[12px] text-[#86909C]">纯利润率</p>
+                      <p className={`text-[18px] ${profitResult.netMargin >= 0 ? 'text-[#2e7d32]' : 'text-[#e53935]'}`}>
+                        {profitResult.netMargin.toFixed(2)}%
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
