@@ -484,6 +484,7 @@ model Product {
   productName  String
   brand        String?
   productImage String?
+  storeId      String?
   status       String   @default("enabled")
   skus         ProductSku[]
   createdAt    DateTime @default(now())
@@ -491,6 +492,7 @@ model Product {
 
   @@unique([tenantId, productCode])
   @@index([tenantId, status])
+  @@index([tenantId, storeId])
 }
 
 model ProductSku {

@@ -4,16 +4,49 @@ import { PrismaService } from '../prisma.service'
 import { CreateProductDto } from './dto/create-product.dto'
 import { UpdateProductDto } from './dto/update-product.dto'
 
+export interface ListProductsOptions {
+  keyword?: string
+  status?: string
+  storeId?: string
+  createTimeFrom?: string
+  createTimeTo?: string
+  /** 传 page+pageSize 时返回 { rows, total, page, pageSize }，否则返回全量数组（向后兼容） */
+  page?: number
+  pageSize?: number
+}
+
 @Injectable()
 export class ProductService {
   constructor(private readonly prisma: PrismaService) {}
 
-  list(tenantId: string, keyword?: string) {
-    return this.prisma.product.findMany({
-      where: { tenantId, ...(keyword ? { OR: [{ productName: { contains: keyword } }, { productCode: { contains: keyword } }] } : {}) },
-      orderBy: { createdAt: 'desc' },
-      include: { skus: true },
-    })
+  list(tenantId: string, opts: ListProductsOptions = {}) {
+    const where: Prisma.ProductWhereInput = { tenantId }
+    if (opts.keyword?.trim()) {
+      where.OR = [
+        { productName: { contains: opts.keyword.trim() } },
+        { productCode: { contains: opts.keyword.trim() } },
+      ]
+    }
+    if (opts.status) where.status = opts.status
+    if (opts.storeId) where.storeId = opts.storeId
+    const createdAtFilter: Prisma.DateTimeFilter = {}
+    if (opts.createTimeFrom) createdAtFilter.gte = new Date(opts.createTimeFrom)
+    if (opts.createTimeTo) createdAtFilter.lte = new Date(opts.createTimeTo)
+    if (Object.keys(createdAtFilter).length) where.createdAt = createdAtFilter
+
+    const include = { skus: true } as const
+    const orderBy = { createdAt: 'desc' } as const
+
+    if (opts.page != null && opts.pageSize != null) {
+      return this.prisma.$transaction(async (tx) => {
+        const [rows, total] = await Promise.all([
+          tx.product.findMany({ where, orderBy, include, skip: (opts.page! - 1) * opts.pageSize!, take: opts.pageSize }),
+          tx.product.count({ where }),
+        ])
+        return { rows, total, page: opts.page, pageSize: opts.pageSize }
+      })
+    }
+    return this.prisma.product.findMany({ where, orderBy, include })
   }
 
   async create(tenantId: string, dto: CreateProductDto) {
@@ -25,6 +58,7 @@ export class ProductService {
           productName: dto.productName,
           brand: dto.brand,
           productImage: dto.productImage,
+          storeId: dto.storeId ?? null,
           status: dto.status ?? 'enabled',
           skus: dto.skus?.length
             ? { create: dto.skus.map((s) => toSkuData(s)) }
@@ -45,6 +79,7 @@ export class ProductService {
       if (dto.productName !== undefined) data.productName = dto.productName
       if (dto.brand !== undefined) data.brand = dto.brand
       if (dto.productImage !== undefined) data.productImage = dto.productImage
+      if (dto.storeId !== undefined) data.storeId = dto.storeId
       if (dto.status !== undefined) data.status = dto.status
       if (dto.skus !== undefined) {
         data.skus = {

@@ -11,7 +11,8 @@ function makePrismaMock(overrides: Partial<Record<string, unknown>> = {}) {
         status: 'success',
       })),
     },
-    analysisPriceBand: { deleteMany: jest.fn(), createMany: jest.fn() },
+    analysisPriceBand: { deleteMany: jest.fn(), createMany: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
+    analysisBandProduct: { createMany: jest.fn() },
     analysisInsight: { deleteMany: jest.fn(), createMany: jest.fn() },
   }
   const prisma = {

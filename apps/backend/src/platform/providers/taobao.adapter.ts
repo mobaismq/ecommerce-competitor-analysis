@@ -23,6 +23,31 @@ function signTopParams(params: Record<string, string>, secret: string) {
   return createHash('md5').update(secret + joined + secret, 'utf8').digest('hex').toUpperCase()
 }
 
+/** 是否配置了可用的真实 TOP 凭证（非空且非占位符）。 */
+export function isRealTopConfig(appKey: string, appSecret: string, session: string): boolean {
+  const isPlaceholder = (v: string) => !v || /(your|changeme|replace|xxx)/i.test(v)
+  return !isPlaceholder(appKey) && !isPlaceholder(appSecret) && !isPlaceholder(session)
+}
+
+/** 把上架入参映射为 taobao.item.add 的业务参数（纯函数，可单测）。 */
+export function buildItemAddParams(input: PlatformListingInput): Record<string, string> {
+  const content = (input.contentJson ?? {}) as Record<string, unknown>
+  const params: Record<string, string> = {}
+  if (input.title) params.title = String(input.title)
+  const price = content.price
+  if (price !== undefined && price !== null && price !== '') params.price = String(price)
+  const cid = content.categoryId
+  if (cid !== undefined && cid !== null && cid !== '') params.cid = String(cid)
+  const skus = Array.isArray(content.skus) ? (content.skus as Array<Record<string, unknown>>) : []
+  const explicitNum = Number(content.num ?? 0)
+  const stockSum = skus.reduce((acc: number, s) => acc + Number(s.stock ?? 0), 0)
+  const num = explicitNum > 0 ? explicitNum : stockSum
+  if (num > 0) params.num = String(num)
+  const desc = content.detailContent || content.description || input.title || ''
+  if (desc) params.desc = String(desc)
+  return params
+}
+
 function mockCategories(): PlatformCategory[] {
   return [
     { externalId: '50008163', parentExternalId: '0', name: '女装', isParent: true, rawPayload: { kind: 'mock', cid: 50008163 } },
@@ -100,7 +125,12 @@ export class TaobaoAdapter implements PlatformAdapter {
 
   async submitListing(input: PlatformListingInput): Promise<PlatformListingResult> {
     if (this.mock) return { status: 'success', rawPayload: { kind: 'taobao-mock-listing', jobId: input.jobId } }
-    throw new PlatformAdapterError('淘宝 TOP 上架接口暂未接入，当前仅支持 Mock/手动发布', 'TAOBAO_LISTING_NOT_READY')
+    if (!isRealTopConfig(this.appKey, this.appSecret, this.session)) {
+      // 缺真实凭证：回落现有 mock 逻辑，不伪造真实上架成功
+      return { status: 'success', rawPayload: { kind: 'taobao-mock-listing', jobId: input.jobId, fallback: 'no-key' } }
+    }
+    const payload = await this.topRequest('taobao.item.add', buildItemAddParams(input))
+    return { status: 'success', rawPayload: payload?.item_add_response ?? payload }
   }
 
   private async topRequest(method: string, bizParams: Record<string, string> = {}): Promise<Record<string, any>> {

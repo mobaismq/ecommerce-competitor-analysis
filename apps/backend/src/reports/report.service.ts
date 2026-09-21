@@ -29,9 +29,11 @@ interface RichSku {
 
 interface LoadedProduct {
   id: string
+  externalProductId: string | null
   title: string | null
   price: number | null
   shopName: string | null
+  imageUrl: string | null
   rawJson: Prisma.JsonValue | null
   skus: RichSku[]
   reviews: string[]
@@ -39,9 +41,12 @@ interface LoadedProduct {
 }
 
 interface RepresentativeProduct {
+  productSnapshotId: string | null
+  externalProductId: string | null
   title: string | null
   shopName: string | null
   price: number | null
+  imageUrl: string | null
   skuCount: number
   skus: RichSku[]
 }
@@ -199,6 +204,24 @@ export class ReportService {
           })),
         })
       }
+      // 持久化每带代表商品到 AnalysisBandProduct（按 bandName 关联新写入的 AnalysisPriceBand 行）
+      const savedBands = await tx.analysisPriceBand.findMany({ where: { analysisRunId: saved.id } })
+      if (savedBands.length > 0) {
+        const richByBand = new Map(richPriceBands.map((rb) => [rb.bandName, rb]))
+        const bandProducts = savedBands.flatMap((band) => {
+          const rich = richByBand.get(band.bandName)
+          if (!rich || !rich.representativeProducts.length) return []
+          return rich.representativeProducts.map((p) => ({
+            priceBandId: band.id,
+            productSnapshotId: p.productSnapshotId,
+            externalProductId: p.externalProductId,
+            title: p.title,
+            price: p.price,
+            imageUrl: p.imageUrl,
+          }))
+        })
+        if (bandProducts.length) await tx.analysisBandProduct.createMany({ data: bandProducts })
+      }
       await tx.analysisInsight.deleteMany({ where: { analysisRunId: saved.id } })
       if (insights.length > 0) {
         await tx.analysisInsight.createMany({
@@ -272,9 +295,11 @@ export class ReportService {
 
     return rows.map((r) => ({
       id: r.id,
+      externalProductId: r.externalProductId,
       title: r.title,
       price: Number(r.price),
       shopName: r.shopName,
+      imageUrl: typeof r.rawJson === 'object' && r.rawJson && 'imageUrl' in r.rawJson ? String((r.rawJson as Prisma.JsonObject).imageUrl ?? '') || null : null,
       rawJson: r.rawJson,
       skus: skuByP.get(r.id) ?? [],
       reviews: revByP.get(r.id) ?? [],
@@ -292,9 +317,12 @@ export class ReportService {
         .sort((a, b) => b.skus.length - a.skus.length || (a.price ?? 0) - (b.price ?? 0))
         .slice(0, 3)
         .map((p) => ({
+          productSnapshotId: p.id,
+          externalProductId: p.externalProductId,
           title: p.title,
           shopName: p.shopName,
           price: p.price,
+          imageUrl: p.imageUrl,
           skuCount: p.skus.length,
           skus: p.skus,
         }))

@@ -41,6 +41,10 @@ export class UpdateProductDto {
 
   @IsOptional()
   @IsString()
+  storeId?: string
+
+  @IsOptional()
+  @IsString()
   status?: string
 
   @IsOptional()

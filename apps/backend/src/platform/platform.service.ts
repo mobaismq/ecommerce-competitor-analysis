@@ -3,6 +3,8 @@ import { BadRequestException, Injectable } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { PrismaService } from '../prisma.service'
 import { PlatformRegistry } from './platform-registry'
+import { resolveAdapterCode } from './adapter-resolve'
+import { assertRequiredFields } from './platform-required-fields'
 import type { PublishListingDto } from './dto/publish-listing.dto'
 
 export interface QueryProductsInput {
@@ -30,13 +32,7 @@ export class PlatformAdapterService {
   }
 
   getAdapter(code: string) {
-    if (this.registry.listCodes().includes(code)) {
-      return this.registry.create(code)
-    }
-    if (['douyin', 'jd', 'pdd', 'tmall', 'xhs'].includes(code.toLowerCase())) {
-      return this.registry.create('mock')
-    }
-    return this.registry.create(code)
+    return this.registry.create(resolveAdapterCode(code, this.registry.listCodes()))
   }
 
   async getCategories(code: string, parentExternalId?: string) {
@@ -123,6 +119,7 @@ export class PlatformAdapterService {
   }
 
   async publishListing(tenantId: string, platformCode: string, dto: PublishListingDto) {
+    assertRequiredFields(platformCode, dto)
     const adapter = this.getAdapter(platformCode)
     const jobId = `manual-listing-${randomUUID().slice(0, 8)}`
 

@@ -65,6 +65,7 @@ interface Product {
   productName: string
   brand: string | null
   productImage?: string | null
+  storeId?: string | null
   status: 'enabled' | 'disabled'
   skus: Sku[]
   createdAt: string
@@ -92,6 +93,7 @@ export function ProductMasterDataPage() {
   const [searchCode, setSearchCode] = useState('')
   const [searchName, setSearchName] = useState('')
   const [searchBrand, setSearchBrand] = useState('')
+  const [searchStore, setSearchStore] = useState('')
   const [searchUpdateTimeStart, setSearchUpdateTimeStart] = useState('')
   const [searchUpdateTimeEnd, setSearchUpdateTimeEnd] = useState('')
   const [searchCreateTimeStart, setSearchCreateTimeStart] = useState('')
@@ -99,6 +101,7 @@ export function ProductMasterDataPage() {
   const [filterCode, setFilterCode] = useState('')
   const [filterName, setFilterName] = useState('')
   const [filterBrand, setFilterBrand] = useState('')
+  const [filterStore, setFilterStore] = useState('')
   const [filterUpdateTimeStart, setFilterUpdateTimeStart] = useState('')
   const [filterUpdateTimeEnd, setFilterUpdateTimeEnd] = useState('')
   const [filterCreateTimeStart, setFilterCreateTimeStart] = useState('')
@@ -172,18 +175,20 @@ export function ProductMasterDataPage() {
       if (filterCode && !p.productCode.toLowerCase().includes(filterCode.toLowerCase())) return false
       if (filterName && !p.productName.toLowerCase().includes(filterName.toLowerCase())) return false
       if (filterBrand && !(p.brand || '').toLowerCase().includes(filterBrand.toLowerCase())) return false
+      if (filterStore && !(p.storeId || '').toLowerCase().includes(filterStore.toLowerCase())) return false
       if (filterUpdateTimeStart && (p.updateTime || '') < filterUpdateTimeStart) return false
       if (filterUpdateTimeEnd && (p.updateTime || '') > filterUpdateTimeEnd + ' 23:59:59') return false
       if (filterCreateTimeStart && (p.createTime || '') < filterCreateTimeStart) return false
       if (filterCreateTimeEnd && (p.createTime || '') > filterCreateTimeEnd + ' 23:59:59') return false
       return true
     })
-  }, [displayProducts, filterCode, filterName, filterBrand, filterUpdateTimeStart, filterUpdateTimeEnd, filterCreateTimeStart, filterCreateTimeEnd])
+  }, [displayProducts, filterCode, filterName, filterBrand, filterStore, filterUpdateTimeStart, filterUpdateTimeEnd, filterCreateTimeStart, filterCreateTimeEnd])
 
   const handleSearch = () => {
     setFilterCode(searchCode)
     setFilterName(searchName)
     setFilterBrand(searchBrand)
+    setFilterStore(searchStore)
     setFilterUpdateTimeStart(searchUpdateTimeStart)
     setFilterUpdateTimeEnd(searchUpdateTimeEnd)
     setFilterCreateTimeStart(searchCreateTimeStart)
@@ -194,6 +199,7 @@ export function ProductMasterDataPage() {
     setSearchCode('')
     setSearchName('')
     setSearchBrand('')
+    setSearchStore('')
     setSearchUpdateTimeStart('')
     setSearchUpdateTimeEnd('')
     setSearchCreateTimeStart('')
@@ -201,6 +207,7 @@ export function ProductMasterDataPage() {
     setFilterCode('')
     setFilterName('')
     setFilterBrand('')
+    setFilterStore('')
     setFilterUpdateTimeStart('')
     setFilterUpdateTimeEnd('')
     setFilterCreateTimeStart('')
@@ -414,6 +421,28 @@ export function ProductMasterDataPage() {
                   <button
                     type="button"
                     onClick={() => setSearchBrand('')}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 cursor-pointer border-0 bg-transparent p-0 text-[#c0c4cc] hover:text-[#86909C]"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="shrink-0 text-[12px] text-[#86909C]">店铺</label>
+              <div className="relative flex-1">
+                <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#c0c4cc]" />
+                <input
+                  type="text"
+                  placeholder="请输入"
+                  value={searchStore}
+                  onChange={(e) => setSearchStore(e.target.value)}
+                  className="h-8 w-full rounded-lg border border-[#e6e9ef] bg-white pl-8 pr-7 text-[13px] outline-none focus:border-[#409eff]"
+                />
+                {searchStore && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchStore('')}
                     className="absolute right-2 top-1/2 -translate-y-1/2 cursor-pointer border-0 bg-transparent p-0 text-[#c0c4cc] hover:text-[#86909C]"
                   >
                     <X className="h-3.5 w-3.5" />
@@ -666,6 +695,7 @@ export function ProductMasterDataPage() {
                   <th className="py-3 pr-2 text-[13px] font-medium text-[#86909C]">商品编码</th>
                   <th className="py-3 pr-2 text-[13px] font-medium text-[#86909C]">商品名称</th>
                   <th className="py-3 pr-2 text-[13px] font-medium text-[#86909C]">品牌</th>
+                  <th className="py-3 pr-2 text-[13px] font-medium text-[#86909C]">店铺</th>
                   <th className="py-3 pr-2 text-[13px] font-medium text-[#86909C]">成本价</th>
                   <th className="py-3 pr-2 text-[13px] font-medium text-[#86909C]">标准售价</th>
                   <th className="py-3 pr-2 text-[13px] font-medium text-[#86909C]">状态</th>
@@ -950,6 +980,7 @@ function ProductRow({
         <td className="py-3 pr-2 text-[14px] text-[#0A1B39]">{product.productCode}</td>
         <td className="py-3 pr-2 text-[14px] text-[#0A1B39]">{product.productName}</td>
         <td className="py-3 pr-2 text-[14px] text-[#0A1B39]">{product.brand}</td>
+        <td className="py-3 pr-2 text-[14px] text-[#86909C]">{product.storeId || '—'}</td>
         <td className="py-3 pr-2 text-[14px] text-[#0A1B39]">{minPrice === maxPrice ? `¥${minPrice}` : `¥${minPrice}-¥${maxPrice}`}</td>
         <td className="py-3 pr-2 text-[14px] text-[#0A1B39]">
           {minStandardPrice === maxStandardPrice ? `¥${minStandardPrice}` : `¥${minStandardPrice}-¥${maxStandardPrice}`}

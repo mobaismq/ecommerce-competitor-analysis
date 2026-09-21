@@ -68,6 +68,20 @@ const PLATFORM_TABS: Record<string, string[]> = {
 
 const PLATFORM_LIST = ['淘宝', '天猫', '京东', '拼多多', '抖店', '小红书']
 
+// 平台中文名 -> 后端 platform code（提交 /api/platform-adapters/:code/publish）
+const PLATFORM_CODE: Record<string, string> = {
+  '淘宝': 'taobao',
+  '天猫': 'tmall',
+  '京东': 'jd',
+  '拼多多': 'pdd',
+  '抖店': 'douyin',
+  '小红书': 'xhs',
+}
+
+// Cascader 选中路径（数组）规整为字符串
+const joinPath = (v: unknown): string | undefined =>
+  Array.isArray(v) && v.length > 0 ? (v as string[]).join('/') : (v as string | undefined)
+
 // 级联电商类目树
 interface CategoryNode {
   value: string
@@ -517,16 +531,17 @@ export function ManualListingPage() {
         storeId: values.storeId,
         title: values.title,
         subTitle: values.subTitle,
-        categoryPath: values.categoryPath,
+        categoryPath: joinPath(values.categoryPath),
         brand: values.brand,
-        origin: values.shippingOrigin,
+        origin: joinPath(values.shippingOrigin),
         freightTemplate: values.freightTemplate,
         skus,
-        mainImages,
+        mainImages: mainImages.map((img) => img.url),
         detailContent: values.detailContent,
       }
+      const platformCode = PLATFORM_CODE[currentPlatform] ?? 'taobao'
 
-      const res = await api.post('/api/platform-adapters/publish', payload)
+      const res = await api.post(`/api/platform-adapters/${platformCode}/publish`, payload)
       Message.success(`商品已成功发布至「${currentPlatform}」！`)
       Modal.success({
         title: '发布成功',

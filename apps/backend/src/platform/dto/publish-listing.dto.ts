@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsOptional, IsString } from 'class-validator'
+import { IsArray, IsNotEmpty, IsOptional, IsString } from 'class-validator'
 
 export class PublishListingDto {
   @IsString()
@@ -21,4 +21,33 @@ export class PublishListingDto {
 
   @IsOptional()
   contentJson?: Record<string, unknown>
+
+  @IsOptional()
+  @IsString()
+  subTitle?: string
+
+  @IsOptional()
+  @IsString()
+  categoryPath?: string
+
+  @IsOptional()
+  @IsString()
+  brand?: string
+
+  @IsOptional()
+  @IsString()
+  origin?: string
+
+  @IsOptional()
+  @IsString()
+  freightTemplate?: string
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  mainImages?: string[]
+
+  @IsOptional()
+  @IsString()
+  detailContent?: string
 }

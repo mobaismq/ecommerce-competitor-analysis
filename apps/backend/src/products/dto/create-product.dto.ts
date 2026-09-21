@@ -39,6 +39,10 @@ export class CreateProductDto {
 
   @IsOptional()
   @IsString()
+  storeId?: string
+
+  @IsOptional()
+  @IsString()
   status?: string
 
   @IsOptional()

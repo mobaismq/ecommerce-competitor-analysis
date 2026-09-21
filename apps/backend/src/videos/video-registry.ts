@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common'
 import { MockVideoProvider } from './mock-video.provider'
+import { notConfiguredVideoError } from './not-configured-video.provider'
 import type { VideoProvider } from './video.types'
 
 @Injectable()
@@ -17,7 +18,7 @@ export class VideoProviderRegistry {
 
   create(type: string) {
     const factory = this.factories.get(type)
-    if (!factory) throw new Error(`unknown video provider: ${type}`)
+    if (!factory) throw notConfiguredVideoError(type)
     return factory()
   }
 

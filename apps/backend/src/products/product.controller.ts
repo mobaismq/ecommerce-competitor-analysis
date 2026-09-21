@@ -2,7 +2,19 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuard
 import { JwtAuthGuard } from '../auth/jwt-auth.guard'
 import { CreateProductDto } from './dto/create-product.dto'
 import { UpdateProductDto } from './dto/update-product.dto'
-import { ProductService } from './product.service'
+import { ProductService, type ListProductsOptions } from './product.service'
+
+function listOptions(q: Record<string, string | undefined>): ListProductsOptions {
+  return {
+    keyword: q.keyword,
+    status: q.status,
+    storeId: q.storeId,
+    createTimeFrom: q.createTimeFrom,
+    createTimeTo: q.createTimeTo,
+    page: q.page != null ? Number(q.page) || undefined : undefined,
+    pageSize: q.pageSize != null ? Number(q.pageSize) || undefined : undefined,
+  }
+}
 
 @Controller('products')
 @UseGuards(JwtAuthGuard)
@@ -10,13 +22,13 @@ export class ProductController {
   constructor(private readonly productService: ProductService) {}
 
   @Get()
-  listRoot(@Req() request: { user: { tenantId: string } }, @Query('keyword') keyword?: string) {
-    return this.productService.list(request.user.tenantId, keyword)
+  listRoot(@Req() request: { user: { tenantId: string } }, @Query() q: Record<string, string | undefined>) {
+    return this.productService.list(request.user.tenantId, listOptions(q))
   }
 
   @Get('master')
-  list(@Req() request: { user: { tenantId: string } }, @Query('keyword') keyword?: string) {
-    return this.productService.list(request.user.tenantId, keyword)
+  list(@Req() request: { user: { tenantId: string } }, @Query() q: Record<string, string | undefined>) {
+    return this.productService.list(request.user.tenantId, listOptions(q))
   }
 
   @Post('master')
