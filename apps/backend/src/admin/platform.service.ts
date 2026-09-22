@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
+import { Prisma } from '@prisma/client'
 import { PrismaService } from '../prisma.service'
 import { CreatePlatformDto } from './dto/create-platform.dto'
 import { UpdatePlatformDto } from './dto/update-platform.dto'
@@ -7,8 +8,22 @@ import { UpdatePlatformDto } from './dto/update-platform.dto'
 export class PlatformService {
   constructor(private readonly prisma: PrismaService) {}
 
-  list() {
-    return this.prisma.platform.findMany({ where: { deletedAt: null }, orderBy: { code: 'asc' } })
+  async list(options: { keyword?: string; page?: number; pageSize?: number } = {}) {
+    const where: Prisma.PlatformWhereInput = { deletedAt: null }
+    if (options.keyword) {
+      where.OR = [{ code: { contains: options.keyword } }, { name: { contains: options.keyword } }]
+    }
+    const base: Prisma.PlatformFindManyArgs = { where, orderBy: { code: 'asc' } }
+    if (options.page !== undefined && options.pageSize !== undefined) {
+      const page = Math.max(1, options.page)
+      const pageSize = Math.max(1, options.pageSize)
+      const [rows, total] = await Promise.all([
+        this.prisma.platform.findMany({ ...base, skip: (page - 1) * pageSize, take: pageSize }),
+        this.prisma.platform.count({ where }),
+      ])
+      return { rows, total, page, pageSize }
+    }
+    return this.prisma.platform.findMany(base)
   }
 
   create(dto: CreatePlatformDto) {

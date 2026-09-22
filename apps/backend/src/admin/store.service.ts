@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
+import { Prisma } from '@prisma/client'
 import { PrismaService } from '../prisma.service'
 import { CreateStoreDto } from './dto/create-store.dto'
 import { UpdateStoreDto } from './dto/update-store.dto'
@@ -7,14 +8,31 @@ import { UpdateStoreDto } from './dto/update-store.dto'
 export class StoreService {
   constructor(private readonly prisma: PrismaService) {}
 
-  list(tenantId: string) {
-    return this.prisma.store
-      .findMany({
-        where: { tenantId, deletedAt: null },
-        include: { platform: true },
-        orderBy: { createdAt: 'asc' },
-      })
-      .then((rows) => rows.map((row) => ({ ...row, authStatus: this.deriveAuthStatus(row.authExpiresAt) })))
+  async list(
+    tenantId: string,
+    options: { keyword?: string; platformId?: string; status?: string; authStatus?: string; page?: number; pageSize?: number } = {},
+  ) {
+    const where: Prisma.StoreWhereInput = { tenantId, deletedAt: null }
+    if (options.keyword) {
+      where.OR = [{ name: { contains: options.keyword } }, { externalId: { contains: options.keyword } }]
+    }
+    if (options.platformId) where.platformId = options.platformId
+    if (options.status) where.status = options.status
+
+    const base: Prisma.StoreFindManyArgs = { where, include: { platform: true }, orderBy: { createdAt: 'asc' } }
+    const derive = <T extends { authExpiresAt: Date | null }>(rows: T[]) =>
+      rows.map((row) => ({ ...row, authStatus: this.deriveAuthStatus(row.authExpiresAt) }))
+
+    if (options.page !== undefined && options.pageSize !== undefined) {
+      const page = Math.max(1, options.page)
+      const pageSize = Math.max(1, options.pageSize)
+      const [rows, total] = await Promise.all([
+        this.prisma.store.findMany({ ...base, skip: (page - 1) * pageSize, take: pageSize }),
+        this.prisma.store.count({ where }),
+      ])
+      return { rows: derive(rows), total, page, pageSize }
+    }
+    return derive(await this.prisma.store.findMany(base))
   }
 
   /** 派生店铺授权状态（对照旧版 authStatus：0已过期/1有效 → 'valid'/'expired'/'none'）。 */

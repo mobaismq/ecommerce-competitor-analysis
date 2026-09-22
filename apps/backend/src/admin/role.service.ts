@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
+import { Prisma } from '@prisma/client'
 import { PrismaService } from '../prisma.service'
 import { CreateRoleDto } from './dto/create-role.dto'
 import { UpdateRoleDto } from './dto/update-role.dto'
@@ -7,21 +8,41 @@ import { UpdateRoleDto } from './dto/update-role.dto'
 export class RoleService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async list(tenantId: string) {
-    const roles = await this.prisma.role.findMany({
-      where: { tenantId, deletedAt: null },
-      orderBy: { createdAt: 'asc' },
-    })
-    const roleIds = roles.map((role) => role.id)
+  async list(
+    tenantId: string,
+    options: { keyword?: string; status?: string; page?: number; pageSize?: number } = {},
+  ) {
+    const where: Prisma.RoleWhereInput = { tenantId, deletedAt: null }
+    if (options.keyword) {
+      where.OR = [{ code: { contains: options.keyword } }, { name: { contains: options.keyword } }]
+    }
+    if (options.status) where.status = options.status
+    const base: Prisma.RoleFindManyArgs = { where, orderBy: { createdAt: 'asc' } }
+
+    let roles
+    if (options.page !== undefined && options.pageSize !== undefined) {
+      const page = Math.max(1, options.page)
+      const pageSize = Math.max(1, options.pageSize)
+      const [rows, total] = await Promise.all([
+        this.prisma.role.findMany({ ...base, skip: (page - 1) * pageSize, take: pageSize }),
+        this.prisma.role.count({ where }),
+      ])
+      roles = { rows, total, page, pageSize }
+    } else {
+      roles = await this.prisma.role.findMany(base)
+    }
+    const list = Array.isArray(roles) ? roles : roles.rows
+    const roleIds = list.map((role) => role.id)
     const [permissions, stores] = await Promise.all([
       this.prisma.rolePermission.findMany({ where: { roleId: { in: roleIds } } }),
       this.prisma.roleStore.findMany({ where: { roleId: { in: roleIds } } }),
     ])
-    return roles.map((role) => ({
+    const enriched = list.map((role) => ({
       ...role,
       permissionIds: permissions.filter((item) => item.roleId === role.id).map((item) => item.permissionId),
       storeIds: stores.filter((item) => item.roleId === role.id).map((item) => item.storeId),
     }))
+    return Array.isArray(roles) ? enriched : { ...roles, rows: enriched }
   }
 
   async create(tenantId: string, dto: CreateRoleDto) {

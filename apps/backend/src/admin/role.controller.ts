@@ -14,8 +14,19 @@ export class RoleController {
 
   @Get()
   @RequirePermission('role:manage')
-  list(@Req() request: { user: { tenantId: string } }) {
-    return this.roleService.list(request.user.tenantId)
+  list(
+    @Req() request: { user: { tenantId: string } },
+    @Query('keyword') keyword?: string,
+    @Query('status') status?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.roleService.list(request.user.tenantId, {
+      keyword,
+      status,
+      ...(page !== undefined ? { page: Number(page) || 1 } : {}),
+      ...(pageSize !== undefined ? { pageSize: Number(pageSize) || 20 } : {}),
+    })
   }
 
   @Get('check-duplicate')

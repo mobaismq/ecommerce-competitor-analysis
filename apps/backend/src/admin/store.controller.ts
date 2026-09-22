@@ -14,8 +14,23 @@ export class StoreController {
 
   @Get()
   @RequirePermission('store:manage')
-  list(@Req() request: { user: { tenantId: string } }) {
-    return this.storeService.list(request.user.tenantId)
+  list(
+    @Req() request: { user: { tenantId: string } },
+    @Query('keyword') keyword?: string,
+    @Query('platformId') platformId?: string,
+    @Query('status') status?: string,
+    @Query('authStatus') authStatus?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.storeService.list(request.user.tenantId, {
+      keyword,
+      platformId,
+      status,
+      authStatus,
+      ...(page !== undefined ? { page: Number(page) || 1 } : {}),
+      ...(pageSize !== undefined ? { pageSize: Number(pageSize) || 20 } : {}),
+    })
   }
 
   @Get('check-duplicate')

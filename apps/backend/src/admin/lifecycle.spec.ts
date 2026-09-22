@@ -25,6 +25,7 @@ describe('admin lifecycle (离线 mock, 不触真实服务)', () => {
         findMany: jest.fn(),
         create: jest.fn(),
         update: jest.fn(),
+        count: jest.fn(),
       },
       rolePermission: { findMany: jest.fn(), createMany: jest.fn(), deleteMany: jest.fn() },
       roleStore: { findMany: jest.fn(), createMany: jest.fn(), deleteMany: jest.fn() },
@@ -33,6 +34,7 @@ describe('admin lifecycle (离线 mock, 不触真实服务)', () => {
         findMany: jest.fn(),
         create: jest.fn(),
         update: jest.fn(),
+        count: jest.fn(),
       },
       platform: {
         findUnique: jest.fn(),
@@ -40,6 +42,7 @@ describe('admin lifecycle (离线 mock, 不触真实服务)', () => {
         findMany: jest.fn(),
         create: jest.fn(),
         update: jest.fn(),
+        count: jest.fn(),
       },
       department: {
         findFirst: jest.fn(),
@@ -78,6 +81,31 @@ describe('admin lifecycle (离线 mock, 不触真实服务)', () => {
       expect(prisma.user.update).toHaveBeenCalledWith(
         expect.objectContaining({ data: expect.objectContaining({ deletedAt: expect.any(Date), isActive: false }) }),
       )
+    })
+
+    it('list 不传分页返回裸数组（向后兼容）', async () => {
+      const service = new UserService(prisma as unknown as PrismaService)
+      prisma.user.findMany.mockResolvedValue([{ id: 'u1' }])
+      const rows = await service.list({ tenantId: 'tenant-1', userId: 'u1' })
+      expect(Array.isArray(rows)).toBe(true)
+      expect(prisma.user.count).not.toHaveBeenCalled()
+      expect(prisma.user.findMany.mock.calls[0][0].where).toEqual({
+        deletedAt: null,
+        tenantId: 'tenant-1',
+      })
+    })
+
+    it('list 传分页返回 {rows,total,page,pageSize} 信封并按 keyword 过滤', async () => {
+      const service = new UserService(prisma as unknown as PrismaService)
+      prisma.user.findMany.mockResolvedValue([{ id: 'u1' }])
+      prisma.user.count.mockResolvedValue(42)
+      const res = await service.list({ tenantId: 'tenant-1', userId: 'u1' }, { keyword: 'bob', page: 2, pageSize: 10 })
+      expect(res).toMatchObject({ rows: [{ id: 'u1' }], total: 42, page: 2, pageSize: 10 })
+      const call = prisma.user.findMany.mock.calls[0][0]
+      expect(call.skip).toBe(10)
+      expect(call.take).toBe(10)
+      expect(call.where.OR).toContainEqual({ username: { contains: 'bob' } })
+      expect(prisma.user.count).toHaveBeenCalled()
     })
   })
 
@@ -138,7 +166,8 @@ describe('admin lifecycle (离线 mock, 不触真实服务)', () => {
         { id: 's3', authExpiresAt: null, deletedAt: null },
       ])
       const rows = await service.list('tenant-1')
-      const statuses = new Map(rows.map((r) => [r.id, r.authStatus]))
+      const list = Array.isArray(rows) ? rows : rows.rows
+      const statuses = new Map(list.map((r) => [r.id, r.authStatus]))
       expect(statuses.get('s1')).toBe('valid')
       expect(statuses.get('s2')).toBe('expired')
       expect(statuses.get('s3')).toBe('none')
@@ -187,6 +216,15 @@ describe('admin lifecycle (离线 mock, 不触真实服务)', () => {
       prisma.platform.findMany.mockResolvedValue([{ id: 'pl1' }])
       await service.list()
       expect(prisma.platform.findMany).toHaveBeenCalledWith({ where: { deletedAt: null }, orderBy: { code: 'asc' } })
+    })
+
+    it('list 传分页返回 {rows,total} 信封并携带 keyword 过滤', async () => {
+      const service = new PlatformService(prisma as unknown as PrismaService)
+      prisma.platform.findMany.mockResolvedValue([{ id: 'pl1' }])
+      prisma.platform.count.mockResolvedValue(1)
+      const res = await service.list({ keyword: 'taobao', page: 1, pageSize: 20 })
+      expect(res).toMatchObject({ rows: [{ id: 'pl1' }], total: 1, page: 1, pageSize: 20 })
+      expect(prisma.platform.count).toHaveBeenCalled()
     })
   })
 })

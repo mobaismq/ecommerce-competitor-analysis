@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common'
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common'
 import { DataScopeGuard } from '../auth/data-scope.guard'
 import { JwtAuthGuard } from '../auth/jwt-auth.guard'
 import { RequirePermission } from '../auth/permission.decorator'
@@ -14,8 +14,17 @@ export class DepartmentController {
 
   @Get()
   @RequirePermission('system:manage')
-  list(@Req() request: { user: { tenantId: string } }) {
-    return this.departmentService.list(request.user.tenantId)
+  list(
+    @Req() request: { user: { tenantId: string } },
+    @Query('keyword') keyword?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.departmentService.list(request.user.tenantId, {
+      keyword,
+      ...(page !== undefined ? { page: Number(page) || 1 } : {}),
+      ...(pageSize !== undefined ? { pageSize: Number(pageSize) || 20 } : {}),
+    })
   }
 
   @Post()

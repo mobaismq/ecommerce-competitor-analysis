@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
+import { Prisma } from '@prisma/client'
 import { hashPassword } from '../auth/password'
 import { PrismaService } from '../prisma.service'
 import { CreateUserDto } from './dto/create-user.dto'
@@ -8,14 +9,27 @@ import { UpdateUserDto } from './dto/update-user.dto'
 export class UserService {
   constructor(private readonly prisma: PrismaService) {}
 
-  list(scope: { tenantId: string; userId: string; dataScope?: string; departmentId?: string | null }) {
-    return this.prisma.user.findMany({
-      where: {
-        deletedAt: null,
-        tenantId: scope.tenantId,
-        ...(scope.dataScope === 'self' ? { id: scope.userId } : {}),
-        ...(scope.dataScope === 'department' && scope.departmentId ? { departmentId: scope.departmentId } : {}),
-      },
+  async list(
+    scope: { tenantId: string; userId: string; dataScope?: string; departmentId?: string | null },
+    options: { keyword?: string; isActive?: boolean; page?: number; pageSize?: number } = {},
+  ) {
+    const where: Prisma.UserWhereInput = {
+      deletedAt: null,
+      tenantId: scope.tenantId,
+      ...(scope.dataScope === 'self' ? { id: scope.userId } : {}),
+      ...(scope.dataScope === 'department' && scope.departmentId ? { departmentId: scope.departmentId } : {}),
+      ...(options.isActive !== undefined ? { isActive: options.isActive } : {}),
+    }
+    if (options.keyword) {
+      where.OR = [
+        { username: { contains: options.keyword } },
+        { displayName: { contains: options.keyword } },
+        { phone: { contains: options.keyword } },
+        { email: { contains: options.keyword } },
+      ]
+    }
+    const base: Prisma.UserFindManyArgs = {
+      where,
       select: {
         id: true,
         username: true,
@@ -28,7 +42,18 @@ export class UserService {
         updatedAt: true,
       },
       orderBy: { createdAt: 'desc' },
-    })
+    }
+    // 提供分页参数时返回 {rows,total} 信封；否则返回裸数组（向后兼容）
+    if (options.page !== undefined && options.pageSize !== undefined) {
+      const page = Math.max(1, options.page)
+      const pageSize = Math.max(1, options.pageSize)
+      const [rows, total] = await Promise.all([
+        this.prisma.user.findMany({ ...base, skip: (page - 1) * pageSize, take: pageSize }),
+        this.prisma.user.count({ where }),
+      ])
+      return { rows, total, page, pageSize }
+    }
+    return this.prisma.user.findMany(base)
   }
 
   async create(tenantId: string, dto: CreateUserDto) {

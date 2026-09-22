@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from '@nestjs/common'
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common'
 import { DataScopeGuard } from '../auth/data-scope.guard'
 import { JwtAuthGuard } from '../auth/jwt-auth.guard'
 import { RequirePermission } from '../auth/permission.decorator'
@@ -14,8 +14,16 @@ export class PlatformController {
 
   @Get()
   @RequirePermission('system:manage')
-  list() {
-    return this.platformService.list()
+  list(
+    @Query('keyword') keyword?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.platformService.list({
+      keyword,
+      ...(page !== undefined ? { page: Number(page) || 1 } : {}),
+      ...(pageSize !== undefined ? { pageSize: Number(pageSize) || 20 } : {}),
+    })
   }
 
   @Post()

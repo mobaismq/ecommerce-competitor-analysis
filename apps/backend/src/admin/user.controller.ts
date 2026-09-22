@@ -14,8 +14,22 @@ export class UserController {
 
   @Get()
   @RequirePermission('user:manage')
-  list(@Req() request: { user: { tenantId: string; sub: string; dataScope?: string; departmentId?: string | null } }) {
-    return this.userService.list({ ...request.user, userId: request.user.sub })
+  list(
+    @Req() request: { user: { tenantId: string; sub: string; dataScope?: string; departmentId?: string | null } },
+    @Query('keyword') keyword?: string,
+    @Query('isActive') isActive?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.userService.list(
+      { ...request.user, userId: request.user.sub },
+      {
+        keyword,
+        ...(isActive === 'true' || isActive === 'false' ? { isActive: isActive === 'true' } : {}),
+        ...(page !== undefined ? { page: Number(page) || 1 } : {}),
+        ...(pageSize !== undefined ? { pageSize: Number(pageSize) || 20 } : {}),
+      },
+    )
   }
 
   @Post()

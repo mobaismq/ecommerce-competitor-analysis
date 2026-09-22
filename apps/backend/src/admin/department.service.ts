@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
+import { Prisma } from '@prisma/client'
 import { PrismaService } from '../prisma.service'
 import { CreateDepartmentDto } from './dto/create-department.dto'
 import { UpdateDepartmentDto } from './dto/update-department.dto'
@@ -7,8 +8,20 @@ import { UpdateDepartmentDto } from './dto/update-department.dto'
 export class DepartmentService {
   constructor(private readonly prisma: PrismaService) {}
 
-  list(tenantId: string) {
-    return this.prisma.department.findMany({ where: { tenantId, deletedAt: null }, orderBy: { createdAt: 'asc' } })
+  async list(tenantId: string, options: { keyword?: string; page?: number; pageSize?: number } = {}) {
+    const where: Prisma.DepartmentWhereInput = { tenantId, deletedAt: null }
+    if (options.keyword) where.name = { contains: options.keyword }
+    const base: Prisma.DepartmentFindManyArgs = { where, orderBy: { createdAt: 'asc' } }
+    if (options.page !== undefined && options.pageSize !== undefined) {
+      const page = Math.max(1, options.page)
+      const pageSize = Math.max(1, options.pageSize)
+      const [rows, total] = await Promise.all([
+        this.prisma.department.findMany({ ...base, skip: (page - 1) * pageSize, take: pageSize }),
+        this.prisma.department.count({ where }),
+      ])
+      return { rows, total, page, pageSize }
+    }
+    return this.prisma.department.findMany(base)
   }
 
   create(tenantId: string, dto: CreateDepartmentDto) {
