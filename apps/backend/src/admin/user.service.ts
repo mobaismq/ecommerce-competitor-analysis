@@ -137,6 +137,14 @@ export class UserService {
     return { ok: true, id }
   }
 
+  /** 5.7 管理员重置他人密码：无需旧密码，限本租户未删除用户（对照旧版 account/change-password 传 accountId）。 */
+  async resetPassword(tenantId: string, id: string, password: string) {
+    const existing = await this.prisma.user.findFirst({ where: { id, tenantId, deletedAt: null } })
+    if (!existing) throw new NotFoundException('用户不存在')
+    await this.prisma.user.update({ where: { id }, data: { passwordHash: hashPassword(password) } })
+    return { ok: true, id }
+  }
+
   async findDuplicate(tenantId: string, values: { username?: string; phone?: string }, excludeId?: string) {
     const username = values.username?.trim()
     const phone = values.phone?.trim()

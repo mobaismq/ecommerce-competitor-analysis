@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
+import { ALL_PERMISSION_MARKER } from '../auth/permission.resolver'
 import { PrismaService } from '../prisma.service'
 import { CreateRoleDto } from './dto/create-role.dto'
 import { UpdateRoleDto } from './dto/update-role.dto'
@@ -37,12 +38,24 @@ export class RoleService {
       this.prisma.rolePermission.findMany({ where: { roleId: { in: roleIds } } }),
       this.prisma.roleStore.findMany({ where: { roleId: { in: roleIds } } }),
     ])
-    const enriched = list.map((role) => ({
-      ...role,
-      permissionIds: permissions.filter((item) => item.roleId === role.id).map((item) => item.permissionId),
-      storeIds: stores.filter((item) => item.roleId === role.id).map((item) => item.storeId),
-    }))
+    const enriched = list.map((role) => {
+      const permissionIds = permissions.filter((item) => item.roleId === role.id).map((item) => item.permissionId)
+      const permissionAll = permissionIds.includes(ALL_PERMISSION_MARKER)
+      return {
+        ...role,
+        // 全选角色对外只暴露 '*' 标记，解析时展开为全部权限码（含未来新增）
+        permissionIds: permissionAll ? [ALL_PERMISSION_MARKER] : permissionIds.filter((id) => id !== ALL_PERMISSION_MARKER),
+        permissionAll,
+        storeIds: stores.filter((item) => item.roleId === role.id).map((item) => item.storeId),
+      }
+    })
     return Array.isArray(roles) ? enriched : { ...roles, rows: enriched }
+  }
+
+  /** 全选语义：permissionIds 含 '*' 时只存哨兵，否则原样存具体 ID（对照旧版 normalizePermissionValue）。 */
+  private normalizePermissionIds(permissionIds?: string[]) {
+    if (!permissionIds) return permissionIds
+    return permissionIds.includes(ALL_PERMISSION_MARKER) ? [ALL_PERMISSION_MARKER] : permissionIds
   }
 
   async create(tenantId: string, dto: CreateRoleDto) {
@@ -59,8 +72,9 @@ export class RoleService {
         },
       })
       if (dto.permissionIds?.length) {
+        const permissionIds = this.normalizePermissionIds(dto.permissionIds) ?? []
         await tx.rolePermission.createMany({
-          data: dto.permissionIds.map((permissionId) => ({ roleId: role.id, permissionId })),
+          data: permissionIds.map((permissionId) => ({ roleId: role.id, permissionId })),
           skipDuplicates: true,
         })
       }
@@ -84,10 +98,11 @@ export class RoleService {
       if (dto.status !== undefined) data.status = dto.status
       if (Object.keys(data).length) await tx.role.update({ where: { id }, data })
       if (dto.permissionIds) {
+        const permissionIds = this.normalizePermissionIds(dto.permissionIds) ?? []
         await tx.rolePermission.deleteMany({ where: { roleId: id } })
-        if (dto.permissionIds.length) {
+        if (permissionIds.length) {
           await tx.rolePermission.createMany({
-            data: dto.permissionIds.map((permissionId) => ({ roleId: id, permissionId })),
+            data: permissionIds.map((permissionId) => ({ roleId: id, permissionId })),
             skipDuplicates: true,
           })
         }

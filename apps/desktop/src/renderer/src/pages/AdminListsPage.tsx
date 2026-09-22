@@ -127,7 +127,7 @@ export function AdminUsersPage() {
   const toggle = (row: UserRow) => refresh(users.refetch, api.patch(`/api/users/${row.id}`, { isActive: !row.isActive }))
   const resetPassword = async (row: UserRow) => {
     const password = window.prompt(`为 ${row.username} 设置新密码`)
-    if (password) refresh(users.refetch, api.patch(`/api/users/${row.id}`, { password }))
+    if (password) refresh(users.refetch, api.post(`/api/users/${row.id}/reset-password`, { password }))
   }
   const remove = (row: UserRow) => {
     if (window.confirm(`确定删除 ${row.username}？`)) refresh(users.refetch, api.delete(`/api/users/${row.id}`))

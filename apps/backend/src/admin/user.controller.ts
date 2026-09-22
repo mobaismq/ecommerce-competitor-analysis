@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common'
+import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common'
 import { DataScopeGuard } from '../auth/data-scope.guard'
 import { JwtAuthGuard } from '../auth/jwt-auth.guard'
 import { RequirePermission } from '../auth/permission.decorator'
@@ -53,6 +53,15 @@ export class UserController {
     @Query('excludeId') excludeId?: string,
   ) {
     return this.userService.findDuplicate(request.user.tenantId, { username, phone }, excludeId).then((field) => ({ duplicate: Boolean(field), field }))
+  }
+
+  @Post(':id/reset-password')
+  @RequirePermission('user:manage')
+  resetPassword(@Req() request: { user: { tenantId: string } }, @Param('id') id: string, @Body() body: { password?: string }) {
+    if (!body?.password || body.password.length < 6) {
+      return Promise.reject(new BadRequestException('新密码至少 6 位'))
+    }
+    return this.userService.resetPassword(request.user.tenantId, id, body.password)
   }
 
   @Delete(':id')

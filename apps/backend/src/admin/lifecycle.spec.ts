@@ -119,6 +119,19 @@ describe('admin lifecycle (离线 mock, 不触真实服务)', () => {
       const list = Array.isArray(rows) ? rows : rows.rows
       expect(list[0]).toMatchObject({ id: 'u1', roleIds: ['r1', 'r2'], isDeleted: false })
     })
+
+    it('管理员重置他人密码无需旧密码，跨租户抛 NotFound', async () => {
+      const service = new UserService(prisma as unknown as PrismaService)
+      prisma.user.findFirst.mockResolvedValue(null)
+      await expect(service.resetPassword('tenant-a', 'u-of-b', 'newpass')).rejects.toThrow(NotFoundException)
+
+      prisma.user.findFirst.mockResolvedValue({ id: 'u1' })
+      prisma.user.update.mockResolvedValue({ id: 'u1' })
+      await expect(service.resetPassword('tenant-1', 'u1', 'newpass')).resolves.toEqual({ ok: true, id: 'u1' })
+      expect(prisma.user.update).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'u1' }, data: expect.objectContaining({ passwordHash: expect.any(String) }) }),
+      )
+    })
   })
 
   describe('RoleService', () => {
@@ -149,6 +162,18 @@ describe('admin lifecycle (离线 mock, 不触真实服务)', () => {
       expect(prisma.role.update).toHaveBeenCalledWith(
         expect.objectContaining({ data: expect.objectContaining({ deletedAt: expect.any(Date), status: 'disabled' }) }),
       )
+    })
+
+    it('permissionIds 含 * 时只存哨兵（对照旧版 menuPermissionAll 存 *）', async () => {
+      const service = new RoleService(prisma as unknown as PrismaService)
+      prisma.role.findFirst.mockResolvedValue({ id: 'r1', tenantId: 'tenant-1', deletedAt: null })
+      prisma.rolePermission.deleteMany.mockResolvedValue(undefined)
+      prisma.rolePermission.createMany.mockResolvedValue(undefined)
+      await service.update('tenant-1', 'r1', { permissionIds: ['p1', '*', 'p2'] })
+      expect(prisma.rolePermission.createMany).toHaveBeenCalledWith({
+        data: [{ roleId: 'r1', permissionId: '*' }],
+        skipDuplicates: true,
+      })
     })
   })
 
