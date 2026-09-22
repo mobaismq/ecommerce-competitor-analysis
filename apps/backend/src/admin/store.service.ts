@@ -8,11 +8,19 @@ export class StoreService {
   constructor(private readonly prisma: PrismaService) {}
 
   list(tenantId: string) {
-    return this.prisma.store.findMany({
-      where: { tenantId, deletedAt: null },
-      include: { platform: true },
-      orderBy: { createdAt: 'asc' },
-    })
+    return this.prisma.store
+      .findMany({
+        where: { tenantId, deletedAt: null },
+        include: { platform: true },
+        orderBy: { createdAt: 'asc' },
+      })
+      .then((rows) => rows.map((row) => ({ ...row, authStatus: this.deriveAuthStatus(row.authExpiresAt) })))
+  }
+
+  /** 派生店铺授权状态（对照旧版 authStatus：0已过期/1有效 → 'valid'/'expired'/'none'）。 */
+  private deriveAuthStatus(authExpiresAt: Date | null): 'valid' | 'expired' | 'none' {
+    if (!authExpiresAt) return 'none'
+    return authExpiresAt.getTime() < Date.now() ? 'expired' : 'valid'
   }
 
   async create(tenantId: string, dto: CreateStoreDto) {

@@ -129,6 +129,20 @@ describe('admin lifecycle (离线 mock, 不触真实服务)', () => {
         expect.objectContaining({ data: expect.objectContaining({ deletedAt: expect.any(Date) }) }),
       )
     })
+
+    it('list 派生授权状态（有效/已过期/未设置）', async () => {
+      const service = new StoreService(prisma as unknown as PrismaService)
+      prisma.store.findMany.mockResolvedValue([
+        { id: 's1', authExpiresAt: new Date(Date.now() + 100000), deletedAt: null },
+        { id: 's2', authExpiresAt: new Date(Date.now() - 100000), deletedAt: null },
+        { id: 's3', authExpiresAt: null, deletedAt: null },
+      ])
+      const rows = await service.list('tenant-1')
+      const statuses = new Map(rows.map((r) => [r.id, r.authStatus]))
+      expect(statuses.get('s1')).toBe('valid')
+      expect(statuses.get('s2')).toBe('expired')
+      expect(statuses.get('s3')).toBe('none')
+    })
   })
 
   describe('DepartmentService', () => {

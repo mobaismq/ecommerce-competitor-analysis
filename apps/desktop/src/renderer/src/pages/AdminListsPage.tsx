@@ -552,6 +552,7 @@ interface StoreRow {
   status?: string | null
   externalId?: string | null
   platform?: { name?: string } | null
+  authStatus?: 'valid' | 'expired' | 'none' | null
 }
 
 export function AdminStoresPage() {
@@ -608,6 +609,7 @@ export function AdminStoresPage() {
               <th className="px-5 py-3 font-medium">平台</th>
               <th className="px-5 py-3 font-medium">平台店铺 ID</th>
               <th className="px-5 py-3 font-medium">状态</th>
+              <th className="px-5 py-3 font-medium">授权状态</th>
               <th className="px-5 py-3 font-medium">操作</th>
             </tr>
           </thead>
@@ -618,6 +620,15 @@ export function AdminStoresPage() {
                 <td className="px-5 py-3">{row.platform?.name ?? '-'}</td>
                 <td className="px-5 py-3 font-mono">{row.externalId ?? '-'}</td>
                 <td className="px-5 py-3">{row.status === 'disabled' ? '停用' : row.status ?? '-'}</td>
+                <td className="px-5 py-3">
+                  {row.authStatus === 'valid' ? (
+                    <span className="inline-block rounded-full bg-[#e8f5ee] px-2 py-0.5 text-[12px] font-semibold text-[#389e0d]">有效</span>
+                  ) : row.authStatus === 'expired' ? (
+                    <span className="inline-block rounded-full bg-[#fff1f0] px-2 py-0.5 text-[12px] font-semibold text-[#f5222d]">已过期</span>
+                  ) : (
+                    <span className="text-[12px] text-[#98a2b3]">未设置</span>
+                  )}
+                </td>
                 <td className="px-5 py-3">
                   <div className="flex gap-2">
                     <button type="button" onClick={() => toggle(row)} className="cursor-pointer border-0 bg-transparent p-0 text-[13px] text-[#3388ff] hover:underline">
