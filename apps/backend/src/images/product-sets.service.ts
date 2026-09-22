@@ -115,9 +115,15 @@ export class ProductSetsService {
     }
   }
 
-  async listGenerated(tenantId: string, jobId?: string) {
+  async listGenerated(tenantId: string, jobId?: string, productName?: string) {
     const rows = await this.prisma.generatedAsset.findMany({
-      where: { tenantId, ...(jobId ? { jobId } : {}) },
+      where: {
+        tenantId,
+        ...(jobId ? { jobId } : {}),
+        ...(productName
+          ? { OR: [{ originalName: { contains: productName } }, { productName: { contains: productName } }] }
+          : {}),
+      },
       orderBy: [{ createdAt: 'desc' }, { storageKey: 'asc' }],
       take: 200,
     })
@@ -129,6 +135,45 @@ export class ProductSetsService {
     if (!asset) throw new NotFoundException('图片不存在')
     await this.prisma.generatedAsset.delete({ where: { id } })
     return { ok: true, id }
+  }
+
+  /** 5.9 手动保存生成主图（对照旧版 POST /generated-images 的 saveGeneratedMainImages）。 */
+  async saveGenerated(
+    tenantId: string,
+    input: { images?: Array<{ name?: string; url?: string; type?: string }>; productName?: string; productId?: string; sizeRatio?: string; platform?: string; runId?: string },
+  ) {
+    const rows = (input.images ?? []).filter((item) => item && String(item.url || '').trim())
+    if (!rows.length) return { ok: true, saved: 0 }
+    const assetIds: string[] = []
+    for (const item of rows) {
+      const url = String(item.url).trim()
+      const asset = await this.prisma.generatedAsset.create({
+        data: {
+          tenantId,
+          runId: input.runId || undefined,
+          storageKey: `generated-main/${tenantId}/${Date.now()}-${randomUUID().slice(0, 8)}.png`,
+          mimeType: url.startsWith('data:image/jpeg') ? 'image/jpeg' : 'image/png',
+          size: 0,
+          sourceUrl: url,
+          originalName: String(item.name || '').trim() || '生成主图',
+          category: String(item.type || '').trim() || undefined,
+          ratio: input.sizeRatio || undefined,
+          productId: input.productId || undefined,
+          productName: input.productName || undefined,
+          platform: input.platform || undefined,
+        },
+      })
+      assetIds.push(asset.id)
+    }
+    return { ok: true, saved: rows.length, assetIds }
+  }
+
+  /** 5.9 批量删除生成主图（对照旧版 POST /generated-images/delete 传 ids 数组）。 */
+  async removeGeneratedBatch(tenantId: string, ids: string[]) {
+    const list = (ids ?? []).filter(Boolean)
+    if (!list.length) return { ok: true, deleted: 0 }
+    const result = await this.prisma.generatedAsset.deleteMany({ where: { id: { in: list }, tenantId } })
+    return { ok: true, deleted: result.count }
   }
 
   async mainImageDescriptions(runId: string, tenantId?: string) {

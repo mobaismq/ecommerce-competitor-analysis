@@ -160,7 +160,8 @@ export function ImageGalleryPage() {
       okButtonProps: { status: 'danger' },
       onOk: async () => {
         try {
-          await api.delete(`/api/product-sets/generated-images/${asset.id}`)
+          // 图库资产来源不限于 generated-images，统一走通用资产删除端点，避免对非生成图资产 404
+          await api.delete(`/api/assets/${asset.id}`)
           Message.success('图片已删除')
           void refetch()
         } catch {

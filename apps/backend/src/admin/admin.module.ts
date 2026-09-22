@@ -14,6 +14,7 @@ import { ProviderProfileService } from './provider-profile.service'
 import { RoleController } from './role.controller'
 import { RoleService } from './role.service'
 import { StoreController } from './store.controller'
+import { StoreLegacyController } from './store-legacy.controller'
 import { StoreService } from './store.service'
 import { TenantController } from './tenant.controller'
 import { TenantService } from './tenant.service'
@@ -22,7 +23,7 @@ import { UserService } from './user.service'
 
 @Module({
   imports: [AuthModule, PrismaModule],
-  controllers: [UserController, RoleController, PermissionController, TenantController, DepartmentController, StoreController, PlatformController, ProviderProfileController],
+  controllers: [UserController, RoleController, PermissionController, TenantController, DepartmentController, StoreController, StoreLegacyController, PlatformController, ProviderProfileController],
   providers: [JwtAuthGuard, PermissionGuard, DataScopeGuard, UserService, RoleService, DepartmentService, StoreService, PlatformService, ProviderProfileService, TenantService],
 })
 export class AdminModule {}

@@ -378,6 +378,9 @@ model GeneratedAsset {
   category     String?
   prompt       String?
   ratio        String?
+  productId    String?
+  productName  String?
+  platform     String?
   createdAt    DateTime @default(now())
 
   @@index([tenantId, createdAt])

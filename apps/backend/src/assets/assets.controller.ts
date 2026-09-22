@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Req, Res, UseGuards } from '@nestjs/common'
+import { Controller, Delete, Get, Param, Req, Res, UseGuards } from '@nestjs/common'
 import { JwtAuthGuard } from '../auth/jwt-auth.guard'
 import { RequirePermission } from '../auth/permission.decorator'
 import { PermissionGuard } from '../auth/permission.guard'
@@ -26,5 +26,11 @@ export class AssetController {
   async raw(@Req() request: { user: { tenantId: string } }, @Param('assetId') assetId: string, @Res() response: any) {
     const { buffer, mimeType } = await this.assetService.raw(assetId, request.user.tenantId)
     response.type(mimeType).send(buffer)
+  }
+
+  @Delete(':assetId')
+  @RequirePermission('asset:view')
+  remove(@Req() request: { user: { tenantId: string } }, @Param('assetId') assetId: string) {
+    return this.assetService.remove(assetId, request.user.tenantId)
   }
 }

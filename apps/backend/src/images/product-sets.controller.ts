@@ -86,8 +86,18 @@ export class ProductSetsController {
   }
 
   @Get('generated-images')
-  list(@Req() request: { user: { tenantId: string } }, @Query('jobId') jobId?: string) {
-    return this.service.listGenerated(request.user.tenantId, jobId)
+  list(@Req() request: { user: { tenantId: string } }, @Query('jobId') jobId?: string, @Query('productName') productName?: string) {
+    return this.service.listGenerated(request.user.tenantId, jobId, productName)
+  }
+
+  @Post('generated-images/delete')
+  removeBatch(@Req() request: { user: { tenantId: string } }, @Body() body: { ids?: string[] }) {
+    return this.service.removeGeneratedBatch(request.user.tenantId, body?.ids ?? [])
+  }
+
+  @Post('generated-images')
+  save(@Req() request: { user: { tenantId: string } }, @Body() body: { images?: Array<{ name?: string; url?: string; type?: string }>; productName?: string; productId?: string; sizeRatio?: string; platform?: string; runId?: string }) {
+    return this.service.saveGenerated(request.user.tenantId, body)
   }
 
   @Delete('generated-images/:id')

@@ -87,3 +87,68 @@ describe('ProductSetsService.generateImage（诚实空态 + 参考图透传）',
     expect(res.jobId).toBe('job-1')
   })
 })
+
+describe('ProductSetsService.saveGenerated/removeGeneratedBatch/listGenerated（5.9 旧版契约）', () => {
+  it('saveGenerated 批量落库生成主图，映射 productName/productId/platform/sizeRatio', async () => {
+    const prisma = { generatedAsset: { create: jest.fn().mockResolvedValue({ id: 'a1' }) } }
+    const service = new ProductSetsService(prisma as never, {} as never)
+    const res = await service.saveGenerated('t', {
+      images: [
+        { name: '主图A', url: 'data:image/png;base64,QUJD' },
+        { name: '主图B', url: 'https://cdn/b.png' },
+      ],
+      productName: '手表',
+      productId: 'prod-1',
+      sizeRatio: '1:1',
+      platform: 'taobao',
+      runId: 'run-1',
+    })
+    expect(res).toEqual({ ok: true, saved: 2, assetIds: ['a1', 'a1'] })
+    expect(prisma.generatedAsset.create).toHaveBeenCalledTimes(2)
+    expect(prisma.generatedAsset.create).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        data: expect.objectContaining({
+          tenantId: 't',
+          sourceUrl: 'data:image/png;base64,QUJD',
+          originalName: '主图A',
+          productName: '手表',
+          productId: 'prod-1',
+          platform: 'taobao',
+          ratio: '1:1',
+          runId: 'run-1',
+        }),
+      }),
+    )
+  })
+
+  it('saveGenerated 无有效图片时返回 saved:0 不写库', async () => {
+    const prisma = { generatedAsset: { create: jest.fn() } }
+    const service = new ProductSetsService(prisma as never, {} as never)
+    await expect(service.saveGenerated('t', { images: [{ url: ' ' }] })).resolves.toEqual({ ok: true, saved: 0 })
+    expect(prisma.generatedAsset.create).not.toHaveBeenCalled()
+  })
+
+  it('removeGeneratedBatch 按 ids 批量删除并限租户', async () => {
+    const prisma = { generatedAsset: { deleteMany: jest.fn().mockResolvedValue({ count: 2 }) } }
+    const service = new ProductSetsService(prisma as never, {} as never)
+    await expect(service.removeGeneratedBatch('t', ['a', 'b'])).resolves.toEqual({ ok: true, deleted: 2 })
+    expect(prisma.generatedAsset.deleteMany).toHaveBeenCalledWith({ where: { id: { in: ['a', 'b'] }, tenantId: 't' } })
+  })
+
+  it('listGenerated 按 productName 模糊筛选 originalName 或 productName', async () => {
+    const prisma = { generatedAsset: { findMany: jest.fn().mockResolvedValue([]) } }
+    const service = new ProductSetsService(prisma as never, {} as never)
+    await service.listGenerated('t', undefined, '手表')
+    expect(prisma.generatedAsset.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          OR: [
+            { originalName: { contains: '手表' } },
+            { productName: { contains: '手表' } },
+          ],
+        }),
+      }),
+    )
+  })
+})

@@ -45,4 +45,11 @@ export class AssetService {
     const absolute = await driver.getReadUrl(asset.storageKey)
     return { buffer: readFileSync(absolute), mimeType: meta.mimeType }
   }
+
+  async remove(assetId: string, tenantId: string) {
+    const asset = await this.prisma.generatedAsset.findFirst({ where: { id: assetId, tenantId } })
+    if (!asset) throw new NotFoundException('资产不存在')
+    await this.prisma.generatedAsset.delete({ where: { id: assetId } })
+    return { ok: true, id: assetId }
+  }
 }
