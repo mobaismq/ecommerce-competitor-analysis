@@ -4,6 +4,7 @@ import { RoleService } from './role.service'
 import { UserService } from './user.service'
 import { StoreService } from './store.service'
 import { DepartmentService } from './department.service'
+import { PlatformService } from './platform.service'
 
 describe('admin lifecycle (离线 mock, 不触真实服务)', () => {
   let prisma: any
@@ -33,7 +34,13 @@ describe('admin lifecycle (离线 mock, 不触真实服务)', () => {
         create: jest.fn(),
         update: jest.fn(),
       },
-      platform: { findUnique: jest.fn() },
+      platform: {
+        findUnique: jest.fn(),
+        findFirst: jest.fn(),
+        findMany: jest.fn(),
+        create: jest.fn(),
+        update: jest.fn(),
+      },
       department: {
         findFirst: jest.fn(),
         findMany: jest.fn(),
@@ -141,6 +148,31 @@ describe('admin lifecycle (离线 mock, 不触真实服务)', () => {
       expect(prisma.department.update).toHaveBeenCalledWith(
         expect.objectContaining({ data: expect.objectContaining({ deletedAt: expect.any(Date) }) }),
       )
+    })
+  })
+
+  describe('PlatformService', () => {
+    it('删除平台软删除并停用（对照旧版 platform delete）', async () => {
+      const service = new PlatformService(prisma as unknown as PrismaService)
+      prisma.platform.findFirst.mockResolvedValue({ id: 'pl1', deletedAt: null })
+      prisma.platform.update.mockResolvedValue({ id: 'pl1' })
+      await expect(service.remove('pl1')).resolves.toEqual({ ok: true, id: 'pl1' })
+      expect(prisma.platform.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ deletedAt: expect.any(Date), enabled: false }) }),
+      )
+    })
+
+    it('删除不存在的平台抛 NotFound', async () => {
+      const service = new PlatformService(prisma as unknown as PrismaService)
+      prisma.platform.findFirst.mockResolvedValue(null)
+      await expect(service.remove('none')).rejects.toThrow(NotFoundException)
+    })
+
+    it('list 只返回未删除平台', async () => {
+      const service = new PlatformService(prisma as unknown as PrismaService)
+      prisma.platform.findMany.mockResolvedValue([{ id: 'pl1' }])
+      await service.list()
+      expect(prisma.platform.findMany).toHaveBeenCalledWith({ where: { deletedAt: null }, orderBy: { code: 'asc' } })
     })
   })
 })

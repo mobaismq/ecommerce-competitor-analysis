@@ -98,11 +98,12 @@ model RoleStore {
 }
 
 model Platform {
-  id      String   @id @default(cuid())
-  code    String   @unique
-  name    String
-  enabled Boolean  @default(true)
-  stores  Store[]
+  id        String    @id @default(cuid())
+  code      String    @unique
+  name      String
+  enabled   Boolean   @default(true)
+  deletedAt DateTime?
+  stores    Store[]
 }
 
 model Store {

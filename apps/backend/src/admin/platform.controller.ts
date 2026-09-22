@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common'
+import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from '@nestjs/common'
 import { DataScopeGuard } from '../auth/data-scope.guard'
 import { JwtAuthGuard } from '../auth/jwt-auth.guard'
 import { RequirePermission } from '../auth/permission.decorator'
@@ -28,5 +28,11 @@ export class PlatformController {
   @RequirePermission('system:manage')
   update(@Param('id') id: string, @Body() body: UpdatePlatformDto) {
     return this.platformService.update(id, body)
+  }
+
+  @Delete(':id')
+  @RequirePermission('system:manage')
+  remove(@Param('id') id: string) {
+    return this.platformService.remove(id)
   }
 }
