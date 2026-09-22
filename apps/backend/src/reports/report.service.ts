@@ -53,6 +53,8 @@ interface RepresentativeProduct {
 
 interface RichPriceBand extends PriceBand {
   avgPrice: number | null
+  /** 该价格带竞品销量合计（来自采集 rawJson.sold，无数据为 0） */
+  soldTotal: number
   representativeProducts: RepresentativeProduct[]
 }
 
@@ -313,6 +315,7 @@ export class ReportService {
       const inBand = products.filter((p) => p.price != null && p.price >= band.priceMin && p.price <= band.priceMax)
       const prices = inBand.map((p) => p.price as number)
       const avgPrice = prices.length ? Math.round((prices.reduce((a, b) => a + b, 0) / prices.length) * 100) / 100 : null
+      const soldTotal = inBand.reduce((sum, p) => sum + (this.readSold(p.rawJson) ?? 0), 0)
       const representativeProducts = [...inBand]
         .sort((a, b) => b.skus.length - a.skus.length || (a.price ?? 0) - (b.price ?? 0))
         .slice(0, 3)
@@ -326,8 +329,16 @@ export class ReportService {
           skuCount: p.skus.length,
           skus: p.skus,
         }))
-      return { ...band, avgPrice, representativeProducts }
+      return { ...band, avgPrice, soldTotal, representativeProducts }
     })
+  }
+
+  /** 安全读取采集 rawJson.sold（采集 DTO 可选回传月销）。 */
+  private readSold(rawJson: Prisma.JsonValue | null): number | null {
+    if (!rawJson || typeof rawJson !== 'object' || Array.isArray(rawJson)) return null
+    const record = rawJson as Record<string, unknown>
+    const value = record.sold
+    return typeof value === 'number' ? value : null
   }
 
   /** 简单关键词频度聚合（AI 不可用时的诚实兜底，基于真实评价/问大家文本） */

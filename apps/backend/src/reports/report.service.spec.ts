@@ -124,4 +124,28 @@ describe('ReportService.runReport（富报告结构回迁）', () => {
     expect(res.status).toBe('success')
     expect(router.execute).not.toHaveBeenCalled()
   })
+
+  it('价格带从采集 rawJson.sold 聚合月销量（soldTotal）', async () => {
+    const { prisma, tx } = makePrismaMock({
+      products: [
+        { id: 'p1', title: 'A款', price: 100, shopName: '店A', rawJson: { sold: 30 } },
+        { id: 'p2', title: 'B款', price: 200, shopName: '店B', rawJson: { sold: 20 } },
+        { id: 'p3', title: 'C款', price: 300, shopName: '店C', rawJson: null },
+      ],
+      skus: [],
+      qas: [],
+      reviews: [],
+    })
+    const router = { execute: jest.fn().mockResolvedValue({ text: JSON.stringify({ summary: 's' }), model: 'mock' }) }
+    const service = new ReportService(prisma as any, router as any)
+
+    await service.runReport({ jobId: 'job-1', tenantId: 't' })
+
+    const reportJson = tx.analysisRun.upsert.mock.calls[0][0].create.reportJson
+    const priceBands = reportJson.priceBands as Array<{ soldTotal: number }>
+    // 有 sold 数据的产品（A=30、B=20）逐带累计，总计 50；无 sold 的 C 款不计数
+    expect(priceBands.reduce((sum, b) => sum + b.soldTotal, 0)).toBe(50)
+    expect(priceBands.some((b) => b.soldTotal === 30)).toBe(true)
+    expect(priceBands.some((b) => b.soldTotal === 20)).toBe(true)
+  })
 })

@@ -17,6 +17,7 @@ interface RichPriceBand {
   priceMax: number
   productCount: number
   avgPrice?: number | null
+  soldTotal?: number | null
   representativeProducts?: Array<{
     title?: string | null
     shopName?: string | null
@@ -285,6 +286,7 @@ export function AnalysisReportViewPage() {
                   <th className="whitespace-nowrap px-4 py-3 text-left text-[13px] font-medium text-[#86909C]">价格区间</th>
                   <th className="whitespace-nowrap px-4 py-3 text-right text-[13px] font-medium text-[#86909C]">竞品数</th>
                   <th className="whitespace-nowrap px-4 py-3 text-right text-[13px] font-medium text-[#86909C]">均价</th>
+                  <th className="whitespace-nowrap px-4 py-3 text-right text-[13px] font-medium text-[#86909C]">月销量</th>
                   <th className="whitespace-nowrap px-4 py-3 text-left text-[13px] font-medium text-[#86909C]">代表商品</th>
                 </tr>
               </thead>
@@ -299,6 +301,9 @@ export function AnalysisReportViewPage() {
                       <td className="whitespace-nowrap px-4 py-3.5 text-right text-[14px] text-[#344054]">{band.productCount} 款</td>
                       <td className="whitespace-nowrap px-4 py-3.5 text-right text-[14px] text-[#344054]">
                         {'avgPrice' in band && band.avgPrice != null ? `¥${band.avgPrice}` : '—'}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3.5 text-right text-[14px] text-[#344054]">
+                        {'soldTotal' in band && band.soldTotal ? `${band.soldTotal.toLocaleString()} 件` : '未采集'}
                       </td>
                       <td className="px-4 py-3.5">
                         {reps.length ? (
