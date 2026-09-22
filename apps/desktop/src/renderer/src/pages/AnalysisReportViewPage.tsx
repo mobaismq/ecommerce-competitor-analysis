@@ -141,7 +141,7 @@ export function AnalysisReportViewPage() {
     retry: false,
   })
 
-  const handleExport = async (format: 'xlsx' | 'json') => {
+  const handleExport = async (format: 'xlsx' | 'json' | 'markdown') => {
     if (!id) return
     setExporting(true)
     try {
@@ -254,6 +254,16 @@ export function AnalysisReportViewPage() {
           >
             <Download className="h-3.5 w-3.5" />
             导出 JSON
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleExport('markdown')}
+            disabled={exporting}
+            title="导出 Markdown 原始报告"
+            className="flex h-9 cursor-pointer items-center gap-1.5 rounded-lg border border-[#e6e9ef] bg-white px-3 text-[13px] font-semibold text-[#0A1B39] hover:border-[#b8d7ff] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <Download className="h-3.5 w-3.5" />
+            导出 Markdown
           </button>
         </div>
       </div>
