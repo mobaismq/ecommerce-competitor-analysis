@@ -134,15 +134,15 @@ async function main() {
   })
 
   const platformSeeds = [
-    { code: 'taobao', name: '淘宝' },
-    { code: 'jd', name: '京东' },
-    { code: 'pdd', name: '拼多多' },
-    { code: 'douyin', name: '抖店' },
+    { code: 'taobao', name: '淘宝', logo: 'https://img.alicdn.com/imgextra/i4/O1CN01EGptZ1XAtUPn2C0Zq_!!6000000002012-2-tps-200-200.png' },
+    { code: 'jd', name: '京东', logo: 'https://img14.360buyimg.com/uba/jfs/t1/135205/12/29285/4781/647978aaE2f60dc8a/5f39b037dd845719.png' },
+    { code: 'pdd', name: '拼多多', logo: 'https://static.pinduoduo.com/file/pdd_oa_app_icon.png' },
+    { code: 'douyin', name: '抖店', logo: 'https://lf1-cdn-tos.bytegoofy.com/goofy/pack/5c00099a7014a24d479522bdbb5cd019/icon-70.png' },
   ]
   for (const platform of platformSeeds) {
     await prisma.platform.upsert({
       where: { code: platform.code },
-      update: {},
+      update: { logo: platform.logo },
       create: platform,
     })
   }

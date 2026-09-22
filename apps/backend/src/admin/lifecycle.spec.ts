@@ -19,7 +19,7 @@ describe('admin lifecycle (离线 mock, 不触真实服务)', () => {
         findMany: jest.fn(),
         count: jest.fn(),
       },
-      userRole: { deleteMany: jest.fn(), createMany: jest.fn() },
+      userRole: { deleteMany: jest.fn(), createMany: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
       role: {
         findFirst: jest.fn(),
         findMany: jest.fn(),
@@ -107,6 +107,18 @@ describe('admin lifecycle (离线 mock, 不触真实服务)', () => {
       expect(call.where.OR).toContainEqual({ username: { contains: 'bob' } })
       expect(prisma.user.count).toHaveBeenCalled()
     })
+
+    it('list 返回行补充 roleIds 与 isDeleted（对照旧版 mapAccountRow 的 roleIds 数组）', async () => {
+      const service = new UserService(prisma as unknown as PrismaService)
+      prisma.user.findMany.mockResolvedValue([{ id: 'u1' }])
+      prisma.userRole.findMany.mockResolvedValue([
+        { userId: 'u1', roleId: 'r1' },
+        { userId: 'u1', roleId: 'r2' },
+      ])
+      const rows = await service.list({ tenantId: 'tenant-1', userId: 'u1' })
+      const list = Array.isArray(rows) ? rows : rows.rows
+      expect(list[0]).toMatchObject({ id: 'u1', roleIds: ['r1', 'r2'], isDeleted: false })
+    })
   })
 
   describe('RoleService', () => {
@@ -161,9 +173,9 @@ describe('admin lifecycle (离线 mock, 不触真实服务)', () => {
     it('list 派生授权状态（有效/已过期/未设置）', async () => {
       const service = new StoreService(prisma as unknown as PrismaService)
       prisma.store.findMany.mockResolvedValue([
-        { id: 's1', authExpiresAt: new Date(Date.now() + 100000), deletedAt: null },
-        { id: 's2', authExpiresAt: new Date(Date.now() - 100000), deletedAt: null },
-        { id: 's3', authExpiresAt: null, deletedAt: null },
+        { id: 's1', authExpiresAt: new Date(Date.now() + 100000), deletedAt: null, platform: { logo: 'https://x/logo.png' } },
+        { id: 's2', authExpiresAt: new Date(Date.now() - 100000), deletedAt: null, platform: null },
+        { id: 's3', authExpiresAt: null, deletedAt: null, platform: { logo: null } },
       ])
       const rows = await service.list('tenant-1')
       const list = Array.isArray(rows) ? rows : rows.rows
@@ -171,6 +183,9 @@ describe('admin lifecycle (离线 mock, 不触真实服务)', () => {
       expect(statuses.get('s1')).toBe('valid')
       expect(statuses.get('s2')).toBe('expired')
       expect(statuses.get('s3')).toBe('none')
+      // storeLogo 由 platform.logo 派生，缺 logo 时诚实回退 null（对照旧版 platformLogo→storeLogo）
+      expect(list.find((r) => r.id === 's1')?.storeLogo).toBe('https://x/logo.png')
+      expect(list.find((r) => r.id === 's2')?.storeLogo).toBeNull()
     })
   })
 

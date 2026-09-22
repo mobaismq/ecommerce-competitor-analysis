@@ -9,6 +9,7 @@ interface UserRow {
   username: string
   displayName: string | null
   isActive: boolean
+  roleIds?: string[]
 }
 
 interface RoleRow {
@@ -69,6 +70,9 @@ export function AdminUsersPage() {
     queryKey: ['departments'],
     queryFn: async () => (await api.get<DepartmentRow[]>('/api/departments')).data,
   })
+
+  // 账号列表 roleIds → 角色名映射（对照旧版 mapAccountRow 返回 roleIds 数组的展示）
+  const roleNameMap = new Map((roles.data ?? []).map((role) => [role.id, role.name]))
 
   const [form, setForm] = useState({ username: '', password: '', displayName: '', roleId: '' })
   const [deptFilter, setDeptFilter] = useState<string | null>(null)
@@ -314,6 +318,7 @@ export function AdminUsersPage() {
                   <tr className="border-b border-[#eef1f5] bg-[#f9fafb] text-left text-[13px] font-medium text-[#86909C]">
                     <th className="px-5 py-3 font-medium">用户名</th>
                     <th className="px-5 py-3 font-medium">显示名</th>
+                    <th className="px-5 py-3 font-medium">角色</th>
                     <th className="px-5 py-3 font-medium">状态</th>
                     <th className="px-5 py-3 font-medium">操作</th>
                   </tr>
@@ -323,6 +328,12 @@ export function AdminUsersPage() {
                     <tr key={row.id} className="border-b border-[#eef1f5] transition-colors hover:bg-[#f9fafb]">
                       <td className="px-5 py-3 text-[13px] font-semibold text-[#0A1B39]">{row.username}</td>
                       <td className="px-5 py-3 text-[13px] text-[#344054]">{row.displayName ?? '-'}</td>
+                      <td className="px-5 py-3 text-[13px] text-[#344054]">
+                        {(() => {
+                          const roleIds = row.roleIds ?? []
+                          return roleIds.length ? roleIds.map((id) => roleNameMap.get(id) ?? id).join('、') : '-'
+                        })()}
+                      </td>
                       <td className="px-5 py-3">
                         <span
                           className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[12px] font-bold ${
@@ -551,7 +562,8 @@ interface StoreRow {
   name: string
   status?: string | null
   externalId?: string | null
-  platform?: { name?: string } | null
+  platform?: { name?: string; logo?: string | null } | null
+  storeLogo?: string | null
   authStatus?: 'valid' | 'expired' | 'none' | null
 }
 
@@ -616,7 +628,14 @@ export function AdminStoresPage() {
           <tbody>
             {(stores.data ?? []).map((row) => (
               <tr key={row.id} className="border-b border-[#eef1f5] text-[13px] text-[#344054] hover:bg-[#f9fafb]">
-                <td className="px-5 py-3">{row.name}</td>
+                <td className="px-5 py-3">
+                  <div className="flex items-center gap-2">
+                    {(row.storeLogo ?? row.platform?.logo) ? (
+                      <img src={row.storeLogo ?? row.platform?.logo ?? ''} alt={row.name} className="h-5 w-5 rounded object-contain" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} />
+                    ) : null}
+                    {row.name}
+                  </div>
+                </td>
                 <td className="px-5 py-3">{row.platform?.name ?? '-'}</td>
                 <td className="px-5 py-3 font-mono">{row.externalId ?? '-'}</td>
                 <td className="px-5 py-3">{row.status === 'disabled' ? '停用' : row.status ?? '-'}</td>

@@ -10,6 +10,10 @@ export class CreatePlatformDto {
   name!: string
 
   @IsOptional()
+  @IsString()
+  logo?: string
+
+  @IsOptional()
   @IsBoolean()
   enabled?: boolean
 }

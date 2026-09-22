@@ -20,8 +20,13 @@ export class StoreService {
     if (options.status) where.status = options.status
 
     const base: Prisma.StoreFindManyArgs = { where, include: { platform: true }, orderBy: { createdAt: 'asc' } }
-    const derive = <T extends { authExpiresAt: Date | null }>(rows: T[]) =>
-      rows.map((row) => ({ ...row, authStatus: this.deriveAuthStatus(row.authExpiresAt) }))
+    const derive = <T extends { authExpiresAt: Date | null; platform?: { logo?: string | null } | null }>(rows: T[]) =>
+      rows.map((row) => ({
+        ...row,
+        authStatus: this.deriveAuthStatus(row.authExpiresAt),
+        // storeLogo 由 platform.logo 派生（对照旧版 mapStoreRow 的 platformLogo→storeLogo）
+        storeLogo: row.platform?.logo ?? null,
+      }))
 
     if (options.page !== undefined && options.pageSize !== undefined) {
       const page = Math.max(1, options.page)

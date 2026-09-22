@@ -6,6 +6,10 @@ export class UpdatePlatformDto {
   name?: string
 
   @IsOptional()
+  @IsString()
+  logo?: string
+
+  @IsOptional()
   @IsBoolean()
   enabled?: boolean
 }

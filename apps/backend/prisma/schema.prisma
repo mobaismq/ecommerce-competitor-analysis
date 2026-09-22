@@ -102,6 +102,7 @@ model Platform {
   code      String    @unique
   name      String
   enabled   Boolean   @default(true)
+  logo      String?
   deletedAt DateTime?
   stores    Store[]
 }

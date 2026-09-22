@@ -27,13 +27,13 @@ export class PlatformService {
   }
 
   create(dto: CreatePlatformDto) {
-    return this.prisma.platform.create({ data: { code: dto.code, name: dto.name, enabled: dto.enabled ?? true } })
+    return this.prisma.platform.create({ data: { code: dto.code, name: dto.name, logo: dto.logo, enabled: dto.enabled ?? true } })
   }
 
   async update(id: string, dto: UpdatePlatformDto) {
     const existing = await this.prisma.platform.findFirst({ where: { id, deletedAt: null } })
     if (!existing) throw new NotFoundException('平台不存在')
-    return this.prisma.platform.update({ where: { id }, data: { name: dto.name, enabled: dto.enabled } })
+    return this.prisma.platform.update({ where: { id }, data: { name: dto.name, logo: dto.logo, enabled: dto.enabled } })
   }
 
   /** 软删除平台（对照旧版 platform delete，is_deleted 语义 → deletedAt），同时停用。 */

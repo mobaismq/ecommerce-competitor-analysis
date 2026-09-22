@@ -36,6 +36,7 @@ export class UserService {
         displayName: true,
         phone: true,
         email: true,
+        avatarUrl: true,
         departmentId: true,
         isActive: true,
         createdAt: true,
@@ -51,9 +52,22 @@ export class UserService {
         this.prisma.user.findMany({ ...base, skip: (page - 1) * pageSize, take: pageSize }),
         this.prisma.user.count({ where }),
       ])
-      return { rows, total, page, pageSize }
+      return { rows: await this.enrichRoles(rows), total, page, pageSize }
     }
-    return this.prisma.user.findMany(base)
+    return this.enrichRoles(await this.prisma.user.findMany(base))
+  }
+
+  /** 为列表行补充 roleIds（对照旧版 mapAccountRow 返回 roleIds 数组）+ isDeleted。 */
+  private async enrichRoles(rows: Array<{ id: string }>) {
+    if (!rows.length) return rows.map((row) => ({ ...row, roleIds: [] as string[], isDeleted: false }))
+    const links = await this.prisma.userRole.findMany({ where: { userId: { in: rows.map((row) => row.id) } } })
+    const roleIdsByUser = new Map<string, string[]>()
+    for (const link of links) {
+      const list = roleIdsByUser.get(link.userId) ?? []
+      list.push(link.roleId)
+      roleIdsByUser.set(link.userId, list)
+    }
+    return rows.map((row) => ({ ...row, roleIds: roleIdsByUser.get(row.id) ?? [], isDeleted: false }))
   }
 
   async create(tenantId: string, dto: CreateUserDto) {
