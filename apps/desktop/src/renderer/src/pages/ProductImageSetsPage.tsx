@@ -33,6 +33,7 @@ import {
   X,
 } from 'lucide-react'
 import { AIReportSelector, SectionTitle, type SuiteProduct } from '../components/AIReportSelector'
+import { ProductImageHelpTooltip } from '../components/ProductImageHelpTooltip'
 import { api } from '../api/client'
 import { saveAs } from 'file-saver'
 import { nanoid } from 'nanoid'
@@ -639,7 +640,11 @@ export function ProductImageSetsPage() {
         {/* 1. 商品原图 */}
         <div className="mb-5">
           <h2 className="mb-3 flex items-center justify-between text-[14px] font-bold text-[#0A1B39]">
-            <span>商品原图 ({uploadedImages.length}/6)</span>
+            <span className="flex items-center gap-1">
+              商品原图
+              <ProductImageHelpTooltip />
+              <span className="text-[#86909C]">({uploadedImages.length}/6)</span>
+            </span>
             <span className="text-[12px] font-normal text-[#86909C]">最多 6 张</span>
           </h2>
 

@@ -5,6 +5,7 @@ import { api } from '../api/client'
 import { saveAs } from 'file-saver'
 import { nanoid } from 'nanoid'
 import { AIReportSelector, type SuiteProduct } from '../components/AIReportSelector'
+import { ProductImageHelpTooltip } from '../components/ProductImageHelpTooltip'
 import mainHeadphone from '../assets/main-headphone.png'
 import sceneDisplay from '../assets/scene-display.png'
 import sellingPoint from '../assets/selling-point.png'
@@ -461,6 +462,10 @@ export function APlusDetailPage() {
         {step === 'form' ? (
           <>
             {/* 商品原图上传（对照旧版：空态白底虚线+灰钮 / 已传 grid-cols-3 + 继续上传灰块） */}
+            <h2 className="mb-3 flex items-center gap-1 text-[14px] font-bold text-[#171A1D]">
+              商品原图
+              <ProductImageHelpTooltip />
+            </h2>
             <div className="mb-4">
               <input
                 ref={fileInputRef}
