@@ -13,8 +13,12 @@ interface Asset {
   mimeType: string
   size: number
   runId: string | null
+  jobId?: string | null
   sourceUrl?: string | null
   originalName?: string | null
+  category?: string | null
+  prompt?: string | null
+  ratio?: string | null
   createdAt?: string
 }
 
@@ -70,19 +74,21 @@ export function ImageGalleryPage() {
         !kw ||
         name.toLowerCase().includes(kw) ||
         item.storageKey.toLowerCase().includes(kw) ||
-        (item.runId && item.runId.toLowerCase().includes(kw))
+        (item.prompt || '').toLowerCase().includes(kw) ||
+        (item.runId || item.jobId || '').toLowerCase().includes(kw)
 
       const matchFormat =
         applied.format === 'ALL' ||
         item.mimeType?.toLowerCase().includes(applied.format.toLowerCase()) ||
         item.storageKey.toLowerCase().endsWith(applied.format.toLowerCase())
 
+      const category = (item.category || '').toLowerCase()
       const matchType =
         applied.type === 'ALL' ||
-        (applied.type === 'main' && name.includes('主图')) ||
-        (applied.type === 'aplus' && (name.includes('详情') || name.includes('aplus'))) ||
-        (applied.type === 'viral' && (name.includes('复刻') || name.includes('爆款'))) ||
-        (applied.type === 'other' && !name.includes('主图') && !name.includes('详情') && !name.includes('复刻'))
+        (applied.type === 'main' && (category.includes('白底') || category.includes('场景') || category.includes('卖点') || category.includes('细节'))) ||
+        (applied.type === 'aplus' && (category.includes('详情') || category.includes('aplus'))) ||
+        (applied.type === 'viral' && (category.includes('复刻') || category.includes('爆款'))) ||
+        (applied.type === 'other' && !category)
 
       const matchStart = !applied.start || (item.createdAt && item.createdAt >= applied.start)
       const matchEnd = !applied.end || (item.createdAt && item.createdAt <= applied.end + ' 23:59:59')
@@ -94,10 +100,11 @@ export function ImageGalleryPage() {
     setCurrentPage(1)
   }, [applied])
 
-  // 获取图片的真实加载 URL
-  const getImageRawUrl = (assetId: string) => {
+  // 生成图优先使用供应商 sourceUrl；只有真实落盘资产才走本机 raw 流
+  const getDisplayUrl = (asset: Asset) => {
+    if (asset.sourceUrl) return asset.sourceUrl
     const baseURL = api.defaults.baseURL || 'http://127.0.0.1:8787'
-    return `${baseURL}/api/assets/${assetId}/raw`
+    return `${baseURL}/api/assets/${asset.id}/raw`
   }
 
   // 下载单张图片（业务逻辑保持桌面端现状：token 鉴权 raw 拉流）
@@ -105,14 +112,18 @@ export function ImageGalleryPage() {
     setDownloadingId(asset.id)
     try {
       const token = localStorage.getItem('eca.token')
-      const rawUrl = getImageRawUrl(asset.id)
-      const res = await fetch(rawUrl, {
-        headers: token ? { authorization: `Bearer ${token}` } : {},
-      })
-      if (!res.ok) throw new Error('下载失败')
-      const blob = await res.blob()
       const name = asset.originalName || asset.storageKey.split('/').pop() || `image-${asset.id}.png`
-      saveAs(blob, name)
+      if (asset.sourceUrl) {
+        saveAs(asset.sourceUrl, name)
+      } else {
+        const rawUrl = `${api.defaults.baseURL || 'http://127.0.0.1:8787'}/api/assets/${asset.id}/raw`
+        const res = await fetch(rawUrl, {
+          headers: token ? { authorization: `Bearer ${token}` } : {},
+        })
+        if (!res.ok) throw new Error('下载失败')
+        const blob = await res.blob()
+        saveAs(blob, name)
+      }
       Message.success('已开始下载图片')
     } catch {
       Message.error('下载图片失败')
@@ -165,10 +176,10 @@ export function ImageGalleryPage() {
 
   const currentPreviewAsset = previewIndex !== null ? filteredImages[previewIndex] : null
   const typeLabel = (asset: Asset) => {
-    const name = asset.originalName || asset.storageKey
-    if (name.includes('主图')) return '商品主图'
-    if (name.includes('详情') || name.includes('aplus')) return '详情图'
-    if (name.includes('复刻') || name.includes('爆款')) return '爆款复刻'
+    const category = asset.category || asset.originalName || asset.storageKey
+    if (/白底|场景|卖点|细节|主图/.test(category)) return '商品主图'
+    if (/详情|aplus/i.test(category)) return '详情图'
+    if (/复刻|爆款/.test(category)) return '爆款复刻'
     return '其他素材'
   }
 
@@ -313,7 +324,7 @@ export function ImageGalleryPage() {
                     onClick={() => setPreviewIndex(filteredImages.indexOf(asset))}
                   >
                     <img
-                      src={getImageRawUrl(asset.id)}
+                      src={getDisplayUrl(asset)}
                       alt={fileName}
                       loading="lazy"
                       className="h-full w-full object-contain p-1"
@@ -357,11 +368,14 @@ export function ImageGalleryPage() {
                     </p>
                     <div className="mt-1 flex items-center justify-between text-[11px] text-[#98A2B3]">
                       <span>{typeLabel(asset)}</span>
-                      <span>{formatBytes(asset.size)}</span>
+                      <span>{asset.ratio || formatBytes(asset.size)}</span>
                     </div>
-                    {asset.runId && (
-                      <p className="m-0 mt-0.5 truncate text-[11px] text-[#c0c4cc]" title={`任务批次: ${asset.runId}`}>
-                        批次 {asset.runId.slice(0, 8)}
+                    {(asset.runId || asset.jobId) && (
+                      <p
+                        className="m-0 mt-0.5 truncate text-[11px] text-[#c0c4cc]"
+                        title={`任务批次: ${asset.runId || asset.jobId}${asset.prompt ? `\n提示词: ${asset.prompt}` : ''}`}
+                      >
+                        批次 {(asset.runId || asset.jobId || '').slice(0, 8)}
                       </p>
                     )}
                   </div>
@@ -467,7 +481,7 @@ export function ImageGalleryPage() {
         <div className="max-h-[65vh] overflow-auto text-center">
           {currentPreviewAsset && (
             <img
-              src={getImageRawUrl(currentPreviewAsset.id)}
+              src={getDisplayUrl(currentPreviewAsset)}
               alt="原图预览"
               className="max-h-[60vh] max-w-full rounded object-contain"
             />

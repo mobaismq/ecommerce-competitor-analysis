@@ -59,6 +59,15 @@ export class GenerateImageDto {
   @IsOptional()
   @IsBoolean()
   watermark?: boolean
+
+  /** 新架构内部字段：生成结果落库时的原图位名称，便于结果回显分组 */
+  @IsOptional()
+  @IsString()
+  name?: string
+
+  @IsOptional()
+  @IsString()
+  slotType?: string
 }
 
 export class GenerateDetailWorkflowDto {
@@ -97,7 +106,12 @@ export class GenerateRetouchPromptDto {
 }
 
 export class ExtractImageTextDto {
+  // 新架构字段；同时兼容旧版 { image } 契约
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  imageUrl!: string
+  imageUrl?: string
+
+  @IsOptional()
+  @IsString()
+  image?: string
 }

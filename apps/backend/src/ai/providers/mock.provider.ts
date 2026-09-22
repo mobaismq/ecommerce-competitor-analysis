@@ -44,13 +44,12 @@ export class MockAiProvider implements AiProvider {
   }
 
   async generateImage(request: AiImageRequest): Promise<AiResult> {
-    const count = request.count ?? 1
-    const images = Array.from({ length: count }, (_, index) => `mock://generated/${index}.png`)
+    // 图像生成不能伪造 mock:// URL：无真实图像服务时返回空结果，由上层呈现诚实空态。
     return {
       status: 'success',
-      images,
+      images: [],
       model: this.model,
-      rawPayload: { kind: 'mock-image', prompt: request.prompt, size: request.size, referenceImageUrls: request.referenceImageUrls },
+      rawPayload: { kind: 'mock-image', fake: true, prompt: request.prompt, size: request.size, referenceImageUrls: request.referenceImageUrls },
       tokenIn: countTokens(request.prompt),
       tokenOut: 0,
       durationMs: 7,

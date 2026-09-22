@@ -38,17 +38,39 @@ export class DataAgentService {
       orderBy: { updatedAt: 'desc' },
       take: 100,
     })
+    const jobIds = [...new Set(runs.map((run) => run.jobId).filter(Boolean))]
+    const [collections, priceGroups] = await Promise.all([
+      jobIds.length ? this.prisma.collectionJob.findMany({ where: { jobId: { in: jobIds } } }) : Promise.resolve([]),
+      jobIds.length
+        ? this.prisma.productSnapshot.groupBy({
+            by: ['collectionJobId'],
+            where: { collectionJobId: { in: jobIds } },
+            _min: { price: true },
+            _max: { price: true },
+          })
+        : Promise.resolve([]),
+    ])
+    const collectionByJobId = new Map(collections.map((item) => [item.jobId, item]))
+    const priceByJobId = new Map(priceGroups.map((item) => [item.collectionJobId, item]))
     return {
-      datasets: runs.map((run) => ({
-        id: run.id,
-        jobId: run.jobId,
-        keyword: run.keyword ?? '',
-        title: run.reportNo ? `报告 ${run.reportNo}` : (run.keyword ? `竞品分析 - ${run.keyword}` : `分析任务 ${run.jobId}`),
-        status: run.status,
-        competitorCount: run.competitorCount ?? 0,
-        updatedAt: run.updatedAt,
-        description: `状态: ${run.status}，竞品数: ${run.competitorCount ?? 0}`,
-      })),
+      datasets: runs.map((run) => {
+        const collection = collectionByJobId.get(run.jobId)
+        const priceGroup = priceByJobId.get(run.jobId)
+        const min = priceGroup?._min.price
+        const max = priceGroup?._max.price
+        return {
+          id: run.id,
+          jobId: run.jobId,
+          keyword: run.keyword ?? '',
+          title: run.reportNo ? `报告 ${run.reportNo}` : (run.keyword ? `竞品分析 - ${run.keyword}` : `分析任务 ${run.jobId}`),
+          status: run.status,
+          competitorCount: run.competitorCount ?? 0,
+          priceRange: min != null && max != null ? `¥${min}-${max}` : '-',
+          collectTime: collection?.createdAt ?? collection?.updatedAt ?? run.createdAt,
+          updatedAt: run.updatedAt,
+          description: `状态: ${run.status}，竞品数: ${run.competitorCount ?? 0}`,
+        }
+      }),
     }
   }
 

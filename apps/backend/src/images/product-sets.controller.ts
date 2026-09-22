@@ -32,6 +32,8 @@ export class ProductSetsController {
       images: body.images,
       ratio: body.ratio,
       watermark: body.watermark,
+      name: body.name,
+      slotType: body.slotType,
       tenantId: request.user.tenantId,
     })
   }
@@ -58,7 +60,7 @@ export class ProductSetsController {
 
   @Post('extract-image-text')
   extractImageText(@Req() request: { user: { tenantId: string } }, @Body() body: ExtractImageTextDto) {
-    return this.service.extractImageText({ imageUrl: body.imageUrl, tenantId: request.user.tenantId })
+    return this.service.extractImageText({ imageUrl: body.imageUrl || body.image || '', tenantId: request.user.tenantId })
   }
 
   @Post('expand-prompts-stream')
@@ -84,8 +86,8 @@ export class ProductSetsController {
   }
 
   @Get('generated-images')
-  list(@Req() request: { user: { tenantId: string } }) {
-    return this.service.listGenerated(request.user.tenantId)
+  list(@Req() request: { user: { tenantId: string } }, @Query('jobId') jobId?: string) {
+    return this.service.listGenerated(request.user.tenantId, jobId)
   }
 
   @Delete('generated-images/:id')
@@ -94,7 +96,7 @@ export class ProductSetsController {
   }
 
   @Get('main-image-descriptions')
-  mainImageDescriptions(@Query('runId') runId: string) {
-    return this.service.mainImageDescriptions(runId)
+  mainImageDescriptions(@Req() request: { user: { tenantId: string } }, @Query('runId') runId: string) {
+    return this.service.mainImageDescriptions(runId, request.user.tenantId)
   }
 }

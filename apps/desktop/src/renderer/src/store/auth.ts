@@ -6,13 +6,13 @@ export interface AuthUser {
   tenantId: string
   username: string
   displayName?: string | null
+  phone?: string | null
+  email?: string | null
+  avatarUrl?: string | null
+  roles?: string[]
 }
 
-interface MePayload {
-  id: string
-  tenantId: string
-  username: string
-  displayName?: string | null
+interface MePayload extends AuthUser {
   departmentId?: string | null
   isSuper: boolean
   permissions: string[]
@@ -55,7 +55,18 @@ export const useAuth = create<AuthState>((set, get) => ({
     if (!get().token) return
     try {
       const { data } = await api.get<MePayload>('/api/auth/me')
-      set({ permissions: data.permissions, isSuper: data.isSuper })
+      const user: AuthUser = {
+        id: data.id,
+        tenantId: data.tenantId,
+        username: data.username,
+        displayName: data.displayName,
+        phone: data.phone,
+        email: data.email,
+        avatarUrl: data.avatarUrl,
+        roles: data.roles,
+      }
+      localStorage.setItem('eca.user', JSON.stringify(user))
+      set({ user, permissions: data.permissions, isSuper: data.isSuper })
     } catch {
       // 静默：拿到 me 前不根据权限收窄导航
     }

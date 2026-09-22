@@ -1,4 +1,5 @@
-import { Injectable, NotFoundException } from '@nestjs/common'
+import { randomUUID } from 'node:crypto'
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
 import { buildAttemptKey } from '../ai/ai.types'
 import { ProviderRouter } from '../ai/provider-router.service'
 import { PrismaService } from '../prisma.service'
@@ -66,6 +67,8 @@ export class ProductSetsService {
     images?: string[]
     ratio?: string
     watermark?: boolean
+    name?: string
+    slotType?: string
   }) {
     const attemptKey = buildAttemptKey({ jobId: input.jobId ?? 'product-sets', capability: 'image', suffix: 'generate' })
     const ai = await this.router.execute(
@@ -82,25 +85,40 @@ export class ProductSetsService {
     const urls = ai.images ?? []
     if (urls.length === 0) {
       // 无真实返回时诚实空态，不伪造 mock 占位图
-      return { ok: true, images: [], assetId: null }
+      return { ok: true, images: [], assetId: null, assetIds: [], jobId: input.jobId ?? null }
     }
-    const asset = await this.prisma.generatedAsset.create({
-      data: {
-        tenantId: input.tenantId,
-        jobId: input.jobId ?? null,
-        storageKey: `product-sets/${input.jobId ?? 'product-sets'}/image-0.png`,
-        mimeType: 'image/png',
-        size: 0,
-        sourceUrl: urls[0],
-      },
-    })
-    return { ok: true, images: urls.map((u) => ({ url: u, dataUrl: u })), assetId: asset.id }
+    const jobId = input.jobId ?? `product-sets-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    // 一批结果逐张登记，避免 count>1 时只落第一张；sourceUrl 保持供应商真实返回。
+    const assets = await Promise.all(
+      urls.map((url, index) =>
+        this.prisma.generatedAsset.create({
+          data: {
+            tenantId: input.tenantId,
+            jobId,
+            storageKey: `product-sets/${jobId}/image-${Date.now()}-${index}-${randomUUID().slice(0, 8)}.png`,
+            mimeType: url.startsWith('data:image/jpeg') ? 'image/jpeg' : 'image/png',
+            size: 0,
+            sourceUrl: url,
+            originalName: input.name ? `${input.name}${urls.length > 1 ? `-${index + 1}` : ''}` : undefined,
+            category: input.slotType,
+            prompt: input.prompt,
+            ratio: input.ratio,
+          },
+        }),
+      ),
+    )
+    return {
+      ok: true,
+      images: urls.map((u) => ({ url: u, dataUrl: u })),
+      assetIds: assets.map((asset) => asset.id),
+      jobId,
+    }
   }
 
-  async listGenerated(tenantId: string) {
+  async listGenerated(tenantId: string, jobId?: string) {
     const rows = await this.prisma.generatedAsset.findMany({
-      where: { tenantId },
-      orderBy: { createdAt: 'desc' },
+      where: { tenantId, ...(jobId ? { jobId } : {}) },
+      orderBy: [{ createdAt: 'desc' }, { storageKey: 'asc' }],
       take: 200,
     })
     return { ok: true, generatedImages: rows }
@@ -113,16 +131,37 @@ export class ProductSetsService {
     return { ok: true, id }
   }
 
-  async mainImageDescriptions(runId: string) {
+  async mainImageDescriptions(runId: string, tenantId?: string) {
     const run = await this.prisma.analysisRun.findFirst({
-      where: { OR: [{ id: runId }, { jobId: runId }, { reportNo: runId }] },
+      where: {
+        OR: [{ id: runId }, { jobId: runId }, { reportNo: runId }],
+        ...(tenantId ? { tenantId } : {}),
+      },
     })
-    const reportJson = (run?.reportJson ?? null) as { summary?: string; priceBands?: unknown[] } | null
+    const reportJson = (run?.reportJson ?? null) as {
+      summary?: string
+      sellingPoints?: Array<{ term?: string; count?: number }>
+      painPoints?: string[]
+      userDemands?: string[]
+      opportunities?: string[]
+    } | null
+    const sellingPoints = reportJson?.sellingPoints?.map((item) => String(item?.term ?? '').trim()).filter(Boolean) ?? []
+    const promptParts = [
+      reportJson?.summary,
+      sellingPoints.length ? `核心卖点：${sellingPoints.join('、')}` : '',
+      reportJson?.painPoints?.length ? `规避痛点：${reportJson.painPoints.join('、')}` : '',
+      reportJson?.userDemands?.length ? `满足需求：${reportJson.userDemands.join('、')}` : '',
+      reportJson?.opportunities?.length ? `机会方向：${reportJson.opportunities.join('、')}` : '',
+    ].filter(Boolean)
     return {
       ok: true,
       source: run ? 'ai' : 'none',
       summary: reportJson?.summary ?? null,
-      promptText: reportJson?.summary ?? '',
+      sellingPoints,
+      painPoints: reportJson?.painPoints ?? [],
+      userDemands: reportJson?.userDemands ?? [],
+      opportunities: reportJson?.opportunities ?? [],
+      promptText: promptParts.join('\n'),
     }
   }
 
@@ -165,6 +204,7 @@ export class ProductSetsService {
 
   /** OCR：提取图片文字（走视觉能力，Mock 下返回占位） */
   async extractImageText(input: { imageUrl: string; tenantId: string }) {
+    if (!input.imageUrl.trim()) throw new BadRequestException('imageUrl 不能为空')
     const attemptKey = buildAttemptKey({ jobId: 'product-sets', capability: 'vision', suffix: 'ocr' })
     const ai = await this.router.execute(
       'vision',

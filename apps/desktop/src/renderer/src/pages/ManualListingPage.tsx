@@ -86,7 +86,15 @@ const joinPath = (v: unknown): string | undefined =>
 interface CategoryNode {
   value: string
   label: string
+  isLeaf?: boolean
   children?: CategoryNode[]
+}
+
+interface PlatformCategory {
+  externalId: string
+  parentExternalId?: string | null
+  name: string
+  isParent?: boolean
 }
 
 const CATEGORY_OPTIONS: CategoryNode[] = [
@@ -381,6 +389,63 @@ export function ManualListingPage() {
     }
   }, [])
 
+  // 2. 按平台加载真实类目树；接口失败时回落本地树（对齐旧版容错策略）
+  const [categoryOptions, setCategoryOptions] = useState<CategoryNode[]>(CATEGORY_OPTIONS)
+  const [categoryLabelById, setCategoryLabelById] = useState<Record<string, string>>({})
+  const [loadingCategories, setLoadingCategories] = useState(false)
+
+  const toCategoryNodes = (rows: PlatformCategory[]): CategoryNode[] =>
+    rows.map((item) => ({
+      value: String(item.externalId || ''),
+      label: String(item.name || item.externalId || ''),
+      isLeaf: !item.isParent,
+    }))
+
+  const loadCategories = useCallback(async (platform: string, parentId = '0') => {
+    const code = PLATFORM_CODE[platform] ?? 'taobao'
+    const params = new URLSearchParams({ parentId })
+    const { data } = await api.get<PlatformCategory[]>(`/api/platform-adapters/${code}/categories?${params.toString()}`)
+    const rows = Array.isArray(data) ? data : []
+    const nodes = toCategoryNodes(rows)
+    setCategoryLabelById((current) => ({
+      ...current,
+      ...Object.fromEntries(nodes.map((node) => [node.value, node.label])),
+    }))
+    return nodes
+  }, [])
+
+  const loadRootCategories = useCallback(async (platform: string) => {
+    setLoadingCategories(true)
+    try {
+      const nodes = await loadCategories(platform, '0')
+      if (!nodes.length) throw new Error('empty categories')
+      setCategoryOptions(nodes)
+    } catch {
+      // 旧版行为：真实类目接口失败时回落本地树，不伪造“接口成功”
+      setCategoryOptions(CATEGORY_OPTIONS)
+      setCategoryLabelById({})
+      Message.warning('平台类目接口暂不可用，已回落本地类目树')
+    } finally {
+      setLoadingCategories(false)
+    }
+  }, [loadCategories])
+
+  const handleLoadMoreCategories = async (pathValue: string[]): Promise<CategoryNode[]> => {
+    const parentId = pathValue[pathValue.length - 1]
+    if (!parentId) return []
+    try {
+      return await loadCategories(currentPlatform, parentId)
+    } catch {
+      Message.error('子类目加载失败，请重试')
+      return []
+    }
+  }
+
+  const categoryPathFromValue = (value: unknown): string | undefined => {
+    if (!Array.isArray(value) || value.length === 0) return value as string | undefined
+    return value.map((id) => categoryLabelById[String(id)] ?? String(id)).join('/')
+  }
+
   // 2. 加载商品主档
   const loadMasterProducts = useCallback(async () => {
     try {
@@ -402,6 +467,11 @@ export function ManualListingPage() {
     void loadStores()
     void loadMasterProducts()
   }, [loadStores, loadMasterProducts])
+
+  useEffect(() => {
+    void loadRootCategories(currentPlatform)
+    form.setFieldValue('categoryPath', undefined)
+  }, [currentPlatform, loadRootCategories, form])
 
   // 处理从主档或其他页面传入的 state 参数
   useEffect(() => {
@@ -521,35 +591,53 @@ export function ManualListingPage() {
     })
   }
 
+  const buildListingPayload = async () => {
+    const values = await form.validate()
+    return {
+      platform: currentPlatform,
+      storeId: values.storeId,
+      title: values.title,
+      subTitle: values.subTitle,
+      categoryPath: categoryPathFromValue(values.categoryPath),
+      categoryId: Array.isArray(values.categoryPath) ? values.categoryPath[values.categoryPath.length - 1] : undefined,
+      brand: values.brand,
+      origin: joinPath(values.shippingOrigin),
+      freightTemplate: values.freightTemplate,
+      skus,
+      mainImages: mainImages.map((img) => img.url),
+      detailContent: values.detailContent,
+      originPlace: values.originPlace,
+      warranty: values.warranty,
+      shippingTime: values.shippingTime,
+      serviceGuarantees: values.serviceGuarantees,
+    }
+  }
+
+  // 保存服务端草稿（新架构落 ListingDraft，替代旧版本地 mockDrafts）
+  const handleSaveDraft = async () => {
+    try {
+      const payload = await buildListingPayload()
+      const platformCode = PLATFORM_CODE[currentPlatform] ?? 'taobao'
+      const { data } = await api.post<{ draftId?: string }>(`/api/platform-adapters/${platformCode}/draft`, payload)
+      Message.success(`草稿已保存${data?.draftId ? `（${data.draftId}）` : ''}`)
+    } catch (error: unknown) {
+      const msg = (error as { response?: { data?: { message?: string } } })?.response?.data?.message
+      Message.error(msg ?? '草稿保存失败，请检查必填项')
+    }
+  }
+
   // 最终提交发布
   const handleSubmitPublish = async () => {
-    const values = await form.validate()
     setSubmitting(true)
     try {
-      const payload = {
-        platform: currentPlatform,
-        storeId: values.storeId,
-        title: values.title,
-        subTitle: values.subTitle,
-        categoryPath: joinPath(values.categoryPath),
-        brand: values.brand,
-        origin: joinPath(values.shippingOrigin),
-        freightTemplate: values.freightTemplate,
-        skus,
-        mainImages: mainImages.map((img) => img.url),
-        detailContent: values.detailContent,
-        originPlace: values.originPlace,
-        warranty: values.warranty,
-        shippingTime: values.shippingTime,
-        serviceGuarantees: values.serviceGuarantees,
-      }
+      const payload = await buildListingPayload()
       const platformCode = PLATFORM_CODE[currentPlatform] ?? 'taobao'
 
       const res = await api.post(`/api/platform-adapters/${platformCode}/publish`, payload)
       Message.success(`商品已成功发布至「${currentPlatform}」！`)
       Modal.success({
         title: '发布成功',
-        content: `商品「${values.title}」已成功提交至${currentPlatform}，已生成平台草稿或上架记录。`,
+        content: `商品「${payload.title}」已成功提交至${currentPlatform}，已生成平台草稿或上架记录。`,
       })
     } catch (error: unknown) {
       // 发布失败：诚实报错，不伪造「演示环境建档成功」
@@ -724,7 +812,7 @@ export function ManualListingPage() {
         </div>
 
         <Space>
-          <Button icon={<IconSave />}>保存为本地草稿</Button>
+          <Button icon={<IconSave />} onClick={() => void handleSaveDraft()}>保存为草稿</Button>
           <Button
             type="primary"
             status="success"
@@ -801,7 +889,13 @@ export function ManualListingPage() {
                   </Col>
                   <Col span={12}>
                     <Form.Item label="平台标准类目" field="categoryPath" rules={[{ required: true, message: '请选择类目' }]}>
-                      <Cascader options={CATEGORY_OPTIONS} placeholder="请逐级选择所属电商叶子类目" allowClear />
+                      <Cascader
+                          options={categoryOptions}
+                          placeholder="请逐级选择所属电商叶子类目"
+                          allowClear
+                          loading={loadingCategories}
+                          loadMore={handleLoadMoreCategories}
+                        />
                     </Form.Item>
                   </Col>
                 </Row>

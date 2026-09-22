@@ -53,16 +53,16 @@ export function ViralReplicationPage() {
     reader.readAsDataURL(file)
   }
 
-  // 上传参考图：多选追加，最多 20 张
+  // 上传参考图：多选追加，最多 4 张（对齐图生图接口 input_references 上限）
   const handleRefImagesUpload = (files: FileList | null) => {
     const list = Array.from(files || [])
     if (!list.length) return
-    const slots = 20 - referenceImages.length
+    const slots = 4 - referenceImages.length
     list.slice(0, slots).forEach((file) => {
       const reader = new FileReader()
       reader.onload = (e) => {
         if (e.target?.result) {
-          setReferenceImages((prev) => (prev.length >= 20 ? prev : [...prev, e.target!.result as string]))
+          setReferenceImages((prev) => (prev.length >= 4 ? prev : [...prev, e.target!.result as string]))
         }
       }
       reader.readAsDataURL(file)
@@ -207,7 +207,7 @@ export function ViralReplicationPage() {
                 <Upload className="h-4 w-4" />
                 上传参考图
               </button>
-              <p className="m-0 text-[12px] text-[#8B949E]">最多20张</p>
+              <p className="m-0 text-[12px] text-[#8B949E]">最多4张</p>
             </div>
           </div>
         </div>

@@ -8,12 +8,14 @@ export function AccountInfoPage() {
 
   const rows = [
     { label: '账号名称', value: user?.username ?? '-', action: null },
+    { label: '用户昵称', value: user?.displayName ?? '-', action: null },
     {
       label: '绑定手机号',
-      // 桌面端数据契约无手机号字段：宁可显示占位也不伪造（旧版为 mock「136******46」）
-      value: (user as { phone?: string } | null)?.phone ?? '-',
+      value: user?.phone ?? '-',
       action: { text: '修改手机号', target: '/settings/change-phone' },
     },
+    { label: '绑定邮箱', value: user?.email ?? '-', action: null },
+    { label: '用户角色', value: user?.roles?.length ? user.roles.join('、') : '-', action: null },
     {
       label: '登录密码',
       value: '••••••••',

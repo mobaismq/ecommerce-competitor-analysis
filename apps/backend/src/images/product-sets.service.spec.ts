@@ -48,17 +48,42 @@ describe('ProductSetsService.generateImage（诚实空态 + 参考图透传）',
     )
   })
 
-  it('有真实返回时登记 GeneratedAsset 并返回图片', async () => {
+  it('有真实返回时逐张登记 GeneratedAsset 并返回图片与批次', async () => {
     const router = { execute: jest.fn().mockResolvedValue({ images: ['https://cdn/1.png', 'data:image/png;base64,QUJD'], model: 'm', durationMs: 1 }) }
-    const prisma = { generatedAsset: { create: jest.fn().mockResolvedValue({ id: 'asset-1' }) } }
+    const prisma = {
+      generatedAsset: {
+        create: jest.fn()
+          .mockResolvedValueOnce({ id: 'asset-1' })
+          .mockResolvedValueOnce({ id: 'asset-2' }),
+      },
+    }
     const service = makeService(router, prisma)
 
-    const res = await service.generateImage({ prompt: 'p', tenantId: 't' })
-    expect(prisma.generatedAsset.create).toHaveBeenCalled()
+    const res = await service.generateImage({
+      prompt: 'p',
+      tenantId: 't',
+      jobId: 'job-1',
+      name: '01 白底图',
+      slotType: '白底图',
+      ratio: '3:4',
+    })
+    expect(prisma.generatedAsset.create).toHaveBeenCalledTimes(2)
+    expect(prisma.generatedAsset.create).toHaveBeenNthCalledWith(1, {
+      data: expect.objectContaining({
+        tenantId: 't',
+        jobId: 'job-1',
+        sourceUrl: 'https://cdn/1.png',
+        originalName: '01 白底图-1',
+        category: '白底图',
+        prompt: 'p',
+        ratio: '3:4',
+      }),
+    })
     expect(res.images).toEqual([
       { url: 'https://cdn/1.png', dataUrl: 'https://cdn/1.png' },
       { url: 'data:image/png;base64,QUJD', dataUrl: 'data:image/png;base64,QUJD' },
     ])
-    expect(res.assetId).toBe('asset-1')
+    expect(res.assetIds).toEqual(['asset-1', 'asset-2'])
+    expect(res.jobId).toBe('job-1')
   })
 })

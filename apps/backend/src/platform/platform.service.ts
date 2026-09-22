@@ -118,6 +118,30 @@ export class PlatformAdapterService {
     }
   }
 
+  async saveListingDraft(tenantId: string, platformCode: string, dto: PublishListingDto) {
+    const adapter = this.getAdapter(platformCode)
+    const contentJson: Prisma.InputJsonValue = {
+      storeId: dto.storeId,
+      categoryId: dto.categoryId,
+      categoryPath: dto.categoryPath,
+      price: dto.price ? Number(dto.price) : undefined,
+      skus: (dto.skus ?? []) as unknown as Prisma.InputJsonValue,
+      mainImages: dto.mainImages ?? [],
+      ...(dto.contentJson ?? {}),
+    }
+    const draft = await this.prisma.listingDraft.create({
+      data: {
+        tenantId,
+        jobId: `manual-draft-${randomUUID().slice(0, 8)}`,
+        title: dto.title,
+        platformId: platformCode,
+        contentJson,
+        status: 'draft',
+      },
+    })
+    return { ok: true, draftId: draft.id, platform: adapter.code, title: draft.title, status: draft.status }
+  }
+
   async publishListing(tenantId: string, platformCode: string, dto: PublishListingDto) {
     assertRequiredFields(platformCode, dto)
     const adapter = this.getAdapter(platformCode)

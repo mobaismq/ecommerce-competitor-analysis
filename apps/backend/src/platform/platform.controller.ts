@@ -52,6 +52,15 @@ export class PlatformAdapterController {
     return this.platformAdapterService.getStatus(code)
   }
 
+  @Post(':code/draft')
+  saveDraft(
+    @Req() request: { user: { tenantId: string } },
+    @Param('code') code: string,
+    @Body() body: PublishListingDto,
+  ) {
+    return this.platformAdapterService.saveListingDraft(request.user.tenantId, code, body)
+  }
+
   @Post(':code/publish')
   publish(
     @Req() request: { user: { tenantId: string } },

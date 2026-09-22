@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { Check, ChevronDown, ChevronUp, Download, Eye, Loader2, Plus, Sparkles, Trash2, Upload, X } from 'lucide-react'
-import { Button, Message, Select } from '@arco-design/web-react'
+import { Button, Input, Message, Modal, Select } from '@arco-design/web-react'
 import { api } from '../api/client'
 import { saveAs } from 'file-saver'
 import { nanoid } from 'nanoid'
@@ -57,6 +57,15 @@ interface UploadedProductImage {
   url: string
 }
 
+interface ModuleActionPanel {
+  mode: 'text' | 'retouch'
+  moduleId: string
+  title: string
+  text: string
+  direction: string
+  loading: boolean
+}
+
 export function APlusDetailPage() {
   // 上传商品原图（对照旧版：uploadedImages，生成入口依赖它）
   const fileInputRef = useRef<HTMLInputElement | null>(null)
@@ -86,7 +95,9 @@ export function APlusDetailPage() {
   const [batchGenerating, setBatchGenerating] = useState(false)
   const [strategyStatus, setStrategyStatus] = useState<'idle' | 'generating' | 'ready' | 'error'>('idle')
   const [previewModalUrl, setPreviewModalUrl] = useState<string | null>(null)
+  const [composingLongImage, setComposingLongImage] = useState(false)
   const [selectedImageIds, setSelectedImageIds] = useState<string[]>([])
+  const [actionPanel, setActionPanel] = useState<ModuleActionPanel | null>(null)
 
   const checkedModules = MODULES.filter((m) => checked.includes(m.title))
   const strategyModuleCount = checkedModules.length
@@ -299,6 +310,87 @@ export function APlusDetailPage() {
     }
   }
 
+  const generateModuleWithPrompt = async (instanceId: string, prompt: string, referenceImages: string[]) => {
+    const target = selectedModules.find((item) => item.instanceId === instanceId)
+    if (!target) return
+    setActionPanel(null)
+    setSelectedModules((prev) =>
+      prev.map((item) => (item.instanceId === instanceId ? { ...item, status: 'generating', error: undefined } : item)),
+    )
+    try {
+      const { data } = await api.post<{ images?: Array<{ url?: string; dataUrl?: string }> }>('/api/product-sets/generate-image', {
+        prompt,
+        size: '2K',
+        name: target.title,
+        slotType: target.title,
+        image: referenceImages[0],
+        images: referenceImages.slice(0, 4),
+        ratio: settings.ratio,
+      })
+      const generatedUrl = data?.images?.[0]?.url || data?.images?.[0]?.dataUrl
+      if (!generatedUrl) throw new Error('当前未接入真实图像服务，未返回可展示图片')
+      setSelectedModules((prev) =>
+        prev.map((item) => (item.instanceId === instanceId ? { ...item, status: 'done', imageUrl: generatedUrl } : item)),
+      )
+      Message.success('图片处理完成')
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      setSelectedModules((prev) =>
+        prev.map((item) => (item.instanceId === instanceId ? { ...item, status: 'failed', error: message } : item)),
+      )
+      Message.error(message)
+    }
+  }
+
+  const openTextEditor = async (moduleId: string) => {
+    const target = selectedModules.find((item) => item.instanceId === moduleId)
+    if (!target?.imageUrl) {
+      Message.warning('请先生成图片，再编辑文字')
+      return
+    }
+    setActionPanel({ mode: 'text', moduleId, title: target.title, text: '', direction: '', loading: true })
+    try {
+      const { data } = await api.post<{ text?: string }>('/api/product-sets/extract-image-text', { image: target.imageUrl })
+      setActionPanel((prev) => (prev ? { ...prev, text: data?.text ?? '', loading: false } : prev))
+    } catch (err) {
+      setActionPanel(null)
+      Message.error(err instanceof Error ? err.message : '读取图片文字失败')
+    }
+  }
+
+  const runTextEditor = async () => {
+    if (!actionPanel?.text.trim()) return
+    const target = selectedModules.find((item) => item.instanceId === actionPanel.moduleId)
+    if (!target?.imageUrl) return
+    await generateModuleWithPrompt(
+      actionPanel.moduleId,
+      `保留详情图版式和商品主体，仅更新图片文字内容。新文字：${actionPanel.text.trim()}`,
+      [target.imageUrl],
+    )
+  }
+
+  const runRetouchEditor = async () => {
+    if (!actionPanel?.direction.trim()) return
+    const target = selectedModules.find((item) => item.instanceId === actionPanel.moduleId)
+    if (!target?.imageUrl) return
+    setActionPanel((prev) => (prev ? { ...prev, loading: true } : prev))
+    try {
+      const { data } = await api.post<{ prompt?: string }>('/api/product-sets/generate-retouch-prompt', {
+        settings,
+        slot: { id: target.instanceId, name: target.title, type: target.title },
+        originalPrompt: target.prompt,
+        userDirection: actionPanel.direction.trim(),
+      })
+      const retouchPrompt = data?.prompt?.trim()
+      if (!retouchPrompt) throw new Error('AI改图提示词为空，请重试')
+      await generateModuleWithPrompt(actionPanel.moduleId, retouchPrompt, [target.imageUrl])
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      setActionPanel((prev) => (prev ? { ...prev, loading: false } : prev))
+      Message.error(message)
+    }
+  }
+
   const handleBatchGenerateAll = async () => {
     setBatchGenerating(true)
     for (const mod of selectedModules) {
@@ -311,6 +403,49 @@ export function APlusDetailPage() {
   const handleDownloadImage = (url: string, filename = 'detail-image.png') => {
     saveAs(url, filename)
     Message.success('已下载')
+  }
+
+  const loadImage = (url: string) =>
+    new Promise<HTMLImageElement>((resolve, reject) => {
+      const image = new Image()
+      image.crossOrigin = 'anonymous'
+      image.onload = () => resolve(image)
+      image.onerror = () => reject(new Error('详情切片图加载失败，无法合成长图'))
+      image.src = url
+    })
+
+  // 真实长图合成：按当前模块顺序等比拼接已生成切片，不再把第一张切片伪装成长图。
+  const buildDetailLongImage = async () => {
+    const done = strategyModules.filter((item) => item.imageUrl)
+    if (!done.length) throw new Error('请先生成详情切片图')
+    const images = await Promise.all(done.map((item) => loadImage(item.imageUrl!)))
+    const width = Math.max(800, ...images.map((image) => image.naturalWidth || image.width))
+    const heights = images.map((image) => Math.round(((image.naturalHeight || image.height) / (image.naturalWidth || image.width)) * width))
+    const canvas = document.createElement('canvas')
+    canvas.width = width
+    canvas.height = heights.reduce((sum, height) => sum + height, 0)
+    const context = canvas.getContext('2d')
+    if (!context) throw new Error('当前环境不支持长图合成')
+    context.fillStyle = '#ffffff'
+    context.fillRect(0, 0, canvas.width, canvas.height)
+    let y = 0
+    images.forEach((image, index) => {
+      context.drawImage(image, 0, y, width, heights[index])
+      y += heights[index]
+    })
+    return canvas.toDataURL('image/png')
+  }
+
+  const handlePreviewLongImage = async () => {
+    setComposingLongImage(true)
+    try {
+      const dataUrl = await buildDetailLongImage()
+      setPreviewModalUrl(dataUrl)
+    } catch (err) {
+      Message.error(err instanceof Error ? err.message : '长图合成失败')
+    } finally {
+      setComposingLongImage(false)
+    }
   }
 
   const strategyModules = orderedTitles.length
@@ -668,13 +803,11 @@ export function APlusDetailPage() {
                       </button>
                       <button
                         type="button"
-                        onClick={() => {
-                          const first = selectedModules.find((m) => m.imageUrl)
-                          if (first?.imageUrl) setPreviewModalUrl(first.imageUrl)
-                        }}
-                        disabled={!selectedModules.some((m) => m.imageUrl)}
+                        onClick={() => void handlePreviewLongImage()}
+                        disabled={!strategyModules.some((m) => m.imageUrl) || composingLongImage}
                         className="flex h-9 items-center gap-2 rounded-[10px] bg-white px-4 text-[13px] font-semibold text-[#171A1D] shadow-[0_1px_0_rgba(15,23,41,.06)] transition-colors hover:bg-[#F5F6F8] disabled:cursor-not-allowed disabled:text-[#A0A7B2]"
                       >
+                        {composingLongImage ? <Loader2 className="h-4 w-4 animate-spin" /> : <Eye className="h-4 w-4" />}
                         预览长图
                       </button>
                       {selectedImageIds.length > 0 && (
@@ -743,14 +876,28 @@ export function APlusDetailPage() {
                         </div>
                         <div className="space-y-2 p-3.5 pt-0">
                           <p className="m-0 line-clamp-2 text-[11px] leading-4 text-[#86909C]">{mod.prompt}</p>
-                          <div className="flex items-center justify-between border-t border-[#f0f2f5] pt-2">
+                          <div className="flex flex-wrap gap-1 border-t border-[#f0f2f5] pt-2">
                             <Button size="mini" type="text" loading={mod.status === 'generating'} onClick={() => generateSingleModuleImage(mod.instanceId)}>
                               单独渲染
                             </Button>
                             {mod.imageUrl && (
-                              <Button size="mini" type="text" icon={<Download className="h-3 w-3" />} onClick={() => handleDownloadImage(mod.imageUrl!, `${index + 1}_${mod.title}.png`)}>
-                                下载
-                              </Button>
+                              <>
+                                <Button size="mini" type="text" onClick={() => void openTextEditor(mod.instanceId)}>
+                                  编辑文字
+                                </Button>
+                                <Button
+                                  size="mini"
+                                  type="text"
+                                  onClick={() =>
+                                    setActionPanel({ mode: 'retouch', moduleId: mod.instanceId, title: mod.title, text: '', direction: '', loading: false })
+                                  }
+                                >
+                                  AI改图
+                                </Button>
+                                <Button size="mini" type="text" icon={<Download className="h-3 w-3" />} onClick={() => handleDownloadImage(mod.imageUrl!, `${index + 1}_${mod.title}.png`)}>
+                                  下载
+                                </Button>
+                              </>
                             )}
                           </div>
                         </div>
@@ -809,11 +956,51 @@ export function APlusDetailPage() {
         ?
       </button>
 
+      <Modal
+        title={actionPanel?.mode === 'text' ? `编辑文字 · ${actionPanel?.title ?? ''}` : `AI改图 · ${actionPanel?.title ?? ''}`}
+        visible={Boolean(actionPanel)}
+        onCancel={() => setActionPanel(null)}
+        onOk={() => void (actionPanel?.mode === 'text' ? runTextEditor() : runRetouchEditor())}
+        confirmLoading={actionPanel?.loading}
+        okButtonProps={{ disabled: !actionPanel || (actionPanel.mode === 'text' ? !actionPanel.text.trim() : !actionPanel.direction.trim()) }}
+      >
+        {actionPanel?.mode === 'text' ? (
+          <Input.TextArea
+            value={actionPanel.text}
+            onChange={(value) => setActionPanel((prev) => (prev ? { ...prev, text: value } : prev))}
+            rows={5}
+            placeholder="输入替换后的详情图文字"
+          />
+        ) : (
+          <Input.TextArea
+            value={actionPanel?.direction ?? ''}
+            onChange={(value) => setActionPanel((prev) => (prev ? { ...prev, direction: value } : prev))}
+            rows={5}
+            placeholder="描述需要调整的画面、背景、文字或风格"
+          />
+        )}
+      </Modal>
+
       {/* 大图预览 */}
       {previewModalUrl && (
         <div className="fixed inset-0 z-[80] grid place-items-center bg-black/70" onClick={() => setPreviewModalUrl(null)}>
           <div className="relative max-h-[88vh] max-w-[88vw]" onClick={(e) => e.stopPropagation()}>
-            <img src={previewModalUrl} alt="预览" className="max-h-[88vh] max-w-[88vw] rounded-lg object-contain" />
+            <div className="flex max-h-[88vh] max-w-[88vw] flex-col items-end gap-2">
+              <img src={previewModalUrl} alt="预览" className="max-h-[82vh] max-w-[88vw] rounded-lg object-contain" />
+              <div className="flex items-center gap-2">
+                <Button
+                  type="primary"
+                  size="small"
+                  icon={<Download className="h-3.5 w-3.5" />}
+                  onClick={() => handleDownloadImage(previewModalUrl, 'detail-long-image.png')}
+                >
+                  下载长图
+                </Button>
+                <Button size="small" onClick={() => setPreviewModalUrl(null)}>
+                  关闭
+                </Button>
+              </div>
+            </div>
             <button
               type="button"
               onClick={() => setPreviewModalUrl(null)}

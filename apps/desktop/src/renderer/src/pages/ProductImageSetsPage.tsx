@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Button,
   Card,
@@ -85,6 +85,15 @@ interface GenerationSlot {
   error?: string
 }
 
+interface SlotActionPanel {
+  mode: 'text' | 'retouch' | 'resize'
+  slotId: string
+  title: string
+  text: string
+  direction: string
+  loading: boolean
+}
+
 export function ProductImageSetsPage() {
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
@@ -105,6 +114,8 @@ export function ProductImageSetsPage() {
 
   // 4. 商品卖点 & AI帮写
   const [generationText, setGenerationText] = useState('')
+  const [reportSellingPoints, setReportSellingPoints] = useState<string[]>([])
+  const [loadingDescriptions, setLoadingDescriptions] = useState(false)
   const [aiHelpOpen, setAiHelpOpen] = useState(false)
   const [expandingPrompts, setExpandingPrompts] = useState(false)
   const [aiHelpThinking, setAiHelpThinking] = useState('')
@@ -129,6 +140,8 @@ export function ProductImageSetsPage() {
   const [slots, setSlots] = useState<GenerationSlot[]>([])
   const [resultViewActive, setResultViewActive] = useState(false)
   const [generating, setGenerating] = useState(false)
+  const [generationJobId, setGenerationJobId] = useState('')
+  const [actionPanel, setActionPanel] = useState<SlotActionPanel | null>(null)
 
   // 计算当前总张数
   const totalImageCount = useMemo(() => {
@@ -183,6 +196,70 @@ export function ProductImageSetsPage() {
     )
     Message.info('已设为主视角商品图')
   }
+
+  // 选择 AI 报告后回读主图描述，自动填充生图卖点（对齐旧版报告联动）
+  useEffect(() => {
+    if (!selectedReportId) {
+      setReportSellingPoints([])
+      return
+    }
+    let cancelled = false
+    setLoadingDescriptions(true)
+    api
+      .get<{ ok?: boolean; promptText?: string; sellingPoints?: string[] }>(
+        `/api/product-sets/main-image-descriptions?runId=${encodeURIComponent(selectedReportId)}`,
+      )
+      .then(({ data }) => {
+        if (cancelled) return
+        setReportSellingPoints(data?.sellingPoints ?? [])
+        if (data?.promptText?.trim()) setGenerationText(data.promptText.trim())
+      })
+      .catch(() => {
+        if (!cancelled) setReportSellingPoints([])
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingDescriptions(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [selectedReportId])
+
+  // 刷新后按最近一次生成批次回显真实结果，不再依赖本地 state
+  useEffect(() => {
+    const latestJobId = localStorage.getItem('eca.productImageSets.latestJobId')
+    if (!latestJobId) return
+    let cancelled = false
+    api
+      .get<{ generatedImages?: Array<{ id: string; sourceUrl?: string | null; originalName?: string | null; category?: string | null; prompt?: string | null }> }>(
+        `/api/product-sets/generated-images?jobId=${encodeURIComponent(latestJobId)}`,
+      )
+      .then(({ data }) => {
+        if (cancelled) return
+        const rows = [...(data?.generatedImages ?? [])].sort((a, b) =>
+          String(a.originalName || '').localeCompare(String(b.originalName || ''), 'zh-Hans-CN', { numeric: true }),
+        )
+        if (!rows.length) return
+        setGenerationJobId(latestJobId)
+        setSlots(
+          rows.map((row, index) => ({
+            id: row.id,
+            slotIndex: index + 1,
+            typeKey: (SUITE_TYPES.find((item) => item.label === row.category)?.key ?? 'white') as SuiteTypeKey,
+            name: row.originalName || `图${index + 1}`,
+            type: row.category || '生成图片',
+            prompt: row.prompt || '',
+            imageUrl: row.sourceUrl || undefined,
+            status: 'done' as const,
+          })),
+        )
+        setResultViewActive(true)
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   // 触发 AI 帮写 (流式 SSE)
   const handleAiHelp = async () => {
@@ -283,7 +360,7 @@ export function ProductImageSetsPage() {
     })
   }
 
-  // 一键全套生成
+  // 一键全套生成：先 AI 策划每个图位提示词，再按图位图生图
   const handleGenerateAll = async () => {
     if (uploadedImages.length === 0) {
       Message.warning('请先上传商品原图')
@@ -291,69 +368,102 @@ export function ProductImageSetsPage() {
     }
     setGenerating(true)
     setResultViewActive(true)
+    setError('')
 
     // 构建图位
     const newSlots: GenerationSlot[] = []
     let slotIdx = 1
-
     if (mode === '智能匹配') {
       SUITE_TYPES.forEach((st) => {
         newSlots.push({
-          id: `slot-${slotIdx}`,
+          id: `slot-${nanoid(8)}`,
           slotIndex: slotIdx++,
           typeKey: st.key,
-          name: `图${st.key === 'white' ? '1' : slotIdx - 1} · ${st.label}`,
+          name: `${String(slotIdx - 1).padStart(2, '0')} ${st.label}`,
           type: st.label,
-          prompt: `专业电商产品摄影，${st.desc}，展现${generationText.slice(0, 30)}，4K超高清画质，柔和光影，${settings.ratio}构图。`,
+          prompt: '',
           status: 'generating',
         })
       })
     } else {
       SUITE_TYPES.forEach((st) => {
         const count = customCounts[st.key]
-        for (let i = 0; i < count; i++) {
+        for (let i = 0; i < count; i += 1) {
           newSlots.push({
-            id: `slot-${slotIdx}`,
+            id: `slot-${nanoid(8)}`,
             slotIndex: slotIdx++,
             typeKey: st.key,
-            name: `${st.label} ${count > 1 ? `#${i + 1}` : ''}`,
+            name: `${String(slotIdx - 1).padStart(2, '0')} ${st.label}${count > 1 ? ` #${i + 1}` : ''}`,
             type: st.label,
-            prompt: `专业电商产品摄影，${st.desc}，针对卖点：${generationText.slice(0, 30)}，高质感，${settings.ratio}构图。`,
+            prompt: '',
             status: 'generating',
           })
         }
       })
     }
-
     setSlots(newSlots)
 
-    // 按序并发调用生图
-    let failedCount = 0
-    for (const slot of newSlots) {
-      try {
-        const res = await api.post<{ images?: Array<{ url: string }>; url?: string }>('/api/product-sets/generate-image', {
-          prompt: slot.prompt,
-          size: '2K',
-          slotType: slot.typeKey,
-          image: uploadedImages.find((i) => i.isMain)?.url || uploadedImages[0]?.url,
-          images: uploadedImages.map((i) => i.url),
-          ratio: settings.ratio,
-        })
-        const imgUrl = res.data?.images?.[0]?.url || res.data?.url
-        if (!imgUrl) throw new Error('生成成功但没有返回图片 URL')
-        setSlots((prev) => prev.map((s) => (s.id === slot.id ? { ...s, status: 'done', imageUrl: imgUrl } : s)))
-      } catch (err) {
-        failedCount += 1
-        const message = err instanceof Error ? err.message : String(err)
-        setSlots((prev) =>
-          prev.map((s) => (s.id === slot.id ? { ...s, status: 'failed', error: message } : s)),
-        )
+    try {
+      const reportText = [
+        selectedReport ? `已选择AI报告：${selectedReport.label || selectedReport.keyword || ''}` : '',
+        reportSellingPoints.length ? `报告主图卖点：${reportSellingPoints.join('、')}` : '',
+      ].filter(Boolean).join('\n')
+      const { data: promptData } = await api.post<{ ok?: boolean; prompts?: Array<{ id?: string; prompt?: string }> }>(
+        '/api/product-sets/generate-prompts',
+        {
+          settings,
+          baseText: generationText,
+          reportText,
+          information: generationText.trim() || '以用户上传商品原图中可见信息为准',
+          promptSlots: newSlots.map((slot, index) => ({
+            id: slot.id,
+            name: slot.name,
+            type: slot.type,
+            typeKey: slot.typeKey,
+            sequence: index + 1,
+          })),
+        },
+      )
+      const promptMap = new Map((promptData?.prompts ?? []).map((item) => [item.id, item.prompt ?? '']))
+      const preparedSlots = newSlots.map((slot) => ({ ...slot, prompt: promptMap.get(slot.id) ?? '' }))
+      if (preparedSlots.some((slot) => !slot.prompt.trim())) {
+        throw new Error('生成主图提示词不完整，请重试。')
       }
-    }
+      setSlots(preparedSlots)
 
-    setGenerating(false)
-    if (failedCount) {
-      setError(`${failedCount} 张图片生成失败，其余图片已保留在右侧。`)
+      const jobId = `product-sets-${nanoid(12)}`
+      setGenerationJobId(jobId)
+      localStorage.setItem('eca.productImageSets.latestJobId', jobId)
+
+      let failedCount = 0
+      for (const slot of preparedSlots) {
+        try {
+          const res = await api.post<{ images?: Array<{ url: string }>; url?: string }>('/api/product-sets/generate-image', {
+            prompt: slot.prompt,
+            size: '2K',
+            jobId,
+            name: slot.name,
+            slotType: slot.type,
+            image: uploadedImages.find((i) => i.isMain)?.url || uploadedImages[0]?.url,
+            images: uploadedImages.map((i) => i.url),
+            ratio: settings.ratio,
+          })
+          const imgUrl = res.data?.images?.[0]?.url || res.data?.url
+          if (!imgUrl) throw new Error('当前未接入真实图像服务，未返回可展示图片')
+          setSlots((prev) => prev.map((s) => (s.id === slot.id ? { ...s, status: 'done', imageUrl: imgUrl } : s)))
+        } catch (err) {
+          failedCount += 1
+          const message = err instanceof Error ? err.message : String(err)
+          setSlots((prev) => prev.map((s) => (s.id === slot.id ? { ...s, status: 'failed', error: message } : s)))
+        }
+      }
+      if (failedCount) setError(`${failedCount} 张图片生成失败，其余图片已保留在右侧。`)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      setError(message)
+      setSlots((prev) => prev.map((slot) => ({ ...slot, status: 'failed', error: message })))
+    } finally {
+      setGenerating(false)
     }
   }
 
@@ -365,7 +475,9 @@ export function ProductImageSetsPage() {
       const res = await api.post<{ images?: Array<{ url: string }>; url?: string }>('/api/product-sets/generate-image', {
         prompt: slot?.prompt || '电商高清主图',
         size: '2K',
-        slotType: slot?.typeKey,
+        jobId: generationJobId || `product-sets-${nanoid(12)}`,
+        name: slot?.name,
+        slotType: slot?.type,
         image: uploadedImages.find((i) => i.isMain)?.url || uploadedImages[0]?.url,
         images: uploadedImages.map((i) => i.url),
         ratio: settings.ratio,
@@ -378,6 +490,93 @@ export function ProductImageSetsPage() {
       setSlots((prev) => prev.map((s) => (s.id === slotId ? { ...s, status: 'failed', error: message } : s)))
       setError(message)
     }
+  }
+
+  const generateSlotWithPrompt = async (slotId: string, prompt: string, referenceImages: string[]) => {
+    const slot = slots.find((item) => item.id === slotId)
+    if (!slot) return
+    setActionPanel(null)
+    setSlots((prev) => prev.map((item) => (item.id === slotId ? { ...item, status: 'generating', error: undefined } : item)))
+    try {
+      const { data } = await api.post<{ images?: Array<{ url: string }> }>('/api/product-sets/generate-image', {
+        prompt,
+        size: '2K',
+        jobId: generationJobId || `product-sets-${nanoid(12)}`,
+        name: slot.name,
+        slotType: slot.type,
+        image: referenceImages[0],
+        images: referenceImages.slice(0, 4),
+        ratio: settings.ratio,
+      })
+      const url = data?.images?.[0]?.url
+      if (!url) throw new Error('当前未接入真实图像服务，未返回可展示图片')
+      setSlots((prev) => prev.map((item) => (item.id === slotId ? { ...item, status: 'done', imageUrl: url } : item)))
+      Message.success('图片处理完成')
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      setSlots((prev) => prev.map((item) => (item.id === slotId ? { ...item, status: 'failed', error: message } : item)))
+      Message.error(message)
+    }
+  }
+
+  const openTextEditor = async (slot: GenerationSlot) => {
+    if (!slot.imageUrl) {
+      Message.warning('请先生成图片，再编辑文字')
+      return
+    }
+    setActionPanel({ mode: 'text', slotId: slot.id, title: slot.name, text: '', direction: '', loading: true })
+    try {
+      const { data } = await api.post<{ text?: string }>('/api/product-sets/extract-image-text', { image: slot.imageUrl })
+      setActionPanel((prev) => (prev ? { ...prev, text: data?.text ?? '', loading: false } : prev))
+    } catch (err) {
+      setActionPanel(null)
+      Message.error(err instanceof Error ? err.message : '读取图片文字失败')
+    }
+  }
+
+  const runTextEditor = async () => {
+    if (!actionPanel || !actionPanel.text.trim()) return
+    const slot = slots.find((item) => item.id === actionPanel.slotId)
+    if (!slot?.imageUrl) return
+    await generateSlotWithPrompt(
+      actionPanel.slotId,
+      `保留商品主体、构图和视觉风格，仅更新图片文字内容。新文字：${actionPanel.text.trim()}`,
+      [slot.imageUrl],
+    )
+  }
+
+  const runRetouchEditor = async () => {
+    if (!actionPanel || !actionPanel.direction.trim()) return
+    const slot = slots.find((item) => item.id === actionPanel.slotId)
+    if (!slot?.imageUrl) return
+    setActionPanel((prev) => (prev ? { ...prev, loading: true } : prev))
+    try {
+      const { data } = await api.post<{ prompt?: string }>('/api/product-sets/generate-retouch-prompt', {
+        settings,
+        slot: { id: slot.id, name: slot.name, type: slot.type },
+        originalPrompt: slot.prompt,
+        userDirection: actionPanel.direction.trim(),
+      })
+      const retouchPrompt = data?.prompt?.trim()
+      if (!retouchPrompt) throw new Error('AI改图提示词为空，请重试')
+      await generateSlotWithPrompt(actionPanel.slotId, retouchPrompt, [slot.imageUrl])
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      setActionPanel((prev) => (prev ? { ...prev, loading: false } : prev))
+      Message.error(message)
+    }
+  }
+
+  const runSmartResize = async (slot: GenerationSlot) => {
+    if (!slot.imageUrl) {
+      Message.warning('请先生成图片，再智能改尺寸')
+      return
+    }
+    await generateSlotWithPrompt(
+      slot.id,
+      `智能调整电商图片尺寸到${settings.ratio}，保留商品主体、文字可读性和视觉层次，不裁切关键信息。`,
+      [slot.imageUrl],
+    )
   }
 
   // 打包下载
@@ -527,6 +726,28 @@ export function ProductImageSetsPage() {
               setSelectedReport(report)
             }}
           />
+          {loadingDescriptions && (
+            <div className="mt-2 flex items-center gap-1.5 text-[11px] text-[#86909C]">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              正在读取报告主图卖点...
+            </div>
+          )}
+          {!loadingDescriptions && reportSellingPoints.length > 0 && (
+            <div className="mt-2 rounded-lg border border-[#e8f2ff] bg-[#f7fbff] p-2.5">
+              <div className="mb-1.5 flex items-center gap-1 text-[11px] font-bold text-[#1683FF]">
+                <Sparkles className="h-3 w-3" />
+                已回传主图卖点
+                <span className="rounded-full bg-[#e8f2ff] px-1.5 text-[10px]">{reportSellingPoints.length} 条</span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {reportSellingPoints.slice(0, 6).map((point) => (
+                  <span key={point} className="max-w-full truncate rounded bg-white px-2 py-1 text-[11px] text-[#4e5969]">
+                    {point}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* 3. 生成设置 (2x2 紧凑四维选择器) */}
@@ -854,7 +1075,7 @@ export function ProductImageSetsPage() {
 
                     <p className="text-[11px] text-[#86909C] line-clamp-2 leading-4">{slot.prompt}</p>
 
-                    <div className="flex justify-between items-center pt-2 border-t border-[#f0f2f5]">
+                    <div className="flex flex-wrap gap-1 pt-2 border-t border-[#f0f2f5]">
                       <Button
                         size="mini"
                         type="text"
@@ -864,16 +1085,32 @@ export function ProductImageSetsPage() {
                       >
                         重新生成
                       </Button>
-
                       {slot.imageUrl && (
-                        <Button
-                          size="mini"
-                          type="text"
-                          icon={<Download className="h-3 w-3" />}
-                          onClick={() => saveAs(slot.imageUrl!, `${slot.name}.png`)}
-                        >
-                          下载
-                        </Button>
+                        <>
+                          <Button size="mini" type="text" onClick={() => void openTextEditor(slot)}>
+                            编辑文字
+                          </Button>
+                          <Button
+                            size="mini"
+                            type="text"
+                            onClick={() =>
+                              setActionPanel({ mode: 'retouch', slotId: slot.id, title: slot.name, text: '', direction: '', loading: false })
+                            }
+                          >
+                            AI改图
+                          </Button>
+                          <Button size="mini" type="text" onClick={() => void runSmartResize(slot)}>
+                            智能改尺寸
+                          </Button>
+                          <Button
+                            size="mini"
+                            type="text"
+                            icon={<Download className="h-3 w-3" />}
+                            onClick={() => saveAs(slot.imageUrl!, `${slot.name}.png`)}
+                          >
+                            下载
+                          </Button>
+                        </>
                       )}
                     </div>
                   </div>
@@ -883,6 +1120,37 @@ export function ProductImageSetsPage() {
           </div>
         )}
       </div>
+
+      <Modal
+        title={actionPanel?.mode === 'text' ? `编辑文字 · ${actionPanel?.title ?? ''}` : `AI改图 · ${actionPanel?.title ?? ''}`}
+        visible={Boolean(actionPanel)}
+        onCancel={() => setActionPanel(null)}
+        onOk={() => void (actionPanel?.mode === 'text' ? runTextEditor() : runRetouchEditor())}
+        confirmLoading={actionPanel?.loading}
+        okButtonProps={{ disabled: !actionPanel || (actionPanel.mode === 'text' ? !actionPanel.text.trim() : !actionPanel.direction.trim()) }}
+      >
+        {actionPanel?.mode === 'text' ? (
+          <div className="space-y-2">
+            <p className="m-0 text-[12px] text-[#86909C]">AI 已识别当前图片文字，可直接修改后重新生成。</p>
+            <Input.TextArea
+              value={actionPanel.text}
+              onChange={(value) => setActionPanel((prev) => (prev ? { ...prev, text: value } : prev))}
+              rows={5}
+              placeholder="输入替换后的图片文字"
+            />
+          </div>
+        ) : actionPanel?.mode === 'retouch' ? (
+          <div className="space-y-2">
+            <p className="m-0 text-[12px] text-[#86909C]">描述需要调整的画面、背景、文字或风格。</p>
+            <Input.TextArea
+              value={actionPanel.direction}
+              onChange={(value) => setActionPanel((prev) => (prev ? { ...prev, direction: value } : prev))}
+              rows={5}
+              placeholder="例如：把背景换成浅灰工作室，保留商品和文字"
+            />
+          </div>
+        ) : null}
+      </Modal>
     </div>
   )
 }
