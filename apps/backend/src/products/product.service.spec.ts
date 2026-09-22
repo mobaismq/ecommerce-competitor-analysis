@@ -4,14 +4,17 @@ describe('ProductService.list（筛选 + 分页）', () => {
   function makePrisma() {
     const findMany = jest.fn()
     const count = jest.fn()
+    const storeFindMany = jest.fn()
     const prisma: {
       product: { findMany: jest.Mock; count: jest.Mock }
+      store: { findMany: jest.Mock }
       $transaction: jest.Mock
     } = {
       product: { findMany, count },
+      store: { findMany: storeFindMany },
       $transaction: jest.fn(async (fn: any) => fn(prisma)),
     }
-    return { prisma, findMany, count }
+    return { prisma, findMany, count, storeFindMany }
   }
 
   it('无分页参数时返回全量数组，并应用 status/storeId/时间/关键词筛选', async () => {
@@ -53,6 +56,22 @@ describe('ProductService.list（筛选 + 分页）', () => {
       expect.objectContaining({ skip: 10, take: 10 }),
     )
     expect(count).toHaveBeenCalledWith(expect.objectContaining({ where: { tenantId: 'tenant-1' } }))
-    expect(result).toEqual({ rows: [{ id: 'p1' }, { id: 'p2' }], total: 42, page: 2, pageSize: 10 })
+    expect(result).toEqual({ rows: [{ id: 'p1', storeName: null }, { id: 'p2', storeName: null }], total: 42, page: 2, pageSize: 10 })
+  })
+
+  it('带 storeId 的商品附加店铺名（storeName）', async () => {
+    const { prisma, findMany, storeFindMany } = makePrisma()
+    findMany.mockResolvedValue([{ id: 'p1', storeId: 's1' }, { id: 'p2', storeId: 'missing' }, { id: 'p3', storeId: null }])
+    storeFindMany.mockResolvedValue([{ id: 's1', name: '旗舰店' }])
+    const service = new ProductService(prisma as any)
+
+    const result = await service.list('tenant-1', {})
+
+    expect(storeFindMany).toHaveBeenCalledWith({ where: { id: { in: ['s1', 'missing'] } }, select: { id: true, name: true } })
+    expect(result).toEqual([
+      { id: 'p1', storeId: 's1', storeName: '旗舰店' },
+      { id: 'p2', storeId: 'missing', storeName: null },
+      { id: 'p3', storeId: null, storeName: null },
+    ])
   })
 })

@@ -66,6 +66,7 @@ interface Product {
   brand: string | null
   productImage?: string | null
   storeId?: string | null
+  storeName?: string | null
   status: 'enabled' | 'disabled'
   skus: Sku[]
   createdAt: string
@@ -175,7 +176,7 @@ export function ProductMasterDataPage() {
       if (filterCode && !p.productCode.toLowerCase().includes(filterCode.toLowerCase())) return false
       if (filterName && !p.productName.toLowerCase().includes(filterName.toLowerCase())) return false
       if (filterBrand && !(p.brand || '').toLowerCase().includes(filterBrand.toLowerCase())) return false
-      if (filterStore && !(p.storeId || '').toLowerCase().includes(filterStore.toLowerCase())) return false
+      if (filterStore && !(p.storeName || p.storeId || '').toLowerCase().includes(filterStore.toLowerCase())) return false
       if (filterUpdateTimeStart && (p.updateTime || '') < filterUpdateTimeStart) return false
       if (filterUpdateTimeEnd && (p.updateTime || '') > filterUpdateTimeEnd + ' 23:59:59') return false
       if (filterCreateTimeStart && (p.createTime || '') < filterCreateTimeStart) return false
@@ -980,7 +981,7 @@ function ProductRow({
         <td className="py-3 pr-2 text-[14px] text-[#0A1B39]">{product.productCode}</td>
         <td className="py-3 pr-2 text-[14px] text-[#0A1B39]">{product.productName}</td>
         <td className="py-3 pr-2 text-[14px] text-[#0A1B39]">{product.brand}</td>
-        <td className="py-3 pr-2 text-[14px] text-[#86909C]">{product.storeId || '—'}</td>
+        <td className="py-3 pr-2 text-[14px] text-[#86909C]">{product.storeName || product.storeId || '—'}</td>
         <td className="py-3 pr-2 text-[14px] text-[#0A1B39]">{minPrice === maxPrice ? `¥${minPrice}` : `¥${minPrice}-¥${maxPrice}`}</td>
         <td className="py-3 pr-2 text-[14px] text-[#0A1B39]">
           {minStandardPrice === maxStandardPrice ? `¥${minStandardPrice}` : `¥${minStandardPrice}-¥${maxStandardPrice}`}

@@ -43,10 +43,22 @@ export class ProductService {
           tx.product.findMany({ where, orderBy, include, skip: (opts.page! - 1) * opts.pageSize!, take: opts.pageSize }),
           tx.product.count({ where }),
         ])
-        return { rows, total, page: opts.page, pageSize: opts.pageSize }
+        const withStore = await this.attachStoreNames(rows)
+        return { rows: withStore, total, page: opts.page, pageSize: opts.pageSize }
       })
     }
-    return this.prisma.product.findMany({ where, orderBy, include })
+    return this.prisma.product.findMany({ where, orderBy, include }).then((rows) => this.attachStoreNames(rows))
+  }
+
+  /** 补充商品关联店铺名（Product 无 store relation，按 storeId 批量查询映射）。 */
+  private async attachStoreNames(rows: Array<{ storeId: string | null }>) {
+    const storeIds = Array.from(new Set(rows.map((r) => r.storeId).filter((id): id is string => Boolean(id))))
+    let nameById = new Map<string, string>()
+    if (storeIds.length) {
+      const stores = await this.prisma.store.findMany({ where: { id: { in: storeIds } }, select: { id: true, name: true } })
+      nameById = new Map(stores.map((s) => [s.id, s.name]))
+    }
+    return rows.map((row) => ({ ...row, storeName: row.storeId ? nameById.get(row.storeId) ?? null : null }))
   }
 
   async create(tenantId: string, dto: CreateProductDto) {
