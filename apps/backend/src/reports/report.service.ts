@@ -47,6 +47,9 @@ interface RepresentativeProduct {
   shopName: string | null
   price: number | null
   imageUrl: string | null
+  productUrl: string | null
+  sold: number | null
+  salesAmount: number | null
   skuCount: number
   skus: RichSku[]
 }
@@ -326,6 +329,9 @@ export class ReportService {
           shopName: p.shopName,
           price: p.price,
           imageUrl: p.imageUrl,
+          productUrl: this.readRawString(p.rawJson, 'productUrl'),
+          sold: this.readSold(p.rawJson),
+          salesAmount: this.readRawNumber(p.rawJson, 'salesAmount'),
           skuCount: p.skus.length,
           skus: p.skus,
         }))
@@ -339,6 +345,18 @@ export class ReportService {
     const record = rawJson as Record<string, unknown>
     const value = record.sold
     return typeof value === 'number' ? value : null
+  }
+
+  private readRawNumber(rawJson: Prisma.JsonValue | null, key: string): number | null {
+    if (!rawJson || typeof rawJson !== 'object' || Array.isArray(rawJson)) return null
+    const value = (rawJson as Record<string, unknown>)[key]
+    return typeof value === 'number' ? value : null
+  }
+
+  private readRawString(rawJson: Prisma.JsonValue | null, key: string): string | null {
+    if (!rawJson || typeof rawJson !== 'object' || Array.isArray(rawJson)) return null
+    const value = (rawJson as Record<string, unknown>)[key]
+    return typeof value === 'string' && value.trim() ? value : null
   }
 
   /** 简单关键词频度聚合（AI 不可用时的诚实兜底，基于真实评价/问大家文本） */

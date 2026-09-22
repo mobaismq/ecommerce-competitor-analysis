@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { ArrowLeft, Download, Loader2, RefreshCw, X } from 'lucide-react'
+import { ArrowLeft, ArrowUpRight, Download, Loader2, RefreshCw, X } from 'lucide-react'
 import { Message } from '@arco-design/web-react'
 import { api } from '../api/client'
 import { PageHeader } from '../components/PageHeader'
@@ -22,6 +22,9 @@ interface RichPriceBand {
     title?: string | null
     shopName?: string | null
     price?: number | null
+    productUrl?: string | null
+    sold?: number | null
+    salesAmount?: number | null
     skuCount?: number
     skus?: RichSku[]
   }>
@@ -104,6 +107,9 @@ export function AnalysisReportViewPage() {
     netProfit: number
     netMargin: number
   } | null>(null)
+
+  // 价格区间代表商品下钻（对照旧版详情弹窗：SKU 展开 + 商品外链 + 销量销额）
+  const [detailProduct, setDetailProduct] = useState<NonNullable<RichPriceBand['representativeProducts']>[number] | null>(null)
 
   const calculateProfit = () => {
     const price = parseFloat(sellingPrice)
@@ -319,12 +325,18 @@ export function AnalysisReportViewPage() {
                         {reps.length ? (
                           <div className="flex flex-col gap-1.5">
                             {reps.slice(0, 3).map((p, i) => (
-                              <div key={i} className="truncate text-[13px] text-[#344054]">
+                              <button
+                                key={i}
+                                type="button"
+                                onClick={() => setDetailProduct(p)}
+                                className="flex cursor-pointer items-center truncate rounded px-1 text-left text-[13px] text-[#344054] transition-colors hover:bg-[#f0f7ff]"
+                                title="点击查看商品详情"
+                              >
                                 <span className="font-semibold text-[#0A1B39]">{p.title || '无标题'}</span>
                                 <span className="ml-2 text-[#98A2B3]">{p.shopName || '未知店铺'}</span>
                                 <span className="ml-2 font-semibold text-[#ff4d00]">¥{p.price ?? '-'}</span>
                                 {p.skuCount ? <span className="ml-2 text-[#98A2B3]">{p.skuCount} SKU</span> : null}
-                              </div>
+                              </button>
                             ))}
                           </div>
                         ) : (
@@ -531,6 +543,81 @@ export function AnalysisReportViewPage() {
                 </div>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* 价格区间代表商品下钻弹窗（对照旧版详情弹窗：SKU 展开 + 商品外链 + 销量销额） */}
+      {detailProduct && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/40" onClick={() => setDetailProduct(null)}>
+          <div
+            className="w-[min(560px,90vw)] max-h-[80vh] overflow-y-auto rounded-2xl bg-white p-6 shadow-[0_24px_64px_rgba(29,38,52,.2)]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-[18px] font-bold text-[#0A1B39]">{detailProduct.title || '无标题'}</h2>
+                <p className="m-0 mt-1 text-[13px] text-[#98A2B3]">
+                  {detailProduct.shopName || '未知店铺'}
+                  {detailProduct.price != null ? ` · ¥${detailProduct.price}` : ''}
+                </p>
+              </div>
+              <button
+                onClick={() => setDetailProduct(null)}
+                className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[#f2f4f7] text-[#86909C] hover:bg-[#eceff4]"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="mb-4 grid grid-cols-3 gap-3">
+              {[
+                { label: '月销量', value: detailProduct.sold != null ? `${detailProduct.sold} 件` : '未采集' },
+                { label: '月销额', value: detailProduct.salesAmount != null ? `¥${detailProduct.salesAmount}` : '未采集' },
+                { label: 'SKU 数', value: detailProduct.skuCount != null ? `${detailProduct.skuCount} 个` : '-' },
+              ].map((item) => (
+                <div key={item.label} className="rounded-lg bg-[#f8fafc] p-3">
+                  <p className="m-0 text-[12px] text-[#86909C]">{item.label}</p>
+                  <p className="m-0 mt-1 text-[15px] font-bold text-[#0A1B39]">{item.value}</p>
+                </div>
+              ))}
+            </div>
+
+            {detailProduct.productUrl && (
+              <a
+                href={detailProduct.productUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="mb-4 inline-flex items-center gap-1 rounded-lg border border-[#3388ff] px-3 py-1.5 text-[13px] text-[#3388ff] hover:bg-[#f0f7ff]"
+              >
+                查看商品原链接
+                <ArrowUpRight className="h-3.5 w-3.5" />
+              </a>
+            )}
+
+            {detailProduct.skus && detailProduct.skus.length > 0 ? (
+              <div className="rounded-lg border border-[#eef1f5]">
+                <div className="border-b border-[#eef1f5] bg-[#f9fafb] px-4 py-2 text-[13px] font-semibold text-[#0A1B39]">SKU 规格</div>
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-[#eef1f5] text-left text-[12px] text-[#86909C]">
+                      <th className="px-4 py-2 font-medium">规格名称</th>
+                      <th className="px-4 py-2 text-right font-medium">价格</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {detailProduct.skus.map((sku, i) => (
+                      <tr key={i} className="border-b border-[#f0f2f5] text-[13px] text-[#344054]">
+                        <td className="px-4 py-2">{sku.name || '-'}</td>
+                        <td className="px-4 py-2 text-right">{sku.price != null ? `¥${sku.price}` : '-'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="m-0 rounded-lg bg-[#f8fafc] p-4 text-[13px] text-[#98A2B3]">暂无 SKU 数据</p>
+            )}
           </div>
         </div>
       )}
