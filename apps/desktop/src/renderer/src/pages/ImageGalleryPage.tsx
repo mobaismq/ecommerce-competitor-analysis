@@ -19,6 +19,8 @@ interface Asset {
   category?: string | null
   prompt?: string | null
   ratio?: string | null
+  productName?: string | null
+  platform?: string | null
   createdAt?: string
 }
 
@@ -32,6 +34,76 @@ function formatBytes(bytes: number) {
   return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`
 }
 
+/** 按已落库的 productName 归组；没有商品名的不伪造关联，单独成组。 */
+function groupImages(images: Asset[]) {
+  const groups = new Map<string, Asset[]>()
+  for (const asset of images) {
+    const key = asset.productName?.trim() || '未关联商品'
+    const list = groups.get(key) ?? []
+    list.push(asset)
+    groups.set(key, list)
+  }
+  return [...groups.entries()]
+}
+
+function GalleryGrid({
+  images,
+  groups,
+  filteredImages,
+  downloadingId,
+  typeLabel,
+  getDisplayUrl,
+  onPreview,
+  onDownload,
+  onDelete,
+}: {
+  images: Asset[]
+  groups: Array<[string, Asset[]]> | null
+  filteredImages: Asset[]
+  downloadingId: string | null
+  typeLabel: (asset: Asset) => string
+  getDisplayUrl: (asset: Asset) => string
+  onPreview: (index: number) => void
+  onDownload: (asset: Asset) => void
+  onDelete: (asset: Asset) => void
+}) {
+  const renderCard = (asset: Asset) => {
+    const fileName = asset.originalName || asset.storageKey.split('/').pop() || asset.storageKey
+    return (
+      <div key={asset.id} className="overflow-hidden rounded-lg border border-[#eef1f5] bg-white">
+        <div className="group relative aspect-square cursor-pointer bg-[#f7f8fa]" onClick={() => onPreview(filteredImages.indexOf(asset))}>
+          <img src={getDisplayUrl(asset)} alt={fileName} loading="lazy" className="h-full w-full object-contain p-1" />
+          <div className="absolute inset-0 flex items-center justify-center gap-2 bg-black/35 opacity-0 transition-opacity group-hover:opacity-100">
+            <span onClick={(e) => { e.stopPropagation(); onPreview(filteredImages.indexOf(asset)) }} className="grid h-8 w-8 place-items-center rounded-full bg-white/90 text-[#0A1B39] hover:bg-white" title="查看"><Eye className="h-3.5 w-3.5" /></span>
+            <span onClick={(e) => { e.stopPropagation(); onDownload(asset) }} className="grid h-8 w-8 place-items-center rounded-full bg-white/90 text-[#0A1B39] hover:bg-white" title="下载">{downloadingId === asset.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}</span>
+            <span onClick={(e) => { e.stopPropagation(); onDelete(asset) }} className="grid h-8 w-8 place-items-center rounded-full bg-white/90 text-[#0A1B39] hover:bg-white" title="删除"><Trash2 className="h-3.5 w-3.5" /></span>
+          </div>
+        </div>
+        <div className="p-2">
+          <p className="m-0 truncate text-[12px] font-semibold text-[#0A1B39]" title={fileName}>{fileName}</p>
+          <div className="mt-1 flex items-center justify-between text-[11px] text-[#98A2B3]">
+            <span>{typeLabel(asset)}</span>
+            <span>{asset.ratio || formatBytes(asset.size)}</span>
+          </div>
+          {asset.platform && <p className="m-0 mt-0.5 truncate text-[11px] text-[#c0c4cc]">{asset.platform}</p>}
+        </div>
+      </div>
+    )
+  }
+
+  if (!groups) return <div className="grid grid-cols-8 gap-3">{images.map(renderCard)}</div>
+  return (
+    <div className="flex flex-col gap-5">
+      {groups.map(([name, assets]) => (
+        <section key={name}>
+          <p className="m-0 mb-2 text-[13px] font-extrabold text-[#0A1B39]">{name}<span className="ml-2 font-medium text-[#98A2B3]">{assets.length} 张</span></p>
+          <div className="grid grid-cols-8 gap-3">{assets.map(renderCard)}</div>
+        </section>
+      ))}
+    </div>
+  )
+}
+
 export function ImageGalleryPage() {
   const [keyword, setKeyword] = useState('')
   const [typeFilter, setTypeFilter] = useState('ALL')
@@ -39,6 +111,7 @@ export function ImageGalleryPage() {
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
   const [applied, setApplied] = useState({ keyword: '', type: 'ALL', format: 'ALL', start: '', end: '' })
+  const [groupByProduct, setGroupByProduct] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
 
   // 轮播大图预览状态
@@ -299,6 +372,15 @@ export function ImageGalleryPage() {
         </div>
 
         {/* 图片网格（对照旧版 grid-cols-8 密集网格） */}
+        <div className="mb-3 flex items-center justify-end">
+          <button
+            type="button"
+            onClick={() => setGroupByProduct((value) => !value)}
+            className={`h-8 cursor-pointer rounded-lg border px-3 text-[13px] ${groupByProduct ? 'border-[#3388ff] bg-[#f0f7ff] text-[#3388ff]' : 'border-[#e6e9ef] bg-white text-[#344054]'}`}
+          >
+            {groupByProduct ? '取消按商品归组' : '按商品归组'}
+          </button>
+        </div>
         {isLoading ? (
           <div className="grid place-items-center rounded-xl bg-white py-20 text-[14px] text-[#86909C]">
             <Loader2 className="mr-2 inline h-4 w-4 animate-spin" />
@@ -315,75 +397,17 @@ export function ImageGalleryPage() {
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-8 gap-3">
-            {pageImages.map((asset, idx) => {
-              const fileName = asset.originalName || asset.storageKey.split('/').pop() || asset.storageKey
-              return (
-                <div key={asset.id} className="overflow-hidden rounded-lg border border-[#eef1f5] bg-white">
-                  <div
-                    className="group relative aspect-square cursor-pointer bg-[#f7f8fa]"
-                    onClick={() => setPreviewIndex(filteredImages.indexOf(asset))}
-                  >
-                    <img
-                      src={getDisplayUrl(asset)}
-                      alt={fileName}
-                      loading="lazy"
-                      className="h-full w-full object-contain p-1"
-                    />
-                    <div className="absolute inset-0 flex items-center justify-center gap-2 bg-black/35 opacity-0 transition-opacity group-hover:opacity-100">
-                      <span
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setPreviewIndex(filteredImages.indexOf(asset))
-                        }}
-                        className="grid h-8 w-8 place-items-center rounded-full bg-white/90 text-[#0A1B39] hover:bg-white"
-                        title="查看"
-                      >
-                        <Eye className="h-3.5 w-3.5" />
-                      </span>
-                      <span
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          void handleDownload(asset)
-                        }}
-                        className="grid h-8 w-8 place-items-center rounded-full bg-white/90 text-[#0A1B39] hover:bg-white"
-                        title="下载"
-                      >
-                        {downloadingId === asset.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
-                      </span>
-                      <span
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          void handleDelete(asset)
-                        }}
-                        className="grid h-8 w-8 place-items-center rounded-full bg-white/90 text-[#0A1B39] hover:bg-white"
-                        title="删除"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </span>
-                    </div>
-                  </div>
-                  <div className="p-2">
-                    <p className="m-0 truncate text-[12px] font-semibold text-[#0A1B39]" title={fileName}>
-                      {fileName}
-                    </p>
-                    <div className="mt-1 flex items-center justify-between text-[11px] text-[#98A2B3]">
-                      <span>{typeLabel(asset)}</span>
-                      <span>{asset.ratio || formatBytes(asset.size)}</span>
-                    </div>
-                    {(asset.runId || asset.jobId) && (
-                      <p
-                        className="m-0 mt-0.5 truncate text-[11px] text-[#c0c4cc]"
-                        title={`任务批次: ${asset.runId || asset.jobId}${asset.prompt ? `\n提示词: ${asset.prompt}` : ''}`}
-                      >
-                        批次 {(asset.runId || asset.jobId || '').slice(0, 8)}
-                      </p>
-                    )}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
+          <GalleryGrid
+            images={groupByProduct ? filteredImages : pageImages}
+            groups={groupByProduct ? groupImages(filteredImages) : null}
+            filteredImages={filteredImages}
+            downloadingId={downloadingId}
+            typeLabel={typeLabel}
+            getDisplayUrl={getDisplayUrl}
+            onPreview={setPreviewIndex}
+            onDownload={(asset) => void handleDownload(asset)}
+            onDelete={(asset) => void handleDelete(asset)}
+          />
         )}
 
         {/* 分页（对照旧版 justify-between + 页码） */}
