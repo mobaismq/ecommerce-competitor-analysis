@@ -159,6 +159,8 @@ export class ReportService {
     const summary = typeof parsed?.summary === 'string' && parsed.summary.trim() ? parsed.summary : (aiResult.text ?? '')
 
     const insights = this.buildInsights({ summary, sellingPoints, painPoints, userDemands, opportunities })
+    // 旧版富区块（竞品Top/关键词矩阵/建议动作/差异化方向）只在模型真实返回时透传，缺省不造
+    const passthrough = (key: string) => (parsed && typeof parsed === 'object' && parsed[key] != null ? parsed[key] : undefined)
     const reportJson = {
       summary,
       priceBands: richPriceBands,
@@ -167,6 +169,10 @@ export class ReportService {
       userDemands,
       opportunities,
       insights,
+      ...(passthrough('competitors') ? { competitors: passthrough('competitors') } : {}),
+      ...(passthrough('keywordMatrix') ? { keywordMatrix: passthrough('keywordMatrix') } : {}),
+      ...(passthrough('recommendationActions') ? { recommendationActions: passthrough('recommendationActions') } : {}),
+      ...(passthrough('differentiation') ? { differentiation: passthrough('differentiation') } : {}),
     }
     const reportHash = createHash('sha256').update(JSON.stringify(reportJson)).digest('hex')
     const reportNo = buildReportNo()
@@ -393,7 +399,7 @@ export class ReportService {
       reviewSample ? `评价样本（前若干条，用于判断卖点/痛点）：\n${reviewSample}` : '（无评价样本）',
       qaSample ? `问大家样本（前若干条，用于判断用户需求）：\n${qaSample}` : '（无问大家样本）',
       ``,
-      `请输出 JSON：{"summary":"整体结论","sellingPoints":[{"term":"卖点词","count":次数}],"painPoints":["痛点"],"userDemands":["用户需求"],"opportunities":["机会点"]}`,
+      `请输出 JSON：{"summary":"整体结论","sellingPoints":[{"term":"卖点词","count":次数}],"painPoints":["痛点"],"userDemands":["用户需求"],"opportunities":["机会点"],"competitors":[{"rank":1,"title":"竞品名","price":0,"sold":0,"salesAmount":0,"sellingPoint":"核心卖点"}],"keywordMatrix":{"coreKeywords":[{"term":"词","count":0}],"blueOceanKeywords":[{"term":"词","count":0}]},"recommendationActions":{"actionPlan":{"titleStructure":"","pricingAnchor":"","searchTerms":"","bulletOrder":""},"positiveSellingPoints":[{"term":"好评点","count":0}],"negativePainPoints":[{"term":"差评点","count":0}]},"differentiation":{"opportunityScore":0,"salesValidation":0,"demandStrength":0,"competitorGap":0,"directions":["差异化方向"]}}。数据不足的字段省略，不要编造数字。`,
     ].join('\n')
   }
 

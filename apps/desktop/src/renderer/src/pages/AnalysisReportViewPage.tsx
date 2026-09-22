@@ -36,6 +36,15 @@ interface RichReportJson {
   painPoints?: string[]
   userDemands?: string[]
   opportunities?: string[]
+  // 旧版富区块：仅当模型真实返回时存在，缺省不渲染（宁缺勿假）
+  competitors?: Array<{ rank?: number; title?: string; price?: number; sold?: number; salesAmount?: number; sellingPoint?: string }>
+  keywordMatrix?: { coreKeywords?: Array<{ term?: string; count?: number }>; blueOceanKeywords?: Array<{ term?: string; count?: number }> }
+  recommendationActions?: {
+    actionPlan?: { titleStructure?: string; pricingAnchor?: string; searchTerms?: string; bulletOrder?: string }
+    positiveSellingPoints?: Array<{ term?: string; count?: number }>
+    negativePainPoints?: Array<{ term?: string; count?: number }>
+  }
+  differentiation?: { opportunityScore?: number; salesValidation?: number; demandStrength?: number; competitorGap?: number; directions?: string[] }
 }
 
 // 列表接口 priceBands（analysisPriceBand 表：仅计数）作为无富结构时的回退
@@ -84,6 +93,133 @@ function SectionCard({
       </div>
       {children}
     </section>
+  )
+}
+
+function ChipList({ items }: { items: Array<{ term?: string; count?: number }> }) {
+  if (!items.length) return <p className="m-0 text-[13px] text-[#98A2B3]">暂无数据</p>
+  return (
+    <div className="flex flex-wrap gap-2">
+      {items.map((item, idx) => (
+        <span key={idx} className="rounded-lg bg-[#f8fafc] px-3 py-1 text-[13px] text-[#344054]">
+          {item.term ?? '-'}{item.count != null ? ` (${item.count})` : ''}
+        </span>
+      ))}
+    </div>
+  )
+}
+
+/** 旧版报告富区块（竞品Top/关键词矩阵/建议动作/差异化方向）。字段缺失则整段不渲染，不补默认值。 */
+function RichLegacySections({ report }: { report: RichReportJson }) {
+  const competitors = report.competitors ?? []
+  const core = report.keywordMatrix?.coreKeywords ?? []
+  const blue = report.keywordMatrix?.blueOceanKeywords ?? []
+  const actions = report.recommendationActions
+  const plan = actions?.actionPlan
+  const diff = report.differentiation
+  const scores: Array<[string, number | undefined]> = [
+    ['机会分', diff?.opportunityScore],
+    ['销量验证', diff?.salesValidation],
+    ['需求强度', diff?.demandStrength],
+    ['竞品缺口', diff?.competitorGap],
+  ]
+
+  return (
+    <>
+      {competitors.length > 0 && (
+        <SectionCard badge="TOP" badgeColor="bg-[#f97316]" title="竞品 Top" subtitle="模型基于采集样本给出的竞品排序">
+          <table className="w-full text-left text-[13px]">
+            <thead>
+              <tr className="border-b border-[#eef1f5] text-[#86909C]">
+                <th className="py-2 font-medium">排名</th>
+                <th className="py-2 font-medium">竞品</th>
+                <th className="py-2 font-medium">价格</th>
+                <th className="py-2 font-medium">销量</th>
+                <th className="py-2 font-medium">销额</th>
+                <th className="py-2 font-medium">核心卖点</th>
+              </tr>
+            </thead>
+            <tbody>
+              {competitors.map((item, idx) => (
+                <tr key={idx} className="border-b border-[#eef1f5] text-[#344054]">
+                  <td className="py-2">{item.rank ?? idx + 1}</td>
+                  <td className="py-2">{item.title ?? '-'}</td>
+                  <td className="py-2">{item.price != null ? `¥${item.price}` : '-'}</td>
+                  <td className="py-2">{item.sold ?? '-'}</td>
+                  <td className="py-2">{item.salesAmount ?? '-'}</td>
+                  <td className="py-2">{item.sellingPoint ?? '-'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </SectionCard>
+      )}
+
+      {(core.length > 0 || blue.length > 0) && (
+        <SectionCard badge="KW" badgeColor="bg-[#16a34a]" title="关键词矩阵" subtitle="核心词与蓝海词，仅展示模型返回的条目">
+          <div className="grid gap-4 md:grid-cols-2">
+            <div>
+              <p className="m-0 mb-2 text-[13px] font-extrabold text-[#0A1B39]">核心关键词</p>
+              <ChipList items={core} />
+            </div>
+            <div>
+              <p className="m-0 mb-2 text-[13px] font-extrabold text-[#0A1B39]">蓝海词机会</p>
+              <ChipList items={blue} />
+            </div>
+          </div>
+        </SectionCard>
+      )}
+
+      {actions && (plan || (actions.positiveSellingPoints ?? []).length || (actions.negativePainPoints ?? []).length) && (
+        <SectionCard badge="ACT" badgeColor="bg-[#ea580c]" title="建议动作与评论反推" subtitle="标题、定价、搜索词与评论反推">
+          {plan && (
+            <div className="mb-4 grid gap-3 md:grid-cols-2">
+              {([
+                ['标题结构', plan.titleStructure],
+                ['定价锚点', plan.pricingAnchor],
+                ['Search Terms', plan.searchTerms],
+                ['五点顺序', plan.bulletOrder],
+              ] as Array<[string, string | undefined]>).filter(([, value]) => value).map(([label, value]) => (
+                <div key={label} className="rounded-xl bg-[#f8fafc] p-3">
+                  <p className="m-0 text-[12px] text-[#86909C]">{label}</p>
+                  <p className="m-0 mt-1 text-[13px] text-[#344054]">{value}</p>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="grid gap-4 md:grid-cols-2">
+            <div>
+              <p className="m-0 mb-2 text-[13px] font-extrabold text-[#2e7d32]">好评卖点</p>
+              <ChipList items={actions.positiveSellingPoints ?? []} />
+            </div>
+            <div>
+              <p className="m-0 mb-2 text-[13px] font-extrabold text-[#c62828]">差评痛点</p>
+              <ChipList items={actions.negativePainPoints ?? []} />
+            </div>
+          </div>
+        </SectionCard>
+      )}
+
+      {diff && (scores.some(([, value]) => value != null) || (diff.directions ?? []).length > 0) && (
+        <SectionCard badge="DIF" badgeColor="bg-[#7a5af8]" title="差异化方向" subtitle="四维评分与方向建议，缺项不展示">
+          <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+            {scores.filter(([, value]) => value != null).map(([label, value]) => (
+              <div key={label} className="rounded-xl bg-[#f8fafc] p-3">
+                <p className="m-0 text-[12px] text-[#86909C]">{label}</p>
+                <p className="m-0 mt-1 text-[18px] font-extrabold text-[#0A1B39]">{value}</p>
+              </div>
+            ))}
+          </div>
+          {(diff.directions ?? []).length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {(diff.directions ?? []).map((item, idx) => (
+                <span key={idx} className="rounded-lg bg-[#f5f3ff] px-3 py-1 text-[13px] text-[#7a5af8]">{item}</span>
+              ))}
+            </div>
+          )}
+        </SectionCard>
+      )}
+    </>
   )
 }
 
@@ -430,6 +566,9 @@ export function AnalysisReportViewPage() {
               {summaryText || '暂无 AI 策略总结。'}
             </div>
           </SectionCard>
+
+          {/* 旧版富区块：仅当 reportJson 真实携带时渲染，缺省整段不出现 */}
+          <RichLegacySections report={rj} />
         </>
       )}
 
