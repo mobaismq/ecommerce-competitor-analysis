@@ -146,6 +146,31 @@ export function MarketReportPage() {
   const [historyReports, setHistoryReports] = useState<HistoryReport[]>([])
   const [historyLoading, setHistoryLoading] = useState(false)
 
+  // 原始 Markdown 报告折叠查看（对照旧版 MarketReport 可折叠 markdown 原文）
+  const [rawMarkdown, setRawMarkdown] = useState<string | null>(null)
+  const [markdownOpen, setMarkdownOpen] = useState(false)
+  const [markdownLoading, setMarkdownLoading] = useState(false)
+  const toggleRawMarkdown = async () => {
+    if (!summary?.id) return
+    if (markdownOpen) {
+      setMarkdownOpen(false)
+      return
+    }
+    if (rawMarkdown === null) {
+      setMarkdownLoading(true)
+      try {
+        const { data } = await api.get(`/api/reports/${summary.id}/export/markdown`)
+        setRawMarkdown(typeof data.content === 'string' ? data.content : JSON.stringify(data))
+      } catch {
+        Message.error('加载原始 Markdown 报告失败')
+        setMarkdownLoading(false)
+        return
+      }
+      setMarkdownLoading(false)
+    }
+    setMarkdownOpen(true)
+  }
+
   // 加载历史报告列表
   const loadHistoryReports = async () => {
     setHistoryLoading(true)
@@ -520,8 +545,44 @@ export function MarketReportPage() {
               查看完整报告详情
             </Button>
           )}
+          {summary?.id && (
+            <Button
+              type="outline"
+              icon={<IconEye />}
+              loading={markdownLoading}
+              onClick={toggleRawMarkdown}
+            >
+              查看原始报告(Markdown)
+            </Button>
+          )}
         </Space>
       </div>
+
+      {/* 原始 Markdown 报告（可折叠，对照旧版） */}
+      {markdownOpen && summary?.id && rawMarkdown !== null && (
+        <Card bordered style={{ borderRadius: 8, marginBottom: 16 }}>
+          <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 8 }}>
+            <Text bold>原始报告 Markdown 原文</Text>
+            <Button size="mini" onClick={() => setMarkdownOpen(false)}>收起</Button>
+          </Space>
+          <pre
+            className="whitespace-pre-wrap"
+            style={{
+              maxHeight: 520,
+              overflow: 'auto',
+              borderRadius: 8,
+              background: '#0b1220',
+              color: '#d8e2f0',
+              padding: 16,
+              fontSize: 12,
+              lineHeight: 1.8,
+              margin: 0,
+            }}
+          >
+            {rawMarkdown}
+          </pre>
+        </Card>
+      )}
 
       {/* 参数输入与大模型触发区域 */}
       <Card bordered style={{ borderRadius: 8, marginBottom: 16 }}>
