@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { Menu, Popover } from '@arco-design/web-react'
+import { ReportJobBanner } from '../components/ReportJobBanner'
 import {
   Bot,
   Copy,
@@ -304,7 +305,10 @@ export function AppLayout() {
           </button>
         </div>
       </aside>
-      <main className="content-main min-w-0 flex-1 overflow-hidden"><Outlet /></main>
+      <main className="content-main min-w-0 flex-1 flex-col overflow-hidden">
+        <ReportJobBanner />
+        <div className="min-h-0 flex-1 overflow-hidden"><Outlet /></div>
+      </main>
     </div>
   )
 }
