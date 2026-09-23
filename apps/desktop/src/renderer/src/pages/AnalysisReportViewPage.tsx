@@ -350,6 +350,34 @@ export function AnalysisReportViewPage() {
   const opportunities = rj.opportunities || []
   const hasRichStory = Boolean(richBands.length || sellingPoints.length || painPoints.length || userDemands.length || opportunities.length)
 
+  // 1.18 价格区间补列：定位/销售额/占比 由真实数据确定性推导，铺货建议为规则文案，无字段则按"宁缺勿假"省略
+  const bandSoldTotal = (b: RichPriceBand | TablePriceBand) => ('soldTotal' in b && b.soldTotal) ? Number(b.soldTotal) : 0
+  const bandSalesTotal = (b: RichPriceBand | TablePriceBand) => {
+    const reps = 'representativeProducts' in b ? ((b as RichPriceBand).representativeProducts || []) : []
+    return reps.reduce((sum, p) => sum + (typeof p.salesAmount === 'number' ? p.salesAmount : 0), 0)
+  }
+  const sumAll = (pick: (b: RichPriceBand | TablePriceBand) => number) => bands.reduce((sum, b) => sum + pick(b), 0)
+  const totalSoldIn = sumAll(bandSoldTotal)
+  const totalSalesIn = sumAll(bandSalesTotal)
+  // 定位：按销售额/销量综合排主力，按均价定低/高客单（镜像旧版 bandRole）
+  const sortedMain = [...bands].sort((a, b) => bandSalesTotal(b) - bandSalesTotal(a) || bandSoldTotal(b) - bandSoldTotal(a))
+  const mainBandName = sortedMain[0]?.bandName
+  const lowBandName = [...bands].sort((a, b) => (a.priceMin ?? Infinity) - (b.priceMin ?? Infinity))[0]?.bandName
+  const highBandName = [...bands].sort((a, b) => (b.priceMax ?? -Infinity) - (a.priceMax ?? -Infinity))[0]?.bandName
+  const bandRole = (b: RichPriceBand | TablePriceBand) => {
+    if (b.bandName === mainBandName) return '主推承接'
+    if (b.bandName === lowBandName) return '引流/尝鲜'
+    if (b.bandName === highBandName) return '高客单/利润'
+    return '补充覆盖'
+  }
+  const bandSuggestion = (b: RichPriceBand | TablePriceBand) => {
+    const role = bandRole(b)
+    if (role === '主推承接') return '作为当前最有销售验证的价格区间，主图优先承接该区间的高频卖点和用户需求。'
+    if (role === '引流/尝鲜') return '适合做低门槛尝鲜款，图片重点讲清数量、口味和到手价，避免承诺过度。'
+    if (role === '高客单/利润') return '适合用规格、品质、品牌背书或组合装支撑溢价，详情页补足价值解释。'
+    return '作为补充价格带观察，重点看是否有独立卖点或人群场景。'
+  }
+
   return (
     <div className="h-full overflow-y-auto bg-[#f4f7fb] p-6 custom-scrollbar">
       <PageHeader breadcrumbs={backBreadcrumbs.map((item, idx) => (idx === 3 ? { label: '报告查看' } : item))} />
@@ -436,26 +464,61 @@ export function AnalysisReportViewPage() {
               <thead>
                 <tr className="border-b border-[#eef1f5] bg-[#f9fafb]">
                   <th className="whitespace-nowrap px-4 py-3 text-left text-[13px] font-medium text-[#86909C]">价格区间</th>
+                  <th className="whitespace-nowrap px-4 py-3 text-left text-[13px] font-medium text-[#86909C]">定位</th>
                   <th className="whitespace-nowrap px-4 py-3 text-right text-[13px] font-medium text-[#86909C]">竞品数</th>
                   <th className="whitespace-nowrap px-4 py-3 text-right text-[13px] font-medium text-[#86909C]">均价</th>
                   <th className="whitespace-nowrap px-4 py-3 text-right text-[13px] font-medium text-[#86909C]">月销量</th>
+                  <th className="whitespace-nowrap px-4 py-3 text-right text-[13px] font-medium text-[#86909C]">销售额</th>
+                  <th className="whitespace-nowrap px-4 py-3 text-left text-[13px] font-medium text-[#86909C]">占比</th>
+                  <th className="whitespace-nowrap px-4 py-3 text-left text-[13px] font-medium text-[#86909C]">铺货/图片建议</th>
                   <th className="whitespace-nowrap px-4 py-3 text-left text-[13px] font-medium text-[#86909C]">代表商品</th>
                 </tr>
               </thead>
               <tbody>
                 {bands.map((band, idx) => {
                   const reps = 'representativeProducts' in band ? ((band as RichPriceBand).representativeProducts || []) : []
+                  const sold = bandSoldTotal(band)
+                  const sales = bandSalesTotal(band)
+                  const soldShare = totalSoldIn > 0 ? Math.round((sold / totalSoldIn) * 100) : 0
+                  const salesShare = totalSalesIn > 0 ? Math.round((sales / totalSalesIn) * 100) : 0
                   return (
                     <tr key={band.bandName || idx} className="border-b border-[#eef1f5] transition-colors hover:bg-[#f9fafb]">
                       <td className="whitespace-nowrap px-4 py-3.5 text-[14px] font-bold text-[#0A1B39]">
                         ¥{band.priceMin} - ¥{band.priceMax}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3.5">
+                        <span className="inline-block rounded-md bg-[#eef6ff] px-2 py-1 text-[12px] font-semibold text-[#3388ff]">{bandRole(band)}</span>
                       </td>
                       <td className="whitespace-nowrap px-4 py-3.5 text-right text-[14px] text-[#344054]">{band.productCount} 款</td>
                       <td className="whitespace-nowrap px-4 py-3.5 text-right text-[14px] text-[#344054]">
                         {'avgPrice' in band && band.avgPrice != null ? `¥${band.avgPrice}` : '—'}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3.5 text-right text-[14px] text-[#344054]">
-                        {'soldTotal' in band && band.soldTotal ? `${band.soldTotal.toLocaleString()} 件` : '未采集'}
+                        {sold ? `${sold.toLocaleString()} 件` : '未采集'}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3.5 text-right text-[14px] font-semibold text-[#ff4d00]">
+                        {sales ? `¥${sales.toLocaleString()}` : '—'}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3.5">
+                        <div className="space-y-1.5">
+                          <div className="flex items-center gap-2">
+                            <span className="w-6 text-[11px] text-[#86909C]">销量</span>
+                            <div className="h-2 w-[92px] rounded-full bg-[#eef2f7]">
+                              <div className="h-2 rounded-full bg-[#3388ff]" style={{ width: `${Math.min(100, soldShare)}%` }} />
+                            </div>
+                            <span className="text-[11px] text-[#3388ff]">{soldShare}%</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="w-6 text-[11px] text-[#86909C]">销额</span>
+                            <div className="h-2 w-[92px] rounded-full bg-[#eef2f7]">
+                              <div className="h-2 rounded-full bg-[#16a34a]" style={{ width: `${Math.min(100, salesShare)}%` }} />
+                            </div>
+                            <span className="text-[11px] text-[#16a34a]">{salesShare}%</span>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="max-w-[260px] px-4 py-3.5 text-[12px] leading-5 text-[#667085]">
+                        {bandSuggestion(band)}
                       </td>
                       <td className="px-4 py-3.5">
                         {reps.length ? (
