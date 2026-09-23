@@ -15,10 +15,12 @@ describe('ReportProductsService (离线 mock)', () => {
       productSnapshot: { findMany: jest.fn(), count: jest.fn() },
       productSkuSnapshot: { findMany: jest.fn() },
       mainImageAnalysis: { findMany: jest.fn(), create: jest.fn() },
+      analysisPriceBand: { findMany: jest.fn(), findFirst: jest.fn(), update: jest.fn() },
     }
     router = { execute: jest.fn() }
     service = new ReportProductsService(prisma as unknown as PrismaService, router as unknown as ProviderRouter)
     prisma.analysisRun.findFirst.mockResolvedValue({ id: 'run-1', jobId: 'job-1', tenantId: 't1' })
+    prisma.analysisPriceBand.findMany.mockResolvedValue([])
   })
 
   describe('productsView', () => {
@@ -81,6 +83,52 @@ describe('ReportProductsService (离线 mock)', () => {
       )
       expect(res.priceBands.length).toBeGreaterThan(0)
       expect(res.priceBands[0]).toHaveProperty('avgPrice')
+    })
+
+    it('无已生成报告时每带分析状态回落 raw（不伪造已AI分析）', async () => {
+      prisma.collectionJob.findFirst.mockResolvedValue({ id: 'cj-1', keyword: '耳机', createdAt: new Date() })
+      prisma.productSnapshot.findMany.mockResolvedValue([
+        { price: 50, externalProductId: 'EP-1', title: 'A', shopName: '店', rawJson: { productUrl: 'http://p' } },
+      ])
+      // 无已生成成功报告 → analysisPriceBand.findMany 不会被调用
+      prisma.analysisRun.findFirst.mockResolvedValue(null)
+      const res = await service.priceBandsPreviewByKeyword({ tenantId: 't1', keyword: '耳机' })
+      const b = Array.isArray(res.priceBands) ? res.priceBands : []
+      expect(b.length).toBeGreaterThan(0)
+      expect(b[0]).toHaveProperty('analysisStatus', 'raw')
+      expect(prisma.analysisPriceBand.findMany).not.toHaveBeenCalled()
+    })
+
+    it('已生成报告时按带名回传 AI 分析状态', async () => {
+      prisma.collectionJob.findFirst.mockResolvedValue({ id: 'cj-1', keyword: '耳机', createdAt: new Date() })
+      prisma.productSnapshot.findMany.mockResolvedValue([
+        { price: 50, externalProductId: 'EP-1', title: 'A', shopName: '店', rawJson: { productUrl: 'http://p' } },
+      ])
+      prisma.analysisRun.findFirst.mockResolvedValue({ id: 'run-1', jobId: 'job-1', tenantId: 't1' })
+      prisma.analysisPriceBand.findMany.mockResolvedValue([
+        { bandName: '50元', analysisStatus: 'analyzed', sellingPointsJson: [{ term: '好', count: 3 }], demandsJson: [] },
+      ])
+      const res = await service.priceBandsPreviewByKeyword({ tenantId: 't1', keyword: '耳机' })
+      const b = Array.isArray(res.priceBands) ? res.priceBands : []
+      const matched = b.find((x) => String(x.bandName) === '50元')
+      expect(matched?.analysisStatus).toBe('analyzed')
+    })
+
+    it('重跑某价格段：无真实模型 key 时保持 raw 不伪造', async () => {
+      prisma.analysisRun.findFirst.mockResolvedValue({ id: 'run-1', jobId: 'job-1', tenantId: 't1', keyword: '耳机' })
+      prisma.analysisPriceBand.findFirst.mockResolvedValue({ id: 'band-1', bandName: '0-100', priceMin: 0, priceMax: 100, analysisRunId: 'run-1' })
+      prisma.collectionJob.findUnique.mockResolvedValue({ id: 'cj-1', keyword: '耳机' })
+      prisma.productSnapshot.findMany.mockResolvedValue([
+        { id: 'p1', title: 'A', price: 50, shopName: '店', externalProductId: 'EP-1' },
+      ])
+      prisma.analysisPriceBand.update.mockResolvedValue({ id: 'band-1' })
+      // 模型返回空/非法 JSON
+      router.execute.mockResolvedValue({ text: '没有可用分析', model: 'mock' })
+      const res = await service.rerunBandAnalysis({ tenantId: 't1', keyword: '耳机', bandName: '0-100' })
+      expect(res.analysisStatus).toBe('raw')
+      expect(prisma.analysisPriceBand.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ analysisStatus: 'raw' }) }),
+      )
     })
   })
 })

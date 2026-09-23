@@ -1,9 +1,11 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
+import { randomUUID } from 'node:crypto'
 import { Prisma } from '@prisma/client'
 import { AiCapability } from '../ai/ai.types'
 import { ProviderRouter } from '../ai/provider-router.service'
 import { PrismaService } from '../prisma.service'
 import { computePriceBands as buildPriceBands } from './report-price-bands'
+import { extractJson } from './report-json.util'
 
 export interface RunMainImageAnalysisInput {
   tenantId: string
@@ -236,6 +238,30 @@ export class ReportProductsService {
     if (!collectionJob) {
       return { ok: true, priceBands: [], profitSimulation: null, collection: null }
     }
+    // 1.22/1.23：优先复用该关键词已生成成功报告持久化的每带 AI 分析状态，
+    // 无报告或某带宽未产出时才回退为 'raw'（基础数据），不伪造"已AI分析"。
+    const existingRun = await this.prisma.analysisRun.findFirst({
+      where: {
+        tenantId: input.tenantId,
+        status: 'success',
+        ...(input.keyword?.trim() ? { keyword: { contains: input.keyword.trim() } } : {}),
+      },
+      orderBy: { updatedAt: 'desc' },
+    })
+    const bandStatusByRun = new Map<string, { analysisStatus: string; sellingPointsJson?: unknown; demandsJson?: unknown }>()
+    if (existingRun) {
+      const persistedBands = await this.prisma.analysisPriceBand.findMany({
+        where: { analysisRunId: existingRun.id },
+        select: { bandName: true, analysisStatus: true, sellingPointsJson: true, demandsJson: true },
+      })
+      for (const band of persistedBands) {
+        bandStatusByRun.set(band.bandName, {
+          analysisStatus: band.analysisStatus || 'raw',
+          sellingPointsJson: band.sellingPointsJson ?? undefined,
+          demandsJson: band.demandsJson ?? undefined,
+        })
+      }
+    }
     const rows = await this.prisma.productSnapshot.findMany({
       where: { collectionJobId: collectionJob.id },
       select: { price: true, externalProductId: true, title: true, shopName: true, rawJson: true },
@@ -262,8 +288,13 @@ export class ReportProductsService {
         const price = Number(r.price)
         return price >= (band.priceMin ?? -Infinity) && price <= (band.priceMax ?? Infinity)
       })
+      const persisted = bandStatusByRun.get(band.bandName)
       return {
         ...band,
+        // 每带 AI 分析状态（旧版 analysis_status → analyzed/partial/raw）
+        analysisStatus: persisted?.analysisStatus ?? 'raw',
+        extractedSellingPoints: persisted ? (persisted.sellingPointsJson ?? []) : [],
+        extractedDemands: persisted ? (persisted.demandsJson ?? []) : [],
         avgPrice: inBand.length ? Math.round((inBand.reduce((sum, r) => sum + Number(r.price), 0) / inBand.length) * 100) / 100 : 0,
         competitorLinks: inBand.slice(0, 3).map((r) => (r.rawJson as { productUrl?: string } | null)?.productUrl ?? null).filter(Boolean),
         displayImages: inBand.slice(0, 3).map((r) => (r.rawJson as { imageUrl?: string } | null)?.imageUrl ?? null).filter(Boolean),
@@ -285,6 +316,80 @@ export class ReportProductsService {
       ok: true,
       productId,
       analysis: analysis ?? null,
+    }
+  }
+
+  /**
+   * 1.22/1.23：按价格段重跑 AI 分析。基于该段真实商品样本（标题/图片/评价）调用模型，
+   * 无真实模型 key 时保持 'raw'（诚实空态），不伪造"已AI分析"。
+   */
+  async rerunBandAnalysis(input: { tenantId: string; keyword?: string; bandName: string; userId?: string }) {
+    const bandName = String(input.bandName || '').trim()
+    if (!bandName) throw new NotFoundException('缺少价格段')
+    const run = await this.prisma.analysisRun.findFirst({
+      where: {
+        tenantId: input.tenantId,
+        status: 'success',
+        ...(input.keyword?.trim() ? { keyword: { contains: input.keyword.trim() } } : {}),
+      },
+      orderBy: { updatedAt: 'desc' },
+    })
+    if (!run) throw new NotFoundException('未找到该关键词的已生成报告')
+    const bandRow = await this.prisma.analysisPriceBand.findFirst({ where: { analysisRunId: run.id, bandName } })
+    if (!bandRow) throw new NotFoundException('价格段不存在于报告中')
+
+    const collectionJob = await this.prisma.collectionJob.findUnique({ where: { jobId: run.jobId } })
+    const min = Number(bandRow.priceMin ?? -Infinity)
+    const max = Number(bandRow.priceMax ?? Infinity)
+    const products = collectionJob
+      ? await this.prisma.productSnapshot.findMany({
+          where: { collectionJobId: collectionJob.id },
+          take: 8,
+          orderBy: { createdAt: 'desc' },
+        })
+      : []
+    const inBand = products.filter((p) => {
+      const price = Number(p.price)
+      return price >= min && price <= max
+    })
+    if (!inBand.length) {
+      return { ok: true, bandName, analysisStatus: 'raw', message: '该价格段暂无商品样本，保持基础数据' }
+    }
+
+    const sample = inBand.map((p) => ({ title: p.title ?? '', price: p.price?.toString(), shop: p.shopName }))
+    const attemptKey = `band-rerun:${run.id}:${bandName}:${randomUUID()}`
+    const result = await this.router.execute(
+      'text',
+      {
+        system: '你是电商竞品价格段分析师。请仅输出合法 JSON：{"sellingPoints":[{"term":"卖点","count":次数}],"demands":[{"term":"需求/问大家点","count":次数}],"imagePrompts":{"style":"风格","scene":"场景","composition":"构图"}}。基于给定商品真实信息提炼，数据不足的字段省略，不要编造数字。',
+        prompt: `价格段 ${bandName} 的商品样本：${JSON.stringify(sample)}`,
+        maxTokens: 1500,
+      },
+      { tenantId: input.tenantId, jobId: run.jobId, attemptKey, userId: input.userId },
+    )
+    const parsed = extractJson(result.text)
+    const sellingPoints = Array.isArray(parsed?.sellingPoints) ? parsed.sellingPoints : []
+    const demands = Array.isArray(parsed?.demands) ? parsed.demands : []
+    const imagePrompts = parsed?.imagePrompts && typeof parsed.imagePrompts === 'object' ? parsed.imagePrompts : null
+    const analyzed = sellingPoints.length > 0 || demands.length > 0
+    const status = analyzed ? 'analyzed' : 'raw'
+    await this.prisma.analysisPriceBand.update({
+      where: { id: bandRow.id },
+      data: {
+        analysisStatus: status,
+        sellingPointsJson: (sellingPoints.length ? sellingPoints : []) as Prisma.InputJsonValue,
+        demandsJson: (demands.length ? demands : []) as Prisma.InputJsonValue,
+        imagePromptsJson: (imagePrompts ?? {}) as Prisma.InputJsonValue,
+      },
+    })
+    return {
+      ok: true,
+      bandName,
+      analysisStatus: status,
+      extractedSellingPoints: sellingPoints,
+      extractedDemands: demands,
+      imagePrompts,
+      model: result.model,
     }
   }
 }

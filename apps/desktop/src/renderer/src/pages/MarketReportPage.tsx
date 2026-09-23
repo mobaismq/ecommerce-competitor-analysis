@@ -89,6 +89,9 @@ interface PriceBandItem {
   grossProfit: number
   grossMargin: number
   targetMarginPrice: number
+  analysisStatus?: 'analyzed' | 'partial' | 'raw'
+  extractedSellingPoints?: Metric[]
+  extractedDemands?: Metric[]
   sellingPoints: Metric[]
   demands: Metric[]
   qaExamples: Array<{ question: string; answer: string }>
@@ -149,6 +152,33 @@ export function MarketReportPage() {
   // 原始 Markdown 报告折叠查看（对照旧版 MarketReport 可折叠 markdown 原文）
   const [rawMarkdown, setRawMarkdown] = useState<string | null>(null)
   const [markdownOpen, setMarkdownOpen] = useState(false)
+
+  // 1.22/1.23：按价格段重跑 AI 分析状态
+  const [rerunningBand, setRerunningBand] = useState<string | null>(null)
+
+  const handleRerunBand = async (band: PriceBandItem) => {
+    const kw = (summary?.keyword || keyword || '').trim()
+    const bandName = band.priceBand
+    setRerunningBand(bandName)
+    Message.loading({ id: `rerun-${bandName}`, content: `正在重新分析价格段 ${bandName}…` })
+    try {
+      const params = new URLSearchParams()
+      if (kw) params.set('keyword', kw)
+      const { data } = await api.post(`/api/reports/market-bands/${encodeURIComponent(bandName)}/rerun?${params.toString()}`)
+      Message.success({ id: `rerun-${bandName}`, content: data?.analysisStatus === 'analyzed' ? `价格段 ${bandName} 已完成 AI 分析` : `价格段 ${bandName} 无 AI 产出（保持基础数据，不伪造）` })
+      // 回填该段最新分析与状态，其余段保持现状
+      setBands((prev) => prev.map((b) => (b.priceBand === bandName ? {
+        ...b,
+        analysisStatus: data?.analysisStatus as PriceBandItem['analysisStatus'] ?? 'raw',
+        extractedSellingPoints: Array.isArray(data?.extractedSellingPoints) ? (data.extractedSellingPoints as Metric[]) : b.extractedSellingPoints,
+        extractedDemands: Array.isArray(data?.extractedDemands) ? (data.extractedDemands as Metric[]) : b.extractedDemands,
+      } : b)))
+    } catch {
+      Message.error({ id: `rerun-${bandName}`, content: '价格段重跑失败' })
+    } finally {
+      setRerunningBand(null)
+    }
+  }
   const [markdownLoading, setMarkdownLoading] = useState(false)
   const toggleRawMarkdown = async () => {
     if (!summary?.id) return
@@ -241,6 +271,9 @@ export function MarketReportPage() {
               grossProfit: Number(profit.grossProfit) || 0,
               grossMargin: Number(profit.grossMargin) || 0,
               targetMarginPrice: Number(profit.targetMarginPrice) || 0,
+              analysisStatus: (['analyzed', 'partial', 'raw'].includes(String(b.analysisStatus)) ? String(b.analysisStatus) : 'raw') as PriceBandItem['analysisStatus'],
+              extractedSellingPoints: Array.isArray(b.extractedSellingPoints) ? (b.extractedSellingPoints as Metric[]) : [],
+              extractedDemands: Array.isArray(b.extractedDemands) ? (b.extractedDemands as Metric[]) : [],
               sellingPoints: [],
               demands: [],
               qaExamples: [],
@@ -369,6 +402,9 @@ export function MarketReportPage() {
               grossProfit: Number(pb.grossProfit) || 0,
               grossMargin: Number(pb.grossMargin) || 0,
               targetMarginPrice: Number(pb.targetMarginPrice) || 0,
+              analysisStatus: (['analyzed', 'partial', 'raw'].includes(String(pb.analysisStatus)) ? String(pb.analysisStatus) : 'raw') as PriceBandItem['analysisStatus'],
+              extractedSellingPoints: Array.isArray(pb.extractedSellingPoints) ? (pb.extractedSellingPoints as Metric[]) : [],
+              extractedDemands: Array.isArray(pb.extractedDemands) ? (pb.extractedDemands as Metric[]) : [],
               sellingPoints: [],
               demands: [],
               qaExamples: [],
@@ -445,6 +481,16 @@ export function MarketReportPage() {
       ),
     },
     {
+      title: 'AI 分析状态',
+      dataIndex: 'analysisStatus',
+      width: 130,
+      render: (v: PriceBandItem['analysisStatus']) => {
+        if (v === 'analyzed') return <Tag color="green" icon={<IconCheckCircleFill />}>已 AI 分析</Tag>
+        if (v === 'partial') return <Tag color="orange">AI 未产出</Tag>
+        return <Tag color="gray">基础数据</Tag>
+      },
+    },
+    {
       title: '竞品样本数',
       dataIndex: 'competitorCount',
       render: (v: number) => <Text>{v} 款</Text>,
@@ -495,17 +541,29 @@ export function MarketReportPage() {
     {
       title: '操作',
       render: (_: unknown, record: PriceBandItem) => (
-        <Button
-          size="small"
-          type="outline"
-          icon={<IconEye />}
-          onClick={() => {
-            setSelectedBand(record)
-            setDetailDrawerOpen(true)
-          }}
-        >
-          下钻详情
-        </Button>
+        <Space>
+          <Button
+            size="small"
+            type="outline"
+            icon={<IconEye />}
+            onClick={() => {
+              setSelectedBand(record)
+              setDetailDrawerOpen(true)
+            }}
+          >
+            下钻详情
+          </Button>
+          <Button
+            size="small"
+            type="primary"
+            status={record.analysisStatus === 'analyzed' ? 'success' : 'warning'}
+            icon={<IconPlayArrow />}
+            loading={rerunningBand === record.priceBand}
+            onClick={() => void handleRerunBand(record)}
+          >
+            {record.analysisStatus === 'analyzed' ? '重新分析' : '分析'}
+          </Button>
+        </Space>
       ),
     },
   ]
@@ -842,6 +900,48 @@ export function MarketReportPage() {
                 </div>
               </Card>
             )}
+
+            {/* 1.22/1.23：该价格段 AI 分析产物与状态 */}
+            <Card title="价格段 AI 分析"
+              bordered
+              style={{ marginBottom: 16 }}
+              extra={
+                <Button size="small" type="primary" status={selectedBand.analysisStatus === 'analyzed' ? 'success' : 'warning'}
+                  icon={<IconPlayArrow />} loading={rerunningBand === selectedBand.priceBand}
+                  onClick={() => void handleRerunBand(selectedBand)}>
+                  {selectedBand.analysisStatus === 'analyzed' ? '重新分析' : '分析'}
+                </Button>
+              }
+            >
+              <Space style={{ marginBottom: 10 }}>
+                {selectedBand.analysisStatus === 'analyzed' && <Tag color="green" icon={<IconCheckCircleFill />}>已 AI 分析</Tag>}
+                {selectedBand.analysisStatus === 'partial' && <Tag color="orange">AI 未产出</Tag>}
+                {(!selectedBand.analysisStatus || selectedBand.analysisStatus === 'raw') && <Tag color="gray">基础数据</Tag>}
+              </Space>
+              {(selectedBand.extractedSellingPoints?.length || 0) > 0 && (
+                <div style={{ marginBottom: 10 }}>
+                  <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 6 }}>提取卖点：</Text>
+                  <Space wrap>
+                    {selectedBand.extractedSellingPoints!.map((s, i) => (
+                      <Tag key={i} color="arcoblue">{s.term}{s.count ? ` ×${s.count}` : ''}</Tag>
+                    ))}
+                  </Space>
+                </div>
+              )}
+              {(selectedBand.extractedDemands?.length || 0) > 0 && (
+                <div>
+                  <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 6 }}>提取需求：</Text>
+                  <Space wrap>
+                    {selectedBand.extractedDemands!.map((d, i) => (
+                      <Tag key={i} color="cyan">{d.term}{d.count ? ` ×${d.count}` : ''}</Tag>
+                    ))}
+                  </Space>
+                </div>
+              )}
+              {!(selectedBand.extractedSellingPoints?.length || 0) && !(selectedBand.extractedDemands?.length || 0) && (
+                <Text type="secondary">该价格段暂无 AI 产出卖点/需求，可点击"分析"重新提炼（无真实模型 key 时保持基础数据，不伪造）。</Text>
+              )}
+            </Card>
 
             {/* 卖点与痛点洞察 */}
             <Card title="AI 提炼高频卖点与买家痛点" bordered style={{ marginBottom: 16 }}>

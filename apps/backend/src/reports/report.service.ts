@@ -5,6 +5,7 @@ import { buildAttemptKey } from '../ai/ai.types'
 import { ProviderRouter } from '../ai/provider-router.service'
 import { PrismaService } from '../prisma.service'
 import { computePriceBands as buildPriceBands, type PriceBand } from './report-price-bands'
+import { extractJson } from './report-json.util'
 
 export interface RunReportInput {
   jobId: string
@@ -74,19 +75,6 @@ const NEED_TERMS = ['希望', '需要', '建议', '能不能', '多久', '怎么
 function buildReportNo() {
   const date = new Date().toISOString().slice(0, 10).replace(/-/g, '')
   return `R${date}${randomBytes(4).toString('hex').toUpperCase()}`
-}
-
-function extractJson(text?: string): Record<string, any> | null {
-  if (!text) return null
-  const cleaned = text.replace(/```(?:json)?/gi, '').trim()
-  const start = cleaned.indexOf('{')
-  const end = cleaned.lastIndexOf('}')
-  if (start === -1 || end === -1 || end <= start) return null
-  try {
-    return JSON.parse(cleaned.slice(start, end + 1))
-  } catch {
-    return null
-  }
 }
 
 @Injectable()

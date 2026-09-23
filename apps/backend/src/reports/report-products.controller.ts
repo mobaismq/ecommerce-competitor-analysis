@@ -113,4 +113,20 @@ export class ReportProductsController {
       targetMargin: num(targetMargin),
     })
   }
+
+  @Post('market-bands/:bandName/rerun')
+  @HttpCode(200)
+  @RequirePermission('market:report:view')
+  rerunBandAnalysis(
+    @Req() request: { user: { tenantId: string; sub?: string } },
+    @Param('bandName') bandName: string,
+    @Query('keyword') keyword?: string,
+  ) {
+    return this.service.rerunBandAnalysis({
+      tenantId: request.user.tenantId,
+      keyword,
+      bandName,
+      userId: request.user.sub,
+    })
+  }
 }
