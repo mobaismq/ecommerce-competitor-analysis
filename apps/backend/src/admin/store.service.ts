@@ -10,7 +10,18 @@ export class StoreService {
 
   async list(
     tenantId: string,
-    options: { keyword?: string; platformId?: string; status?: string; authStatus?: string; page?: number; pageSize?: number } = {},
+    options: {
+      keyword?: string
+      platformId?: string
+      status?: string
+      authStatus?: string
+      authTimeStart?: string
+      authTimeEnd?: string
+      authExpireTimeStart?: string
+      authExpireTimeEnd?: string
+      page?: number
+      pageSize?: number
+    } = {},
   ) {
     const where: Prisma.StoreWhereInput = { tenantId, deletedAt: null }
     if (options.keyword) {
@@ -18,12 +29,24 @@ export class StoreService {
     }
     if (options.platformId) where.platformId = options.platformId
     if (options.status) where.status = options.status
+    if (options.authStatus) {
+      const now = new Date()
+      if (options.authStatus === 'valid') where.authExpiresAt = { not: null, gte: now }
+      else if (options.authStatus === 'expired') where.authExpiresAt = { not: null, lt: now }
+      else if (options.authStatus === 'none') where.authExpiresAt = null
+    }
+    if (options.authTimeStart) where.authorizedAt = { ...(where.authorizedAt as object | undefined), gte: new Date(options.authTimeStart) }
+    if (options.authTimeEnd) where.authorizedAt = { ...(where.authorizedAt as object | undefined), lte: new Date(options.authTimeEnd) }
+    if (options.authExpireTimeStart) where.authExpiresAt = { ...(where.authExpiresAt as object | undefined), gte: new Date(options.authExpireTimeStart) }
+    if (options.authExpireTimeEnd) where.authExpiresAt = { ...(where.authExpiresAt as object | undefined), lte: new Date(options.authExpireTimeEnd) }
 
     const base: Prisma.StoreFindManyArgs = { where, include: { platform: true }, orderBy: { createdAt: 'asc' } }
-    const derive = <T extends { authExpiresAt: Date | null; platform?: { logo?: string | null } | null }>(rows: T[]) =>
+    const derive = <T extends { authExpiresAt: Date | null; authorizedAt?: Date | null; platform?: { logo?: string | null } | null }>(rows: T[]) =>
       rows.map((row) => ({
         ...row,
         authStatus: this.deriveAuthStatus(row.authExpiresAt),
+        // authTime 由 authorizedAt 派生（对照旧版 mapStoreRow 的 authTime）
+        authTime: row.authorizedAt ?? null,
         // storeLogo 由 platform.logo 派生（对照旧版 mapStoreRow 的 platformLogo→storeLogo）
         storeLogo: row.platform?.logo ?? null,
       }))
@@ -59,6 +82,7 @@ export class StoreService {
         externalId: dto.externalId,
         status: dto.status,
         authorizedBy: dto.authorizedBy,
+        authorizedAt: dto.authorizedAt ? new Date(dto.authorizedAt) : undefined,
         authExpiresAt: dto.authExpiresAt ? new Date(dto.authExpiresAt) : undefined,
       },
       include: { platform: true },
@@ -75,6 +99,7 @@ export class StoreService {
     if (dto.externalId !== undefined) data.externalId = dto.externalId
     if (dto.status !== undefined) data.status = dto.status
     if (dto.authorizedBy !== undefined) data.authorizedBy = dto.authorizedBy
+    if (dto.authorizedAt !== undefined) data.authorizedAt = new Date(dto.authorizedAt)
     if (dto.authExpiresAt !== undefined) data.authExpiresAt = new Date(dto.authExpiresAt)
     if (dto.isDeleted) data.deletedAt = new Date()
     return this.prisma.store.update({

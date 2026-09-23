@@ -23,5 +23,9 @@ export class CreateStoreDto {
 
   @IsOptional()
   @IsString()
+  authorizedAt?: string
+
+  @IsOptional()
+  @IsString()
   authExpiresAt?: string
 }

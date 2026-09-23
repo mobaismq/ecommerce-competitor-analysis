@@ -212,6 +212,21 @@ describe('admin lifecycle (离线 mock, 不触真实服务)', () => {
       expect(list.find((r) => r.id === 's1')?.storeLogo).toBe('https://x/logo.png')
       expect(list.find((r) => r.id === 's2')?.storeLogo).toBeNull()
     })
+
+    it('list 按 authStatus/授权时间/到期时间筛选并派生 authTime', async () => {
+      const service = new StoreService(prisma as unknown as PrismaService)
+      prisma.store.findMany.mockResolvedValue([{ id: 's1', authExpiresAt: null, authorizedAt: new Date('2026-01-01'), deletedAt: null, platform: null }])
+      // authStatus='none' → authExpiresAt = null
+      await service.list('tenant-1', { authStatus: 'none' })
+      expect(prisma.store.findMany.mock.calls[0][0].where.authExpiresAt).toBeNull()
+      // 到期时间起点 → gte
+      await service.list('tenant-1', { authExpireTimeStart: '2026-06-01' })
+      expect(prisma.store.findMany.mock.calls[1][0].where.authExpiresAt).toEqual({ gte: new Date('2026-06-01') })
+      // authTime 派生返回
+      const rows = await service.list('tenant-1')
+      const list = Array.isArray(rows) ? rows : rows.rows
+      expect(list.find((r) => r.id === 's1')?.authTime).toEqual(new Date('2026-01-01'))
+    })
   })
 
   describe('DepartmentService', () => {

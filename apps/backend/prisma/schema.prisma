@@ -115,6 +115,7 @@ model Store {
   name          String
   externalId    String?
   status        String?
+  authorizedAt  DateTime?
   authExpiresAt DateTime?
   authorizedBy  String?
   deletedAt     DateTime?

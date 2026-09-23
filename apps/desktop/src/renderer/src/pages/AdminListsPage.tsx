@@ -569,15 +569,15 @@ interface StoreRow {
 
 export function AdminStoresPage() {
   const stores = useQuery({ queryKey: ['stores'], queryFn: async () => (await api.get<StoreRow[]>(`/api/stores`)).data })
-  const [form, setForm] = useState({ name: '', externalId: '' })
+  const [form, setForm] = useState({ name: '', externalId: '', authorizedAt: '' })
   const create = async (event: React.FormEvent) => {
     event.preventDefault()
     if (!form.name.trim()) {
       alert('请填写店铺名称')
       return
     }
-    refresh(stores.refetch, api.post('/api/stores', { name: form.name.trim(), externalId: form.externalId.trim() || undefined }))
-    setForm({ name: '', externalId: '' })
+    refresh(stores.refetch, api.post('/api/stores', { name: form.name.trim(), externalId: form.externalId.trim() || undefined, authorizedAt: form.authorizedAt.trim() || undefined }))
+    setForm({ name: '', externalId: '', authorizedAt: '' })
   }
   const toggle = (row: StoreRow) => refresh(stores.refetch, api.patch(`/api/stores/${row.id}`, { status: row.status === 'disabled' ? 'active' : 'disabled' }))
   const remove = (row: StoreRow) => {
@@ -596,6 +596,10 @@ export function AdminStoresPage() {
           <label className="grid gap-1.5 text-[12px] text-[#86909C]">
             平台店铺 ID
             <input value={form.externalId} onChange={(e) => setForm({ ...form, externalId: e.target.value })} placeholder="选填" className="h-9 rounded-lg border border-[#dce3ee] bg-[#f9fafb] px-2.5 text-[13px] font-semibold text-[#0A1B39] outline-none focus:border-[#3388ff] focus:bg-white" />
+          </label>
+          <label className="grid gap-1.5 text-[12px] text-[#86909C]">
+            授权时间
+            <input type="date" value={form.authorizedAt} onChange={(e) => setForm({ ...form, authorizedAt: e.target.value })} className="h-9 rounded-lg border border-[#dce3ee] bg-[#f9fafb] px-2.5 text-[13px] font-semibold text-[#0A1B39] outline-none focus:border-[#3388ff] focus:bg-white" />
           </label>
           <button type="submit" className="h-9 cursor-pointer rounded-lg border-0 bg-[#3388ff] text-[13px] font-bold text-white hover:bg-[#1a6fe8]">
             新增店铺

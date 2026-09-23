@@ -19,6 +19,10 @@ export class UpdateStoreDto {
 
   @IsOptional()
   @IsString()
+  authorizedAt?: string
+
+  @IsOptional()
+  @IsString()
   authExpiresAt?: string
 
   @IsOptional()

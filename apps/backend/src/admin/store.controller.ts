@@ -20,6 +20,10 @@ export class StoreController {
     @Query('platformId') platformId?: string,
     @Query('status') status?: string,
     @Query('authStatus') authStatus?: string,
+    @Query('authTimeStart') authTimeStart?: string,
+    @Query('authTimeEnd') authTimeEnd?: string,
+    @Query('authExpireTimeStart') authExpireTimeStart?: string,
+    @Query('authExpireTimeEnd') authExpireTimeEnd?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
@@ -28,6 +32,10 @@ export class StoreController {
       platformId,
       status,
       authStatus,
+      authTimeStart,
+      authTimeEnd,
+      authExpireTimeStart,
+      authExpireTimeEnd,
       ...(page !== undefined ? { page: Number(page) || 1 } : {}),
       ...(pageSize !== undefined ? { pageSize: Number(pageSize) || 20 } : {}),
     })
