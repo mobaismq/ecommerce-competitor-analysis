@@ -20,13 +20,18 @@ export class AuthService {
     this.prisma = prisma ?? new PrismaService()
   }
 
-  async login(username: string, password: string) {
+  async login(account: string, password: string) {
+    // 5.10 手机号登录：对照旧版 loginAccount 允许账号名或手机号登录。
     const user = await this.prisma.user.findFirst({
-      where: { username, isActive: true, deletedAt: null },
+      where: {
+        isActive: true,
+        deletedAt: null,
+        OR: [{ username: account }, { phone: account }],
+      },
     })
 
       if (!user || !verifyPassword(password, user.passwordHash)) {
-        throw new UnauthorizedException('用户名或密码错误')
+        throw new UnauthorizedException('用户名/手机号或密码错误')
       }
 
     const accessToken = await this.jwtService.signAsync({

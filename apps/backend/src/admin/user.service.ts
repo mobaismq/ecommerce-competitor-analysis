@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
+import { normalizeDataScope } from '../auth/data-scope.util'
 import { hashPassword } from '../auth/password'
 import { PrismaService } from '../prisma.service'
 import { CreateUserDto } from './dto/create-user.dto'
@@ -16,8 +17,8 @@ export class UserService {
     const where: Prisma.UserWhereInput = {
       deletedAt: null,
       tenantId: scope.tenantId,
-      ...(scope.dataScope === 'self' ? { id: scope.userId } : {}),
-      ...(scope.dataScope === 'department' && scope.departmentId ? { departmentId: scope.departmentId } : {}),
+      ...(normalizeDataScope(scope.dataScope) === 'self' ? { id: scope.userId } : {}),
+      ...(normalizeDataScope(scope.dataScope) === 'department' && scope.departmentId ? { departmentId: scope.departmentId } : {}),
       ...(options.isActive !== undefined ? { isActive: options.isActive } : {}),
     }
     if (options.keyword) {

@@ -60,12 +60,12 @@ describe('AuthService', () => {
     })
   })
 
-  it('仅查询 active 且未删除的用户', async () => {
+  it('仅查询 active 且未删除的用户（支持手机号登录）', async () => {
     const prisma = makeMockPrisma(null)
     const svc = new AuthService(jwtService, prisma as unknown as PrismaService)
     await svc.login('admin', 'x').catch(() => undefined)
     expect(prisma.user.findFirst).toHaveBeenCalledWith({
-      where: { username: 'admin', isActive: true, deletedAt: null },
+      where: { isActive: true, deletedAt: null, OR: [{ username: 'admin' }, { phone: 'admin' }] },
     })
   })
 })

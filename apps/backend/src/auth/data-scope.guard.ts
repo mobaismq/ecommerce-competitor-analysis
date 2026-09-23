@@ -1,5 +1,6 @@
 import { CanActivate, ExecutionContext, ForbiddenException, Injectable } from '@nestjs/common'
 import { PrismaService } from '../prisma.service'
+import { normalizeDataScope } from './data-scope.util'
 
 @Injectable()
 export class DataScopeGuard implements CanActivate {
@@ -23,7 +24,7 @@ export class DataScopeGuard implements CanActivate {
       where: { id: user.sub },
       select: { dataScope: true, departmentId: true },
     })
-    user.dataScope = dbUser?.dataScope ?? 'all'
+    user.dataScope = normalizeDataScope(dbUser?.dataScope)
     user.departmentId = dbUser?.departmentId ?? null
 
     const requestedStoreId =
