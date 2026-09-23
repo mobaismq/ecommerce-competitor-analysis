@@ -133,6 +133,7 @@ export function MarketReportPage() {
 
   const [form] = Form.useForm()
   const [keyword, setKeyword] = useState(initialKeyword)
+  const [limit, setLimit] = useState(120)
   const [loading, setLoading] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [generateStep, setGenerateStep] = useState(0)
@@ -228,6 +229,7 @@ export function MarketReportPage() {
     try {
       const params = new URLSearchParams()
       if (currentKeyword) params.set('keyword', currentKeyword)
+      if (Number(limit) > 0) params.set('limit', String(Number(limit)))
       const costFields: Array<[string, number | string | undefined | null]> = [
         ['costPrice', values.costPrice],
         ['shippingCost', values.shippingCost],
@@ -347,6 +349,7 @@ export function MarketReportPage() {
           keyword: kw.trim(),
           analysisType: 'market',
           businessKey: `market|${kw.trim().toLowerCase()}|market`,
+          limit: Number(limit) || 120,
         })
         const jobId = created.data?.jobId
         if (!jobId) throw new Error('未返回任务编号')
@@ -653,6 +656,15 @@ export function MarketReportPage() {
                   value={keyword}
                   onChange={(v) => setKeyword(v)}
                   allowClear
+                />
+              </Form.Item>
+              <Form.Item label="采集条数（采样本上限）" field="limit">
+                <InputNumber
+                  placeholder="如 120"
+                  min={1}
+                  value={limit}
+                  onChange={(v) => setLimit((v as number) || 120)}
+                  style={{ width: '100%' }}
                 />
               </Form.Item>
             </Col>

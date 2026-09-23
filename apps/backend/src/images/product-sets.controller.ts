@@ -22,7 +22,7 @@ export class ProductSetsController {
   }
 
   @Post('generate-image')
-  generateImage(@Req() request: { user: { tenantId: string } }, @Body() body: GenerateImageDto) {
+  generateImage(@Req() request: { user: { tenantId: string; username?: string } }, @Body() body: GenerateImageDto) {
     return this.service.generateImage({
       prompt: body.prompt,
       size: body.size,
@@ -34,6 +34,9 @@ export class ProductSetsController {
       watermark: body.watermark,
       name: body.name,
       slotType: body.slotType,
+      productName: body.productName,
+      productId: body.productId,
+      createdBy: request.user.username,
       tenantId: request.user.tenantId,
     })
   }
@@ -96,8 +99,8 @@ export class ProductSetsController {
   }
 
   @Post('generated-images')
-  save(@Req() request: { user: { tenantId: string } }, @Body() body: { images?: Array<{ name?: string; url?: string; type?: string }>; productName?: string; productId?: string; sizeRatio?: string; platform?: string; runId?: string }) {
-    return this.service.saveGenerated(request.user.tenantId, body)
+  save(@Req() request: { user: { tenantId: string; username?: string } }, @Body() body: { images?: Array<{ name?: string; url?: string; type?: string }>; productName?: string; productId?: string; sizeRatio?: string; platform?: string; runId?: string }) {
+    return this.service.saveGenerated(request.user.tenantId, { ...body, createdBy: request.user.username })
   }
 
   @Delete('generated-images/:id')

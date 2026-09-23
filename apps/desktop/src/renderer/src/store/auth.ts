@@ -16,12 +16,22 @@ interface MePayload extends AuthUser {
   departmentId?: string | null
   isSuper: boolean
   permissions: string[]
+  menuCodes?: string[]
+  buttonCodes?: string[]
+  storeIds?: string[]
+  storeScopeAll?: boolean
+  dataScope?: 'all' | 'department' | 'self' | string | null
 }
 
 interface AuthState {
   token: string | null
   user: AuthUser | null
   permissions: string[]
+  menuCodes: string[]
+  buttonCodes: string[]
+  storeIds: string[]
+  storeScopeAll: boolean
+  dataScope: string
   isSuper: boolean
   login: (username: string, password: string) => Promise<void>
   logout: () => void
@@ -41,6 +51,11 @@ export const useAuth = create<AuthState>((set, get) => ({
   token: localStorage.getItem('eca.token'),
   user: readStoredUser(),
   permissions: [],
+  menuCodes: [],
+  buttonCodes: [],
+  storeIds: [],
+  storeScopeAll: true,
+  dataScope: 'all',
   isSuper: false,
   async login(username: string, password: string) {
     const { data } = await api.post('/api/auth/login', { username, password })
@@ -66,7 +81,16 @@ export const useAuth = create<AuthState>((set, get) => ({
         roles: data.roles,
       }
       localStorage.setItem('eca.user', JSON.stringify(user))
-      set({ user, permissions: data.permissions, isSuper: data.isSuper })
+      set({
+        user,
+        permissions: data.permissions,
+        menuCodes: data.menuCodes ?? [],
+        buttonCodes: data.buttonCodes ?? [],
+        storeIds: data.storeIds ?? [],
+        storeScopeAll: data.storeScopeAll ?? true,
+        dataScope: data.dataScope ?? 'all',
+        isSuper: data.isSuper,
+      })
     } catch {
       // 静默：拿到 me 前不根据权限收窄导航
     }
@@ -75,6 +99,16 @@ export const useAuth = create<AuthState>((set, get) => ({
     localStorage.removeItem('eca.token')
     localStorage.removeItem('eca.user')
     void window.desktop?.store.clearToken()
-    set({ token: null, user: null, permissions: [], isSuper: false })
+    set({
+      token: null,
+      user: null,
+      permissions: [],
+      menuCodes: [],
+      buttonCodes: [],
+      storeIds: [],
+      storeScopeAll: true,
+      dataScope: 'all',
+      isSuper: false,
+    })
   },
 }))

@@ -14,6 +14,7 @@ export interface CollectionStartInput {
   minPrice?: number | string | null
   maxPrice?: number | string | null
   topN?: number
+  limit?: number | string | null
   searchPages?: number
   speedProfile?: string
   importMysql?: boolean
@@ -52,6 +53,7 @@ export function registerCollectionHandlers(prisma: PrismaClient) {
     currentJobId = jobId
 
     const topN = Number(input.topN || 100)
+    const limit = input.limit === '' || input.limit == null ? undefined : Number(input.limit)
     const searchPages = Number(input.searchPages || 8)
     const minPrice = input.minPrice === '' || input.minPrice == null ? null : Number(input.minPrice)
     const maxPrice = input.maxPrice === '' || input.maxPrice == null ? null : Number(input.maxPrice)
@@ -92,6 +94,7 @@ export function registerCollectionHandlers(prisma: PrismaClient) {
             downloadScript: script,
             params: {
               topN,
+              ...(limit !== undefined ? { limit } : {}),
               searchPages,
               minPrice,
               maxPrice,

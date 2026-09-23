@@ -68,6 +68,15 @@ export class GenerateImageDto {
   @IsOptional()
   @IsString()
   slotType?: string
+
+  /** 关联商品名/商品ID（图库真源，随生图落库，缺失留空不伪造） */
+  @IsOptional()
+  @IsString()
+  productName?: string
+
+  @IsOptional()
+  @IsString()
+  productId?: string
 }
 
 export class GenerateDetailWorkflowDto {

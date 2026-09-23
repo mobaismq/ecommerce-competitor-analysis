@@ -63,6 +63,48 @@ describe('buildItemAddParams (taobao.item.add 参数映射)', () => {
     expect(params.num).toBeUndefined()
     expect(params.price).toBeUndefined()
   })
+
+  it('映射富媒体（video/whiteImage/详情图并入 desc）', () => {
+    const input: PlatformListingInput = {
+      title: '富媒体商品',
+      contentJson: {
+        price: '299',
+        categoryId: '162102',
+        detailContent: '描述文案',
+        video: 'https://cdn.example.com/a.mp4',
+        whiteImage: 'https://cdn.example.com/w.png',
+        detailImages: ['https://cdn.example.com/d1.png', 'https://cdn.example.com/d2.png'],
+      },
+    }
+    const params = buildItemAddParams(input)
+    expect(params.main_video).toBe('https://cdn.example.com/a.mp4')
+    expect(params.white_background_image).toBe('https://cdn.example.com/w.png')
+    expect(params.desc).toContain('描述文案')
+    expect(params.desc).toContain('<img src="https://cdn.example.com/d1.png">')
+    expect(params.desc).toContain('<img src="https://cdn.example.com/d2.png">')
+  })
+
+  it('映射商品属性 productAttrs → input_str', () => {
+    const params = buildItemAddParams({
+      title: 'x',
+      contentJson: { productAttrs: { 品牌: 'A', 材质: '棉' } },
+    })
+    expect(params.input_str).toBe('品牌:A;材质:棉')
+  })
+
+  it('映射扩展 SKU → taobao sku 串（properties;price;quantity;outer_id）', () => {
+    const params = buildItemAddParams({
+      title: 'x',
+      contentJson: {
+        skus: [
+          { specName: '红色', price: '50', stock: 10, skuCode: 'SKU-1' },
+          { specName: '蓝色', price: '60', stock: 5, skuCode: 'SKU-2' },
+        ],
+      },
+    })
+    expect(params.sku).toBe('红色;50;10;SKU-1,蓝色;60;5;SKU-2')
+    expect(params.num).toBe('15')
+  })
 })
 
 describe('TaobaoAdapter.submitListing', () => {

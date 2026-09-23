@@ -2,7 +2,7 @@ import { Injectable, UnauthorizedException } from '@nestjs/common'
 import { JwtService } from '@nestjs/jwt'
 import { PrismaService } from '../prisma.service'
 import { hashPassword, verifyPassword } from './password'
-import { resolveUserPermissionCodes } from './permission.resolver'
+import { resolvePermissionContext } from './permission.resolver'
 
 @Injectable()
 export class AuthService {
@@ -85,9 +85,9 @@ export class AuthService {
     })
     if (!user) throw new UnauthorizedException('用户不存在')
     const isSuper = user.username === 'super_admin' || user.tenantId === 'system'
-    const [permissions, roles] = await Promise.all([
-      resolveUserPermissionCodes(this.prisma, userId),
+    const [roles, ctx] = await Promise.all([
       resolveUserRoleNames(this.prisma, userId),
+      resolvePermissionContext(this.prisma, userId),
     ])
     return {
       id: user.id,
@@ -100,7 +100,12 @@ export class AuthService {
       departmentId: user.departmentId,
       isSuper,
       roles,
-      permissions,
+      permissions: [...ctx.menuCodes, ...ctx.buttonCodes],
+      menuCodes: ctx.menuCodes,
+      buttonCodes: ctx.buttonCodes,
+      storeIds: ctx.storeIds,
+      storeScopeAll: ctx.storeScopeAll,
+      dataScope: ctx.dataScope,
     }
   }
 }

@@ -39,6 +39,10 @@ export class CreateJobDto {
 
   @IsOptional()
   @IsNumber()
+  limit?: number
+
+  @IsOptional()
+  @IsNumber()
   searchPages?: number
 
   @IsOptional()

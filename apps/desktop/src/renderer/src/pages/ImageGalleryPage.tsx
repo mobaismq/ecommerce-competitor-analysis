@@ -20,6 +20,8 @@ interface Asset {
   prompt?: string | null
   ratio?: string | null
   productName?: string | null
+  productId?: string | null
+  createdBy?: string | null
   platform?: string | null
   createdAt?: string
 }
@@ -86,6 +88,8 @@ function GalleryGrid({
             <span>{asset.ratio || formatBytes(asset.size)}</span>
           </div>
           {asset.platform && <p className="m-0 mt-0.5 truncate text-[11px] text-[#c0c4cc]">{asset.platform}</p>}
+          {asset.productName && <p className="m-0 mt-0.5 truncate text-[11px] text-[#c0c4cc]">关联：{asset.productName}</p>}
+          {asset.createdBy && <p className="m-0 mt-0.5 truncate text-[11px] text-[#c0c4cc]">创建人：{asset.createdBy}</p>}
         </div>
       </div>
     )
@@ -108,9 +112,10 @@ export function ImageGalleryPage() {
   const [keyword, setKeyword] = useState('')
   const [typeFilter, setTypeFilter] = useState('ALL')
   const [formatFilter, setFormatFilter] = useState('ALL')
+  const [productFilter, setProductFilter] = useState('ALL')
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
-  const [applied, setApplied] = useState({ keyword: '', type: 'ALL', format: 'ALL', start: '', end: '' })
+  const [applied, setApplied] = useState({ keyword: '', type: 'ALL', format: 'ALL', product: 'ALL', start: '', end: '' })
   const [groupByProduct, setGroupByProduct] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
 
@@ -163,11 +168,19 @@ export function ImageGalleryPage() {
         (applied.type === 'viral' && (category.includes('复刻') || category.includes('爆款'))) ||
         (applied.type === 'other' && !category)
 
+      const matchProduct = applied.product === 'ALL' || (item.productName?.trim() || '') === applied.product
+
       const matchStart = !applied.start || (item.createdAt && item.createdAt >= applied.start)
       const matchEnd = !applied.end || (item.createdAt && item.createdAt <= applied.end + ' 23:59:59')
-      return matchKeyword && matchFormat && matchType && matchStart && matchEnd
+      return matchKeyword && matchFormat && matchType && matchProduct && matchStart && matchEnd
     })
   }, [imageAssets, applied])
+
+  // 关联商品下拉选项（来自已落库的真实 productName，不伪造）
+  const productOptions = useMemo(
+    () => Array.from(new Set(imageAssets.map((a) => a.productName?.trim()).filter((name): name is string => Boolean(name)))),
+    [imageAssets],
+  )
 
   useEffect(() => {
     setCurrentPage(1)
@@ -270,7 +283,7 @@ export function ImageGalleryPage() {
             <XSearchInput
               value={keyword}
               onChange={setKeyword}
-              onEnter={() => setApplied({ keyword, type: typeFilter, format: formatFilter, start: startDate, end: endDate })}
+              onEnter={() => setApplied({ keyword, type: typeFilter, format: formatFilter, product: productFilter, start: startDate, end: endDate })}
               placeholder="请输入"
             />
           </div>
@@ -317,6 +330,26 @@ export function ImageGalleryPage() {
             </select>
           </div>
 
+          <div className="flex items-center gap-2">
+            <label className="shrink-0 text-[12px] text-[#86909C]">关联商品</label>
+            <select
+              value={productFilter}
+              onChange={(e) => setProductFilter(e.target.value)}
+              className={`h-8 w-full appearance-none rounded-lg border border-[#e6e9ef] bg-white px-2.5 text-[13px] outline-none focus:border-[#409eff] ${productFilter === 'ALL' ? 'text-[#98A2B3]' : 'text-[#0A1B39]'}`}
+              style={{
+                backgroundImage:
+                  "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23c0c4cc' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E\")",
+                backgroundRepeat: 'no-repeat',
+                backgroundPosition: 'right 10px center',
+              }}
+            >
+              <option value="ALL">全部商品</option>
+              {productOptions.map((name) => (
+                <option key={name} value={name}>{name}</option>
+              ))}
+            </select>
+          </div>
+
           </div>
           </div>
 
@@ -340,7 +373,7 @@ export function ImageGalleryPage() {
           </div>
           <button
             type="button"
-            onClick={() => setApplied({ keyword, type: typeFilter, format: formatFilter, start: startDate, end: endDate })}
+            onClick={() => setApplied({ keyword, type: typeFilter, format: formatFilter, product: productFilter, start: startDate, end: endDate })}
             className="h-8 shrink-0 cursor-pointer rounded-lg border-0 bg-[#409eff] px-5 text-[13px] font-bold text-white hover:bg-[#66b1ff]"
           >
             查询
@@ -351,9 +384,10 @@ export function ImageGalleryPage() {
               setKeyword('')
               setTypeFilter('ALL')
               setFormatFilter('ALL')
+              setProductFilter('ALL')
               setStartDate('')
               setEndDate('')
-              setApplied({ keyword: '', type: 'ALL', format: 'ALL', start: '', end: '' })
+              setApplied({ keyword: '', type: 'ALL', format: 'ALL', product: 'ALL', start: '', end: '' })
             }}
             className="h-8 shrink-0 cursor-pointer rounded-lg border border-[#e6e9ef] bg-white px-4 text-[13px] text-[#0A1B39] hover:bg-[#f5f6f8]"
           >

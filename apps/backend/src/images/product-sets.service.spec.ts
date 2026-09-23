@@ -152,3 +152,30 @@ describe('ProductSetsService.saveGenerated/removeGeneratedBatch/listGenerated（
     )
   })
 })
+
+describe('ProductSetsService.generateImage 真源字段（1.13：关联商品/创建人）', () => {
+  it('透传 productName/productId/createdBy 并落库', async () => {
+    const router = { execute: jest.fn().mockResolvedValue({ images: ['https://cdn/1.png'], model: 'm' }) }
+    const prisma = { generatedAsset: { create: jest.fn().mockResolvedValue({ id: 'a' }) } }
+    const service = new ProductSetsService(prisma as never, router as never)
+    await service.generateImage({ prompt: 'p', tenantId: 't', productName: '手表', productId: 'p1', createdBy: 'admin' })
+    expect(prisma.generatedAsset.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ productName: '手表', productId: 'p1', createdBy: 'admin' }),
+      }),
+    )
+  })
+})
+
+describe('ProductSetsService.saveGenerated createdBy（1.13 创建人真源）', () => {
+  it('createdBy 透传落库', async () => {
+    const prisma = { generatedAsset: { create: jest.fn().mockResolvedValue({ id: 'a' }) } }
+    const service = new ProductSetsService(prisma as never, {} as never)
+    await service.saveGenerated('t', { images: [{ name: 'A', url: 'https://x/a.png' }], createdBy: 'admin' })
+    expect(prisma.generatedAsset.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ createdBy: 'admin' }),
+      }),
+    )
+  })
+})

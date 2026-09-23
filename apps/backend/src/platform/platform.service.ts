@@ -127,6 +127,10 @@ export class PlatformAdapterService {
       price: dto.price ? Number(dto.price) : undefined,
       skus: (dto.skus ?? []) as unknown as Prisma.InputJsonValue,
       mainImages: dto.mainImages ?? [],
+      video: dto.video,
+      whiteImage: dto.whiteImage,
+      detailImages: dto.detailImages ?? [],
+      productAttrs: (dto.productAttrs ?? {}) as Prisma.InputJsonValue,
       ...(dto.contentJson ?? {}),
     }
     const draft = await this.prisma.listingDraft.create({
@@ -152,6 +156,11 @@ export class PlatformAdapterService {
       categoryId: dto.categoryId,
       price: dto.price ? Number(dto.price) : undefined,
       skus: (dto.skus ?? []) as unknown as Prisma.InputJsonValue,
+      mainImages: dto.mainImages ?? [],
+      video: dto.video,
+      whiteImage: dto.whiteImage,
+      detailImages: dto.detailImages ?? [],
+      productAttrs: (dto.productAttrs ?? {}) as Prisma.InputJsonValue,
       ...(dto.contentJson ?? {}),
     }
 

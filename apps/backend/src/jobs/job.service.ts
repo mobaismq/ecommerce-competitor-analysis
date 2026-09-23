@@ -31,6 +31,7 @@ export class JobService {
       ...(dto.minPrice !== undefined ? { minPrice: dto.minPrice } : {}),
       ...(dto.maxPrice !== undefined ? { maxPrice: dto.maxPrice } : {}),
       ...(dto.topN !== undefined ? { topN: dto.topN } : {}),
+      ...(dto.limit !== undefined ? { limit: dto.limit } : {}),
       ...(dto.searchPages !== undefined ? { searchPages: dto.searchPages } : {}),
       ...(dto.autoParse !== undefined ? { autoParse: dto.autoParse } : {}),
     }

@@ -29,7 +29,8 @@ export function isRealTopConfig(appKey: string, appSecret: string, session: stri
   return !isPlaceholder(appKey) && !isPlaceholder(appSecret) && !isPlaceholder(session)
 }
 
-/** 把上架入参映射为 taobao.item.add 的业务参数（纯函数，可单测）。 */
+/** 把上架入参映射为 taobao.item.add 的业务参数（纯函数，可单测）。
+ *  富媒体/扩展 SKU 参数名为按淘宝商品发布资料补齐，属 best-effort；真实提交仍受 isRealTopConfig 保护。 */
 export function buildItemAddParams(input: PlatformListingInput): Record<string, string> {
   const content = (input.contentJson ?? {}) as Record<string, unknown>
   const params: Record<string, string> = {}
@@ -43,8 +44,25 @@ export function buildItemAddParams(input: PlatformListingInput): Record<string, 
   const stockSum = skus.reduce((acc: number, s) => acc + Number(s.stock ?? 0), 0)
   const num = explicitNum > 0 ? explicitNum : stockSum
   if (num > 0) params.num = String(num)
-  const desc = content.detailContent || content.description || input.title || ''
+  // 富媒体（旧版 ManualListing 的 主视频/白底图/详情图）
+  if (content.video) params.main_video = String(content.video)
+  if (content.whiteImage) params.white_background_image = String(content.whiteImage)
+  const detailImages = Array.isArray(content.detailImages) ? (content.detailImages as string[]).filter(Boolean) : []
+  // 详情图并入 desc 富文本（淘宝详情为 HTML）
+  const descParts = [content.detailContent || content.description || '']
+  for (const url of detailImages) descParts.push(`<img src="${url}">`)
+  const desc = descParts.filter((part) => String(part).trim()).join('\n') || input.title || ''
   if (desc) params.desc = String(desc)
+  // 商品属性 k/v（旧版 productAttrs）→ input_str
+  const attrs = content.productAttrs && typeof content.productAttrs === 'object' ? (content.productAttrs as Record<string, string>) : {}
+  const attrEntries = Object.entries(attrs).filter(([, v]) => v !== undefined && v !== null && v !== '')
+  if (attrEntries.length) params.input_str = attrEntries.map(([k, v]) => `${k}:${v}`).join(';')
+  // 扩展 SKU → taobao sku 串（properties;price;quantity;outer_id，多 SKU 逗号分隔）
+  const skuStr = skus
+    .map((s) => [s.specName || s.properties || '', s.price ?? '', s.stock ?? s.quantity ?? 0, s.skuCode || s.outerId || ''].join(';'))
+    .filter(Boolean)
+    .join(',')
+  if (skuStr) params.sku = skuStr
   return params
 }
 

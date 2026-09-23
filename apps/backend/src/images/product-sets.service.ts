@@ -69,6 +69,9 @@ export class ProductSetsService {
     watermark?: boolean
     name?: string
     slotType?: string
+    productName?: string
+    productId?: string
+    createdBy?: string
   }) {
     const attemptKey = buildAttemptKey({ jobId: input.jobId ?? 'product-sets', capability: 'image', suffix: 'generate' })
     const ai = await this.router.execute(
@@ -103,6 +106,9 @@ export class ProductSetsService {
             category: input.slotType,
             prompt: input.prompt,
             ratio: input.ratio,
+            productName: input.productName || undefined,
+            productId: input.productId || undefined,
+            createdBy: input.createdBy || undefined,
           },
         }),
       ),
@@ -140,7 +146,7 @@ export class ProductSetsService {
   /** 5.9 手动保存生成主图（对照旧版 POST /generated-images 的 saveGeneratedMainImages）。 */
   async saveGenerated(
     tenantId: string,
-    input: { images?: Array<{ name?: string; url?: string; type?: string }>; productName?: string; productId?: string; sizeRatio?: string; platform?: string; runId?: string },
+    input: { images?: Array<{ name?: string; url?: string; type?: string }>; productName?: string; productId?: string; sizeRatio?: string; platform?: string; runId?: string; createdBy?: string },
   ) {
     const rows = (input.images ?? []).filter((item) => item && String(item.url || '').trim())
     if (!rows.length) return { ok: true, saved: 0 }
@@ -160,6 +166,7 @@ export class ProductSetsService {
           ratio: input.sizeRatio || undefined,
           productId: input.productId || undefined,
           productName: input.productName || undefined,
+          createdBy: input.createdBy || undefined,
           platform: input.platform || undefined,
         },
       })

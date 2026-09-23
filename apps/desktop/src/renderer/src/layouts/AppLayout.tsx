@@ -96,17 +96,17 @@ const nav: NavItem[] = [
   },
 ]
 
-// 权限驱动导航：permissions 为空时显示全部（兜底）；非空按权限码过滤；super_admin 全显
-function filterNavByPermission(items: NavItem[], isSuper: boolean, permissions: string[]): NavItem[] {
+// 权限驱动导航（2.3）：menuCodes 为空时显示全部（兜底，兼容未配置账号）；非空按菜单码过滤；超管全显
+function filterNavByPermission(items: NavItem[], isSuper: boolean, menuCodes: string[]): NavItem[] {
   const can = (item: NavItem) => {
     if (item.superOnly) return isSuper
-    if (item.perm) return isSuper || permissions.includes(item.perm)
+    if (item.perm) return isSuper || menuCodes.includes(item.perm)
     return true
   }
   const result: NavItem[] = []
   for (const item of items) {
     if (item.children) {
-      const children = filterNavByPermission(item.children, isSuper, permissions)
+      const children = filterNavByPermission(item.children, isSuper, menuCodes)
       if (children.length > 0) result.push({ ...item, children })
     } else if (can(item)) {
       result.push(item)
@@ -155,7 +155,7 @@ export function AppLayout() {
   const navigate = useNavigate()
   const user = useAuth((state) => state.user)
   const logout = useAuth((state) => state.logout)
-  const permissions = useAuth((state) => state.permissions)
+  const menuCodes = useAuth((state) => state.menuCodes)
   const isSuper = useAuth((state) => state.isSuper)
 
   const [expanded, setExpanded] = useState(() => {
@@ -173,8 +173,8 @@ export function AppLayout() {
   })
 
   const filteredNav = useMemo(
-    () => (!isSuper && permissions.length > 0 ? filterNavByPermission(nav, isSuper, permissions) : nav),
-    [isSuper, permissions],
+    () => (!isSuper && menuCodes.length > 0 ? filterNavByPermission(nav, isSuper, menuCodes) : nav),
+    [isSuper, menuCodes],
   )
   const activeKey = getSelectedKey(location.pathname)
 

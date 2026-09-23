@@ -115,6 +115,8 @@ export function ProductImageSetsPage() {
 
   // 4. 商品卖点 & AI帮写
   const [generationText, setGenerationText] = useState('')
+  // 关联商品名（图库真源：选填，填入后随生图写入 GeneratedAsset）
+  const [productName, setProductName] = useState('')
   const [reportSellingPoints, setReportSellingPoints] = useState<string[]>([])
   const [loadingDescriptions, setLoadingDescriptions] = useState(false)
   const [aiHelpOpen, setAiHelpOpen] = useState(false)
@@ -448,6 +450,7 @@ export function ProductImageSetsPage() {
             image: uploadedImages.find((i) => i.isMain)?.url || uploadedImages[0]?.url,
             images: uploadedImages.map((i) => i.url),
             ratio: settings.ratio,
+            productName: productName.trim() || undefined,
           })
           const imgUrl = res.data?.images?.[0]?.url || res.data?.url
           if (!imgUrl) throw new Error('当前未接入真实图像服务，未返回可展示图片')
@@ -482,6 +485,7 @@ export function ProductImageSetsPage() {
         image: uploadedImages.find((i) => i.isMain)?.url || uploadedImages[0]?.url,
         images: uploadedImages.map((i) => i.url),
         ratio: settings.ratio,
+        productName: productName.trim() || undefined,
       })
       const imgUrl = res.data?.images?.[0]?.url || res.data?.url
       if (!imgUrl) throw new Error('生成成功但没有返回图片 URL')
@@ -508,6 +512,7 @@ export function ProductImageSetsPage() {
         image: referenceImages[0],
         images: referenceImages.slice(0, 4),
         ratio: settings.ratio,
+        productName: productName.trim() || undefined,
       })
       const url = data?.images?.[0]?.url
       if (!url) throw new Error('当前未接入真实图像服务，未返回可展示图片')
@@ -841,6 +846,17 @@ export function ProductImageSetsPage() {
             placeholder={`建议包含以下信息生成更精准：\n1.产品名称\n2.核心卖点\n3.适用人群\n4.期望场景`}
             className="text-[12px] rounded-lg"
           />
+
+          <div className="mt-2">
+            <div className="mb-1 text-[12px] font-medium text-[#4E5969]">关联商品名（选填，写入图库方便归组与查找）</div>
+            <Input
+              value={productName}
+              onChange={setProductName}
+              size="small"
+              placeholder="如：智能手表 Pro"
+              className="text-[12px] rounded-lg"
+            />
+          </div>
         </div>
 
         {/* 5. 套图结构配置 */}

@@ -19,6 +19,8 @@ model Department {
   tenantId  String
   name      String
   parentId  String?
+  level     Int       @default(1)
+  enabled   Boolean   @default(true)
   deletedAt DateTime?
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -70,10 +72,11 @@ model Role {
 }
 
 model Permission {
-  id   String @id @default(cuid())
-  code String @unique
-  name String
-  type String?
+  id         String  @id @default(cuid())
+  code       String  @unique
+  name       String
+  type       String?
+  parentCode String?
 }
 
 model UserRole {
@@ -388,6 +391,7 @@ model GeneratedAsset {
   ratio        String?
   productId    String?
   productName  String?
+  createdBy    String?
   platform     String?
   createdAt    DateTime @default(now())
 

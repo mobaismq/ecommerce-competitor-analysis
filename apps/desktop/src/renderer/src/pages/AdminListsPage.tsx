@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { ChevronRight, RefreshCw, Search, X } from 'lucide-react'
+import { Checkbox, Modal } from '@arco-design/web-react'
 import { api } from '../api/client'
 import { PageHeader } from '../components/PageHeader'
 
@@ -15,6 +16,26 @@ interface UserRow {
 interface RoleRow {
   id: string
   code: string
+  name: string
+  permissionIds?: string[]
+  storeIds?: string[]
+  permissionAll?: boolean
+}
+
+interface PermNode {
+  id: string
+  code: string
+  name: string
+  type: string
+}
+interface PermGroup {
+  code: string
+  name: string
+  type: string
+  children: PermNode[]
+}
+interface StoreOption {
+  id: string
   name: string
 }
 
@@ -483,21 +504,119 @@ export function AdminTenantsPage() {
 
 export function AdminRolesPage() {
   const roles = useQuery({ queryKey: ['roles'], queryFn: async () => (await api.get<RoleRow[]>('/api/roles')).data })
+  const permTree = useQuery({
+    queryKey: ['permissionTree'],
+    queryFn: async () => (await api.get<{ groups: PermGroup[]; stores: StoreOption[] }>('/api/permissions/tree')).data,
+  })
+  const groups = permTree.data?.groups ?? []
+  const stores = permTree.data?.stores ?? []
+
   const [form, setForm] = useState({ code: '', name: '' })
+  const [permIds, setPermIds] = useState<string[]>([])
+  const [storeIds, setStoreIds] = useState<string[]>([])
+
+  // 编辑态：目标角色 + 回填的权限/店铺
+  const [editRole, setEditRole] = useState<RoleRow | null>(null)
+  const [editPermIds, setEditPermIds] = useState<string[]>([])
+  const [editStoreIds, setEditStoreIds] = useState<string[]>([])
+
+  const togglePerm = (id: string) =>
+    setPermIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
+  const toggleStore = (id: string) =>
+    setStoreIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
+  const toggleGroup = (childIds: string[], checked: boolean) =>
+    setPermIds((prev) => (checked ? Array.from(new Set([...prev, ...childIds])) : prev.filter((x) => !childIds.includes(x))))
+
   const create = async (event: React.FormEvent) => {
     event.preventDefault()
     if (!form.code.trim() || !form.name.trim()) {
       alert('请填写角色编码和角色名称')
       return
     }
-    refresh(roles.refetch, api.post('/api/roles', { code: form.code.trim(), name: form.name.trim() }))
+    refresh(roles.refetch, api.post('/api/roles', { code: form.code.trim(), name: form.name.trim(), permissionIds: permIds, storeIds }))
     setForm({ code: '', name: '' })
+    setPermIds([])
+    setStoreIds([])
   }
+
   const toggle = (row: RoleRow) =>
     refresh(roles.refetch, api.patch(`/api/roles/${row.id}`, { status: (row as RoleRow & { status?: string }).status === 'disabled' ? 'active' : 'disabled' }))
   const remove = (row: RoleRow) => {
     if (window.confirm(`确定删除角色 ${row.name}？`)) refresh(roles.refetch, api.delete(`/api/roles/${row.id}`))
   }
+
+  const openEdit = (row: RoleRow) => {
+    setEditRole(row)
+    setEditPermIds(row.permissionAll ? [] : (row.permissionIds ?? []))
+    setEditStoreIds(row.storeIds ?? [])
+  }
+  const saveEdit = () => {
+    if (!editRole) return
+    refresh(roles.refetch, api.patch(`/api/roles/${editRole.id}`, { permissionIds: editPermIds, storeIds: editStoreIds }))
+    setEditRole(null)
+  }
+
+  // 权限/店铺选择面板（create 与 edit 共用）
+  const renderConfig = (
+    curPermIds: string[],
+    curStoreIds: string[],
+    onTogglePerm: (id: string) => void,
+    onToggleStore: (id: string) => void,
+    onToggleGroup: (childIds: string[], checked: boolean) => void,
+  ) => (
+    <div className="mt-4 rounded-lg border border-[#eef1f5] bg-[#f9fafb] p-3">
+      <div className="mb-2 text-[13px] font-bold text-[#0A1B39]">菜单 / 按钮权限</div>
+      {groups.length === 0 ? (
+        <p className="text-[12px] text-[#86909C]">暂无权限项</p>
+      ) : (
+        <div className="grid grid-cols-2 gap-2 lg:grid-cols-3">
+          {groups.map((g) => {
+            const childIds = g.children.map((c) => c.id)
+            const allChecked = childIds.length > 0 && childIds.every((id) => curPermIds.includes(id))
+            const someChecked = childIds.some((id) => curPermIds.includes(id))
+            return (
+              <div key={g.code} className="rounded-md border border-[#e6e9ef] bg-white p-2">
+                <label className="flex cursor-pointer items-center gap-1.5 text-[12px] font-semibold text-[#0A1B39]">
+                  <Checkbox
+                    checked={allChecked}
+                    indeterminate={someChecked && !allChecked}
+                    onChange={(v) => onToggleGroup(childIds, v === true)}
+                  />
+                  {g.name}
+                  <span className="ml-auto text-[10px] text-[#98A2B3]">{g.code}</span>
+                </label>
+                <div className="mt-1.5 grid gap-0.5">
+                  {g.children.map((c) => (
+                    <label key={c.id} className="flex cursor-pointer items-center gap-1.5 pl-4 text-[12px] text-[#4E5969]">
+                      <Checkbox checked={curPermIds.includes(c.id)} onChange={() => onTogglePerm(c.id)} />
+                      {c.name}
+                      <span className="ml-auto text-[10px] text-[#c0c4cc]">{c.type === 'button' ? '按钮' : ''}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      <div className="mb-2 mt-4 text-[13px] font-bold text-[#0A1B39]">店铺权限</div>
+      {stores.length === 0 ? (
+        <p className="text-[12px] text-[#86909C]">暂无店铺（不配置即视为不限制店铺数据范围）</p>
+      ) : (
+        <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+          {stores.map((s) => (
+            <label key={s.id} className="flex cursor-pointer items-center gap-1.5 text-[12px] text-[#4E5969]">
+              <Checkbox checked={curStoreIds.includes(s.id)} onChange={() => onToggleStore(s.id)} />
+              {s.name}
+            </label>
+          ))}
+        </div>
+      )}
+      <p className="mt-2 text-[11px] text-[#98A2B3]">说明：未配置任何菜单/按钮/店铺时，该角色按"全部放行"处理（先不加权限的宽松默认）；配置后按所选范围收窄。</p>
+    </div>
+  )
+
   return (
     <div className="h-full overflow-y-auto bg-[#f4f7fb] p-6 custom-scrollbar">
       <PageHeader breadcrumbs={[{ label: '设置' }, { label: '角色管理' }]} />
@@ -515,6 +634,7 @@ export function AdminRolesPage() {
           <button type="submit" className="h-9 cursor-pointer rounded-lg border-0 bg-[#3388ff] text-[13px] font-bold text-white hover:bg-[#1a6fe8]">
             创建角色
           </button>
+          <div className="col-span-3">{renderConfig(permIds, storeIds, togglePerm, toggleStore, toggleGroup)}</div>
         </form>
       </section>
       <section className="overflow-hidden rounded-xl bg-white shadow-[0_8px_32px_rgba(29,38,52,.06)]">
@@ -523,6 +643,7 @@ export function AdminRolesPage() {
             <tr className="border-b border-[#eef1f5] bg-[#f9fafb] text-left text-[13px] font-medium text-[#86909C]">
               <th className="px-5 py-3 font-medium">编码</th>
               <th className="px-5 py-3 font-medium">名称</th>
+              <th className="px-5 py-3 font-medium">权限</th>
               <th className="px-5 py-3 font-medium">状态</th>
               <th className="px-5 py-3 font-medium">操作</th>
             </tr>
@@ -532,9 +653,15 @@ export function AdminRolesPage() {
               <tr key={row.id} className="border-b border-[#eef1f5] text-[13px] text-[#344054] hover:bg-[#f9fafb]">
                 <td className="px-5 py-3 font-mono">{row.code}</td>
                 <td className="px-5 py-3">{row.name}</td>
+                <td className="px-5 py-3 text-[12px] text-[#98A2B3]">
+                  {row.permissionAll ? `全选（${(row.permissionIds ?? []).filter((id) => id !== '*').length} 项 + 未来新增）` : `${(row.permissionIds ?? []).length} 项权限 / ${(row.storeIds ?? []).length} 店铺`}
+                </td>
                 <td className="px-5 py-3">{(row as RoleRow & { status?: string }).status === 'disabled' ? '停用' : '启用'}</td>
                 <td className="px-5 py-3">
-                  <div className="flex gap-2">
+                  <div className="flex gap-3">
+                    <button type="button" onClick={() => openEdit(row)} className="cursor-pointer border-0 bg-transparent p-0 text-[13px] text-[#3388ff] hover:underline">
+                      权限
+                    </button>
                     <button type="button" onClick={() => toggle(row)} className="cursor-pointer border-0 bg-transparent p-0 text-[13px] text-[#3388ff] hover:underline">
                       启停
                     </button>
@@ -547,12 +674,35 @@ export function AdminRolesPage() {
             ))}
             {(roles.data ?? []).length === 0 && (
               <tr>
-                <td colSpan={4} className="px-5 py-10 text-center text-[13px] text-[#86909C]">暂无数据</td>
+                <td colSpan={5} className="px-5 py-10 text-center text-[13px] text-[#86909C]">暂无数据</td>
               </tr>
             )}
           </tbody>
         </table>
       </section>
+
+      {/* 编辑权限弹窗 */}
+      <Modal
+        title={`编辑权限 · ${editRole?.name ?? ''}`}
+        visible={editRole !== null}
+        onCancel={() => setEditRole(null)}
+        onOk={saveEdit}
+        okText="保存权限"
+        cancelText="取消"
+        style={{ width: 880 }}
+      >
+        <div className="max-h-[65vh] overflow-auto">
+          {editRole &&
+            renderConfig(
+              editPermIds,
+              editStoreIds,
+              (id) => setEditPermIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id])),
+              (id) => setEditStoreIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id])),
+              (childIds, checked) =>
+                setEditPermIds((prev) => (checked ? Array.from(new Set([...prev, ...childIds])) : prev.filter((x) => !childIds.includes(x)))),
+            )}
+        </div>
+      </Modal>
     </div>
   )
 }
@@ -731,6 +881,7 @@ interface DepartmentRow2 {
   id: string
   name: string
   parentId: string | null
+  enabled?: boolean
 }
 
 export function AdminDepartmentsPage() {
@@ -753,6 +904,10 @@ export function AdminDepartmentsPage() {
     const val = window.prompt(`修改部门「${row.name}」名称`, row.name)
     if (val && val.trim() && val.trim() !== row.name) refresh(departments.refetch, api.patch(`/api/departments/${row.id}`, { name: val.trim() }))
   }
+
+  // 启用/停用（对照旧版 dept_status：1启用 0停用）
+  const toggleEnabled = (row: DepartmentRow2) =>
+    refresh(departments.refetch, api.patch(`/api/departments/${row.id}`, { enabled: !row.enabled }))
 
   return (
     <div className="h-full overflow-y-auto bg-[#f4f7fb] p-6 custom-scrollbar">
@@ -781,6 +936,7 @@ export function AdminDepartmentsPage() {
             <tr className="border-b border-[#eef1f5] bg-[#f9fafb] text-left text-[13px] font-medium text-[#86909C]">
               <th className="px-5 py-3 font-medium">部门</th>
               <th className="px-5 py-3 font-medium">上级</th>
+              <th className="px-5 py-3 font-medium">状态</th>
               <th className="px-5 py-3 font-medium">操作</th>
             </tr>
           </thead>
@@ -792,6 +948,11 @@ export function AdminDepartmentsPage() {
                 </td>
                 <td className="px-5 py-3">{row.parentId ? (departments.data?.find((d) => d.id === row.parentId)?.name ?? '-') : '-'}</td>
                 <td className="px-5 py-3">
+                  <button type="button" onClick={() => toggleEnabled(row)} className="cursor-pointer border-0 bg-transparent p-0 text-[#3388ff]">
+                    {row.enabled === false ? '停用' : '启用'}
+                  </button>
+                </td>
+                <td className="px-5 py-3">
                   <button type="button" onClick={() => void rename(row)} className="cursor-pointer border-0 bg-transparent p-0 text-[#3388ff]">
                     重命名
                   </button>
@@ -800,7 +961,7 @@ export function AdminDepartmentsPage() {
             ))}
             {(departments.data ?? []).length === 0 && (
               <tr>
-                <td colSpan={3} className="px-5 py-10 text-center text-[13px] text-[#86909C]">暂无部门</td>
+                <td colSpan={4} className="px-5 py-10 text-center text-[13px] text-[#86909C]">暂无部门</td>
               </tr>
             )}
           </tbody>

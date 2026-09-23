@@ -49,6 +49,22 @@ export class PublishListingDto {
 
   @IsOptional()
   @IsString()
+  video?: string
+
+  @IsOptional()
+  @IsString()
+  whiteImage?: string
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  detailImages?: string[]
+
+  @IsOptional()
+  productAttrs?: Record<string, string>
+
+  @IsOptional()
+  @IsString()
   detailContent?: string
 
   @IsOptional()

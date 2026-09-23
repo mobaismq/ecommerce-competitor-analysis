@@ -300,7 +300,7 @@ const SHIPPING_ORIGIN_OPTIONS: CategoryNode[] = [
   },
 ]
 
-// SKU 规格条目定义
+// SKU 规格条目定义（含旧版扩展 SKU：激光线数/身长/SKU分类/搜索图/搜索标题）
 interface SkuItem {
   id: string
   specName: string
@@ -310,6 +310,11 @@ interface SkuItem {
   stock: number
   skuCode: string
   barcode?: string
+  laserLines?: string
+  bodyLength?: string
+  skuCategory?: string
+  searchImage?: string
+  searchTitle?: string
   isListed: boolean
 }
 
@@ -361,6 +366,11 @@ export function ManualListingPage() {
 
   // 主图列表（最多 5 张，空态诚实呈现，不预置样图）
   const [mainImages, setMainImages] = useState<ImageItem[]>([])
+  const [whiteImage, setWhiteImage] = useState<ImageItem | null>(null)
+  const [videoUrl, setVideoUrl] = useState<string>('')
+  const [detailImages, setDetailImages] = useState<ImageItem[]>([])
+  // 商品属性 k/v（旧版 productAttrs，保存为 key → value 映射）
+  const [productAttrs, setProductAttrs] = useState<Array<{ key: string; value: string }>>([])
 
   // 批量填充 Modal 控制
   const [batchModalVisible, setBatchModalVisible] = useState(false)
@@ -591,6 +601,48 @@ export function ManualListingPage() {
     })
   }
 
+  // 富媒体上传（白底图 / 详情图 / 主视频），统一读成 dataURL（对齐主图上传逻辑）
+  const readFileAsDataURL = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(reader.result as string)
+      reader.onerror = () => reject(new Error('读取文件失败'))
+      reader.readAsDataURL(file)
+    })
+
+  const handleUploadWhiteImage = async (file: File) => {
+    const url = await readFileAsDataURL(file)
+    setWhiteImage({ id: `white-${nanoid(8)}`, url })
+    Message.success('白底图已添加')
+    return false
+  }
+
+  const handleUploadDetailImage = async (file: File) => {
+    if (detailImages.length >= 50) {
+      Message.warning('详情图最多上传 50 张')
+      return false
+    }
+    const url = await readFileAsDataURL(file)
+    setDetailImages((prev) => [...prev, { id: `detail-${nanoid(8)}`, url }])
+    return false
+  }
+
+  const handleUploadVideo = async (file: File) => {
+    if (!file.type.startsWith('video/')) {
+      Message.warning('请上传视频文件 (mp4 等)')
+      return false
+    }
+    const url = await readFileAsDataURL(file)
+    setVideoUrl(url)
+    Message.success('主视频已添加')
+    return false
+  }
+
+  const addProductAttr = () => setProductAttrs((prev) => [...prev, { key: '', value: '' }])
+  const updateProductAttr = (index: number, field: 'key' | 'value', val: string) =>
+    setProductAttrs((prev) => prev.map((a, i) => (i === index ? { ...a, [field]: val } : a)))
+  const removeProductAttr = (index: number) => setProductAttrs((prev) => prev.filter((_, i) => i !== index))
+
   const buildListingPayload = async () => {
     const values = await form.validate()
     return {
@@ -605,6 +657,10 @@ export function ManualListingPage() {
       freightTemplate: values.freightTemplate,
       skus,
       mainImages: mainImages.map((img) => img.url),
+      video: videoUrl || undefined,
+      whiteImage: whiteImage?.url || undefined,
+      detailImages: detailImages.map((img) => img.url),
+      productAttrs: Object.fromEntries(productAttrs.filter((a) => a.key.trim()).map((a) => [a.key.trim(), a.value.trim()])),
       detailContent: values.detailContent,
       originPlace: values.originPlace,
       warranty: values.warranty,
@@ -738,6 +794,81 @@ export function ManualListingPage() {
           size="small"
           onChange={(text) => {
             setSkus((prev) => prev.map((s) => (s.id === record.id ? { ...s, skuCode: text } : s)))
+          }}
+        />
+      ),
+    },
+    {
+      title: '条码',
+      dataIndex: 'barcode',
+      width: 120,
+      render: (val: string | undefined, record: SkuItem) => (
+        <Input
+          value={val ?? ''}
+          size="small"
+          placeholder="条码"
+          onChange={(text) => {
+            setSkus((prev) => prev.map((s) => (s.id === record.id ? { ...s, barcode: text } : s)))
+          }}
+        />
+      ),
+    },
+    {
+      title: 'SKU 分类',
+      dataIndex: 'skuCategory',
+      width: 110,
+      render: (val: string | undefined, record: SkuItem) => (
+        <Input
+          value={val ?? ''}
+          size="small"
+          placeholder="如 常规/促销"
+          onChange={(text) => {
+            setSkus((prev) => prev.map((s) => (s.id === record.id ? { ...s, skuCategory: text } : s)))
+          }}
+        />
+      ),
+    },
+    {
+      title: '激光线数',
+      dataIndex: 'laserLines',
+      width: 110,
+      render: (val: string | undefined, record: SkuItem) => (
+        <Input
+          value={val ?? ''}
+          size="small"
+          placeholder="如 3线"
+          onChange={(text) => {
+            setSkus((prev) => prev.map((s) => (s.id === record.id ? { ...s, laserLines: text } : s)))
+          }}
+        />
+      ),
+    },
+    {
+      title: '身长',
+      dataIndex: 'bodyLength',
+      width: 110,
+      render: (val: string | undefined, record: SkuItem) => (
+        <Input
+          value={val ?? ''}
+          size="small"
+          placeholder="如 100cm"
+          onChange={(text) => {
+            setSkus((prev) => prev.map((s) => (s.id === record.id ? { ...s, bodyLength: text } : s)))
+          }}
+        />
+      ),
+    },
+    {
+      title: '搜索标题',
+      dataIndex: 'searchTitle',
+      width: 140,
+      render: (val: string | undefined, record: SkuItem) => (
+        <Input
+          value={val ?? ''}
+          size="small"
+          placeholder="SKU 搜索标题"
+          onChange={(text) => {
+            setSkus((prev) => prev.map((s) => (s.id === record.id ? { ...s, searchTitle: text } : s)))
           }}
         />
       ),
@@ -1017,6 +1148,126 @@ export function ManualListingPage() {
                       </div>
                     ))}
                   </div>
+                </div>
+
+                <Divider />
+
+                {/* 富媒体：主视频 / 白底图 */}
+                <div style={{ marginBottom: 24 }}>
+                  <Typography.Text bold style={{ fontSize: 14 }}>
+                    主视频与白底图
+                  </Typography.Text>
+                  <Typography.Paragraph type="secondary" style={{ fontSize: 12, margin: '4px 0 12px' }}>
+                    商品主视频（mp4）与白底图（平台规范要求，用于详情/搜索展示）。
+                  </Typography.Paragraph>
+                  <Space size="large" align="start">
+                    <div>
+                      {videoUrl ? (
+                        <div style={{ width: 160 }}>
+                          <video src={videoUrl} controls style={{ width: 160, height: 100, objectFit: 'contain', borderRadius: 8, border: '1px solid #e5e8ef', background: '#000' }} />
+                          <Space size={4} style={{ marginTop: 6 }}>
+                            <Upload showUploadList={false} accept="video/mp4,video/*" beforeUpload={handleUploadVideo}>
+                              <Button size="mini" icon={<IconUpload />}>更换</Button>
+                            </Upload>
+                            <Button size="mini" status="danger" onClick={() => setVideoUrl('')}>移除</Button>
+                          </Space>
+                        </div>
+                      ) : (
+                        <Upload showUploadList={false} accept="video/mp4,video/*" beforeUpload={handleUploadVideo}>
+                          <Button size="small" type="outline" icon={<IconPlus />}>上传主视频</Button>
+                        </Upload>
+                      )}
+                    </div>
+
+                    <div>
+                      {whiteImage ? (
+                        <div>
+                          <img src={whiteImage.url} alt="白底图" style={{ width: 100, height: 100, objectFit: 'cover', borderRadius: 8, border: '1px solid #e5e8ef' }} />
+                          <Space size={4} style={{ marginTop: 6 }}>
+                            <Upload showUploadList={false} accept="image/*" beforeUpload={handleUploadWhiteImage}>
+                              <Button size="mini" icon={<IconUpload />}>更换</Button>
+                            </Upload>
+                            <Button size="mini" status="danger" onClick={() => setWhiteImage(null)}>移除</Button>
+                          </Space>
+                        </div>
+                      ) : (
+                        <Upload showUploadList={false} accept="image/*" beforeUpload={handleUploadWhiteImage}>
+                          <Button size="small" type="outline" icon={<IconPlus />}>上传白底图</Button>
+                        </Upload>
+                      )}
+                    </div>
+                  </Space>
+                </div>
+
+                {/* 详情图（多图槽位） */}
+                <div style={{ marginBottom: 24 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                    <div>
+                      <Typography.Text bold style={{ fontSize: 14 }}>
+                        详情图 ({detailImages.length}/50)
+                      </Typography.Text>
+                      <Typography.Paragraph type="secondary" style={{ fontSize: 12, margin: 0 }}>
+                        按展示顺序排列，最多 50 张；与下方详情文案共同构成详情页内容。
+                      </Typography.Paragraph>
+                    </div>
+                    <Upload showUploadList={false} accept="image/*" beforeUpload={handleUploadDetailImage}>
+                      <Button size="small" type="outline" icon={<IconPlus />} disabled={detailImages.length >= 50}>
+                        添加详情图
+                      </Button>
+                    </Upload>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(96px, 1fr))', gap: 10 }}>
+                    {detailImages.map((img, idx) => (
+                      <div key={img.id} style={{ position: 'relative' }}>
+                        <img src={img.url} alt="" style={{ width: 96, height: 96, objectFit: 'cover', borderRadius: 8, border: '1px solid #e5e8ef' }} />
+                        <Tag size="small" style={{ position: 'absolute', top: 4, left: 4 }}>{idx + 1}</Tag>
+                        <Button
+                          size="mini"
+                          status="danger"
+                          icon={<IconDelete />}
+                          style={{ position: 'absolute', bottom: 4, right: 4 }}
+                          onClick={() => setDetailImages((prev) => prev.filter((d) => d.id !== img.id))}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 商品属性 k/v */}
+                <div style={{ marginBottom: 24 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                    <Typography.Text bold style={{ fontSize: 14 }}>
+                      商品属性（品牌/材质/规格参数等）
+                    </Typography.Text>
+                    <Button size="small" type="outline" icon={<IconPlus />} onClick={addProductAttr}>
+                      添加属性
+                    </Button>
+                  </div>
+                  {productAttrs.length === 0 ? (
+                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>暂无自定义属性，可点击"添加属性"补充。</Typography.Text>
+                  ) : (
+                    <Space direction="vertical" style={{ width: '100%' }}>
+                      {productAttrs.map((attr, index) => (
+                        <Space key={index}>
+                          <Input
+                            placeholder="属性名，如 材质"
+                            style={{ width: 200 }}
+                            size="small"
+                            value={attr.key}
+                            onChange={(v) => updateProductAttr(index, 'key', v)}
+                          />
+                          <Input
+                            placeholder="属性值，如 棉"
+                            style={{ width: 240 }}
+                            size="small"
+                            value={attr.value}
+                            onChange={(v) => updateProductAttr(index, 'value', v)}
+                          />
+                          <Button size="mini" status="danger" icon={<IconDelete />} onClick={() => removeProductAttr(index)} />
+                        </Space>
+                      ))}
+                    </Space>
+                  )}
                 </div>
 
                 <Divider />
