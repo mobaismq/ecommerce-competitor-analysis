@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { AlertCircle, CheckCircle2, ChevronDown, ChevronUp, Loader2, X } from 'lucide-react'
-import { api } from '../api/client'
 
 interface RunningJob {
   id: string
@@ -13,8 +12,7 @@ interface RunningJob {
   createdAt?: string
 }
 
-// 跨页面后台报告任务进度横幅（对照旧版 ReportJobBanner，数据源改为后端 /api/jobs）。
-// 旧版轮询 /api/report/generate-status + 监听 report-job-started；桌面端经 /api/jobs?type=analysis&status=running 轮询分析任务。
+// 跨页面后台报告任务进度横幅，数据源是本地 worker 的 analysis Job。
 export function ReportJobBanner() {
   const navigate = useNavigate()
   const [job, setJob] = useState<RunningJob | null>(null)
@@ -23,7 +21,12 @@ export function ReportJobBanner() {
 
   const loadJob = useCallback(async () => {
     try {
-      const { data } = await api.get<{ rows?: RunningJob[] }>('/api/jobs?type=analysis&status=running&page=1&pageSize=1')
+      const data = await window.desktop?.capabilities.invoke('report.jobs', {
+        tenantId: 'local',
+        status: 'running',
+        page: 1,
+        pageSize: 1,
+      }) as { rows?: RunningJob[] } | undefined
       const rows = Array.isArray(data) ? (data as unknown as RunningJob[]) : data?.rows ?? []
       const active = rows[0]
       if (active) setJob(active)

@@ -2,8 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Calendar, ChevronDown, ChevronRight, Plus, Search, Upload, X } from 'lucide-react'
 import { nanoid } from 'nanoid'
-import { api } from '../api/client'
 import { PageHeader } from '../components/PageHeader'
+
+function desktopInvoke(capability: string, payload?: unknown): Promise<unknown> {
+  if (!window.desktop?.capabilities) throw new Error('当前环境未接入本地能力（window.desktop 缺失），无法调用该能力')
+  return window.desktop.capabilities.invoke(capability, payload)
+}
 
 function ImageUpload({
   size = 'md',
@@ -143,12 +147,12 @@ export function ProductMasterDataPage() {
   const [productImage, setProductImage] = useState<string | null>(null)
   const [skus, setSkus] = useState<Sku[]>([{ id: 'new-1', skuCode: '', specName: '', specImage: null, costPrice: 0, standardPrice: 0 }])
 
-  // 数据流：GET /api/products/master，空态/失败态诚实呈现，不做假数据兜底
+  // 数据流：商品主档走 worker 本地 SQLite product.list，空态/失败态诚实呈现，不做假数据兜底
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const { data } = await api.get('/api/products/master')
-      const items: Product[] = Array.isArray(data) ? data : []
+      const data = await desktopInvoke('product.list', { tenantId: 'local' })
+      const items: Product[] = Array.isArray(data) ? (data as Product[]) : []
       setProducts(items)
     } catch {
       setProducts([])
@@ -288,10 +292,10 @@ export function ProductMasterDataPage() {
     }
     try {
       if (editingProduct) {
-        await api.patch(`/api/products/master/${editingProduct.id}`, payload)
+        await desktopInvoke('product.update', { id: editingProduct.id, tenantId: 'local', ...payload })
         setProducts((prev) => prev.map((item) => (item.id === editingProduct.id ? ({ ...item, ...payload, status: item.status } as Product) : item)))
       } else {
-        const { data } = await api.post('/api/products/master', payload)
+        const data = await desktopInvoke('product.create', { tenantId: 'local', ...payload }) as { id?: string } | undefined
         const createdId = data?.id || `prod-${nanoid(8)}`
         setProducts((prev) => [
           { id: createdId, ...payload, status: 'enabled', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), brand: payload.brand ?? null } as Product,
@@ -322,7 +326,7 @@ export function ProductMasterDataPage() {
 
   const handleRemove = async (p: Product) => {
     try {
-      await api.delete(`/api/products/master/${p.id}`)
+      await desktopInvoke('product.delete', { id: p.id, tenantId: 'local' })
     } catch {}
     setProducts((prev) => prev.filter((item) => item.id !== p.id))
     setShowDeleteModal(false)
@@ -332,7 +336,7 @@ export function ProductMasterDataPage() {
   const toggleStatus = async (p: Product) => {
     const next: 'enabled' | 'disabled' = p.status === 'enabled' ? 'disabled' : 'enabled'
     try {
-      await api.patch(`/api/products/master/${p.id}`, { status: next })
+      await desktopInvoke('product.update', { id: p.id, tenantId: 'local', status: next })
     } catch {}
     setProducts((prev) => prev.map((x) => (x.id === p.id ? { ...x, status: next, updatedAt: new Date().toISOString() } : x)))
   }

@@ -1,8 +1,7 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Download, Eye, Loader2, RefreshCw, Search, Sparkles, X } from 'lucide-react'
+import { Download, Eye, Loader2, RefreshCw, Search, Sparkles } from 'lucide-react'
 import { Button, Message, Modal } from '@arco-design/web-react'
-import { api } from '../api/client'
 import { saveAs } from 'file-saver'
 import { Link } from 'react-router-dom'
 import { PageHeader } from '../components/PageHeader'
@@ -35,11 +34,6 @@ const CATEGORIES: Array<{ key: AssetCategory; label: string }> = [
   { key: 'other', label: '其他' },
 ]
 
-function rawUrl(id: string) {
-  const baseURL = api.defaults.baseURL || 'http://127.0.0.1:8787'
-  return `${baseURL}/api/assets/${id}/raw`
-}
-
 export function AssetsPage() {
   const [category, setCategory] = useState<AssetCategory>('all')
   const [search, setSearch] = useState('')
@@ -47,15 +41,45 @@ export function AssetsPage() {
   const [preview, setPreview] = useState<Asset | null>(null)
   const [previewUrl, setPreviewUrl] = useState('')
   const [downloadingId, setDownloadingId] = useState<string | null>(null)
+  // 真实落盘字节的 objectURL 缓存（本地 raw 转 blob，供 <img> 展示）
+  const [blobUrls, setBlobUrls] = useState<Record<string, string>>({})
 
-  // 数据流保持桌面端现状：GET /api/assets
+  // 数据流走本地能力 IPC（worker 读本地 SQLite GeneratedAsset），不再经本地 HTTP 后端
   const { data = [], isLoading, refetch, isFetching } = useQuery<Asset[]>({
     queryKey: ['assets'],
     queryFn: async () => {
-      const response = await api.get<Asset[]>('/api/assets')
-      return response.data
+      const result = await window.desktop?.capabilities.invoke('asset.list', {})
+      return Array.isArray(result) ? (result as Asset[]) : []
     },
   })
+
+  // 图片/视频资产预取真实落盘字节为 objectURL；无真实字节(size 0)的占位资产不预取，避免落空
+  useEffect(() => {
+    let cancelled = false
+    const load = async () => {
+      const next: Record<string, string> = {}
+      await Promise.all(
+        data.map(async (asset) => {
+          if (asset.size === 0) return
+          try {
+            const res = await window.desktop?.capabilities.invoke('asset.raw', { id: asset.id }) as { dataUrl: string; mimeType: string } | undefined
+            if (!res?.dataUrl) return
+            const bytes = Uint8Array.from(atob(res.dataUrl.split(',')[1]), (c) => c.charCodeAt(0))
+            next[asset.id] = URL.createObjectURL(new Blob([bytes], { type: res.mimeType || asset.mimeType || 'application/octet-stream' }))
+          } catch {
+            /* 单个失败不阻塞整体 */
+          }
+        }),
+      )
+      if (!cancelled) setBlobUrls(next)
+    }
+    void load()
+    return () => {
+      cancelled = true
+    }
+  }, [data])
+
+  const getDisplayUrl = (asset: Asset) => blobUrls[asset.id] ?? ''
 
   const filtered = useMemo(() => {
     return data.filter((item) => {
@@ -75,16 +99,12 @@ export function AssetsPage() {
 
   const openPreview = async (asset: Asset) => {
     try {
-      const token = localStorage.getItem('eca.token')
-      const response = await fetch(rawUrl(asset.id), {
-        headers: token ? { authorization: `Bearer ${token}` } : {},
-      })
-      if (!response.ok) {
+      const res = await window.desktop?.capabilities.invoke('asset.raw', { id: asset.id }) as { mimeType: string; dataUrl: string } | undefined
+      if (!res?.dataUrl) {
         Message.error('资产获取失败')
         return
       }
-      const blob = await response.blob()
-      setPreviewUrl(URL.createObjectURL(new Blob([blob], { type: asset.mimeType })))
+      setPreviewUrl(res.dataUrl)
       setPreview(asset)
     } catch {
       Message.error('资产加载异常')
@@ -94,14 +114,11 @@ export function AssetsPage() {
   const downloadAsset = async (asset: Asset) => {
     setDownloadingId(asset.id)
     try {
-      const token = localStorage.getItem('eca.token')
-      const response = await fetch(rawUrl(asset.id), {
-        headers: token ? { authorization: `Bearer ${token}` } : {},
-      })
-      if (!response.ok) throw new Error('下载失败')
-      const blob = await response.blob()
+      const res = await window.desktop?.capabilities.invoke('asset.raw', { id: asset.id }) as { mimeType: string; dataUrl: string } | undefined
+      if (!res?.dataUrl) throw new Error('下载失败')
+      const bytes = Uint8Array.from(atob(res.dataUrl.split(',')[1]), (c) => c.charCodeAt(0))
       const name = asset.storageKey.split('/').pop() || `asset-${asset.id}`
-      saveAs(blob, name)
+      saveAs(new Blob([bytes], { type: res.mimeType || asset.mimeType || 'application/octet-stream' }), name)
       Message.success('已开始下载')
     } catch {
       Message.error('下载资产失败')
@@ -192,7 +209,7 @@ export function AssetsPage() {
                     <div key={asset.id} className="group overflow-hidden rounded-xl border border-[#eef1f5] bg-white">
                       <div className="relative aspect-square cursor-pointer overflow-hidden bg-[#f7f8fa]">
                         <img
-                          src={rawUrl(asset.id)}
+                          src={getDisplayUrl(asset)}
                           alt={name}
                           loading="lazy"
                           className="h-full w-full object-cover transition-transform group-hover:scale-105"

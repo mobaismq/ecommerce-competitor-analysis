@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Calendar, ChevronLeft, ChevronRight, FileBarChart, Loader2, Search, X } from 'lucide-react'
-import { api } from '../api/client'
 import { formatDateTime } from '../utils/format'
 import { PageHeader } from '../components/PageHeader'
 import { XSearchInput } from '../components/XInput'
@@ -146,7 +145,7 @@ export function ReportsListPage() {
   const [appliedStatus, setAppliedStatus] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
 
-  // 数据流：GET /api/reports 服务端查询 + 分页（兼容旧版 status=not_generated 等状态）
+  // 数据流：IPC report.list 查询本地 SQLite + 分页（兼容旧版 status=not_generated 等状态）
   const { data, isLoading } = useQuery<{ rows: AnalysisRun[]; total: number }>({
     queryKey: ['analysis-runs', appliedKeyword, appliedStartTime, appliedEndTime, appliedStatus, currentPage],
     queryFn: async () => {
@@ -157,10 +156,15 @@ export function ReportsListPage() {
       if (appliedEndTime) params.set('endTime', appliedEndTime)
       params.set('page', String(currentPage))
       params.set('pageSize', String(PAGE_SIZE))
-      const res = await api.get<{ rows: AnalysisRun[]; total: number }>(`/api/reports?${params.toString()}`)
-      // 兼容：返回纯数组时的兜底
-      if (Array.isArray(res.data)) return { rows: res.data as unknown as AnalysisRun[], total: res.data.length }
-      return res.data
+      const res = await window.desktop?.capabilities.invoke('report.list', {
+        tenantId: 'local',
+        keyword: appliedKeyword.trim() || undefined,
+        status: appliedStatus || undefined,
+        page: currentPage,
+        pageSize: PAGE_SIZE,
+      }) as { rows?: AnalysisRun[]; total?: number } | undefined
+      const rows = Array.isArray(res?.rows) ? res.rows : []
+      return { rows, total: res?.total ?? rows.length }
     },
   })
 

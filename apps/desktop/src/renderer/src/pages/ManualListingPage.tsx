@@ -419,8 +419,7 @@ export function ManualListingPage() {
 
   const loadCategories = useCallback(async (platform: string, parentId = '0') => {
     const code = PLATFORM_CODE[platform] ?? 'taobao'
-    const params = new URLSearchParams({ parentId })
-    const { data } = await api.get<PlatformCategory[]>(`/api/platform-adapters/${code}/categories?${params.toString()}`)
+    const data = await window.desktop?.capabilities.invoke('platform.categories', { code, parentId }) as PlatformCategory[] | undefined
     const rows = Array.isArray(data) ? data : []
     const nodes = toCategoryNodes(rows)
     setCategoryLabelById((current) => ({
@@ -465,11 +464,11 @@ export function ManualListingPage() {
   // 2. 加载商品主档
   const loadMasterProducts = useCallback(async () => {
     try {
-      const { data } = await api.get('/api/products/master')
-      const list = Array.isArray(data) ? data : []
-      setMasterProducts(list.map((p: { id: string; name: string; code?: string; defaultPrice?: number }) => ({
+      const data = await window.desktop?.capabilities.invoke('product.list', { tenantId: 'local' })
+      const list = Array.isArray(data) ? (data as Array<{ id: string; productName?: string; name?: string; code?: string; defaultPrice?: number }>) : []
+      setMasterProducts(list.map((p) => ({
         id: p.id,
-        name: p.name,
+        name: p.productName ?? p.name ?? p.id,
         code: p.code || p.id,
         defaultPrice: p.defaultPrice,
       })))
@@ -566,36 +565,24 @@ export function ManualListingPage() {
   // 本地预览用 objectURL（内存态，不写入 contentJson）；提交时再上传落盘取 storageKey 引用
   const objectUrl = (file: File) => URL.createObjectURL(file)
 
-  // 富媒体去内嵌化：字节上传后端落盘，返回 storageKey；contentJson 只存引用，不再内嵌 base64
+  // 富媒体去内嵌化：字节经 IPC 落盘 worker，返回 storageKey；contentJson 只存引用，不再内嵌 base64
   const uploadListingMedia = async (file: File, kind: 'main' | 'video' | 'white' | 'detail'): Promise<string> => {
-    const token = localStorage.getItem('eca.token')
-    const baseURL = api.defaults.baseURL || 'http://127.0.0.1:8787'
-    const res = await fetch(`${baseURL}/api/platform-adapters/media`, {
-      method: 'POST',
-      headers: {
-        authorization: token ? `Bearer ${token}` : '',
-        'x-media-kind': kind,
-        'x-content-type': file.type || 'application/octet-stream',
-        'x-original-name': file.name,
-      },
-      body: file,
-    })
-    if (!res.ok) throw new Error(`媒体上传失败（${res.status}）`)
-    const data = (await res.json()) as { storageKey: string }
+    const buffer = new Uint8Array(await file.arrayBuffer())
+    const data = await window.desktop?.capabilities.invoke('platform.mediaUpload', {
+      buffer,
+      kind,
+      contentType: file.type || 'application/octet-stream',
+      originalName: file.name,
+    }) as { storageKey?: string } | undefined
+    if (!data?.storageKey) throw new Error('媒体上传失败')
     return data.storageKey
   }
 
   // 上传中途失败时清理已落盘对象，避免孤儿文件
   const cleanupUploadedMedia = async (keys: string[]) => {
     if (!keys.length) return
-    const token = localStorage.getItem('eca.token')
-    const baseURL = api.defaults.baseURL || 'http://127.0.0.1:8787'
     try {
-      await fetch(`${baseURL}/api/platform-adapters/media`, {
-        method: 'DELETE',
-        headers: { authorization: token ? `Bearer ${token}` : '', 'content-type': 'application/json' },
-        body: JSON.stringify({ keys }),
-      })
+      await window.desktop?.capabilities.invoke('platform.mediaDelete', { keys })
     } catch {
       /* 清理失败不影响主流程 */
     }
@@ -729,15 +716,16 @@ export function ManualListingPage() {
     }
   }
 
-  // 保存服务端草稿（新架构落 ListingDraft，替代旧版本地 mockDrafts）
+  // 保存本地草稿（新架构落 ListingDraft，替代旧版本地 mockDrafts）
   const handleSaveDraft = async () => {
     try {
       const payload = await buildListingPayload()
       const platformCode = PLATFORM_CODE[currentPlatform] ?? 'taobao'
-      const { data } = await api.post<{ draftId?: string }>(`/api/platform-adapters/${platformCode}/draft`, payload)
+      const data = await window.desktop?.capabilities.invoke('platform.draft', { ...payload, tenantId: 'local', platformCode }) as { draftId?: string } | undefined
       Message.success(`草稿已保存${data?.draftId ? `（${data.draftId}）` : ''}`)
     } catch (error: unknown) {
       const msg = (error as { response?: { data?: { message?: string } } })?.response?.data?.message
+        ?? (error as Error)?.message
       Message.error(msg ?? '草稿保存失败，请检查必填项')
     }
   }
@@ -749,7 +737,7 @@ export function ManualListingPage() {
       const payload = await buildListingPayload()
       const platformCode = PLATFORM_CODE[currentPlatform] ?? 'taobao'
 
-      const res = await api.post(`/api/platform-adapters/${platformCode}/publish`, payload)
+      const res = await window.desktop?.capabilities.invoke('platform.publish', { ...payload, tenantId: 'local', platformCode })
       Message.success(`商品已成功发布至「${currentPlatform}」！`)
       Modal.success({
         title: '发布成功',
@@ -758,6 +746,7 @@ export function ManualListingPage() {
     } catch (error: unknown) {
       // 发布失败：诚实报错，不伪造「演示环境建档成功」
       const msg = (error as { response?: { data?: { message?: string } } })?.response?.data?.message
+        ?? (error as Error)?.message
       Message.error(msg ?? '发布失败，请稍后重试')
     } finally {
       setSubmitting(false)

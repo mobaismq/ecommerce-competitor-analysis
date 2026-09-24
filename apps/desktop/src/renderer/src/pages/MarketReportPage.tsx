@@ -50,9 +50,9 @@ import {
   IconThunderbolt,
   IconTrophy,
 } from '@arco-design/web-react/icon'
-import { api } from '../api/client'
 import { formatDateTime } from '../utils/format'
 import { maxBy } from 'lodash-es'
+import { useAuth } from '../store/auth'
 
 const { Title, Text, Paragraph } = Typography
 const { Row, Col } = Grid
@@ -128,6 +128,7 @@ interface HistoryReport {
 
 export function MarketReportPage() {
   const [searchParams] = useSearchParams()
+  const currentUserId = useAuth((state) => state.user?.id ?? '')
   const navigate = useNavigate()
   const initialKeyword = searchParams.get('keyword') || '手表'
 
@@ -165,7 +166,7 @@ export function MarketReportPage() {
     try {
       const params = new URLSearchParams()
       if (kw) params.set('keyword', kw)
-      const { data } = await api.post(`/api/reports/market-bands/${encodeURIComponent(bandName)}/rerun?${params.toString()}`)
+      const data = await window.desktop?.capabilities.invoke('report.rerunBand', { userId: currentUserId, tenantId: 'local', keyword: kw, bandName }) as Record<string, any> | undefined
       Message.success({ id: `rerun-${bandName}`, content: data?.analysisStatus === 'analyzed' ? `价格段 ${bandName} 已完成 AI 分析` : `价格段 ${bandName} 无 AI 产出（保持基础数据，不伪造）` })
       // 回填该段最新分析与状态，其余段保持现状
       setBands((prev) => prev.map((b) => (b.priceBand === bandName ? {
@@ -190,8 +191,8 @@ export function MarketReportPage() {
     if (rawMarkdown === null) {
       setMarkdownLoading(true)
       try {
-        const { data } = await api.get(`/api/reports/${summary.id}/export/markdown`)
-        setRawMarkdown(typeof data.content === 'string' ? data.content : JSON.stringify(data))
+        const data = await window.desktop?.capabilities.invoke('report.export', { userId: currentUserId, tenantId: 'local', runId: summary.id, format: 'markdown' }) as { content?: string } | undefined
+        setRawMarkdown(typeof data?.content === 'string' ? data.content : JSON.stringify(data ?? {}))
       } catch {
         Message.error('加载原始 Markdown 报告失败')
         setMarkdownLoading(false)
@@ -206,9 +207,9 @@ export function MarketReportPage() {
   const loadHistoryReports = async () => {
     setHistoryLoading(true)
     try {
-      const { data } = await api.get('/api/reports')
-      if (Array.isArray(data)) {
-        setHistoryReports(data)
+      const data = await window.desktop?.capabilities.invoke('report.list', { tenantId: 'local', pageSize: 100 }) as { rows?: HistoryReport[] } | undefined
+      if (Array.isArray(data?.rows)) {
+        setHistoryReports(data.rows)
       }
     } catch {
       // 忽略历史报告加载错误
@@ -227,25 +228,22 @@ export function MarketReportPage() {
     const currentKeyword = kw || values.keyword || '手表'
     setLoading(true)
     try {
-      const params = new URLSearchParams()
-      if (currentKeyword) params.set('keyword', currentKeyword)
-      if (Number(limit) > 0) params.set('limit', String(Number(limit)))
-      const costFields: Array<[string, number | string | undefined | null]> = [
-        ['costPrice', values.costPrice],
-        ['shippingCost', values.shippingCost],
-        ['packagingCost', values.packagingCost],
-        ['laborCost', values.laborCost],
-        ['platformFeeRate', values.platformFeeRate],
-        ['adFeeRate', values.adFeeRate],
-        ['targetMargin', values.targetMargin],
-      ]
-      for (const [k, val] of costFields) {
-        if (val !== undefined && val !== null && val !== '') params.set(k, String(val))
+      const numberOrUndefined = (value: number | string | undefined | null) => (value === undefined || value === null || value === '' ? undefined : Number(value))
+      const payload = {
+        tenantId: 'local',
+        keyword: currentKeyword,
+        costPrice: numberOrUndefined(values.costPrice),
+        shippingCost: numberOrUndefined(values.shippingCost),
+        packagingCost: numberOrUndefined(values.packagingCost),
+        laborCost: numberOrUndefined(values.laborCost),
+        platformFeeRate: numberOrUndefined(values.platformFeeRate),
+        adFeeRate: numberOrUndefined(values.adFeeRate),
+        targetMargin: numberOrUndefined(values.targetMargin),
       }
 
       let fetchedBands: PriceBandItem[] = []
       try {
-        const { data } = await api.get(`/api/reports/market-bands-preview?${params.toString()}`)
+        const data = await window.desktop?.capabilities.invoke('report.priceBandsPreview', payload) as Record<string, unknown> | undefined
         // 只直连后端真实字段：priceBands 提供带区间与样本数，profitSimulation 提供财务测算；
         // 卖点/需求/问大家/作图提示词/展示图后端当前不返回，一律保持空，杜绝伪造兜底。
         const realBands = Array.isArray(data?.priceBands) ? (data.priceBands as Record<string, unknown>[]) : []
@@ -322,7 +320,7 @@ export function MarketReportPage() {
     // 自动恢复最近一次该关键词已生成的报告
     void (async () => {
       try {
-        const { data } = await api.get(`/api/reports/latest?keyword=${encodeURIComponent(initialKeyword)}`)
+        const data = await window.desktop?.capabilities.invoke('report.latest', { tenantId: 'local', keyword: initialKeyword }) as HistoryReport | null | undefined
         if (data?.id) await handleSelectHistoryReport(data)
       } catch {
         // 无最近报告时不报错，保持初始化预览
@@ -344,35 +342,19 @@ export function MarketReportPage() {
     void (async () => {
       try {
         setGenerateStep(1)
-        const created = await api.post('/api/jobs', {
-          type: 'analysis',
+        const result = await window.desktop?.capabilities.invoke('report.generate', {
+          userId: currentUserId,
+          tenantId: 'local',
           keyword: kw.trim(),
-          analysisType: 'market',
-          businessKey: `market|${kw.trim().toLowerCase()}|market`,
           limit: Number(limit) || 120,
         })
-        const jobId = created.data?.jobId
-        if (!jobId) throw new Error('未返回任务编号')
-
-        // 轮询任务状态（真实分析生成，不做定时器假完成）
-        for (let attempt = 0; attempt < 600; attempt += 1) {
-          await new Promise((resolve) => setTimeout(resolve, 1000))
-          setGenerateStep(Math.min(3, 1 + Math.floor(attempt / 40)))
-          const status = await api.get(`/api/jobs/${jobId}`)
-          const s = status.data?.status
-          if (s === 'success') {
-            setGenerateStep(4)
-            setGenerating(false)
-            Message.success('大模型深度竞品分析报告生成完成！')
-            executePreview(kw.trim())
-            loadHistoryReports()
-            return
-          }
-          if (s === 'failure' || s === 'cancelled') {
-            throw new Error(status.data?.errorMessage || `任务${s}`)
-          }
-        }
-        throw new Error('生成超时')
+        if (!result) throw new Error('能力 worker 未返回结果')
+        setGenerateStep(4)
+        setGenerating(false)
+        Message.success('大模型深度竞品分析报告生成完成！')
+        await executePreview(kw.trim())
+        await loadHistoryReports()
+        return
       } catch (err) {
         setGenerating(false)
         Message.error(`报告生成失败：${err instanceof Error ? err.message : String(err)}`)
@@ -383,9 +365,9 @@ export function MarketReportPage() {
   // 载入历史报告
   const handleSelectHistoryReport = async (report: HistoryReport) => {
     try {
-      const { data } = await api.get(`/api/reports/${report.id}`)
+      const data = await window.desktop?.capabilities.invoke('report.detail', { tenantId: 'local', runId: report.id }) as Record<string, any> | undefined
       if (data) {
-        const kw = String(data.summaryJson?.keyword || data.reportNo || '历史报告')
+        const kw = String(data.keyword || data.reportNo || '历史报告')
         setKeyword(kw)
         form.setFieldValue('keyword', kw)
         if (data.priceBands && Array.isArray(data.priceBands)) {

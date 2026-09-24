@@ -3,8 +3,8 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft, ArrowUpRight, Download, Loader2, RefreshCw, X } from 'lucide-react'
 import { Message } from '@arco-design/web-react'
-import { api } from '../api/client'
 import { PageHeader } from '../components/PageHeader'
+import { useAuth } from '../store/auth'
 
 // 富报告契约对齐后端报告生成 report.service reportJson：除 summary 外含富价格带（代表商品）、卖点/痛点/需求/机会。
 interface RichSku {
@@ -224,6 +224,7 @@ function RichLegacySections({ report }: { report: RichReportJson }) {
 }
 
 export function AnalysisReportViewPage() {
+  const currentUserId = useAuth((state) => state.user?.id ?? '')
   const params = useParams<{ id: string }>()
   const [searchParams] = useSearchParams()
   const id = searchParams.get('id') || params.id
@@ -276,8 +277,9 @@ export function AnalysisReportViewPage() {
   const { data: report, isLoading, refetch, isError } = useQuery<AnalysisReportDetail>({
     queryKey: ['report-detail', id],
     queryFn: async () => {
-      const res = await api.get<AnalysisReportDetail>(`/api/reports/${id}`)
-      return res.data
+      const res = await window.desktop?.capabilities.invoke('report.detail', { tenantId: 'local', runId: id }) as AnalysisReportDetail | undefined
+      if (!res) throw new Error('报告不存在')
+      return res
     },
     enabled: Boolean(id),
     retry: false,
@@ -287,8 +289,12 @@ export function AnalysisReportViewPage() {
     if (!id) return
     setExporting(true)
     try {
-      const res = await api.post(`/api/reports/${id}/export`, { format })
-      Message.success(`导出成功：${res.data?.filename || '已生成导出文件'}`)
+      if (format === 'xlsx') {
+        Message.error('Excel 导出暂未支持，请使用 JSON 或 Markdown')
+        return
+      }
+      const res = await window.desktop?.capabilities.invoke('report.export', { userId: currentUserId, tenantId: 'local', runId: id, format }) as { storageKey?: string; content?: string } | undefined
+      Message.success(`导出成功：${res?.storageKey || '已生成导出文件'}`)
     } catch {
       Message.error('导出报告失败，请稍后重试')
     } finally {

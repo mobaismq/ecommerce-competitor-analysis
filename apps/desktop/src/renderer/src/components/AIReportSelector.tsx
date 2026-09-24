@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { ChevronDown, CircleHelp, Loader2 } from 'lucide-react'
-import { api } from '../api/client'
 
 export type SuiteProduct = {
   value: string
@@ -42,17 +41,18 @@ export function AIReportSelector({ value, onChange }: AIReportSelectorProps) {
   const matchedFromList = suiteProducts.find((item) => item.value === value) || null
   const selectedReport = matchedFromList || (value === recentSelected?.value ? recentSelected : null)
 
-  // 数据流保持桌面端现状：GET /api/reports
+  // 数据流保持桌面端现状：数据流：IPC report.list 读取本地 SQLite 报告
   async function loadReports(search = '') {
     setLoadingProducts(true)
     try {
-      const params = new URLSearchParams()
-      // 对照旧版语义：只列「已完成的商品报告」。旧版传 status=generated（legacy API 枚举），
       // 桌面端后端 AnalysisRun.status 的权威完成值为 'success'（report.service.ts 唯一写入处），按真实枚举过滤
-      params.set('status', 'success')
-      if (search.trim()) params.set('keyword', search.trim())
-      const res = await api.get(`/api/reports${params.toString() ? `?${params.toString()}` : ''}`)
-      const rows = Array.isArray(res.data) ? res.data : res.data?.items ?? []
+      const res = await window.desktop?.capabilities.invoke('report.list', {
+        tenantId: 'local',
+        status: 'success',
+        keyword: search.trim() || undefined,
+        pageSize: 100,
+      }) as { rows?: Array<Record<string, unknown>> } | undefined
+      const rows = Array.isArray(res?.rows) ? res.rows : []
       const items: SuiteProduct[] = rows.map((r: Record<string, unknown>) => ({
         value: String(r.id),
         label: String(r.title || r.keyword || `报告 #${r.id}`),

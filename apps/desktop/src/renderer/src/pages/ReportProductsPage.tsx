@@ -11,7 +11,7 @@ import {
   Search,
   X,
 } from 'lucide-react'
-import { api } from '../api/client'
+import { useAuth } from '../store/auth'
 import { PageHeader } from '../components/PageHeader'
 
 interface ProductSku {
@@ -49,7 +49,7 @@ interface CollectionInfo {
   collectTime?: string
 }
 
-// 主图分析报告（对照桌面端 GET /api/reports/:id/main-image-analysis/:productId）
+// 主图分析报告（对照桌面端主图分析报告能力）
 // 后端仅保存 resultJson.summary（视觉分析摘录），因此只渲染诚实空态与内联数据，不伪造卖点/构图等结构化段落。
 interface MainImageAnalysisDetail {
   id: string
@@ -78,6 +78,7 @@ function formatCount(value?: number | null) {
 export function ReportProductsPage() {
   const params = useParams<{ id: string }>()
   const [searchParams] = useSearchParams()
+  const currentUserId = useAuth((state) => state.user?.id ?? '')
   // id 兼容：主路由 products?id=（旧版查询串契约）与别名 analysis/reports/:id/products
   const id = searchParams.get('id') || params.id
   const keywordParam = searchParams.get('keyword') || ''
@@ -99,13 +100,13 @@ export function ReportProductsPage() {
 
   const [currentPage, setCurrentPage] = useState(1)
 
-  // 数据流保持桌面端现状：GET /api/reports/:id/products
+  // 数据流保持桌面端现状：IPC report.products
   const loadProducts = useCallback(async () => {
     if (!id) return
     setLoading(true)
     setLoadError('')
     try {
-      const { data } = await api.get(`/api/reports/${id}/products`)
+      const data = await window.desktop?.capabilities.invoke('report.products', { tenantId: 'local', runId: id, page: 1, pageSize: 100 }) as Record<string, any> | undefined
       if (data) {
         setCollection(data.collection || null)
         setSource(data.source || '')
@@ -118,9 +119,9 @@ export function ReportProductsPage() {
           productUrl: p.productUrl != null ? String(p.productUrl) : null,
           price: p.price != null ? Number(p.price) : null,
           priceRange: p.priceRange != null ? String(p.priceRange) : null,
-          soldCount: p.soldCount != null ? Number(p.soldCount) : null,
+          soldCount: p.sold != null ? Number(p.sold) : (p.soldCount != null ? Number(p.soldCount) : null),
           salesAmount: p.salesAmount != null ? Number(p.salesAmount) : null,
-          skuCount: p.skuCount != null ? Number(p.skuCount) : null,
+          skuCount: p.skuCount != null ? Number(p.skuCount) : (Array.isArray(p.skus) ? p.skus.length : null),
           imageUrl: p.imageUrl != null ? String(p.imageUrl) : null,
           imageCount: p.imageCount != null ? Number(p.imageCount) : null,
           skus: Array.isArray(p.skus) ? (p.skus as ProductSku[]) : [],
@@ -144,15 +145,13 @@ export function ReportProductsPage() {
   const handleAnalyzeSingle = async (product: Product) => {
     setAnalyzingProductId(product.id)
     try {
-      const { data } = await api.post(`/api/reports/${id}/main-image-analysis`, {
+      const data = await window.desktop?.capabilities.invoke('report.mainImageAnalysis.run', {
+        userId: currentUserId,
+        tenantId: 'local',
+        runId: id,
         productId: product.productId,
-        productUrl: product.productUrl,
-        title: product.title,
         imageUrl: product.imageUrl,
-        price: product.price,
-        soldCount: product.soldCount,
-        skus: product.skus,
-      })
+      }) as Record<string, any> | undefined
       const analysisId = data?.id != null ? String(data.id) : null
       const analyzedAt = data?.analyzedAt != null ? String(data.analyzedAt) : null
       setProducts((prev) =>
@@ -186,15 +185,13 @@ export function ReportProductsPage() {
       setBatchProgress({ done: i, total: pending.length, currentTitle: prod.title || '' })
 
       try {
-        const { data } = await api.post(`/api/reports/${id}/main-image-analysis`, {
+        const data = await window.desktop?.capabilities.invoke('report.mainImageAnalysis.run', {
+          userId: currentUserId,
+          tenantId: 'local',
+          runId: id,
           productId: prod.productId,
-          productUrl: prod.productUrl,
-          title: prod.title,
           imageUrl: prod.imageUrl,
-          price: prod.price,
-          soldCount: prod.soldCount,
-          skus: prod.skus,
-        })
+        }) as Record<string, any> | undefined
         const analysisId = data?.id != null ? String(data.id) : null
         const analyzedAt = data?.analyzedAt != null ? String(data.analyzedAt) : null
         setProducts((prev) =>
@@ -217,7 +214,7 @@ export function ReportProductsPage() {
     setReportModalLoading(true)
     setReportDetail(null)
     try {
-      const { data } = await api.get(`/api/reports/${id}/main-image-analysis/${product.productId}`)
+      const data = await window.desktop?.capabilities.invoke('report.mainImageAnalysis.get', { tenantId: 'local', runId: id, productId: product.productId }) as Record<string, any> | undefined
       const analysis = data?.analysis ?? null
       if (analysis) {
         setReportDetail({

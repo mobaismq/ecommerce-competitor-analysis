@@ -2,17 +2,17 @@ import { useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft, Check, ChevronRight, CircleHelp, Copy, Eye, Folder, Loader2, Plus, Sparkles, Upload, X } from 'lucide-react'
 import { Button, Input, Message, Modal, Select } from '@arco-design/web-react'
-import { api } from '../api/client'
 import { saveAs } from 'file-saver'
 import { Link } from 'react-router-dom'
+import { useAuth } from '../store/auth'
 import { PageHeader } from '../components/PageHeader'
 import { XInput } from '../components/XInput'
 /**
  * 数据契约：
- * - 商品列表走真实 /api/products/master（productName/productCode/brand/productImage/skus）。
+ * - 商品列表走 worker 本地 SQLite product.list（productName/productCode/brand/productImage/skus）。
  * - 桌面端没有旧版 MOCK_PRODUCTS 的 sku/platform/imageCount/createdAt 契约；缺失字段不渲染、不伪造。
  * - 商品资产缩略图使用 productImage 与 skus[].specImage 的真实图片；无图则诚实空态。
- * - 生成结果走 /api/product-sets/generate-image；无结果时不渲染任何本地样图。
+ * - 生成结果走 worker IPC image.generate；无结果时不渲染任何本地样图。
  */
 
 const Option = Select.Option
@@ -56,7 +56,14 @@ const CLONE_CATEGORIES = ['电商商品图', '社媒广告图', '详情页模块
 const CLONE_LANGUAGES = ['英文', '中文', '日文', '韩文', '德文', '法文', '意大利文', '西班牙文', '葡萄牙文', '荷兰文', '波兰文', '泰文', '越南文', '印尼文']
 const CLONE_RATIOS = ['1:1', '3:4', '4:3', '9:16', '16:9']
 
+/** worker 本地能力调用：桌面端必需；window.desktop 缺失时诚实报错，不伪造成功。 */
+function desktopInvoke(capability: string, payload?: unknown): Promise<unknown> {
+  if (!window.desktop?.capabilities) throw new Error('当前环境未接入本地能力（window.desktop 缺失），无法调用该能力')
+  return window.desktop.capabilities.invoke(capability, payload)
+}
+
 export function OneClickReplicatePage() {
+  const currentUserId = useAuth((s) => s.user?.id ?? '')
   const [selectedProductId, setSelectedProductId] = useState<string>('')
   const [showProductModal, setShowProductModal] = useState(false)
   const [method, setMethod] = useState<'upload' | 'url'>('upload')
@@ -74,12 +81,12 @@ export function OneClickReplicatePage() {
 
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
-  // 数据流：真实商品主档；空列表/接口失败保持诚实空态，不回填假商品。
+  // 数据流：真实商品主档走 worker 本地 SQLite；空列表/接口失败保持诚实空态，不回填假商品。
   const { data: remoteProducts, isLoading: productsLoading } = useQuery<MasterProduct[]>({
     queryKey: ['products-master'],
     queryFn: async () => {
-      const res = await api.get<MasterProduct[]>('/api/products/master')
-      return Array.isArray(res.data) ? res.data : []
+      const res = await desktopInvoke('product.list', { tenantId: 'local' })
+      return Array.isArray(res) ? (res as MasterProduct[]) : []
     },
   })
 
@@ -134,7 +141,9 @@ export function OneClickReplicatePage() {
       ].filter(Boolean).join('；')
 
       const refUrl = referenceUrl.trim()
-      const { data } = await api.post('/api/product-sets/generate-image', {
+      const data = await desktopInvoke('image.generate', {
+        userId: currentUserId,
+        tenantId: 'local',
         prompt,
         count: 4,
         jobId: `one-click-replicate-${currentProduct.id}`,
@@ -147,9 +156,9 @@ export function OneClickReplicatePage() {
           ...currentProduct.skuImages,
         ].filter(Boolean).slice(0, 4),
         ratio,
-      })
+      }) as { images?: Array<{ url?: string; dataUrl?: string }> } | undefined
       const urls: string[] = (data?.images || [])
-        .map((item: { url?: string; dataUrl?: string }) => item.url || item.dataUrl || '')
+        .map((item) => item.url || item.dataUrl || '')
         .filter(Boolean)
 
       if (!urls.length) throw new Error('生成接口没有返回图片')

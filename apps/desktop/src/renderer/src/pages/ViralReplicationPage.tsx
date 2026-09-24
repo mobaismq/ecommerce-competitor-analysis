@@ -3,7 +3,7 @@ import { Button, Input, Message, Modal, Select } from '@arco-design/web-react'
 import { CircleHelp, Download, Eye, Loader2, Upload } from 'lucide-react'
 import { saveAs } from 'file-saver'
 import { nanoid } from 'nanoid'
-import { api } from '../api/client'
+import { useAuth } from '../store/auth'
 
 import referenceAd from '../assets/video-types/image-26.png'
 import highCopyAd from '../assets/video-types/image-27.png'
@@ -26,7 +26,14 @@ export interface GeneratedImageItem {
   createTime: string
 }
 
+/** worker 本地能力调用：桌面端必需；window.desktop 缺失时诚实报错，不伪造成功。 */
+function desktopInvoke(capability: string, payload?: unknown): Promise<unknown> {
+  if (!window.desktop?.capabilities) throw new Error('当前环境未接入本地能力（window.desktop 缺失），无法调用该能力')
+  return window.desktop.capabilities.invoke(capability, payload)
+}
+
 export function ViralReplicationPage() {
+  const currentUserId = useAuth((s) => s.user?.id ?? '')
   const [productImage, setProductImage] = useState<string | null>(null)
   // tab 高亮态：对照旧版 method（legacy:51），切 tab 仅切换高亮，内容区不变
   const [referenceMethod, setReferenceMethod] = useState<'upload' | 'link'>('upload')
@@ -87,7 +94,9 @@ export function ViralReplicationPage() {
         customRequirements ? `统一复刻要求：${customRequirements}` : '',
       ].filter(Boolean).join('；')
 
-      const { data } = await api.post('/api/product-sets/generate-image', {
+      const data = await desktopInvoke('image.generate', {
+        userId: currentUserId,
+        tenantId: 'local',
         prompt,
         count: 4,
         jobId: 'viral-replication',
@@ -95,9 +104,9 @@ export function ViralReplicationPage() {
         image: productImage || referenceImages[0],
         images: [...(productImage ? [productImage] : []), ...referenceImages].filter(Boolean),
         ratio,
-      })
+      }) as { images?: Array<{ url?: string; dataUrl?: string }> } | undefined
       const urls: string[] = (data?.images || [])
-        .map((item: { url?: string; dataUrl?: string }) => item.url || item.dataUrl || '')
+        .map((item) => item.url || item.dataUrl || '')
         .filter(Boolean)
       if (!urls.length) throw new Error('生成接口没有返回图片')
 

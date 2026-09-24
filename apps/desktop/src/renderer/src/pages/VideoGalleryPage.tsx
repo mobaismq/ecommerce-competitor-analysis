@@ -2,11 +2,11 @@ import { useEffect, useMemo, useState } from 'react'
 import { Message, Modal } from '@arco-design/web-react'
 import { ChevronLeft, ChevronRight, Download, Eye, Loader2, Play, Trash2 } from 'lucide-react'
 import { saveAs } from 'file-saver'
-import { api } from '../api/client'
 import { PageHeader } from '../components/PageHeader'
 import { XSearchInput } from '../components/XInput'
 
-// 视频资产来自后端 /api/videos（mediaAsset，sourceType 为 video_source / video_replication）。
+// 视频资产来自本地 MediaAsset（sourceType 为 video_source / video_replication），
+// 经 worker IPC media.list / media.raw / media.delete 读写，不再经本地 HTTP 后端。
 // 数据契约仅保证以下字段；旧版所需 videoType/productName/platform/duration/coverUrl 后端暂无，
 // 缺失字段一律不渲染、不造假数据占位（见 checklist 登记）。
 interface VideoAsset {
@@ -27,11 +27,8 @@ function formatBytes(bytes: number) {
   return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`
 }
 
-function rawUrl(id: string) {
-  const baseURL = api.defaults.baseURL || 'http://127.0.0.1:8787'
-  // 视频素材走 /api/videos/:id/raw（mediaAsset 表），与图片 assets/raw 区分
-  return `${baseURL}/api/videos/${id}/raw`
-}
+/** 本地单机数据即本人资产，与既有 report/asset 能力一致用 'local' 作为统一租户标识。 */
+const LOCAL_TENANT = 'local'
 
 export function VideoGalleryPage() {
   const [videos, setVideos] = useState<VideoAsset[]>([])
@@ -43,6 +40,7 @@ export function VideoGalleryPage() {
 
   // 播放弹窗
   const [playingVideo, setPlayingVideo] = useState<VideoAsset | null>(null)
+  const [playingUrl, setPlayingUrl] = useState<string | null>(null)
 
   // 删除确认弹窗
   const [deleteTarget, setDeleteTarget] = useState<VideoAsset | null>(null)
@@ -53,13 +51,13 @@ export function VideoGalleryPage() {
 
   const [downloadingId, setDownloadingId] = useState<string | null>(null)
 
-  // 刷新视频素材（业务逻辑保持桌面端现状：后端优先，无假数据降级）
+  // 刷新视频素材（业务逻辑保持桌面端现状：worker 本地媒体能力，无假数据降级）
   const refreshVideos = async () => {
     setLoading(true)
     try {
-      const { data } = await api.get('/api/videos')
-      if (Array.isArray(data)) {
-        setVideos(data as VideoAsset[])
+      const result = await window.desktop?.capabilities.invoke('media.list', { tenantId: LOCAL_TENANT })
+      if (Array.isArray(result)) {
+        setVideos(result as VideoAsset[])
         setCurrentPage(1)
       }
     } catch {
@@ -97,17 +95,14 @@ export function VideoGalleryPage() {
   const totalPages = Math.max(1, Math.ceil(filteredVideos.length / pageSize))
   const safePage = Math.min(currentPage, totalPages)
 
-  // 下载视频（token 鉴权 raw 拉流，同图片资产）
+  // 下载视频（worker 本地 media.raw 拉取真实字节转 blob，同图片资产）
   const handleDownload = async (item: VideoAsset) => {
     setDownloadingId(item.id)
     try {
-      const token = localStorage.getItem('eca.token')
-      const res = await fetch(rawUrl(item.id), {
-        headers: token ? { authorization: `Bearer ${token}` } : {},
-      })
-      if (!res.ok) throw new Error('下载失败')
-      const blob = await res.blob()
-      saveAs(blob, videoName(item))
+      const res = await window.desktop?.capabilities.invoke('media.raw', { id: item.id, tenantId: LOCAL_TENANT }) as { mimeType: string; dataUrl: string } | undefined
+      if (!res?.dataUrl) throw new Error('下载失败')
+      const bytes = Uint8Array.from(atob(res.dataUrl.split(',')[1]), (c) => c.charCodeAt(0))
+      saveAs(new Blob([bytes], { type: res.mimeType || item.mimeType || 'video/mp4' }), videoName(item))
       Message.success('已开始下载视频')
     } catch {
       Message.error('下载视频失败')
@@ -116,12 +111,30 @@ export function VideoGalleryPage() {
     }
   }
 
-  // 删除视频（确认后执行，业务逻辑保持桌面端现状：仅本地列表移除）
-  const confirmDelete = () => {
+  // 打开播放弹窗时按需拉取 media.raw 的真实字节供 <video> 播放
+  const openPlayer = async (item: VideoAsset) => {
+    setPlayingVideo(item)
+    setPlayingUrl(null)
+    try {
+      const res = await window.desktop?.capabilities.invoke('media.raw', { id: item.id, tenantId: LOCAL_TENANT }) as { dataUrl?: string } | undefined
+      if (res?.dataUrl) setPlayingUrl(res.dataUrl)
+    } catch {
+      /* 播放失败保持空，不伪造 */
+    }
+  }
+
+  // 删除视频（确认后走 media.delete 删除行与磁盘字节并刷新，形成闭环）
+  const confirmDelete = async () => {
     if (!deleteTarget) return
-    setVideos((prev) => prev.filter((v) => v.id !== deleteTarget.id))
-    setDeleteTarget(null)
-    Message.success('视频素材已删除')
+    try {
+      await window.desktop?.capabilities.invoke('media.delete', { id: deleteTarget.id, tenantId: LOCAL_TENANT })
+      setVideos((prev) => prev.filter((v) => v.id !== deleteTarget.id))
+      setDeleteTarget(null)
+      Message.success('视频素材已删除')
+    } catch {
+      Message.error('删除视频失败')
+      setDeleteTarget(null)
+    }
   }
 
   return (
@@ -193,7 +206,7 @@ export function VideoGalleryPage() {
           <div className="grid grid-cols-4 gap-4">
             {pagedVideos.map((item) => (
               <div key={item.id} className="overflow-hidden rounded-xl border border-[#e9edf3] bg-white transition-shadow hover:shadow-md">
-                <div className="relative aspect-video cursor-pointer bg-black" onClick={() => setPlayingVideo(item)}>
+                <div className="relative aspect-video cursor-pointer bg-black" onClick={() => void openPlayer(item)}>
                   <div className="absolute inset-0 grid place-items-center">
                     <div className="grid h-11 w-11 place-items-center rounded-full bg-white/85 text-[#3388ff] shadow">
                       <Play className="ml-0.5 h-5 w-5 fill-[#3388ff]" />
@@ -211,7 +224,7 @@ export function VideoGalleryPage() {
                   <div className="mt-2 flex items-center gap-4 border-t border-[#f0f2f5] pt-2">
                     <button
                       type="button"
-                      onClick={() => setPlayingVideo(item)}
+                      onClick={() => void openPlayer(item)}
                       className="flex cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-[13px] text-[#409eff] hover:text-[#66b1ff]"
                     >
                       <Eye className="h-3.5 w-3.5" />
@@ -291,7 +304,7 @@ export function VideoGalleryPage() {
         style={{ width: 720 }}
       >
         {playingVideo && (
-          <video src={rawUrl(playingVideo.id)} controls autoPlay className="max-h-[60vh] w-full rounded-lg bg-black" />
+          <video src={playingUrl ?? undefined} controls autoPlay className="max-h-[60vh] w-full rounded-lg bg-black" />
         )}
       </Modal>
 
@@ -314,7 +327,7 @@ export function VideoGalleryPage() {
           </button>
           <button
             type="button"
-            onClick={confirmDelete}
+            onClick={() => void confirmDelete()}
             className="h-10 flex-1 cursor-pointer rounded-lg border-0 bg-[#f56c6c] text-[14px] font-bold text-white hover:bg-[#e04b4b]"
           >
             确定

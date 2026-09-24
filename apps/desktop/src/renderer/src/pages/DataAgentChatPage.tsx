@@ -2,8 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Bot, Database, Loader2, MessageSquareText, RefreshCw, Search, Send, Sparkles } from 'lucide-react'
 import { Message } from '@arco-design/web-react'
 import { nanoid } from 'nanoid'
-import { api } from '../api/client'
 import { PageHeader } from '../components/PageHeader'
+import { useAuth } from '../store/auth'
 import { X } from 'lucide-react'
 
 interface Dataset {
@@ -45,6 +45,7 @@ function formatDate(value?: string) {
 }
 
 export function DataAgentChatPage() {
+  const currentUserId = useAuth((state) => state.user?.id ?? '')
   const [datasets, setDatasets] = useState<Dataset[]>([])
   const [datasetId, setDatasetId] = useState('')
   const [search, setSearch] = useState('')
@@ -61,21 +62,13 @@ export function DataAgentChatPage() {
     [datasets, datasetId],
   )
 
-  // 数据流保持桌面端现状：GET /api/data-agent/datasets
+  // 数据流保持桌面端现状：IPC dataAgent.datasets
   const loadDatasets = async (kw = search) => {
     setLoadingDatasets(true)
     setDatasetError('')
     try {
-      const params = new URLSearchParams()
-      if (kw.trim()) params.set('keyword', kw.trim())
-      const res = await api.get<{ datasets?: Dataset[]; ok?: boolean }>(
-        `/api/data-agent/datasets${params.toString() ? `?${params.toString()}` : ''}`,
-      )
-      const list = Array.isArray(res.data?.datasets)
-        ? res.data.datasets
-        : Array.isArray(res.data)
-        ? (res.data as unknown as Dataset[])
-        : []
+      const res = await window.desktop?.capabilities.invoke('dataAgent.datasets', { tenantId: 'local', keyword: kw.trim() || undefined }) as { datasets?: Dataset[] } | undefined
+      const list = Array.isArray(res?.datasets) ? res.datasets : []
       setDatasets(list)
       setDatasetId((curr) =>
         curr && list.some((item) => item.id === curr) ? curr : list[0]?.id || '',
@@ -95,7 +88,7 @@ export function DataAgentChatPage() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
   }, [messages, asking])
 
-  // 数据流保持桌面端现状：POST /api/data-agent/chat
+  // 数据流保持桌面端现状：IPC dataAgent.chat
   const handleAsk = async (queryText?: string) => {
     const finalQuestion = (queryText || question).trim()
     if (!finalQuestion || !selectedDataset || asking) return
@@ -112,16 +105,14 @@ export function DataAgentChatPage() {
     setAnswerError('')
 
     try {
-      const res = await api.post<{ ok?: boolean; answer?: string; error?: string }>(
-        '/api/data-agent/chat',
-        {
-          datasetId: selectedDataset.id,
-          question: finalQuestion,
-          history: messages.slice(-6).map((m) => ({ role: m.role, content: m.content })),
-        },
-      )
+      const res = await window.desktop?.capabilities.invoke('dataAgent.chat', {
+        userId: currentUserId,
+        tenantId: 'local',
+        datasetId: selectedDataset.id,
+        question: finalQuestion,
+      }) as { answer?: string } | undefined
 
-      const answer = res.data?.answer || '没有得到可用回答。'
+      const answer = res?.answer || '没有得到可用回答。'
       setMessages((prev) => [
         ...prev,
         {

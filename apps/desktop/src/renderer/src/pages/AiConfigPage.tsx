@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Alert, Button, Card, Form, Input, Message, Select, Switch } from '@arco-design/web-react'
-import { api } from '../api/client'
+import { useAuth } from '../store/auth'
 
 const PROVIDER_TYPES = ['mock', 'ark', 'openrouter', 'openai-compatible']
 
@@ -16,6 +16,7 @@ interface SelfConfig {
 }
 
 export function AiConfigPage() {
+  const currentUserId = useAuth((state) => state.user?.id ?? '')
   const [cfg, setCfg] = useState<SelfConfig | null>(null)
   const [enabled, setEnabled] = useState(false)
   const [providerType, setProviderType] = useState('openai-compatible')
@@ -26,28 +27,35 @@ export function AiConfigPage() {
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
-    void api.get<SelfConfig>('/api/ai/self-config').then(({ data }) => {
-      setCfg(data)
-      setEnabled(data.selfEnabled)
-      if (data.providerType) setProviderType(data.providerType)
-      if (data.baseUrl) setBaseUrl(data.baseUrl)
-      if (data.model) setModel(data.model)
-      if (data.timeoutMs) setTimeoutMs(String(data.timeoutMs))
-    })
-  }, [])
+    void (async () => {
+      try {
+        const result = await window.desktop?.capabilities.invoke('ai.selfConfig.get', { userId: currentUserId }) as SelfConfig | undefined
+        if (!result) return
+        setCfg(result)
+        setEnabled(result.selfEnabled)
+        if (result.providerType) setProviderType(result.providerType)
+        if (result.baseUrl) setBaseUrl(result.baseUrl)
+        if (result.model) setModel(result.model)
+        if (result.timeoutMs) setTimeoutMs(String(result.timeoutMs))
+      } catch {
+        Message.error('AI 配置读取失败')
+      }
+    })()
+  }, [currentUserId])
 
   const save = async () => {
     setSaving(true)
     try {
-      const { data } = await api.put<SelfConfig>('/api/ai/self-config', {
+      const data = await window.desktop?.capabilities.invoke('ai.selfConfig.save', {
+        userId: currentUserId,
         enabled,
         providerType,
         baseUrl: baseUrl || undefined,
         apiKey: apiKey || undefined,
         model: model || undefined,
         timeoutMs: timeoutMs ? Number(timeoutMs) : undefined,
-      })
-      setCfg(data)
+      }) as SelfConfig | undefined
+      if (data) setCfg(data)
       setApiKey('')
       Message.success('AI 配置已保存')
     } catch {

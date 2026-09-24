@@ -1,9 +1,9 @@
 import { useRef, useState } from 'react'
 import { Check, ChevronDown, ChevronUp, Download, Eye, Loader2, Plus, Sparkles, Trash2, Upload, X } from 'lucide-react'
 import { Button, Input, Message, Modal, Select } from '@arco-design/web-react'
-import { api } from '../api/client'
 import { saveAs } from 'file-saver'
 import { nanoid } from 'nanoid'
+import { useAuth } from '../store/auth'
 import { AIReportSelector, type SuiteProduct } from '../components/AIReportSelector'
 import { ProductImageHelpTooltip } from '../components/ProductImageHelpTooltip'
 import mainHeadphone from '../assets/main-headphone.png'
@@ -67,7 +67,14 @@ interface ModuleActionPanel {
   loading: boolean
 }
 
+/** worker 本地能力调用：桌面端必需；window.desktop 缺失时诚实报错，不伪造成功。 */
+function desktopInvoke(capability: string, payload?: unknown): Promise<unknown> {
+  if (!window.desktop?.capabilities) throw new Error('当前环境未接入本地能力（window.desktop 缺失），无法调用该能力')
+  return window.desktop.capabilities.invoke(capability, payload)
+}
+
 export function APlusDetailPage() {
+  const currentUserId = useAuth((s) => s.user?.id ?? '')
   // 上传商品原图（对照旧版：uploadedImages，生成入口依赖它）
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const [uploadedImages, setUploadedImages] = useState<UploadedProductImage[]>([])
@@ -156,7 +163,7 @@ export function APlusDetailPage() {
     setStrategyStatus('idle')
   }
 
-  // AI 帮写：真实流式调用 expand-prompts-stream（对照旧版 APlusDetail.tsx handleAiHelp）
+  // AI 帮写：真实流式调用 expandPrompts（经本地 IPC 事件通道流式下发，替代原 SSE HTTP）
   const handleAiHelp = async () => {
     if (aiWriting) return
     if (!uploadedImages.length) {
@@ -166,51 +173,29 @@ export function APlusDetailPage() {
     setError('')
     setAiWriting(true)
     try {
-      const response = await fetch('/api/product-sets/expand-prompts-stream', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          settings,
-          baseText: detailGenerationText,
-          image: uploadedImages[0]?.url || '',
-          images: uploadedImages.map((item) => item.url),
-        }),
-      })
-      if (!response.ok) {
-        const text = await response.text()
-        throw new Error(text || 'AI 帮写失败')
-      }
-      if (!response.body) throw new Error('AI 帮写接口没有返回内容，请稍后重试。')
-
-      const reader = response.body.getReader()
-      const decoder = new TextDecoder()
-      let buffer = ''
       let fullText = ''
-      const flushLine = (line: string) => {
-        const trimmed = line.trim()
-        if (!trimmed) return
-        let event: { type?: string; text?: string; data?: { content?: string; model?: string } }
-        try {
-          event = JSON.parse(trimmed)
-        } catch {
-          return
-        }
+      const unsub = window.desktop?.capabilities.onStream((event) => {
         if (event.type === 'content') {
-          fullText += event.data?.content || event.text || ''
+          fullText += event.text || event.data?.content || ''
           setDetailGenerationText(fullText)
+        } else if (event.type === 'done') {
+          fullText = String(event.text ?? fullText)
+          setDetailGenerationText(fullText)
+        } else if (event.type === 'error') {
+          throw new Error(String(event.data?.message || event.data?.content || 'AI 帮写失败'))
         }
-        if (event.type === 'error') throw new Error(String(event.data?.content || 'AI 帮写失败'))
-      }
-      for (;;) {
-        const { value, done } = await reader.read()
-        buffer += decoder.decode(value || new Uint8Array(), { stream: !done })
-        const lines = buffer.split(/\r?\n/)
-        buffer = lines.pop() || ''
-        lines.forEach(flushLine)
-        if (done) break
-      }
-      flushLine(buffer)
+      })
+      await desktopInvoke('productSets.expandPrompts', {
+        userId: currentUserId,
+        settings,
+        baseText: detailGenerationText,
+        information: detailGenerationText.trim() || '以用户上传商品原图中可见信息为准',
+        image: uploadedImages[0]?.url || '',
+        images: uploadedImages.map((item) => item.url),
+      })
+      unsub?.()
       if (!fullText.trim()) throw new Error('AI 帮写没有返回可用商品信息，请稍后重试。')
+      setDetailGenerationText(fullText)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       setError(message)
@@ -248,13 +233,14 @@ export function APlusDetailPage() {
         .filter(Boolean)
         .join('\n')
 
-      const { data } = await api.post('/api/product-sets/generate-detail-workflow', {
+      const data = await desktopInvoke('productSets.generateDetailWorkflow', {
+        userId: currentUserId,
         reportText,
         // 后端 normalizeDetailModuleType 仅识别中文模块名（DETAIL_MODULE_ORDER），故传 title 而非英文 key
         promptSlots: checkedModules.map((m) => m.title),
-      })
+      }) as { data?: Array<{ type: string; prompt: string; name?: string }> } | undefined
 
-      const returnedItems: Array<{ type: string; prompt: string; name?: string }> = data?.data || []
+      const returnedItems = data?.data || []
       const prompts = returnedItems.filter((p) => p.type && p.prompt)
       if (prompts.length < checkedModules.length) throw new Error('详情图提示词返回不完整，请重试。')
       const byTitle = new Map(prompts.map((p) => [p.type, p.prompt]))
@@ -285,15 +271,16 @@ export function APlusDetailPage() {
       prev.map((m) => (m.instanceId === instanceId ? { ...m, status: 'generating', error: undefined } : m)),
     )
     try {
-      const { data } = await api.post('/api/product-sets/generate-image', {
+      const data = await desktopInvoke('image.generate', {
+        userId: currentUserId,
+        tenantId: 'local',
         prompt: target.prompt,
         size: '2K',
-        // 对照旧版：透传商品主图/全部上传图/宽高比/去水印，供图生图参考
+        // 对照旧版：透传商品主图/全部上传图/宽高比，供图生图参考
         image: uploadedImages[0]?.url || '',
         images: uploadedImages.map((item) => item.url),
         ratio: settings.ratio,
-        watermark: false,
-      })
+      }) as { images?: Array<{ url?: string; dataUrl?: string }> } | undefined
       const generatedUrl = data?.images?.[0]?.url || data?.images?.[0]?.dataUrl
       if (!generatedUrl) throw new Error('生成成功但没有返回图片 URL')
       setSelectedModules((prev) =>
@@ -319,7 +306,9 @@ export function APlusDetailPage() {
       prev.map((item) => (item.instanceId === instanceId ? { ...item, status: 'generating', error: undefined } : item)),
     )
     try {
-      const { data } = await api.post<{ images?: Array<{ url?: string; dataUrl?: string }> }>('/api/product-sets/generate-image', {
+      const data = await desktopInvoke('image.generate', {
+        userId: currentUserId,
+        tenantId: 'local',
         prompt,
         size: '2K',
         name: target.title,
@@ -327,7 +316,7 @@ export function APlusDetailPage() {
         image: referenceImages[0],
         images: referenceImages.slice(0, 4),
         ratio: settings.ratio,
-      })
+      }) as { images?: Array<{ url?: string; dataUrl?: string }> } | undefined
       const generatedUrl = data?.images?.[0]?.url || data?.images?.[0]?.dataUrl
       if (!generatedUrl) throw new Error('当前未接入真实图像服务，未返回可展示图片')
       setSelectedModules((prev) =>
@@ -351,7 +340,7 @@ export function APlusDetailPage() {
     }
     setActionPanel({ mode: 'text', moduleId, title: target.title, text: '', direction: '', loading: true })
     try {
-      const { data } = await api.post<{ text?: string }>('/api/product-sets/extract-image-text', { image: target.imageUrl })
+      const data = await desktopInvoke('productSets.extractImageText', { userId: currentUserId, imageUrl: target.imageUrl }) as { text?: string } | undefined
       setActionPanel((prev) => (prev ? { ...prev, text: data?.text ?? '', loading: false } : prev))
     } catch (err) {
       setActionPanel(null)
@@ -376,12 +365,13 @@ export function APlusDetailPage() {
     if (!target?.imageUrl) return
     setActionPanel((prev) => (prev ? { ...prev, loading: true } : prev))
     try {
-      const { data } = await api.post<{ prompt?: string }>('/api/product-sets/generate-retouch-prompt', {
+      const data = await desktopInvoke('productSets.generateRetouchPrompt', {
+        userId: currentUserId,
         settings,
         slot: { id: target.instanceId, name: target.title, type: target.title },
         originalPrompt: target.prompt,
         userDirection: actionPanel.direction.trim(),
-      })
+      }) as { prompt?: string } | undefined
       const retouchPrompt = data?.prompt?.trim()
       if (!retouchPrompt) throw new Error('AI改图提示词为空，请重试')
       await generateModuleWithPrompt(actionPanel.moduleId, retouchPrompt, [target.imageUrl])

@@ -2,11 +2,11 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Message, Switch, Tooltip } from '@arco-design/web-react'
 import { AlertCircle, Loader2, Play, Square, Terminal } from 'lucide-react'
-import { api } from '../api/client'
 import { parseRpaProgress } from '../utils/rpaProgress'
 import { PageHeader } from '../components/PageHeader'
 import { XInput } from '../components/XInput'
 import { nanoid } from 'nanoid'
+import { useAuth } from '../store/auth'
 
 type CollectionStatus = 'idle' | 'running' | 'completed' | 'failed' | 'stopped'
 
@@ -41,6 +41,7 @@ const FIELD_LABEL_CLASS = 'mb-2 block text-[13px] font-bold text-[#344054]'
 
 export function AnalysisCollectPage() {
   const navigate = useNavigate()
+  const currentUserId = useAuth((state) => state.user?.id ?? '')
 
   // 表单状态（对照旧版受控字段）
   const [keyword, setKeyword] = useState('')
@@ -97,7 +98,7 @@ export function AnalysisCollectPage() {
 
     const timer = setInterval(async () => {
       try {
-        const { data } = await api.get(`/api/jobs/${jobId}`)
+        const data = await window.desktop?.capabilities.invoke('analysis.jobs.get', { id: jobId }) as { status?: string; errorMessage?: string | null } | undefined
         if (data) {
           if (data.status === 'success' || data.status === 'completed') {
             setStatus('completed')
@@ -187,7 +188,8 @@ export function AnalysisCollectPage() {
 
     // 真实服务端模式
     try {
-      const { data } = await api.post('/api/jobs', {
+      const data = await window.desktop?.capabilities.invoke('analysis.jobs.create', {
+        userId: currentUserId,
         type: 'analysis',
         keyword: newParams.keyword,
         analysisType: 'market',
@@ -196,14 +198,14 @@ export function AnalysisCollectPage() {
         topN: count,
         searchPages: Number(searchPages) || 8,
         autoParse: newParams.autoParse,
-      })
-      const nextJobId = data.jobId || data.id || `job_${nanoid(10)}`
+      }) as { jobId?: string; id?: string } | undefined
+      const nextJobId = data?.jobId || data?.id || `job_${nanoid(10)}`
       setJobId(nextJobId)
-      setPid(data.pid || null)
-      setLogs((prev) => prev + `[${new Date().toLocaleTimeString()}] ✅ 任务创建成功，Job ID: ${nextJobId}\n[${new Date().toLocaleTimeString()}] 正在等待 Worker 进程分配调度...\n`)
+      setPid(null)
+      setLogs((prev) => prev + `[${new Date().toLocaleTimeString()}] ✅ 任务创建成功，Job ID: ${nextJobId}\n[${new Date().toLocaleTimeString()}] 本机已登记采集任务（未触发真实爬虫，进度将在本机数据落地后推进）\n`)
       Message.success('采集任务已启动')
     } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || '创建任务失败，建议开启「离线演示模式」验证'
+      const msg = err instanceof Error ? err.message : '创建任务失败，建议开启「离线演示模式」验证'
       setErrorMessage(msg)
       setStatus('failed')
       setLogs((prev) => prev + `\n[${new Date().toLocaleTimeString()}] ❌ 接口调用异常: ${msg}\n`)
@@ -219,8 +221,8 @@ export function AnalysisCollectPage() {
     }
     // 真实服务端模式：调用任务取消接口，让后端落库 cancelled 并停止后续推进
     if (jobId && !demoMode) {
-      void api
-        .post(`/api/jobs/${jobId}/cancel`)
+      void window.desktop?.capabilities
+        .invoke('analysis.jobs.cancel', { id: jobId })
         .then(() => {
           setStatus('stopped')
           setLogs((prev) => prev + `\n[${new Date().toLocaleTimeString()}] ⚠️ 已向后端发起取消，任务将停止。`)

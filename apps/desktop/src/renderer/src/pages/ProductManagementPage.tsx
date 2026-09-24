@@ -2,7 +2,6 @@ import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { ChevronLeft, ChevronRight, Loader2, Plus, RefreshCw, Search, X } from 'lucide-react'
-import { api } from '../api/client'
 import { formatDateTime } from '../utils/format'
 import { PageHeader } from '../components/PageHeader'
 
@@ -32,20 +31,21 @@ export function ProductManagementPage() {
   const [keyword, setKeyword] = useState<string>('')
   const [status, setStatus] = useState<string>('all')
 
-  // 数据流保持桌面端现状：GET /api/platform-adapters/products（服务端筛选）
+  // 数据流走本地能力 IPC（worker 读本地 ListingDraft + ProductSnapshot），不再经本地 HTTP 后端
   const { data, isLoading, refetch, isFetching } = useQuery<{
     items?: PlatformProduct[]
     total?: number
   }>({
     queryKey: ['platform-products', platform, keyword, status],
     queryFn: async () => {
-      const params = new URLSearchParams()
-      if (platform !== 'all') params.set('platform', platform)
-      if (status !== 'all') params.set('status', status)
-      if (keyword.trim()) params.set('keyword', keyword.trim())
-      const res = await api.get(`/api/platform-adapters/products?${params.toString()}`)
-      const items = Array.isArray(res.data?.items) ? res.data.items : Array.isArray(res.data) ? res.data : []
-      return { items, total: res.data?.total ?? items.length }
+      const res = await window.desktop?.capabilities.invoke('platform.listProducts', {
+        tenantId: 'local',
+        platform: platform === 'all' ? undefined : platform,
+        status: status === 'all' ? undefined : status,
+        keyword: keyword.trim() || undefined,
+      }) as { items?: PlatformProduct[]; total?: number } | undefined
+      const items = Array.isArray(res?.items) ? res.items : []
+      return { items, total: res?.total ?? items.length }
     },
   })
 

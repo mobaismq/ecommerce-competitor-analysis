@@ -1,24 +1,13 @@
 import { app, BrowserWindow } from 'electron'
-import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { BackendRunner } from './backend-runner'
 import { registerCollectionHandlers } from './collection-handlers'
-import { ensureDataRoots, resolveDataRoots } from './data-root'
+import { ensureDataRoots } from './data-root'
 import { registerStoreHandlers } from './store'
 import { registerLocalHandlers, startLocalCleanup, getLocalClient } from './local-db'
 import { registerCapabilityHandlers, startCapabilityWorker, stopCapabilityWorker } from './capability-handlers'
 import { logger } from './logger'
 
 let mainWindow: BrowserWindow | null = null
-let backendRunner: BackendRunner | null = null
-
-/** 解析打包后的后端入口（打包→resourcesPath，开发→backend/dist）。 */
-function resolveBackendEntry(): string | undefined {
-  const candidates = app.isPackaged
-    ? [join(process.resourcesPath, 'backend', 'dist', 'src', 'main.js'), join(process.resourcesPath, 'backend', 'main.js')]
-    : [join(app.getAppPath(), '..', 'backend', 'dist', 'src', 'main.js')]
-  return candidates.find((p) => existsSync(p))
-}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -48,26 +37,10 @@ function createWindow() {
   })
 }
 
-app.whenReady().then(async () => {
+app.whenReady().then(() => {
   ensureDataRoots()
-  const entry = resolveBackendEntry()
-  const runner = new BackendRunner({
-    entry,
-    port: Number(process.env.BACKEND_PORT || 8787),
-    baseUrl: process.env.BACKEND_REMOTE_URL,
-    dataRoot: resolveDataRoots().base,
-    storageDriver: process.env.STORAGE_DRIVER,
-    // 开发态(pnpm dev 已单独起 api)不 spawn 嵌入式后端，避免双后端抢 8787；打包后由桌面自带后端。
-    embeddedEnabled: app.isPackaged,
-    onLog: (line) => logger.info(line),
-  })
-  backendRunner = runner
-  try {
-    const { mode, baseUrl } = await runner.start()
-    logger.info('backend runner', { mode, baseUrl })
-  } catch (error) {
-    logger.warn('内嵌后端未启动，回退外部/远程后端模式', error)
-  }
+  // 能力已迁 worker 子进程（utilityProcess.fork + IPC），主进程不再内嵌拉起本地 HTTP 后端。
+  // 账号/权限/店铺等服务端能力由独立后端服务提供，渲染层经 env 配置的服务端地址访问。
   registerStoreHandlers()
   const prisma = getLocalClient()
   registerLocalHandlers()
@@ -84,7 +57,6 @@ app.whenReady().then(async () => {
 
 app.on('before-quit', () => {
   stopCapabilityWorker()
-  if (backendRunner) void backendRunner.stop()
 })
 
 app.on('window-all-closed', () => {

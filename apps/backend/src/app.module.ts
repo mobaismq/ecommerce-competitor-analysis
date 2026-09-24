@@ -3,43 +3,18 @@ import { ConfigModule } from '@nestjs/config'
 import { LoggerModule } from 'nestjs-pino'
 import { AuthModule } from './auth/auth.module'
 import { AdminModule } from './admin/admin.module'
-import { AgentModule } from './agent/agent.module'
 import { PrismaModule } from './prisma.module'
-import { QueueModule } from './queue/queue.module'
-import { WorkerModule } from './queue/worker.module'
-import { JobsModule } from './jobs/jobs.module'
-import { AiModule } from './ai/ai.module'
-import { ReportsModule } from './reports/reports.module'
-import { PlatformsApiModule } from './platform/platforms-api.module'
-import { ImagesApiModule } from './images/images-api.module'
-import { DataAgentApiModule } from './data-agent/data-agent-api.module'
-import { ReportsApiModule } from './reports/reports-api.module'
-import { VideosApiModule } from './videos/videos-api.module'
-import { StorageModule } from './storage/storage.module'
-import { AssetsApiModule } from './assets/assets-api.module'
-import { ProductsApiModule } from './products/products-api.module'
 import { HealthController } from './health.controller'
 import { buildPinoStream } from './log-streams'
+
+// Phase-5：能力已迁桌面 worker 子进程，本服务端仅保留账号/权限/健康子集（auth/admin/health）。
+// 资产/商品/报告/平台/生图/视频/数据代理等能力控制器已在桌面侧走 worker IPC，不再由服务端暴露。
 
 @Module({
   imports: [
     PrismaModule,
-    QueueModule,
-    WorkerModule,
     AuthModule,
     AdminModule,
-    AgentModule,
-    JobsModule,
-    AiModule,
-    ReportsModule,
-    PlatformsApiModule,
-    ImagesApiModule,
-    DataAgentApiModule,
-    ReportsApiModule,
-    VideosApiModule,
-    StorageModule,
-    AssetsApiModule,
-    ProductsApiModule,
     ConfigModule.forRoot({ isGlobal: true, envFilePath: ['.env'] }),
     LoggerModule.forRoot({
       pinoHttp: {
