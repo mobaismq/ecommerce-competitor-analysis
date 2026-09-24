@@ -123,6 +123,8 @@ export function ImageGalleryPage() {
   const [previewIndex, setPreviewIndex] = useState<number | null>(null)
   const [downloadingId, setDownloadingId] = useState<string | null>(null)
   const [zipping, setZipping] = useState(false)
+  // 真实落盘字节的 objectURL 缓存（<img> 带不了鉴权头，故用 token-fetch 预取 raw 转 blob）
+  const [blobUrls, setBlobUrls] = useState<Record<string, string>>({})
 
   // 数据流保持桌面端现状：GET /api/assets + react-query
   const { data = [], isLoading, refetch } = useQuery<Asset[]>({
@@ -186,29 +188,61 @@ export function ImageGalleryPage() {
     setCurrentPage(1)
   }, [applied])
 
-  // 生成图优先使用供应商 sourceUrl；只有真实落盘资产才走本机 raw 流
+  // 预取真实落盘字节为 objectURL：图库优先展示持久资产，而非模型可能过期的 sourceUrl
+  useEffect(() => {
+    let cancelled = false
+    const token = localStorage.getItem('eca.token')
+    const baseURL = api.defaults.baseURL || 'http://127.0.0.1:8787'
+    const load = async () => {
+      const next: Record<string, string> = {}
+      await Promise.all(
+        imageAssets.map(async (asset) => {
+          try {
+            const res = await fetch(`${baseURL}/api/assets/${asset.id}/raw`, {
+              headers: token ? { authorization: `Bearer ${token}` } : {},
+            })
+            if (!res.ok) return
+            const blob = await res.blob()
+            next[asset.id] = URL.createObjectURL(new Blob([blob], { type: asset.mimeType || res.headers.get('content-type') || 'image/png' }))
+          } catch {
+            /* 单个失败回退 sourceUrl/raw */
+          }
+        }),
+      )
+      if (!cancelled) setBlobUrls(next)
+    }
+    void load()
+    return () => {
+      cancelled = true
+    }
+  }, [imageAssets])
+
+  // 生成图优先展示真实落盘字节（objectURL）；未加载/无字节时回退 sourceUrl，最后才走本机 raw 流
   const getDisplayUrl = (asset: Asset) => {
+    if (blobUrls[asset.id]) return blobUrls[asset.id]
     if (asset.sourceUrl) return asset.sourceUrl
     const baseURL = api.defaults.baseURL || 'http://127.0.0.1:8787'
     return `${baseURL}/api/assets/${asset.id}/raw`
   }
 
-  // 下载单张图片（业务逻辑保持桌面端现状：token 鉴权 raw 拉流）
+  // 下载单张图片：优先真实落盘字节（token 鉴权 raw 拉流），失败才回退 sourceUrl
   const handleDownload = async (asset: Asset) => {
     setDownloadingId(asset.id)
     try {
       const token = localStorage.getItem('eca.token')
+      const baseURL = api.defaults.baseURL || 'http://127.0.0.1:8787'
       const name = asset.originalName || asset.storageKey.split('/').pop() || `image-${asset.id}.png`
-      if (asset.sourceUrl) {
-        saveAs(asset.sourceUrl, name)
-      } else {
-        const rawUrl = `${api.defaults.baseURL || 'http://127.0.0.1:8787'}/api/assets/${asset.id}/raw`
-        const res = await fetch(rawUrl, {
-          headers: token ? { authorization: `Bearer ${token}` } : {},
-        })
-        if (!res.ok) throw new Error('下载失败')
+      const rawUrl = `${baseURL}/api/assets/${asset.id}/raw`
+      const res = await fetch(rawUrl, {
+        headers: token ? { authorization: `Bearer ${token}` } : {},
+      })
+      if (res.ok) {
         const blob = await res.blob()
         saveAs(blob, name)
+      } else if (asset.sourceUrl) {
+        saveAs(asset.sourceUrl, name)
+      } else {
+        throw new Error('下载失败')
       }
       Message.success('已开始下载图片')
     } catch {
