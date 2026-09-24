@@ -29,6 +29,7 @@ declare global {
       }
       capabilities: {
         invoke: (capability: string, payload?: unknown) => Promise<unknown>
+        onStream: (listener: (event: { type: string; text?: string; data?: Record<string, unknown> }) => void) => () => void
       }
       collection: {
         start: (input?: {

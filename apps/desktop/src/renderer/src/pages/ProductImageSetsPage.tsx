@@ -34,11 +34,9 @@ import {
 } from 'lucide-react'
 import { AIReportSelector, SectionTitle, type SuiteProduct } from '../components/AIReportSelector'
 import { ProductImageHelpTooltip } from '../components/ProductImageHelpTooltip'
-import { api } from '../api/client'
+import { useAuth } from '../store/auth'
 import { saveAs } from 'file-saver'
 import { nanoid } from 'nanoid'
-
-// 静态展卡切片
 import mainHeadphone from '../assets/main-headphone.png'
 import sceneDisplay from '../assets/scene-display.png'
 import sellingPoint from '../assets/selling-point.png'
@@ -97,6 +95,7 @@ interface SlotActionPanel {
 
 export function ProductImageSetsPage() {
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const currentUserId = useAuth((s) => s.user?.id ?? '')
 
   // 1. 商品原图 (<=6张)
   const [uploadedImages, setUploadedImages] = useState<UploadedImage[]>([])
@@ -208,14 +207,13 @@ export function ProductImageSetsPage() {
     }
     let cancelled = false
     setLoadingDescriptions(true)
-    api
-      .get<{ ok?: boolean; promptText?: string; sellingPoints?: string[] }>(
-        `/api/product-sets/main-image-descriptions?runId=${encodeURIComponent(selectedReportId)}`,
-      )
-      .then(({ data }) => {
+    window.desktop?.capabilities
+      .invoke('productSets.mainImageDescriptions', { runId: selectedReportId })
+      .then((data) => {
         if (cancelled) return
-        setReportSellingPoints(data?.sellingPoints ?? [])
-        if (data?.promptText?.trim()) setGenerationText(data.promptText.trim())
+        const result = data as { ok?: boolean; promptText?: string; sellingPoints?: string[] } | undefined
+        setReportSellingPoints(result?.sellingPoints ?? [])
+        if (result?.promptText?.trim()) setGenerationText(result.promptText.trim())
       })
       .catch(() => {
         if (!cancelled) setReportSellingPoints([])
@@ -228,15 +226,13 @@ export function ProductImageSetsPage() {
     }
   }, [selectedReportId])
 
-  // 用真实落盘字节生成可展示 objectURL（raw 端点需鉴权，<img> 直接 src 会 401），失败回落 sourceUrl
+  // 用真实落盘字节生成可展示 objectURL（worker 本地 raw 取字节，失败回落 sourceUrl）
   const loadAssetImg = useCallback(async (id: string): Promise<string> => {
-    const baseURL = api.defaults.baseURL || 'http://127.0.0.1:8787'
-    const token = localStorage.getItem('eca.token')
     try {
-      const res = await fetch(`${baseURL}/api/assets/${id}/raw`, { headers: token ? { authorization: `Bearer ${token}` } : {} })
-      if (!res.ok) return ''
-      const blob = await res.blob()
-      return URL.createObjectURL(new Blob([blob], { type: res.headers.get('content-type') || 'image/png' }))
+      const dataUrl = await window.desktop?.capabilities.invoke('asset.raw', { id }) as { dataUrl: string; mimeType: string } | undefined
+      if (!dataUrl) return ''
+      const bytes = Uint8Array.from(atob(dataUrl.dataUrl.split(',')[1]), (c) => c.charCodeAt(0))
+      return URL.createObjectURL(new Blob([bytes], { type: dataUrl.mimeType || 'image/png' }))
     } catch {
       return ''
     }
@@ -247,15 +243,14 @@ export function ProductImageSetsPage() {
     const latestJobId = localStorage.getItem('eca.productImageSets.latestJobId')
     if (!latestJobId) return
     let cancelled = false
-    api
-      .get<{ generatedImages?: Array<{ id: string; sourceUrl?: string | null; originalName?: string | null; category?: string | null; prompt?: string | null }> }>(
-        `/api/product-sets/generated-images?jobId=${encodeURIComponent(latestJobId)}`,
-      )
-      .then(async ({ data }) => {
+    window.desktop?.capabilities
+      .invoke('asset.list', { jobId: latestJobId })
+      .then(async (data) => {
         if (cancelled) return
-        const rows = [...(data?.generatedImages ?? [])].sort((a, b) =>
-          String(a.originalName || '').localeCompare(String(b.originalName || ''), 'zh-Hans-CN', { numeric: true }),
-        )
+        const rows = [...((data as { id: string; sourceUrl?: string | null; originalName?: string | null; category?: string | null; prompt?: string | null }[]) ?? []).map((item) => ({ id: item.id, sourceUrl: item.sourceUrl, originalName: item.originalName, category: item.category, prompt: item.prompt }))]
+          .sort((a, b) =>
+            String(a.originalName || '').localeCompare(String(b.originalName || ''), 'zh-Hans-CN', { numeric: true }),
+          )
         if (!rows.length) return
         setGenerationJobId(latestJobId)
         setResultViewActive(true)
@@ -292,59 +287,31 @@ export function ProductImageSetsPage() {
     setAiHelpText('')
 
     try {
-      const response = await fetch('/api/product-sets/expand-prompts-stream', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          settings,
-          baseText: generationText,
-          // 对照旧版：AI 帮写透传商品原图，供视觉上下文参考
-          image: uploadedImages[0]?.url || '',
-          images: uploadedImages.map((item) => item.url),
-        }),
-      })
-
-      if (!response.ok || !response.body) {
-        throw new Error('AI 帮写服务响应异常')
-      }
-
-      const reader = response.body.getReader()
-      const decoder = new TextDecoder()
-      let buffer = ''
       let fullContent = ''
-      let finalText = ''
-
-      const flushLine = (line: string) => {
-        const trimmed = line.trim()
-        if (!trimmed) return
-        let event: { type?: string; text?: string; data?: { content?: string; model?: string; message?: string } }
-        try {
-          event = JSON.parse(trimmed)
-        } catch {
-          return
-        }
+      // 流式经本地 IPC 事件通道（worker→主进程→渲染层），替代原 SSE HTTP 传输
+      const unsub = window.desktop?.capabilities.onStream((event) => {
         if (event.type === 'thinking') {
           setAiHelpThinking((prev) => prev + '\n' + (event.data?.content || event.text || ''))
         } else if (event.type === 'content') {
-          fullContent += event.data?.content || event.text || ''
+          fullContent += event.text || ''
           setAiHelpText(fullContent)
         } else if (event.type === 'done') {
-          finalText = String(event.data?.content || event.text || fullContent)
-          setAiHelpText(finalText)
+          fullContent = String(event.text ?? fullContent)
+          setAiHelpText(fullContent)
         } else if (event.type === 'error') {
-          throw new Error(event.data?.message || event.data?.content || 'AI 帮写失败')
+          throw new Error(String(event.data?.message || event.data?.content || 'AI 帮写失败'))
         }
-      }
-
-      for (;;) {
-        const { value, done } = await reader.read()
-        buffer += decoder.decode(value || new Uint8Array(), { stream: !done })
-        const lines = buffer.split(/\r?\n/)
-        buffer = lines.pop() || ''
-        lines.forEach(flushLine)
-        if (done) break
-      }
-      flushLine(buffer)
+      })
+      await window.desktop?.capabilities.invoke('productSets.expandPrompts', {
+        userId: currentUserId,
+        settings,
+        baseText: generationText,
+        information: generationText.trim() || '以用户上传商品原图中可见信息为准',
+        // 对照旧版：AI 帮写透传商品原图，供视觉上下文参考
+        image: uploadedImages[0]?.url || '',
+        images: uploadedImages.map((item) => item.url),
+      })
+      unsub?.()
       if (!fullContent.trim()) throw new Error('AI 帮写没有返回可用商品信息，请稍后重试。')
       setAiHelpText(fullContent)
     } catch (err) {
@@ -427,23 +394,21 @@ export function ProductImageSetsPage() {
         selectedReport ? `已选择AI报告：${selectedReport.label || selectedReport.keyword || ''}` : '',
         reportSellingPoints.length ? `报告主图卖点：${reportSellingPoints.join('、')}` : '',
       ].filter(Boolean).join('\n')
-      const { data: promptData } = await api.post<{ ok?: boolean; prompts?: Array<{ id?: string; prompt?: string }> }>(
-        '/api/product-sets/generate-prompts',
-        {
-          settings,
-          baseText: generationText,
-          reportText,
-          information: generationText.trim() || '以用户上传商品原图中可见信息为准',
-          promptSlots: newSlots.map((slot, index) => ({
-            id: slot.id,
-            name: slot.name,
-            type: slot.type,
-            typeKey: slot.typeKey,
-            sequence: index + 1,
-          })),
-        },
-      )
-      const promptMap = new Map((promptData?.prompts ?? []).map((item) => [item.id, item.prompt ?? '']))
+      const promptData = await window.desktop?.capabilities.invoke('productSets.generatePrompts', {
+        userId: currentUserId,
+        settings,
+        baseText: generationText,
+        reportText,
+        information: generationText.trim() || '以用户上传商品原图中可见信息为准',
+        promptSlots: newSlots.map((slot, index) => ({
+          id: slot.id,
+          name: slot.name,
+          type: slot.type,
+          typeKey: slot.typeKey,
+          sequence: index + 1,
+        })),
+      }) as { ok?: boolean; prompts?: Array<{ id?: string; prompt?: string }> } | undefined
+      const promptMap = new Map((promptData?.prompts ?? []).map((item) => [item.id ?? '', item.prompt ?? '']))
       const preparedSlots = newSlots.map((slot) => ({ ...slot, prompt: promptMap.get(slot.id) ?? '' }))
       if (preparedSlots.some((slot) => !slot.prompt.trim())) {
         throw new Error('生成主图提示词不完整，请重试。')
@@ -457,7 +422,9 @@ export function ProductImageSetsPage() {
       let failedCount = 0
       for (const slot of preparedSlots) {
         try {
-          const res = await api.post<{ images?: Array<{ url: string }>; url?: string }>('/api/product-sets/generate-image', {
+          const res = await window.desktop?.capabilities.invoke('image.generate', {
+            userId: currentUserId,
+            tenantId: 'local',
             prompt: slot.prompt,
             size: '2K',
             jobId,
@@ -467,8 +434,8 @@ export function ProductImageSetsPage() {
             images: uploadedImages.map((i) => i.url),
             ratio: settings.ratio,
             productName: productName.trim() || undefined,
-          })
-          const imgUrl = res.data?.images?.[0]?.url || res.data?.url
+          }) as { images?: Array<{ url: string }>; url?: string } | undefined
+          const imgUrl = res?.images?.[0]?.url || res?.url
           if (!imgUrl) throw new Error('当前未接入真实图像服务，未返回可展示图片')
           setSlots((prev) => prev.map((s) => (s.id === slot.id ? { ...s, status: 'done', imageUrl: imgUrl } : s)))
         } catch (err) {
@@ -492,7 +459,9 @@ export function ProductImageSetsPage() {
     setSlots((prev) => prev.map((s) => (s.id === slotId ? { ...s, status: 'generating' } : s)))
     try {
       const slot = slots.find((s) => s.id === slotId)
-      const res = await api.post<{ images?: Array<{ url: string }>; url?: string }>('/api/product-sets/generate-image', {
+      const res = await window.desktop?.capabilities.invoke('image.generate', {
+        userId: currentUserId,
+        tenantId: 'local',
         prompt: slot?.prompt || '电商高清主图',
         size: '2K',
         jobId: generationJobId || `product-sets-${nanoid(12)}`,
@@ -502,8 +471,8 @@ export function ProductImageSetsPage() {
         images: uploadedImages.map((i) => i.url),
         ratio: settings.ratio,
         productName: productName.trim() || undefined,
-      })
-      const imgUrl = res.data?.images?.[0]?.url || res.data?.url
+      }) as { images?: Array<{ url: string }>; url?: string } | undefined
+      const imgUrl = res?.images?.[0]?.url || res?.url
       if (!imgUrl) throw new Error('生成成功但没有返回图片 URL')
       setSlots((prev) => prev.map((s) => (s.id === slotId ? { ...s, status: 'done', imageUrl: imgUrl } : s)))
     } catch (err) {
@@ -519,7 +488,9 @@ export function ProductImageSetsPage() {
     setActionPanel(null)
     setSlots((prev) => prev.map((item) => (item.id === slotId ? { ...item, status: 'generating', error: undefined } : item)))
     try {
-      const { data } = await api.post<{ images?: Array<{ url: string }> }>('/api/product-sets/generate-image', {
+      const data = await window.desktop?.capabilities.invoke('image.generate', {
+        userId: currentUserId,
+        tenantId: 'local',
         prompt,
         size: '2K',
         jobId: generationJobId || `product-sets-${nanoid(12)}`,
@@ -529,7 +500,7 @@ export function ProductImageSetsPage() {
         images: referenceImages.slice(0, 4),
         ratio: settings.ratio,
         productName: productName.trim() || undefined,
-      })
+      }) as { images?: Array<{ url: string }> } | undefined
       const url = data?.images?.[0]?.url
       if (!url) throw new Error('当前未接入真实图像服务，未返回可展示图片')
       setSlots((prev) => prev.map((item) => (item.id === slotId ? { ...item, status: 'done', imageUrl: url } : item)))
@@ -548,7 +519,7 @@ export function ProductImageSetsPage() {
     }
     setActionPanel({ mode: 'text', slotId: slot.id, title: slot.name, text: '', direction: '', loading: true })
     try {
-      const { data } = await api.post<{ text?: string }>('/api/product-sets/extract-image-text', { image: slot.imageUrl })
+      const data = await window.desktop?.capabilities.invoke('productSets.extractImageText', { userId: currentUserId, imageUrl: slot.imageUrl }) as { text?: string } | undefined
       setActionPanel((prev) => (prev ? { ...prev, text: data?.text ?? '', loading: false } : prev))
     } catch (err) {
       setActionPanel(null)
@@ -573,12 +544,13 @@ export function ProductImageSetsPage() {
     if (!slot?.imageUrl) return
     setActionPanel((prev) => (prev ? { ...prev, loading: true } : prev))
     try {
-      const { data } = await api.post<{ prompt?: string }>('/api/product-sets/generate-retouch-prompt', {
+      const data = await window.desktop?.capabilities.invoke('productSets.generateRetouchPrompt', {
+        userId: currentUserId,
         settings,
         slot: { id: slot.id, name: slot.name, type: slot.type },
         originalPrompt: slot.prompt,
         userDirection: actionPanel.direction.trim(),
-      })
+      }) as { prompt?: string } | undefined
       const retouchPrompt = data?.prompt?.trim()
       if (!retouchPrompt) throw new Error('AI改图提示词为空，请重试')
       await generateSlotWithPrompt(actionPanel.slotId, retouchPrompt, [slot.imageUrl])

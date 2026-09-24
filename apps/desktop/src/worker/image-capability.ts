@@ -77,6 +77,7 @@ export async function generateImageCapability(input: GenerateImageInput, provide
   const db = getWorkerPrisma()
   const jobId = `product-sets-${Date.now()}-${randomUUID().slice(0, 8)}`
   const assetIds: string[] = []
+  const resultImages: Array<{ id: string; url: string; dataUrl: string; mimeType: string }> = []
   for (const [index, image] of images.entries()) {
     const { buffer, contentType } = await resolveBytes(image)
     const ext = contentType === 'image/jpeg' ? 'jpg' : contentType === 'image/webp' ? 'webp' : 'png'
@@ -86,8 +87,10 @@ export async function generateImageCapability(input: GenerateImageInput, provide
       data: { tenantId: input.tenantId, jobId, storageKey, mimeType: contentType, size: buffer.length, sourceUrl: image.startsWith('data:') ? null : image, originalName: input.name, category: input.slotType, prompt: input.prompt, ratio: input.ratio, productName: input.productName, productId: input.productId, createdBy: input.createdBy },
     })
     assetIds.push(asset.id)
+    const dataUrl = `data:${contentType};base64,${buffer.toString('base64')}`
+    resultImages.push({ id: asset.id, url: dataUrl, dataUrl, mimeType: contentType })
   }
-  return { ok: true, jobId, assetIds, count: assetIds.length }
+  return { ok: true, jobId, assetIds, count: assetIds.length, images: resultImages }
 }
 
 export { CapabilityNotConfiguredError }

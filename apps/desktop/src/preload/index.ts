@@ -17,6 +17,11 @@ contextBridge.exposeInMainWorld('desktop', {
   },
   capabilities: {
     invoke: (capability: string, payload?: unknown) => ipcRenderer.invoke('capability:invoke', capability, payload),
+    onStream: (listener: (event: { type: string; text?: string; data?: Record<string, unknown> }) => void) => {
+      const handler = (_e: Electron.IpcRendererEvent, event: { type: string; text?: string; data?: Record<string, unknown> }) => listener(event)
+      ipcRenderer.on('capability:stream', handler)
+      return () => ipcRenderer.removeListener('capability:stream', handler)
+    },
   },
   collection: {
     start: (input: {

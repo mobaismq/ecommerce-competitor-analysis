@@ -34,4 +34,20 @@ describe('worker runtime', () => {
     expect(last?.type).toBe('capability-error')
     if (last?.type === 'capability-error') expect(last.error.code).toBe('CAPABILITY_NOT_CONFIGURED')
   })
+
+  it('streaming handler emits capability-stream then result', async () => {
+    const host = new FakeHost()
+    startWorkerRuntime(host, {
+      echo: async (_payload, ctx) => {
+        ctx?.emit({ type: 'content', text: 'a' })
+        ctx?.emit({ type: 'done', text: 'a' })
+        return { ok: true }
+      },
+    })
+    await host.push({ type: 'capability-invoke', msgId: 'm3', capability: 'echo' })
+    const types = host.outbound.map((m) => m.type)
+    expect(types).toEqual(['worker-ready', 'capability-ack', 'capability-stream', 'capability-stream', 'capability-result'])
+    const stream = host.outbound.find((m) => m.type === 'capability-stream' && (m as { event: { type: string } }).event.type === 'done')
+    expect(stream && (stream as { event: { text?: string } }).event.text).toBe('a')
+  })
 })

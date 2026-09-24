@@ -3,6 +3,7 @@ import { isInvoke } from './protocol'
 import { getWorkerPrisma, putBytes, removeBytes, workerDataRoots } from './worker-db'
 import { generateImageCapability, type GenerateImageInput } from './image-capability'
 import { listAssets, rawAsset, deleteAsset } from './asset-capability'
+import { expandPrompts, extractImageText, generatePrompts, generateRetouchPrompt, mainImageDescriptions, type ProductSetsInput } from './product-sets-capability'
 
 export interface WorkerHost {
   postMessage: (message: WorkerOutbound) => void
@@ -10,9 +11,9 @@ export interface WorkerHost {
   pid?: number
 }
 
-export type CapabilityHandler = (payload: unknown) => Promise<unknown> | unknown
+export type CapabilityHandler = (payload: unknown, ctx?: { emit: (event: { type: string; text?: string; data?: Record<string, unknown> }) => void }) => Promise<unknown> | unknown
 
-/** worker 侧路由：ready → ack → result/error。未知能力走诚实错误，不伪造成功。 */
+/** worker 侧路由：ready → ack → stream/result/error。未知能力走诚实错误，不伪造成功。 */
 export function startWorkerRuntime(host: WorkerHost, handlers: Record<string, CapabilityHandler>) {
   host.onMessage(async (raw) => {
     if (!isInvoke(raw)) return
@@ -29,7 +30,9 @@ export function startWorkerRuntime(host: WorkerHost, handlers: Record<string, Ca
       return
     }
     try {
-      const result = await handler(msg.payload)
+      const emit = (event: { type: string; text?: string; data?: Record<string, unknown> }) =>
+        host.postMessage({ type: 'capability-stream', msgId: msg.msgId, capability: msg.capability, event })
+      const result = await handler(msg.payload, { emit })
       host.postMessage({ type: 'capability-result', msgId: msg.msgId, capability: msg.capability, result })
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
@@ -63,6 +66,11 @@ export function createBuiltinHandlers(): Record<string, CapabilityHandler> {
     'asset.list': async (payload) => listAssets(undefined, String((payload as { jobId?: string })?.jobId ?? undefined)),
     'asset.raw': async (payload) => rawAsset(String((payload as { id?: string })?.id ?? '')),
     'asset.delete': async (payload) => deleteAsset(String((payload as { id?: string })?.id ?? '')),
+    'productSets.generatePrompts': async (payload) => generatePrompts(payload as ProductSetsInput),
+    'productSets.expandPrompts': async (payload, ctx) => expandPrompts(payload as ProductSetsInput, (event) => ctx?.emit(event)),
+    'productSets.generateRetouchPrompt': async (payload) => generateRetouchPrompt(payload as Parameters<typeof generateRetouchPrompt>[0]),
+    'productSets.extractImageText': async (payload) => extractImageText(payload as { userId: string; imageUrl: string }),
+    'productSets.mainImageDescriptions': async (payload) => mainImageDescriptions(String((payload as { runId?: string })?.runId ?? '')),
   }
 }
 

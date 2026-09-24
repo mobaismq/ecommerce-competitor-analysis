@@ -45,4 +45,18 @@ describe('WorkerManager', () => {
     expect(child.killed).toBe(true)
     await expect(pending).rejects.toThrow('已停止')
   })
+
+  it('forwards capability-stream events to onStream', async () => {
+    const child = new FakeChild()
+    const manager = new WorkerManager({ entry: '/fake.js', forkImpl: () => child })
+    manager.start()
+    child.emit('message', { type: 'worker-ready' })
+    const streamed: unknown[] = []
+    const pending = manager.invoke('ping', {}, { onStream: (event) => streamed.push(event) })
+    const invoke = child.sent[0] as { msgId: string }
+    child.emit('message', { type: 'capability-stream', msgId: invoke.msgId, capability: 'ping', event: { type: 'content', text: 'hi' } })
+    child.emit('message', { type: 'capability-result', msgId: invoke.msgId, capability: 'ping', result: { ok: true } })
+    await pending
+    expect(streamed).toEqual([{ type: 'content', text: 'hi' }])
+  })
 })

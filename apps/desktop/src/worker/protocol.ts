@@ -22,6 +22,14 @@ export interface CapabilityResultMessage {
   result: unknown
 }
 
+/** 流式推送：worker 在处理某次调用时逐块下发的中间事件（如 AI 帮写的 thinking/content/done）。 */
+export interface CapabilityStreamMessage {
+  type: 'capability-stream'
+  msgId: string
+  capability: CapabilityName
+  event: { type: string; text?: string; data?: Record<string, unknown> }
+}
+
 export interface CapabilityErrorMessage {
   type: 'capability-error'
   msgId: string
@@ -35,7 +43,7 @@ export interface WorkerReadyMessage {
 }
 
 export type WorkerInbound = CapabilityInvokeMessage
-export type WorkerOutbound = WorkerReadyMessage | CapabilityAckMessage | CapabilityResultMessage | CapabilityErrorMessage
+export type WorkerOutbound = WorkerReadyMessage | CapabilityAckMessage | CapabilityResultMessage | CapabilityErrorMessage | CapabilityStreamMessage
 
 export function isInvoke(msg: unknown): msg is CapabilityInvokeMessage {
   return !!msg && typeof msg === 'object' && (msg as { type?: string }).type === 'capability-invoke'

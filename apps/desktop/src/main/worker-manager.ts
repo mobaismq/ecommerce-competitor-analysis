@@ -1,7 +1,7 @@
 import { utilityProcess } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
-import type { CapabilityErrorMessage, CapabilityResultMessage, WorkerOutbound } from '../worker/protocol'
+import type { CapabilityErrorMessage, CapabilityResultMessage, CapabilityStreamMessage, WorkerOutbound } from '../worker/protocol'
 
 export interface WorkerManagerOptions {
   entry?: string
@@ -17,10 +17,16 @@ export interface UtilityChild {
   kill?: () => void
 }
 
+export interface InvokeOptions {
+  timeoutMs?: number
+  onStream?: (event: { type: string; text?: string; data?: Record<string, unknown> }) => void
+}
+
 interface Pending {
   resolve: (value: unknown) => void
   reject: (error: Error) => void
   timer: ReturnType<typeof setTimeout>
+  onStream?: (event: { type: string; text?: string; data?: Record<string, unknown> }) => void
 }
 
 /** 主进程能力 worker 生命周期：fork、ready 握手、请求-响应、崩溃重启、退出清理。 */
@@ -68,15 +74,16 @@ export class WorkerManager {
     this.rejectAll(new Error('能力 worker 已停止'))
   }
 
-  invoke(capability: string, payload?: unknown, timeoutMs = 30_000): Promise<unknown> {
+  invoke(capability: string, payload?: unknown, opts: InvokeOptions = {}): Promise<unknown> {
     if (!this.child || !this.ready) return Promise.reject(new Error('能力 worker 未就绪'))
     const msgId = randomUUID()
+    const timeoutMs = opts.timeoutMs ?? 30_000
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(msgId)
         reject(new Error(`能力「${capability}」调用超时`))
       }, timeoutMs)
-      this.pending.set(msgId, { resolve, reject, timer })
+      this.pending.set(msgId, { resolve, reject, timer, onStream: opts.onStream })
       this.child!.postMessage({ type: 'capability-invoke', msgId, capability, payload })
     })
   }
@@ -91,6 +98,10 @@ export class WorkerManager {
     if (msg.type === 'capability-ack') return
     const pending = this.pending.get(msg.msgId)
     if (!pending) return
+    if (msg.type === 'capability-stream') {
+      pending.onStream?.((msg as CapabilityStreamMessage).event)
+      return
+    }
     clearTimeout(pending.timer)
     this.pending.delete(msg.msgId)
     if (msg.type === 'capability-result') pending.resolve((msg as CapabilityResultMessage).result)
