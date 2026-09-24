@@ -197,6 +197,7 @@ export function ImageGalleryPage() {
       const next: Record<string, string> = {}
       await Promise.all(
         imageAssets.map(async (asset) => {
+          if (asset.size === 0) return // 无真实落盘字节的占位资产不预取 raw，避免 404/401
           try {
             const res = await fetch(`${baseURL}/api/assets/${asset.id}/raw`, {
               headers: token ? { authorization: `Bearer ${token}` } : {},
@@ -217,12 +218,16 @@ export function ImageGalleryPage() {
     }
   }, [imageAssets])
 
-  // 生成图优先展示真实落盘字节（objectURL）；未加载/无字节时回退 sourceUrl，最后才走本机 raw 流
+  // 生成图优先展示真实落盘字节（objectURL）；未加载/无字节时回退 sourceUrl；仅当确有落盘字节(size>0)才走 raw 流，
+  // 避免旧占位资产(假 storageKey、size 0、磁盘无文件)打到 raw 端点产生 404/401。
   const getDisplayUrl = (asset: Asset) => {
     if (blobUrls[asset.id]) return blobUrls[asset.id]
     if (asset.sourceUrl) return asset.sourceUrl
-    const baseURL = api.defaults.baseURL || 'http://127.0.0.1:8787'
-    return `${baseURL}/api/assets/${asset.id}/raw`
+    if (asset.size > 0) {
+      const baseURL = api.defaults.baseURL || 'http://127.0.0.1:8787'
+      return `${baseURL}/api/assets/${asset.id}/raw`
+    }
+    return ''
   }
 
   // 下载单张图片：优先真实落盘字节（token 鉴权 raw 拉流），失败才回退 sourceUrl
@@ -232,11 +237,12 @@ export function ImageGalleryPage() {
       const token = localStorage.getItem('eca.token')
       const baseURL = api.defaults.baseURL || 'http://127.0.0.1:8787'
       const name = asset.originalName || asset.storageKey.split('/').pop() || `image-${asset.id}.png`
+      // 无真实落盘字节(size 0)的占位资产跳过 raw，直接回退 sourceUrl，避免 404/401
       const rawUrl = `${baseURL}/api/assets/${asset.id}/raw`
-      const res = await fetch(rawUrl, {
-        headers: token ? { authorization: `Bearer ${token}` } : {},
-      })
-      if (res.ok) {
+      const res = asset.size > 0
+        ? await fetch(rawUrl, { headers: token ? { authorization: `Bearer ${token}` } : {} })
+        : null
+      if (res && res.ok) {
         const blob = await res.blob()
         saveAs(blob, name)
       } else if (asset.sourceUrl) {
