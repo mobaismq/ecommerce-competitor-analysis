@@ -5,6 +5,7 @@ import type { PrismaClient } from '../generated/prisma'
 import { assertCollectionMode, buildCollectionPlan, type CollectionMode, type CollectionStage } from './collection-modes'
 import { saveLocalResult, submitResultIfSyncEnabled, type SubmitSyncOptions } from './result-store'
 import { runPython, runPythonTracked } from './python-runner'
+import { importCollectedProducts, type CollectedProduct } from './collection-importer'
 
 export interface CollectionInput {
   productName?: string
@@ -12,6 +13,10 @@ export interface CollectionInput {
   existingFiles?: string[]
   downloadScript?: string
   importScript?: string
+  /** 落库到报告快照表的归属维度（缺省 local）。 */
+  tenantId?: string
+  /** 报告检索用的关键词（缺省取 productName）。 */
+  keyword?: string
   params?: Record<string, unknown>
 }
 
@@ -24,6 +29,8 @@ export interface CollectionRunContext {
 
 export interface CollectionDownloadResult {
   files: string[]
+  /** 结构化商品清单（真实 RPA 导出或下载脚本按契约输出），用于落报告快照表。 */
+  products?: CollectedProduct[]
 }
 
 export interface CollectionImportResult {
@@ -78,7 +85,8 @@ async function defaultDownloader(context: CollectionRunContext): Promise<Collect
   const parsed = lastLine ? JSON.parse(lastLine) : {}
   const files = Array.isArray(parsed.files) ? parsed.files.map(String) : []
   if (files.length === 0) throw new Error('download script did not report any files')
-  return { files }
+  const products = Array.isArray(parsed.products) ? (parsed.products as CollectedProduct[]) : undefined
+  return { files, ...(products?.length ? { products } : {}) }
 }
 
 async function defaultImporter(context: CollectionRunContext, files: string[]): Promise<CollectionImportResult> {
@@ -166,6 +174,17 @@ export async function runLocalCollection(options: RunCollectionOptions): Promise
         const downloader = options.runDownload ?? defaultDownloader
         const downloaded = await downloader({ jobId: localJobId, mode, workDir: options.workDir, input: options.input })
         result.files = downloaded.files
+        // 下载器按契约产出结构化商品清单时，落库到报告快照表，供 report.generate 读取（真实采集数据）。
+        if (downloaded.products?.length) {
+          await importCollectedProducts(prisma, {
+            tenantId: options.input.tenantId || 'local',
+            keyword: options.input.keyword ?? options.input.productName,
+            jobId: localJobId,
+            type: 'collection',
+            dataSnapshotDate: new Date().toISOString().slice(0, 10),
+            products: downloaded.products,
+          })
+        }
       } else if (stage.name === 'collect-files') {
         const source = mode === 'import-only' ? (options.input.existingFiles ?? []) : result.files
         const validFiles = source.filter((filePath) => existsSync(filePath))

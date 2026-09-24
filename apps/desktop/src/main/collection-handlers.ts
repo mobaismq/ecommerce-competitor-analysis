@@ -21,6 +21,10 @@ export interface CollectionStartInput {
   importMysql?: boolean
   mode?: string
   downloadScript?: string
+  /** 落库到报告快照表的归属维度（缺省 local）。 */
+  tenantId?: string
+  /** 报告检索用关键词（缺省取 productName）。 */
+  keyword?: string
   /** 开发期注入 fake downloader，避免反复触发真实店透视爬虫。 */
   fake?: boolean
 }
@@ -91,6 +95,8 @@ export function registerCollectionHandlers(prisma: PrismaClient) {
           input: {
             productName: input.productName,
             productUrl: input.productUrl,
+            tenantId: input.tenantId,
+            keyword: input.keyword ?? input.productName,
             downloadScript: script,
             params: {
               topN,
