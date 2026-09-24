@@ -43,6 +43,8 @@ declare global {
           importMysql?: boolean
           mode?: string
           downloadScript?: string
+          tenantId?: string
+          keyword?: string
           fake?: boolean
         }) => Promise<{ jobId: string; mode: string; runDir?: string; logFile?: string; pid?: number }>
         cancel: () => Promise<{ cancelled: boolean; reason?: string; jobId?: string }>

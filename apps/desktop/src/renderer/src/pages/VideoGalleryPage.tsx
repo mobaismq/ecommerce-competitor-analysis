@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Message, Modal } from '@arco-design/web-react'
-import { ChevronLeft, ChevronRight, Download, Eye, Loader2, Play, Trash2 } from 'lucide-react'
+import { Empty, Message, Modal, Pagination } from '@arco-design/web-react'
+import { Download, Eye, Loader2, Play, Trash2 } from 'lucide-react'
 import { saveAs } from 'file-saver'
 import { PageHeader } from '../components/PageHeader'
 import { XSearchInput } from '../components/XInput'
@@ -197,10 +197,15 @@ export function VideoGalleryPage() {
             加载中…
           </div>
         ) : filteredVideos.length === 0 ? (
-          <div className="flex flex-col items-center justify-center rounded-xl bg-white py-20">
-            <Play className="mb-4 h-14 w-14 text-[#d0d5dd]" />
-            <p className="text-[16px] text-[#86909C]">暂无数据</p>
-            <p className="m-0 mt-1 text-[13px] text-[#98A2B3]">暂无视频素材，可在一键复刻中生成</p>
+          <div className="rounded-xl bg-white py-20">
+            <Empty
+              description={
+                <div>
+                  <p className="m-0 text-[15px] text-[#86909C]">暂无数据</p>
+                  <p className="m-0 mt-1 text-[13px] text-[#98A2B3]">暂无视频素材，可在一键复刻中生成</p>
+                </div>
+              }
+            />
           </div>
         ) : (
           <div className="grid grid-cols-4 gap-4">
@@ -257,40 +262,17 @@ export function VideoGalleryPage() {
           </div>
         )}
 
-        {/* 分页（对照旧版 justify-between） */}
+        {/* 分页（Arco Pagination，对照旧版 justify-between） */}
         {filteredVideos.length > 0 && (
           <div className="mt-4 flex items-center justify-between">
             <span className="text-[13px] text-[#86909C]">共 {filteredVideos.length} 条</span>
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                disabled={safePage === 1}
-                className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border border-[#eef1f5] bg-white text-[#344054] transition-colors hover:bg-[#f9fafb] disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                <ChevronLeft className="h-4 w-4" />
-              </button>
-              {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
-                <button
-                  key={page}
-                  type="button"
-                  onClick={() => setCurrentPage(page)}
-                  className={`flex h-8 min-w-[32px] cursor-pointer items-center justify-center rounded-lg px-2 text-[13px] transition-colors ${
-                    safePage === page ? 'border-0 bg-[#409eff] text-white' : 'border border-[#eef1f5] bg-white text-[#344054] hover:bg-[#f9fafb]'
-                  }`}
-                >
-                  {page}
-                </button>
-              ))}
-              <button
-                type="button"
-                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                disabled={safePage === totalPages}
-                className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border border-[#eef1f5] bg-white text-[#344054] transition-colors hover:bg-[#f9fafb] disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                <ChevronRight className="h-4 w-4" />
-              </button>
-            </div>
+            <Pagination
+              total={filteredVideos.length}
+              pageSize={pageSize}
+              current={safePage}
+              onChange={(page) => setCurrentPage(page)}
+              sizeCanChange={false}
+            />
           </div>
         )}
       </div>

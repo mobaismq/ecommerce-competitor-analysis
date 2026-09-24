@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { ChevronLeft, ChevronRight, Loader2, Plus, RefreshCw, Search, X } from 'lucide-react'
+import { Plus, RefreshCw, Search, X } from 'lucide-react'
+import { Table } from '@arco-design/web-react'
 import { formatDateTime } from '../utils/format'
 import { PageHeader } from '../components/PageHeader'
 
@@ -70,6 +71,59 @@ export function ProductManagementPage() {
     const view = map[st?.toLowerCase()] || { text: st || '正常', className: 'bg-[#f0f7ff] text-[#3388ff]' }
     return <span className={`rounded-full px-2.5 py-1 text-[12px] font-bold ${view.className}`}>{view.text}</span>
   }
+
+  const columns = [
+    {
+      title: '商品标题',
+      dataIndex: 'title',
+      render: (_: unknown, record: PlatformProduct) => (
+        <div>
+          <p className="m-0 text-[13px] font-semibold text-[#0A1B39]">{record.title || '未命名商品'}</p>
+          <p className="m-0 mt-0.5 font-mono text-[11px] text-[#c0c4cc]">
+            {record.outerId ? `编码 ${record.outerId}` : `ID ${record.id}`}
+          </p>
+        </div>
+      ),
+    },
+    {
+      title: '渠道平台',
+      dataIndex: 'platform',
+      render: (platform: string) => <span className="whitespace-nowrap text-[13px] text-[#344054]">{platformLabel(platform)}</span>,
+    },
+    {
+      title: '销售价',
+      dataIndex: 'price',
+      render: (price: number) => <span className="whitespace-nowrap text-[13px] font-bold text-[#ff7d00]">¥{Number(price || 0).toFixed(2)}</span>,
+    },
+    {
+      title: '当前库存',
+      dataIndex: 'stock',
+      render: (stock: number) => <span className="whitespace-nowrap text-[13px] text-[#344054]">{stock ?? '—'} 件</span>,
+    },
+    {
+      title: '发布状态',
+      dataIndex: 'status',
+      render: (status: string) => statusBadge(status),
+    },
+    {
+      title: '更新时间',
+      dataIndex: 'updatedAt',
+      render: (updatedAt?: string) => <span className="whitespace-nowrap text-[13px] text-[#86909C]">{formatDateTime(updatedAt)}</span>,
+    },
+    {
+      title: '操作',
+      dataIndex: 'op',
+      render: (_: unknown, record: PlatformProduct) => (
+        <button
+          type="button"
+          onClick={() => navigate('/products/management/manual')}
+          className="cursor-pointer border-0 bg-transparent p-0 text-[13px] text-[#3388ff] hover:text-[#1a6fe8]"
+        >
+          编辑发布
+        </button>
+      ),
+    },
+  ]
 
   return (
     <div className="h-full overflow-auto bg-[#f4f7fb]">
@@ -160,90 +214,17 @@ export function ProductManagementPage() {
           </div>
         </div>
 
-        {/* 表格卡（对照旧版圆角卡 + 分页 footer） */}
+        {/* 表格卡（Arco Table：loading / 空状态 / 分页内建） */}
         <div className="overflow-hidden rounded-xl bg-white">
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[960px]">
-              <thead>
-                <tr className="border-b border-[#eef1f5] bg-[#f9fafb]">
-                  <th className="px-4 py-3 text-left text-[13px] font-medium text-[#86909C]">商品标题</th>
-                  <th className="px-4 py-3 text-left text-[13px] font-medium text-[#86909C]">渠道平台</th>
-                  <th className="px-4 py-3 text-left text-[13px] font-medium text-[#86909C]">销售价</th>
-                  <th className="px-4 py-3 text-left text-[13px] font-medium text-[#86909C]">当前库存</th>
-                  <th className="px-4 py-3 text-left text-[13px] font-medium text-[#86909C]">发布状态</th>
-                  <th className="px-4 py-3 text-left text-[13px] font-medium text-[#86909C]">更新时间</th>
-                  <th className="px-4 py-3 text-left text-[13px] font-medium text-[#86909C]">操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {isLoading && (
-                  <tr>
-                    <td colSpan={7} className="px-4 py-12 text-center text-[14px] text-[#86909C]">
-                      <Loader2 className="mr-2 inline h-4 w-4 animate-spin" />
-                      加载中…
-                    </td>
-                  </tr>
-                )}
-                {!isLoading && items.length === 0 && (
-                  <tr>
-                    <td colSpan={7} className="px-4 py-14 text-center text-[14px] text-[#86909C]">
-                      暂无符合条件的平台商品数据
-                    </td>
-                  </tr>
-                )}
-                {!isLoading &&
-                  items.slice(0, PAGE_SIZE).map((record) => (
-                    <tr key={record.id} className="border-b border-[#eef1f5] transition-colors hover:bg-[#fafafa]">
-                      <td className="px-4 py-3.5">
-                        <p className="m-0 text-[13px] font-semibold text-[#0A1B39]">{record.title || '未命名商品'}</p>
-                        <p className="m-0 mt-0.5 font-mono text-[11px] text-[#c0c4cc]">
-                          {record.outerId ? `编码 ${record.outerId}` : `ID ${record.id}`}
-                        </p>
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-3.5 text-[13px] text-[#344054]">{platformLabel(record.platform)}</td>
-                      <td className="whitespace-nowrap px-4 py-3.5 text-[13px] font-bold text-[#ff7d00]">¥{Number(record.price || 0).toFixed(2)}</td>
-                      <td className="whitespace-nowrap px-4 py-3.5 text-[13px] text-[#344054]">{record.stock ?? '—'} 件</td>
-                      <td className="whitespace-nowrap px-4 py-3.5">{statusBadge(record.status)}</td>
-                      <td className="whitespace-nowrap px-4 py-3.5 text-[13px] text-[#86909C]">{formatDateTime(record.updatedAt)}</td>
-                      <td className="whitespace-nowrap px-4 py-3.5">
-                        <button
-                          type="button"
-                          onClick={() => navigate('/products/management/manual')}
-                          className="cursor-pointer border-0 bg-transparent p-0 text-[13px] text-[#3388ff] hover:text-[#1a6fe8]"
-                        >
-                          编辑发布
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
-          </div>
-          <div className="flex items-center justify-between border-t border-[#eef1f5] px-4 py-3">
-            <span className="text-[13px] text-[#86909C]">共 {data?.total ?? items.length} 条</span>
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                disabled
-                className="flex h-8 w-8 cursor-not-allowed items-center justify-center rounded-lg border border-[#eef1f5] bg-white text-[#344054] opacity-40"
-              >
-                <ChevronLeft className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                className="flex h-8 min-w-[32px] cursor-pointer items-center justify-center rounded-lg border-0 bg-[#409eff] px-2 text-[13px] text-white"
-              >
-                1
-              </button>
-              <button
-                type="button"
-                disabled
-                className="flex h-8 w-8 cursor-not-allowed items-center justify-center rounded-lg border border-[#eef1f5] bg-white text-[#344054] opacity-40"
-              >
-                <ChevronRight className="h-4 w-4" />
-              </button>
-            </div>
-          </div>
+          <Table
+            columns={columns}
+            data={items}
+            rowKey="id"
+            loading={isLoading}
+            border={false}
+            scroll={{ x: 960 }}
+            pagination={{ pageSize: PAGE_SIZE, showTotal: true }}
+          />
         </div>
       </div>
     </div>

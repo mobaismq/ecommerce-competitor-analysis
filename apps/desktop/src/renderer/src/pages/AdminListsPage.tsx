@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { ChevronRight, RefreshCw, Search, X } from 'lucide-react'
-import { Checkbox, Modal } from '@arco-design/web-react'
+import { Checkbox, DatePicker, Modal, Table } from '@arco-design/web-react'
+import dayjs from 'dayjs'
 import { api } from '../api/client'
 import { PageHeader } from '../components/PageHeader'
 
@@ -179,6 +180,58 @@ export function AdminUsersPage() {
       </div>
     ))
 
+  const userColumns = [
+    {
+      title: '用户名',
+      dataIndex: 'username',
+      render: (v: string) => <span className="text-[13px] font-semibold text-[#0A1B39]">{v}</span>,
+    },
+    {
+      title: '显示名',
+      dataIndex: 'displayName',
+      render: (v: string | null) => <span className="text-[13px] text-[#344054]">{v ?? '-'}</span>,
+    },
+    {
+      title: '角色',
+      dataIndex: 'roleIds',
+      render: (roleIds: string[] | undefined) => {
+        const ids = roleIds ?? []
+        return <span className="text-[13px] text-[#344054]">{ids.length ? ids.map((id) => roleNameMap.get(id) ?? id).join('、') : '-'}</span>
+      },
+    },
+    {
+      title: '状态',
+      dataIndex: 'isActive',
+      render: (isActive: boolean) => (
+        <span
+          className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[12px] font-bold ${
+            isActive ? 'bg-[#e8f5e9] text-[#2e7d32]' : 'bg-[#f2f4f7] text-[#86909C]'
+          }`}
+        >
+          <span className={`h-1.5 w-1.5 rounded-full ${isActive ? 'bg-[#2e7d32]' : 'bg-[#d0d5dd]'}`} />
+          {isActive ? '启用' : '停用'}
+        </span>
+      ),
+    },
+    {
+      title: '操作',
+      dataIndex: 'op',
+      render: (_: unknown, row: UserRow) => (
+        <div className="flex items-center gap-3 text-[13px]">
+          <button type="button" onClick={() => toggle(row)} className="cursor-pointer border-0 bg-transparent p-0 text-[#3388ff] hover:text-[#1a6fe8]">
+            {row.isActive ? '停用' : '启用'}
+          </button>
+          <button type="button" onClick={() => void resetPassword(row)} className="cursor-pointer border-0 bg-transparent p-0 text-[#3388ff] hover:text-[#1a6fe8]">
+            重置密码
+          </button>
+          <button type="button" onClick={() => remove(row)} className="cursor-pointer border-0 bg-transparent p-0 text-[#c62828] hover:text-[#a02020]">
+            删除
+          </button>
+        </div>
+      ),
+    },
+  ]
+
   return (
     <div className="h-full overflow-y-auto bg-[#f4f7fb] p-6 custom-scrollbar">
       {/* 手写面包屑（对照旧版 AccountManagement） */}
@@ -333,75 +386,15 @@ export function AdminUsersPage() {
               </div>
             </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[760px]">
-                <thead>
-                  <tr className="border-b border-[#eef1f5] bg-[#f9fafb] text-left text-[13px] font-medium text-[#86909C]">
-                    <th className="px-5 py-3 font-medium">用户名</th>
-                    <th className="px-5 py-3 font-medium">显示名</th>
-                    <th className="px-5 py-3 font-medium">角色</th>
-                    <th className="px-5 py-3 font-medium">状态</th>
-                    <th className="px-5 py-3 font-medium">操作</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredUsers.map((row) => (
-                    <tr key={row.id} className="border-b border-[#eef1f5] transition-colors hover:bg-[#f9fafb]">
-                      <td className="px-5 py-3 text-[13px] font-semibold text-[#0A1B39]">{row.username}</td>
-                      <td className="px-5 py-3 text-[13px] text-[#344054]">{row.displayName ?? '-'}</td>
-                      <td className="px-5 py-3 text-[13px] text-[#344054]">
-                        {(() => {
-                          const roleIds = row.roleIds ?? []
-                          return roleIds.length ? roleIds.map((id) => roleNameMap.get(id) ?? id).join('、') : '-'
-                        })()}
-                      </td>
-                      <td className="px-5 py-3">
-                        <span
-                          className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[12px] font-bold ${
-                            row.isActive ? 'bg-[#e8f5e9] text-[#2e7d32]' : 'bg-[#f2f4f7] text-[#86909C]'
-                          }`}
-                        >
-                          <span className={`h-1.5 w-1.5 rounded-full ${row.isActive ? 'bg-[#2e7d32]' : 'bg-[#d0d5dd]'}`} />
-                          {row.isActive ? '启用' : '停用'}
-                        </span>
-                      </td>
-                      <td className="px-5 py-3">
-                        <div className="flex items-center gap-3 text-[13px]">
-                          <button
-                            type="button"
-                            onClick={() => toggle(row)}
-                            className="cursor-pointer border-0 bg-transparent p-0 text-[#3388ff] hover:text-[#1a6fe8]"
-                          >
-                            {row.isActive ? '停用' : '启用'}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void resetPassword(row)}
-                            className="cursor-pointer border-0 bg-transparent p-0 text-[#3388ff] hover:text-[#1a6fe8]"
-                          >
-                            重置密码
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => remove(row)}
-                            className="cursor-pointer border-0 bg-transparent p-0 text-[#c62828] hover:text-[#a02020]"
-                          >
-                            删除
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                  {filteredUsers.length === 0 && (
-                    <tr>
-                      <td colSpan={4} className="px-5 py-12 text-center text-[13px] text-[#86909C]">
-                        暂无数据
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+            <Table
+              columns={userColumns}
+              data={filteredUsers}
+              rowKey="id"
+              loading={users.isLoading}
+              border={false}
+              noDataElement={<span className="text-[13px] text-[#86909C]">暂无数据</span>}
+              pagination={false}
+            />
           </section>
         </div>
       </div>
@@ -474,29 +467,19 @@ export function AdminTenantsPage() {
         </form>
       </section>
       <section className="overflow-hidden rounded-xl bg-white shadow-[0_8px_32px_rgba(29,38,52,.06)]">
-        <table className="w-full">
-          <thead>
-            <tr className="border-b border-[#eef1f5] bg-[#f9fafb] text-left text-[13px] font-medium text-[#86909C]">
-              <th className="px-5 py-3 font-medium">名称</th>
-              <th className="px-5 py-3 font-medium">编码</th>
-              <th className="px-5 py-3 font-medium">状态</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(tenants.data ?? []).map((row) => (
-              <tr key={row.id} className="border-b border-[#eef1f5] text-[13px] text-[#344054] hover:bg-[#f9fafb]">
-                <td className="px-5 py-3">{row.name}</td>
-                <td className="px-5 py-3">{row.code}</td>
-                <td className="px-5 py-3">{row.status}</td>
-              </tr>
-            ))}
-            {(tenants.data ?? []).length === 0 && (
-              <tr>
-                <td colSpan={3} className="px-5 py-10 text-center text-[13px] text-[#86909C]">暂无数据</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+        <Table
+          columns={[
+            { title: '名称', dataIndex: 'name' },
+            { title: '编码', dataIndex: 'code' },
+            { title: '状态', dataIndex: 'status' },
+          ]}
+          data={tenants.data ?? []}
+          rowKey="id"
+          loading={tenants.isLoading}
+          border={false}
+          noDataElement={<span className="text-[13px] text-[#86909C]">暂无数据</span>}
+          pagination={false}
+        />
       </section>
     </div>
   )
@@ -638,47 +621,51 @@ export function AdminRolesPage() {
         </form>
       </section>
       <section className="overflow-hidden rounded-xl bg-white shadow-[0_8px_32px_rgba(29,38,52,.06)]">
-        <table className="w-full">
-          <thead>
-            <tr className="border-b border-[#eef1f5] bg-[#f9fafb] text-left text-[13px] font-medium text-[#86909C]">
-              <th className="px-5 py-3 font-medium">编码</th>
-              <th className="px-5 py-3 font-medium">名称</th>
-              <th className="px-5 py-3 font-medium">权限</th>
-              <th className="px-5 py-3 font-medium">状态</th>
-              <th className="px-5 py-3 font-medium">操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(roles.data ?? []).map((row) => (
-              <tr key={row.id} className="border-b border-[#eef1f5] text-[13px] text-[#344054] hover:bg-[#f9fafb]">
-                <td className="px-5 py-3 font-mono">{row.code}</td>
-                <td className="px-5 py-3">{row.name}</td>
-                <td className="px-5 py-3 text-[12px] text-[#98A2B3]">
-                  {row.permissionAll ? `全选（${(row.permissionIds ?? []).filter((id) => id !== '*').length} 项 + 未来新增）` : `${(row.permissionIds ?? []).length} 项权限 / ${(row.storeIds ?? []).length} 店铺`}
-                </td>
-                <td className="px-5 py-3">{(row as RoleRow & { status?: string }).status === 'disabled' ? '停用' : '启用'}</td>
-                <td className="px-5 py-3">
-                  <div className="flex gap-3">
-                    <button type="button" onClick={() => openEdit(row)} className="cursor-pointer border-0 bg-transparent p-0 text-[13px] text-[#3388ff] hover:underline">
-                      权限
-                    </button>
-                    <button type="button" onClick={() => toggle(row)} className="cursor-pointer border-0 bg-transparent p-0 text-[13px] text-[#3388ff] hover:underline">
-                      启停
-                    </button>
-                    <button type="button" onClick={() => remove(row)} className="cursor-pointer border-0 bg-transparent p-0 text-[13px] text-[#f53f3f] hover:underline">
-                      删除
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-            {(roles.data ?? []).length === 0 && (
-              <tr>
-                <td colSpan={5} className="px-5 py-10 text-center text-[13px] text-[#86909C]">暂无数据</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+        <Table
+          columns={[
+            { title: '编码', dataIndex: 'code', render: (v: string) => <span className="font-mono">{v}</span> },
+            { title: '名称', dataIndex: 'name' },
+            {
+              title: '权限',
+              dataIndex: 'permissionIds',
+              render: (_: unknown, row: RoleRow) => (
+                <span className="text-[12px] text-[#98A2B3]">
+                  {row.permissionAll
+                    ? `全选（${(row.permissionIds ?? []).filter((id) => id !== '*').length} 项 + 未来新增）`
+                    : `${(row.permissionIds ?? []).length} 项权限 / ${(row.storeIds ?? []).length} 店铺`}
+                </span>
+              ),
+            },
+            {
+              title: '状态',
+              dataIndex: 'status',
+              render: (_: unknown, row: RoleRow) => ((row as RoleRow & { status?: string }).status === 'disabled' ? '停用' : '启用'),
+            },
+            {
+              title: '操作',
+              dataIndex: 'op',
+              render: (_: unknown, row: RoleRow) => (
+                <div className="flex gap-3">
+                  <button type="button" onClick={() => openEdit(row)} className="cursor-pointer border-0 bg-transparent p-0 text-[13px] text-[#3388ff] hover:underline">
+                    权限
+                  </button>
+                  <button type="button" onClick={() => toggle(row)} className="cursor-pointer border-0 bg-transparent p-0 text-[13px] text-[#3388ff] hover:underline">
+                    启停
+                  </button>
+                  <button type="button" onClick={() => remove(row)} className="cursor-pointer border-0 bg-transparent p-0 text-[13px] text-[#f53f3f] hover:underline">
+                    删除
+                  </button>
+                </div>
+              ),
+            },
+          ]}
+          data={roles.data ?? []}
+          rowKey="id"
+          loading={roles.isLoading}
+          border={false}
+          noDataElement={<span className="text-[13px] text-[#86909C]">暂无数据</span>}
+          pagination={false}
+        />
       </section>
 
       {/* 编辑权限弹窗 */}
@@ -733,6 +720,50 @@ export function AdminStoresPage() {
   const remove = (row: StoreRow) => {
     if (window.confirm(`确定删除店铺 ${row.name}？`)) refresh(stores.refetch, api.delete(`/api/stores/${row.id}`))
   }
+
+  const storeColumns = [
+    {
+      title: '名称',
+      dataIndex: 'name',
+      render: (name: string, row: StoreRow) => (
+        <div className="flex items-center gap-2">
+          {(row.storeLogo ?? row.platform?.logo) ? (
+            <img src={row.storeLogo ?? row.platform?.logo ?? ''} alt={name} className="h-5 w-5 rounded object-contain" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} />
+          ) : null}
+          {name}
+        </div>
+      ),
+    },
+    { title: '平台', dataIndex: 'platform', render: (_: unknown, row: StoreRow) => row.platform?.name ?? '-' },
+    { title: '平台店铺 ID', dataIndex: 'externalId', render: (v: string | null) => <span className="font-mono">{v ?? '-'}</span> },
+    { title: '状态', dataIndex: 'status', render: (status: string | null | undefined) => (status === 'disabled' ? '停用' : status ?? '-') },
+    {
+      title: '授权状态',
+      dataIndex: 'authStatus',
+      render: (authStatus: StoreRow['authStatus']) =>
+        authStatus === 'valid' ? (
+          <span className="inline-block rounded-full bg-[#e8f5ee] px-2 py-0.5 text-[12px] font-semibold text-[#389e0d]">有效</span>
+        ) : authStatus === 'expired' ? (
+          <span className="inline-block rounded-full bg-[#fff1f0] px-2 py-0.5 text-[12px] font-semibold text-[#f5222d]">已过期</span>
+        ) : (
+          <span className="text-[12px] text-[#98a2b3]">未设置</span>
+        ),
+    },
+    {
+      title: '操作',
+      dataIndex: 'op',
+      render: (_: unknown, row: StoreRow) => (
+        <div className="flex gap-2">
+          <button type="button" onClick={() => toggle(row)} className="cursor-pointer border-0 bg-transparent p-0 text-[13px] text-[#3388ff] hover:underline">
+            启停
+          </button>
+          <button type="button" onClick={() => remove(row)} className="cursor-pointer border-0 bg-transparent p-0 text-[13px] text-[#f53f3f] hover:underline">
+            删除
+          </button>
+        </div>
+      ),
+    },
+  ]
   return (
     <div className="h-full overflow-y-auto bg-[#f4f7fb] p-6 custom-scrollbar">
       <PageHeader breadcrumbs={[{ label: '设置' }, { label: '店铺管理' }]} />
@@ -749,7 +780,11 @@ export function AdminStoresPage() {
           </label>
           <label className="grid gap-1.5 text-[12px] text-[#86909C]">
             授权时间
-            <input type="date" value={form.authorizedAt} onChange={(e) => setForm({ ...form, authorizedAt: e.target.value })} className="h-9 rounded-lg border border-[#dce3ee] bg-[#f9fafb] px-2.5 text-[13px] font-semibold text-[#0A1B39] outline-none focus:border-[#3388ff] focus:bg-white" />
+            <DatePicker
+              value={form.authorizedAt ? dayjs(form.authorizedAt) : undefined}
+              onChange={(dateString) => setForm({ ...form, authorizedAt: dateString || '' })}
+              style={{ width: '100%' }}
+            />
           </label>
           <button type="submit" className="h-9 cursor-pointer rounded-lg border-0 bg-[#3388ff] text-[13px] font-bold text-white hover:bg-[#1a6fe8]">
             新增店铺
@@ -768,59 +803,15 @@ export function AdminStoresPage() {
             刷新
           </button>
         </div>
-        <table className="w-full">
-          <thead>
-            <tr className="border-b border-[#eef1f5] bg-[#f9fafb] text-left text-[13px] font-medium text-[#86909C]">
-              <th className="px-5 py-3 font-medium">名称</th>
-              <th className="px-5 py-3 font-medium">平台</th>
-              <th className="px-5 py-3 font-medium">平台店铺 ID</th>
-              <th className="px-5 py-3 font-medium">状态</th>
-              <th className="px-5 py-3 font-medium">授权状态</th>
-              <th className="px-5 py-3 font-medium">操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(stores.data ?? []).map((row) => (
-              <tr key={row.id} className="border-b border-[#eef1f5] text-[13px] text-[#344054] hover:bg-[#f9fafb]">
-                <td className="px-5 py-3">
-                  <div className="flex items-center gap-2">
-                    {(row.storeLogo ?? row.platform?.logo) ? (
-                      <img src={row.storeLogo ?? row.platform?.logo ?? ''} alt={row.name} className="h-5 w-5 rounded object-contain" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} />
-                    ) : null}
-                    {row.name}
-                  </div>
-                </td>
-                <td className="px-5 py-3">{row.platform?.name ?? '-'}</td>
-                <td className="px-5 py-3 font-mono">{row.externalId ?? '-'}</td>
-                <td className="px-5 py-3">{row.status === 'disabled' ? '停用' : row.status ?? '-'}</td>
-                <td className="px-5 py-3">
-                  {row.authStatus === 'valid' ? (
-                    <span className="inline-block rounded-full bg-[#e8f5ee] px-2 py-0.5 text-[12px] font-semibold text-[#389e0d]">有效</span>
-                  ) : row.authStatus === 'expired' ? (
-                    <span className="inline-block rounded-full bg-[#fff1f0] px-2 py-0.5 text-[12px] font-semibold text-[#f5222d]">已过期</span>
-                  ) : (
-                    <span className="text-[12px] text-[#98a2b3]">未设置</span>
-                  )}
-                </td>
-                <td className="px-5 py-3">
-                  <div className="flex gap-2">
-                    <button type="button" onClick={() => toggle(row)} className="cursor-pointer border-0 bg-transparent p-0 text-[13px] text-[#3388ff] hover:underline">
-                      启停
-                    </button>
-                    <button type="button" onClick={() => remove(row)} className="cursor-pointer border-0 bg-transparent p-0 text-[13px] text-[#f53f3f] hover:underline">
-                      删除
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-            {(stores.data ?? []).length === 0 && (
-              <tr>
-                <td colSpan={5} className="px-5 py-10 text-center text-[13px] text-[#86909C]">暂无数据</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+        <Table
+          columns={storeColumns}
+          data={stores.data ?? []}
+          rowKey="id"
+          loading={stores.isLoading}
+          border={false}
+          noDataElement={<span className="text-[13px] text-[#86909C]">暂无数据</span>}
+          pagination={false}
+        />
       </section>
     </div>
   )
@@ -839,39 +830,31 @@ export function AdminProviderProfilesPage() {
         设置 / <span className="font-medium text-[#0A1B39]">AI 供应商配置</span>
       </div>
       <section className="overflow-hidden rounded-xl bg-white shadow-[0_8px_32px_rgba(29,38,52,.06)]">
-        <table className="w-full">
-          <thead>
-            <tr className="border-b border-[#eef1f5] bg-[#f9fafb] text-left text-[13px] font-medium text-[#86909C]">
-              <th className="px-5 py-3 font-medium">名称</th>
-              <th className="px-5 py-3 font-medium">类型</th>
-              <th className="px-5 py-3 font-medium">状态</th>
-              <th className="px-5 py-3 font-medium">Key</th>
-              <th className="px-5 py-3 font-medium">操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(profiles.data ?? []).map((row) => (
-              <tr key={row.id} className="border-b border-[#eef1f5] text-[13px] text-[#344054] hover:bg-[#f9fafb]">
-                <td className="px-5 py-3">{row.name}</td>
-                <td className="px-5 py-3">{row.type}</td>
-                <td className="px-5 py-3">{row.enabled ? '启用' : '停用'}</td>
-                <td className="px-5 py-3 font-mono text-[12px]">{row.apiKeyRef}</td>
-                <td className="px-5 py-3">
-                  <div className="flex items-center gap-3">
-                    <button type="button" onClick={() => activate(row)} className="cursor-pointer border-0 bg-transparent p-0 text-[#3388ff]">设为当前</button>
-                    <button type="button" onClick={() => toggle(row)} className="cursor-pointer border-0 bg-transparent p-0 text-[#3388ff]">{row.enabled ? '停用' : '启用'}</button>
-                    <button type="button" onClick={() => remove(row)} className="cursor-pointer border-0 bg-transparent p-0 text-[#c62828]">删除</button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-            {(profiles.data ?? []).length === 0 && (
-              <tr>
-                <td colSpan={5} className="px-5 py-10 text-center text-[13px] text-[#86909C]">暂无数据</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+        <Table
+          columns={[
+            { title: '名称', dataIndex: 'name' },
+            { title: '类型', dataIndex: 'type' },
+            { title: '状态', dataIndex: 'enabled', render: (enabled: boolean) => (enabled ? '启用' : '停用') },
+            { title: 'Key', dataIndex: 'apiKeyRef', render: (v: string) => <span className="font-mono text-[12px]">{v}</span> },
+            {
+              title: '操作',
+              dataIndex: 'op',
+              render: (_: unknown, row: ProviderRow) => (
+                <div className="flex items-center gap-3">
+                  <button type="button" onClick={() => activate(row)} className="cursor-pointer border-0 bg-transparent p-0 text-[#3388ff]">设为当前</button>
+                  <button type="button" onClick={() => toggle(row)} className="cursor-pointer border-0 bg-transparent p-0 text-[#3388ff]">{row.enabled ? '停用' : '启用'}</button>
+                  <button type="button" onClick={() => remove(row)} className="cursor-pointer border-0 bg-transparent p-0 text-[#c62828]">删除</button>
+                </div>
+              ),
+            },
+          ]}
+          data={profiles.data ?? []}
+          rowKey="id"
+          loading={profiles.isLoading}
+          border={false}
+          noDataElement={<span className="text-[13px] text-[#86909C]">暂无数据</span>}
+          pagination={false}
+        />
       </section>
     </div>
   )
@@ -931,41 +914,46 @@ export function AdminDepartmentsPage() {
         </form>
       </section>
       <section className="overflow-hidden rounded-xl bg-white shadow-[0_8px_32px_rgba(29,38,52,.06)]">
-        <table className="w-full">
-          <thead>
-            <tr className="border-b border-[#eef1f5] bg-[#f9fafb] text-left text-[13px] font-medium text-[#86909C]">
-              <th className="px-5 py-3 font-medium">部门</th>
-              <th className="px-5 py-3 font-medium">上级</th>
-              <th className="px-5 py-3 font-medium">状态</th>
-              <th className="px-5 py-3 font-medium">操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(departments.data ?? []).map((row) => (
-              <tr key={row.id} className="border-b border-[#eef1f5] text-[13px] text-[#344054] hover:bg-[#f9fafb]">
-                <td className="px-5 py-3" style={{ paddingLeft: 20 + treeDepth2(departments.data ?? [], row.id) * 16 }}>
-                  {row.name}
-                </td>
-                <td className="px-5 py-3">{row.parentId ? (departments.data?.find((d) => d.id === row.parentId)?.name ?? '-') : '-'}</td>
-                <td className="px-5 py-3">
-                  <button type="button" onClick={() => toggleEnabled(row)} className="cursor-pointer border-0 bg-transparent p-0 text-[#3388ff]">
-                    {row.enabled === false ? '停用' : '启用'}
-                  </button>
-                </td>
-                <td className="px-5 py-3">
-                  <button type="button" onClick={() => void rename(row)} className="cursor-pointer border-0 bg-transparent p-0 text-[#3388ff]">
-                    重命名
-                  </button>
-                </td>
-              </tr>
-            ))}
-            {(departments.data ?? []).length === 0 && (
-              <tr>
-                <td colSpan={4} className="px-5 py-10 text-center text-[13px] text-[#86909C]">暂无部门</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+        <Table
+          columns={[
+            {
+              title: '部门',
+              dataIndex: 'name',
+              render: (name: string, row: DepartmentRow2) => (
+                <span style={{ paddingLeft: treeDepth2(departments.data ?? [], row.id) * 16 }}>{name}</span>
+              ),
+            },
+            {
+              title: '上级',
+              dataIndex: 'parentId',
+              render: (parentId: string | null) => (parentId ? (departments.data?.find((d) => d.id === parentId)?.name ?? '-') : '-'),
+            },
+            {
+              title: '状态',
+              dataIndex: 'enabled',
+              render: (_: unknown, row: DepartmentRow2) => (
+                <button type="button" onClick={() => toggleEnabled(row)} className="cursor-pointer border-0 bg-transparent p-0 text-[#3388ff]">
+                  {row.enabled === false ? '停用' : '启用'}
+                </button>
+              ),
+            },
+            {
+              title: '操作',
+              dataIndex: 'op',
+              render: (_: unknown, row: DepartmentRow2) => (
+                <button type="button" onClick={() => void rename(row)} className="cursor-pointer border-0 bg-transparent p-0 text-[#3388ff]">
+                  重命名
+                </button>
+              ),
+            },
+          ]}
+          data={departments.data ?? []}
+          rowKey="id"
+          loading={departments.isLoading}
+          border={false}
+          noDataElement={<span className="text-[13px] text-[#86909C]">暂无部门</span>}
+          pagination={false}
+        />
       </section>
     </div>
   )

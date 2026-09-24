@@ -4,7 +4,6 @@ import { Message } from '@arco-design/web-react'
 import { nanoid } from 'nanoid'
 import { PageHeader } from '../components/PageHeader'
 import { useAuth } from '../store/auth'
-import { X } from 'lucide-react'
 
 interface Dataset {
   id: string
@@ -22,7 +21,6 @@ export interface ChatMessage {
   id: string
   role: 'user' | 'assistant'
   content: string
-  time?: string
 }
 
 const QUICK_QUESTIONS = [
@@ -33,9 +31,9 @@ const QUICK_QUESTIONS = [
 ]
 
 function statusText(status?: string) {
-  if (status === 'generated' || status === 'completed' || status === 'success') return '已生成报告'
+  if (status === 'generated') return '已生成报告'
   if (status === 'not_generated') return '原始数据'
-  if (status === 'generating' || status === 'running') return '生成中'
+  if (status === 'generating') return '生成中'
   return status || '数据集'
 }
 
@@ -73,8 +71,8 @@ export function DataAgentChatPage() {
       setDatasetId((curr) =>
         curr && list.some((item) => item.id === curr) ? curr : list[0]?.id || '',
       )
-    } catch {
-      setDatasetError('数据集加载失败，请检查网络或后端服务')
+    } catch (error) {
+      setDatasetError(error instanceof Error ? error.message : String(error))
     } finally {
       setLoadingDatasets(false)
     }
@@ -109,7 +107,9 @@ export function DataAgentChatPage() {
         userId: currentUserId,
         tenantId: 'local',
         datasetId: selectedDataset.id,
+        keyword: selectedDataset.keyword || undefined,
         question: finalQuestion,
+        history: messages.slice(-8).map((item) => ({ role: item.role, content: item.content })),
       }) as { answer?: string } | undefined
 
       const answer = res?.answer || '没有得到可用回答。'
@@ -121,8 +121,8 @@ export function DataAgentChatPage() {
           content: answer,
         },
       ])
-    } catch {
-      setAnswerError('智能助手响应异常，请稍后重试')
+    } catch (error) {
+      setAnswerError(error instanceof Error ? error.message : String(error))
     } finally {
       setAsking(false)
     }
@@ -168,16 +168,6 @@ export function DataAgentChatPage() {
                 placeholder="搜索关键词"
                 className="h-full min-w-0 flex-1 border-0 bg-transparent text-[13px] font-semibold text-[#0A1B39] outline-none placeholder:text-[#98A2B3]"
               />
-              {search && (
-                <button
-                  type="button"
-                  onClick={() => setSearch('')}
-                  aria-label="清空"
-                  className="grid h-5 w-5 shrink-0 cursor-pointer place-items-center rounded-full border-0 bg-transparent p-0 text-[#c0c4cc] hover:bg-[#f2f4f7] hover:text-[#86909C]"
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              )}
             </div>
           </div>
 

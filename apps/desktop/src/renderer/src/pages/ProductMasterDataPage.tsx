@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Calendar, ChevronDown, ChevronRight, Plus, Search, Upload, X } from 'lucide-react'
+import { Plus, Search, Upload, X } from 'lucide-react'
 import { nanoid } from 'nanoid'
+import { DatePicker, Table } from '@arco-design/web-react'
+import dayjs from 'dayjs'
 import { PageHeader } from '../components/PageHeader'
 
 function desktopInvoke(capability: string, payload?: unknown): Promise<unknown> {
@@ -94,47 +96,20 @@ export function ProductMasterDataPage() {
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(false)
 
-  // 查询条件
+  // 查询条件（时间范围统一用 [开始, 结束] 数组承载，YYYY-MM-DD）
   const [searchCode, setSearchCode] = useState('')
   const [searchName, setSearchName] = useState('')
   const [searchBrand, setSearchBrand] = useState('')
   const [searchStore, setSearchStore] = useState('')
-  const [searchUpdateTimeStart, setSearchUpdateTimeStart] = useState('')
-  const [searchUpdateTimeEnd, setSearchUpdateTimeEnd] = useState('')
-  const [searchCreateTimeStart, setSearchCreateTimeStart] = useState('')
-  const [searchCreateTimeEnd, setSearchCreateTimeEnd] = useState('')
+  const [searchUpdateTimeRange, setSearchUpdateTimeRange] = useState<string[]>([])
+  const [searchCreateTimeRange, setSearchCreateTimeRange] = useState<string[]>([])
   const [filterCode, setFilterCode] = useState('')
   const [filterName, setFilterName] = useState('')
   const [filterBrand, setFilterBrand] = useState('')
   const [filterStore, setFilterStore] = useState('')
-  const [filterUpdateTimeStart, setFilterUpdateTimeStart] = useState('')
-  const [filterUpdateTimeEnd, setFilterUpdateTimeEnd] = useState('')
-  const [filterCreateTimeStart, setFilterCreateTimeStart] = useState('')
-  const [filterCreateTimeEnd, setFilterCreateTimeEnd] = useState('')
-  const [showUpdateTimeRange, setShowUpdateTimeRange] = useState(false)
-  const [showCreateTimeRange, setShowCreateTimeRange] = useState(false)
-  const updateTimeBtnRef = useRef<HTMLButtonElement>(null)
-  const createTimeBtnRef = useRef<HTMLButtonElement>(null)
-  const [updateTimePopupPos, setUpdateTimePopupPos] = useState({ top: 0, left: 0 })
-  const [createTimePopupPos, setCreateTimePopupPos] = useState({ top: 0, left: 0 })
+  const [filterUpdateTimeRange, setFilterUpdateTimeRange] = useState<string[]>([])
+  const [filterCreateTimeRange, setFilterCreateTimeRange] = useState<string[]>([])
 
-  const toggleUpdateTimeRange = () => {
-    if (!showUpdateTimeRange && updateTimeBtnRef.current) {
-      const rect = updateTimeBtnRef.current.getBoundingClientRect()
-      setUpdateTimePopupPos({ top: rect.bottom + 4, left: rect.left })
-    }
-    setShowUpdateTimeRange(!showUpdateTimeRange)
-  }
-
-  const toggleCreateTimeRange = () => {
-    if (!showCreateTimeRange && createTimeBtnRef.current) {
-      const rect = createTimeBtnRef.current.getBoundingClientRect()
-      setCreateTimePopupPos({ top: rect.bottom + 4, left: rect.left })
-    }
-    setShowCreateTimeRange(!showCreateTimeRange)
-  }
-
-  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
   const [showAddModal, setShowAddModal] = useState(false)
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [editingProduct, setEditingProduct] = useState<Product | null>(null)
@@ -181,23 +156,23 @@ export function ProductMasterDataPage() {
       if (filterName && !p.productName.toLowerCase().includes(filterName.toLowerCase())) return false
       if (filterBrand && !(p.brand || '').toLowerCase().includes(filterBrand.toLowerCase())) return false
       if (filterStore && !(p.storeName || p.storeId || '').toLowerCase().includes(filterStore.toLowerCase())) return false
-      if (filterUpdateTimeStart && (p.updateTime || '') < filterUpdateTimeStart) return false
-      if (filterUpdateTimeEnd && (p.updateTime || '') > filterUpdateTimeEnd + ' 23:59:59') return false
-      if (filterCreateTimeStart && (p.createTime || '') < filterCreateTimeStart) return false
-      if (filterCreateTimeEnd && (p.createTime || '') > filterCreateTimeEnd + ' 23:59:59') return false
+      const [uStart, uEnd] = filterUpdateTimeRange
+      if (uStart && (p.updateTime || '') < uStart) return false
+      if (uEnd && (p.updateTime || '') > uEnd + ' 23:59:59') return false
+      const [cStart, cEnd] = filterCreateTimeRange
+      if (cStart && (p.createTime || '') < cStart) return false
+      if (cEnd && (p.createTime || '') > cEnd + ' 23:59:59') return false
       return true
     })
-  }, [displayProducts, filterCode, filterName, filterBrand, filterStore, filterUpdateTimeStart, filterUpdateTimeEnd, filterCreateTimeStart, filterCreateTimeEnd])
+  }, [displayProducts, filterCode, filterName, filterBrand, filterStore, filterUpdateTimeRange, filterCreateTimeRange])
 
   const handleSearch = () => {
     setFilterCode(searchCode)
     setFilterName(searchName)
     setFilterBrand(searchBrand)
     setFilterStore(searchStore)
-    setFilterUpdateTimeStart(searchUpdateTimeStart)
-    setFilterUpdateTimeEnd(searchUpdateTimeEnd)
-    setFilterCreateTimeStart(searchCreateTimeStart)
-    setFilterCreateTimeEnd(searchCreateTimeEnd)
+    setFilterUpdateTimeRange(searchUpdateTimeRange)
+    setFilterCreateTimeRange(searchCreateTimeRange)
   }
 
   const handleReset = () => {
@@ -205,27 +180,14 @@ export function ProductMasterDataPage() {
     setSearchName('')
     setSearchBrand('')
     setSearchStore('')
-    setSearchUpdateTimeStart('')
-    setSearchUpdateTimeEnd('')
-    setSearchCreateTimeStart('')
-    setSearchCreateTimeEnd('')
+    setSearchUpdateTimeRange([])
+    setSearchCreateTimeRange([])
     setFilterCode('')
     setFilterName('')
     setFilterBrand('')
     setFilterStore('')
-    setFilterUpdateTimeStart('')
-    setFilterUpdateTimeEnd('')
-    setFilterCreateTimeStart('')
-    setFilterCreateTimeEnd('')
-  }
-
-  const toggleExpand = (id: string) => {
-    setExpandedRows((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
+    setFilterUpdateTimeRange([])
+    setFilterCreateTimeRange([])
   }
 
   const openCreate = () => {
@@ -359,6 +321,96 @@ export function ProductMasterDataPage() {
     setShowDeleteModal(true)
   }
 
+  const priceRangeText = (skus: Sku[], field: 'costPrice' | 'standardPrice') => {
+    if (!skus.length) return '¥0'
+    const min = Math.min(...skus.map((s) => s[field]))
+    const max = Math.max(...skus.map((s) => s[field]))
+    return min === max ? `¥${min}` : `¥${min}-¥${max}`
+  }
+
+  const columns = [
+    {
+      title: '商品图片',
+      dataIndex: 'productImage',
+      width: 90,
+      render: () => (
+        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#f2f4f7]">
+          <svg className="h-5 w-5 text-[#c0c4cc]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0022.5 18.75V5.25A2.25 2.25 0 0020.25 3H3.75A2.25 2.25 0 001.5 5.25v13.5A2.25 2.25 0 003.75 21z"
+            />
+          </svg>
+        </div>
+      ),
+    },
+    { title: '商品编码', dataIndex: 'productCode', width: 120 },
+    { title: '商品名称', dataIndex: 'productName', width: 160 },
+    { title: '品牌', dataIndex: 'brand', width: 90, render: (brand: string | null) => brand || '—' },
+    {
+      title: '店铺',
+      dataIndex: 'storeName',
+      width: 110,
+      render: (_: unknown, record: Product) => <span className="text-[#86909C]">{record.storeName || record.storeId || '—'}</span>,
+    },
+    {
+      title: '成本价',
+      dataIndex: 'skus',
+      width: 100,
+      render: (_: unknown, record: Product) => <span className="whitespace-nowrap">{priceRangeText(record.skus, 'costPrice')}</span>,
+    },
+    {
+      title: '标准售价',
+      dataIndex: 'standardPrice',
+      width: 110,
+      render: (_: unknown, record: Product) => <span className="whitespace-nowrap">{priceRangeText(record.skus, 'standardPrice')}</span>,
+    },
+    {
+      title: '状态',
+      dataIndex: 'status',
+      width: 90,
+      render: (status: Product['status']) => (
+        <span className="inline-block whitespace-nowrap rounded-full px-3 py-0.5 text-[12px] text-black">
+          {status === 'enabled' ? '启用' : '停用'}
+        </span>
+      ),
+    },
+    {
+      title: '更新时间',
+      dataIndex: 'updateTime',
+      width: 160,
+      render: (v: string) => <span className="whitespace-nowrap">{v || ''}</span>,
+    },
+    {
+      title: '创建时间',
+      dataIndex: 'createTime',
+      width: 160,
+      render: (v: string) => <span className="whitespace-nowrap">{v || ''}</span>,
+    },
+    {
+      title: '操作',
+      dataIndex: 'op',
+      width: 200,
+      render: (_: unknown, record: Product) => (
+        <div className="flex items-center gap-3">
+          <button type="button" onClick={() => openEdit(record)} className="text-[14px] text-[#409eff] hover:text-[#66b1ff]">
+            编辑
+          </button>
+          <button type="button" onClick={() => void toggleStatus(record)} className="text-[14px] text-[#409eff] hover:text-[#66b1ff]">
+            {record.status === 'enabled' ? '停用' : '启用'}
+          </button>
+          <button type="button" onClick={() => handleGoPublish(record)} className="text-[14px] text-[#409eff] hover:text-[#66b1ff]">
+            去发布
+          </button>
+          <button type="button" onClick={() => handleDelete(record)} className="text-[14px] text-[#409eff] hover:text-[#66b1ff]">
+            删除
+          </button>
+        </div>
+      ),
+    },
+  ]
+
   return (
     <div className="h-full overflow-auto bg-[#f4f7fb]">
       <div className="p-6">
@@ -455,185 +507,35 @@ export function ProductMasterDataPage() {
                 )}
               </div>
             </div>
-            {/* 更新时间 */}
+            {/* 更新时间（Arco RangePicker） */}
             <div className="flex items-center gap-2">
               <label className="shrink-0 text-[12px] text-[#86909C]">更新时间</label>
-              <div className="relative flex-1">
-                <button
-                  ref={updateTimeBtnRef}
-                  type="button"
-                  onClick={toggleUpdateTimeRange}
-                  className="flex h-8 w-full min-w-0 items-center justify-between rounded-lg border border-[#e6e9ef] bg-white px-2.5 text-left text-[13px] outline-none focus:border-[#409eff]"
-                >
-                  <span
-                    className={`truncate ${searchUpdateTimeStart || searchUpdateTimeEnd ? 'text-[#0A1B39]' : 'text-[#c0c4cc]'}`}
-                    title={searchUpdateTimeStart && searchUpdateTimeEnd ? `${searchUpdateTimeStart} 至 ${searchUpdateTimeEnd}` : ''}
-                  >
-                    {searchUpdateTimeStart && searchUpdateTimeEnd
-                      ? `${searchUpdateTimeStart} 至 ${searchUpdateTimeEnd}`
-                      : searchUpdateTimeStart
-                        ? `${searchUpdateTimeStart} 至`
-                        : searchUpdateTimeEnd
-                          ? `至 ${searchUpdateTimeEnd}`
-                          : '请选择日期范围'}
-                  </span>
-                  <Calendar className="ml-1 h-3.5 w-3.5 shrink-0 text-[#c0c4cc]" />
-                </button>
-                {(searchUpdateTimeStart || searchUpdateTimeEnd) && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSearchUpdateTimeStart('')
-                      setSearchUpdateTimeEnd('')
-                    }}
-                    className="absolute right-7 top-1/2 -translate-y-1/2 cursor-pointer border-0 bg-transparent p-0 text-[#c0c4cc] hover:text-[#86909C]"
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                )}
-                {showUpdateTimeRange && (
-                  <>
-                    <div className="fixed inset-0 z-40" onClick={() => setShowUpdateTimeRange(false)} />
-                    <div
-                      className="fixed z-50 w-80 rounded-lg border border-[#e6e9ef] bg-white p-3 shadow-lg"
-                      style={{ top: `${updateTimePopupPos.top}px`, left: `${updateTimePopupPos.left}px` }}
-                    >
-                      <div className="flex items-center gap-2">
-                        <div className="flex-1">
-                          <label className="mb-1 block text-[11px] text-[#86909C]">开始日期</label>
-                          <input
-                            type="date"
-                            value={searchUpdateTimeStart}
-                            onChange={(e) => setSearchUpdateTimeStart(e.target.value)}
-                            className="h-7 w-full rounded border border-[#e6e9ef] px-2 text-[12px] outline-none focus:border-[#409eff]"
-                          />
-                        </div>
-                        <span className="mt-4 text-[12px] text-[#86909C]">至</span>
-                        <div className="flex-1">
-                          <label className="mb-1 block text-[11px] text-[#86909C]">结束日期</label>
-                          <input
-                            type="date"
-                            value={searchUpdateTimeEnd}
-                            onChange={(e) => setSearchUpdateTimeEnd(e.target.value)}
-                            className="h-7 w-full rounded border border-[#e6e9ef] px-2 text-[12px] outline-none focus:border-[#409eff]"
-                          />
-                        </div>
-                      </div>
-                      <div className="mt-2 flex justify-end gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSearchUpdateTimeStart('')
-                            setSearchUpdateTimeEnd('')
-                            setShowUpdateTimeRange(false)
-                          }}
-                          className="h-6 rounded border border-[#dcdfe6] px-3 text-[12px] text-[#606266] hover:border-[#409eff] hover:text-[#409eff]"
-                        >
-                          清除
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setShowUpdateTimeRange(false)}
-                          className="h-6 rounded bg-[#409eff] px-3 text-[12px] text-white hover:bg-[#66b1ff]"
-                        >
-                          确定
-                        </button>
-                      </div>
-                    </div>
-                  </>
-                )}
-              </div>
+              <DatePicker.RangePicker
+                className="min-w-0 flex-1"
+                value={
+                  searchUpdateTimeRange.length === 2
+                    ? [dayjs(searchUpdateTimeRange[0]), dayjs(searchUpdateTimeRange[1])]
+                    : []
+                }
+                onChange={(dateString) => setSearchUpdateTimeRange(dateString ?? [])}
+                allowClear
+              />
             </div>
           </div>
           {/* 第二行：创建时间 + 按钮 */}
           <div className="mt-3 grid grid-cols-4 gap-3">
             <div className="flex items-center gap-2">
               <label className="shrink-0 text-[12px] text-[#86909C]">创建时间</label>
-              <div className="relative flex-1">
-                <button
-                  ref={createTimeBtnRef}
-                  type="button"
-                  onClick={toggleCreateTimeRange}
-                  className="flex h-8 w-full min-w-0 items-center justify-between rounded-lg border border-[#e6e9ef] bg-white px-2.5 text-left text-[13px] outline-none focus:border-[#409eff]"
-                >
-                  <span
-                    className={`truncate ${searchCreateTimeStart || searchCreateTimeEnd ? 'text-[#0A1B39]' : 'text-[#c0c4cc]'}`}
-                    title={searchCreateTimeStart && searchCreateTimeEnd ? `${searchCreateTimeStart} 至 ${searchCreateTimeEnd}` : ''}
-                  >
-                    {searchCreateTimeStart && searchCreateTimeEnd
-                      ? `${searchCreateTimeStart} 至 ${searchCreateTimeEnd}`
-                      : searchCreateTimeStart
-                        ? `${searchCreateTimeStart} 至`
-                        : searchCreateTimeEnd
-                          ? `至 ${searchCreateTimeEnd}`
-                          : '请选择日期范围'}
-                  </span>
-                  <Calendar className="ml-1 h-3.5 w-3.5 shrink-0 text-[#c0c4cc]" />
-                </button>
-                {(searchCreateTimeStart || searchCreateTimeEnd) && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSearchCreateTimeStart('')
-                      setSearchCreateTimeEnd('')
-                    }}
-                    className="absolute right-7 top-1/2 -translate-y-1/2 cursor-pointer border-0 bg-transparent p-0 text-[#c0c4cc] hover:text-[#86909C]"
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                )}
-                {showCreateTimeRange && (
-                  <>
-                    <div className="fixed inset-0 z-40" onClick={() => setShowCreateTimeRange(false)} />
-                    <div
-                      className="fixed z-50 w-80 rounded-lg border border-[#e6e9ef] bg-white p-3 shadow-lg"
-                      style={{ top: `${createTimePopupPos.top}px`, left: `${createTimePopupPos.left}px` }}
-                    >
-                      <div className="flex items-center gap-2">
-                        <div className="flex-1">
-                          <label className="mb-1 block text-[11px] text-[#86909C]">开始日期</label>
-                          <input
-                            type="date"
-                            value={searchCreateTimeStart}
-                            onChange={(e) => setSearchCreateTimeStart(e.target.value)}
-                            className="h-7 w-full rounded border border-[#e6e9ef] px-2 text-[12px] outline-none focus:border-[#409eff]"
-                          />
-                        </div>
-                        <span className="mt-4 text-[12px] text-[#86909C]">至</span>
-                        <div className="flex-1">
-                          <label className="mb-1 block text-[11px] text-[#86909C]">结束日期</label>
-                          <input
-                            type="date"
-                            value={searchCreateTimeEnd}
-                            onChange={(e) => setSearchCreateTimeEnd(e.target.value)}
-                            className="h-7 w-full rounded border border-[#e6e9ef] px-2 text-[12px] outline-none focus:border-[#409eff]"
-                          />
-                        </div>
-                      </div>
-                      <div className="mt-2 flex justify-end gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSearchCreateTimeStart('')
-                            setSearchCreateTimeEnd('')
-                            setShowCreateTimeRange(false)
-                          }}
-                          className="h-6 rounded border border-[#dcdfe6] px-3 text-[12px] text-[#606266] hover:border-[#409eff] hover:text-[#409eff]"
-                        >
-                          清除
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setShowCreateTimeRange(false)}
-                          className="h-6 rounded bg-[#409eff] px-3 text-[12px] text-white hover:bg-[#66b1ff]"
-                        >
-                          确定
-                        </button>
-                      </div>
-                    </div>
-                  </>
-                )}
-              </div>
+              <DatePicker.RangePicker
+                className="min-w-0 flex-1"
+                value={
+                  searchCreateTimeRange.length === 2
+                    ? [dayjs(searchCreateTimeRange[0]), dayjs(searchCreateTimeRange[1])]
+                    : []
+                }
+                onChange={(dateString) => setSearchCreateTimeRange(dateString ?? [])}
+                allowClear
+              />
             </div>
             <div className="flex items-center gap-2">
               <button
@@ -666,101 +568,20 @@ export function ProductMasterDataPage() {
               新增商品
             </div>
           </button>
-          <button
-            type="button"
-            className="relative h-9 rounded-lg border border-[#e6e9ef] bg-white px-5 text-[14px] font-bold text-[#0A1B39] hover:bg-[#f5f6f8]"
-            onClick={() => {
-              const input = document.createElement('input')
-              input.type = 'file'
-              input.accept = '.xlsx,.xls'
-              input.onchange = (e) => {
-                const file = (e.target as HTMLInputElement).files?.[0]
-                if (file) {
-                  alert(`已选择文件：${file.name}`)
-                }
-              }
-              input.click()
-            }}
-          >
-            <div className="flex items-center gap-1.5">
-              <Upload className="h-4 w-4" />
-              导入商品
-            </div>
-          </button>
         </div>
 
-        {/* 表单信息 */}
+        {/* 表单信息（Arco Table：展开 SKU 子表 / loading / 空态 / 分页内建） */}
         <div className="rounded-xl bg-white">
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[1080px]">
-              <thead>
-                <tr className="border-b border-[#e9edf3] text-left">
-                  <th className="py-3 pl-4 pr-2 text-[13px] font-medium text-[#86909C]"></th>
-                  <th className="py-3 pr-2 text-[13px] font-medium text-[#86909C]">商品图片</th>
-                  <th className="py-3 pr-2 text-[13px] font-medium text-[#86909C]">商品编码</th>
-                  <th className="py-3 pr-2 text-[13px] font-medium text-[#86909C]">商品名称</th>
-                  <th className="py-3 pr-2 text-[13px] font-medium text-[#86909C]">品牌</th>
-                  <th className="py-3 pr-2 text-[13px] font-medium text-[#86909C]">店铺</th>
-                  <th className="py-3 pr-2 text-[13px] font-medium text-[#86909C]">成本价</th>
-                  <th className="py-3 pr-2 text-[13px] font-medium text-[#86909C]">标准售价</th>
-                  <th className="py-3 pr-2 text-[13px] font-medium text-[#86909C]">状态</th>
-                  <th className="py-3 pr-2 text-[13px] font-medium text-[#86909C]">更新时间</th>
-                  <th className="py-3 pr-2 text-[13px] font-medium text-[#86909C]">创建时间</th>
-                  <th className="py-3 pr-4 text-[13px] font-medium text-[#86909C]">操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {loading && (
-                  <tr>
-                    <td colSpan={12} className="py-12 text-center">
-                      <div className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-[#e6e9ef] border-t-[#409eff]" />
-                    </td>
-                  </tr>
-                )}
-                {!loading &&
-                  filteredProducts.map((product) => {
-                    const isExpanded = expandedRows.has(product.id)
-                    const minPrice = product.skus.length ? Math.min(...product.skus.map((s) => s.costPrice)) : 0
-                    const maxPrice = product.skus.length ? Math.max(...product.skus.map((s) => s.costPrice)) : 0
-                    const minStandardPrice = product.skus.length ? Math.min(...product.skus.map((s) => s.standardPrice)) : 0
-                    const maxStandardPrice = product.skus.length ? Math.max(...product.skus.map((s) => s.standardPrice)) : 0
-
-                    return (
-                      <ProductRow
-                        key={product.id}
-                        product={product}
-                        isExpanded={isExpanded}
-                        minPrice={minPrice}
-                        maxPrice={maxPrice}
-                        minStandardPrice={minStandardPrice}
-                        maxStandardPrice={maxStandardPrice}
-                        onToggle={() => toggleExpand(product.id)}
-                        onEdit={() => openEdit(product)}
-                        onDelete={() => handleDelete(product)}
-                        onPublish={() => handleGoPublish(product)}
-                        onToggleStatus={() => void toggleStatus(product)}
-                      />
-                    )
-                  })}
-                {!loading && filteredProducts.length === 0 && (
-                  <tr>
-                    <td colSpan={12} className="py-12 text-center text-[13px] text-[#86909C]">暂无数据</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          {/* 分页器 */}
-          <div className="flex items-center justify-between border-t border-[#f0f2f5] px-4 py-3">
-            <div className="text-[13px] text-[#86909C]">共 {filteredProducts.length} 条</div>
-            <div className="flex items-center gap-1">
-              <button className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#e6e9ef] bg-white text-[13px] text-[#86909C] hover:bg-[#f5f6f8]">&lt;</button>
-              <button className="flex h-8 w-8 items-center justify-center rounded-full bg-[#409eff] text-[13px] text-white">1</button>
-              <button className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#e6e9ef] bg-white text-[13px] text-[#0A1B39] hover:bg-[#f5f6f8]">2</button>
-              <button className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#e6e9ef] bg-white text-[13px] text-[#86909C] hover:bg-[#f5f6f8]">&gt;</button>
-            </div>
-          </div>
+          <Table
+            columns={columns}
+            data={filteredProducts}
+            rowKey="id"
+            loading={loading}
+            border={false}
+            scroll={{ x: 1080 }}
+            expandedRowRender={(record: Product) => <SkuSubTable skus={record.skus} />}
+            pagination={filteredProducts.length > 0 ? { pageSize: 10, showTotal: true } : false}
+          />
         </div>
       </div>
 
@@ -933,121 +754,46 @@ export function ProductMasterDataPage() {
   )
 }
 
-/** 单行（含展开 SKU 子表），对照旧版行结构 */
-function ProductRow({
-  product,
-  isExpanded,
-  minPrice,
-  maxPrice,
-  minStandardPrice,
-  maxStandardPrice,
-  onToggle,
-  onEdit,
-  onDelete,
-  onPublish,
-  onToggleStatus,
-}: {
-  product: Product
-  isExpanded: boolean
-  minPrice: number
-  maxPrice: number
-  minStandardPrice: number
-  maxStandardPrice: number
-  onToggle: () => void
-  onEdit: () => void
-  onDelete: () => void
-  onPublish: () => void
-  onToggleStatus: () => void
-}) {
+/** SKU 子表（展开行内嵌，对照旧版 sku图片/sku编码/规格/成本价/标准售价 列） */
+const SKU_COLUMNS = [
+  {
+    title: 'sku图片',
+    dataIndex: 'specImage',
+    width: 90,
+    render: () => <div className="h-8 w-8 rounded bg-[#e9edf3]" />,
+  },
+  {
+    title: 'sku编码',
+    dataIndex: 'skuCode',
+    render: (v: string) => <span className="text-[13px] text-[#86909C]">{v}</span>,
+  },
+  {
+    title: '规格',
+    dataIndex: 'specName',
+    render: (v: string) => <span className="text-[13px] text-[#86909C]">{v}</span>,
+  },
+  {
+    title: '成本价',
+    dataIndex: 'costPrice',
+    render: (v: number) => <span className="text-[13px] text-[#86909C]">¥{v}</span>,
+  },
+  {
+    title: '标准售价',
+    dataIndex: 'standardPrice',
+    render: (v: number) => <span className="text-[13px] text-[#86909C]">¥{v}</span>,
+  },
+]
+
+function SkuSubTable({ skus }: { skus: Sku[] }) {
   return (
-    <>
-      <tr className="border-b border-[#f0f2f5] hover:bg-[#fafafa]">
-        <td className="py-3 pl-4 pr-2">
-          <button
-            type="button"
-            onClick={onToggle}
-            className="flex h-6 w-6 items-center justify-center rounded-full hover:bg-[#e9edf3]"
-          >
-            {isExpanded ? <ChevronDown className="h-4 w-4 text-[#86909C]" /> : <ChevronRight className="h-4 w-4 text-[#86909C]" />}
-          </button>
-        </td>
-        <td className="py-3 pr-2">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#f2f4f7]">
-            <svg className="h-5 w-5 text-[#c0c4cc]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0022.5 18.75V5.25A2.25 2.25 0 0020.25 3H3.75A2.25 2.25 0 001.5 5.25v13.5A2.25 2.25 0 003.75 21z"
-              />
-            </svg>
-          </div>
-        </td>
-        <td className="py-3 pr-2 text-[14px] text-[#0A1B39]">{product.productCode}</td>
-        <td className="py-3 pr-2 text-[14px] text-[#0A1B39]">{product.productName}</td>
-        <td className="py-3 pr-2 text-[14px] text-[#0A1B39]">{product.brand}</td>
-        <td className="py-3 pr-2 text-[14px] text-[#86909C]">{product.storeName || product.storeId || '—'}</td>
-        <td className="py-3 pr-2 text-[14px] text-[#0A1B39]">{minPrice === maxPrice ? `¥${minPrice}` : `¥${minPrice}-¥${maxPrice}`}</td>
-        <td className="py-3 pr-2 text-[14px] text-[#0A1B39]">
-          {minStandardPrice === maxStandardPrice ? `¥${minStandardPrice}` : `¥${minStandardPrice}-¥${maxStandardPrice}`}
-        </td>
-        <td className="whitespace-nowrap py-3 pr-2">
-          <span className="inline-block rounded-full px-3 py-0.5 text-[12px] text-black">{product.status === 'enabled' ? '启用' : '停用'}</span>
-        </td>
-        <td className="py-3 pr-2 text-[14px] text-[#0A1B39]">{product.updateTime || ''}</td>
-        <td className="py-3 pr-2 text-[14px] text-[#0A1B39]">{product.createTime || ''}</td>
-        <td className="whitespace-nowrap py-3 pr-4">
-          <div className="flex items-center gap-3">
-            <button type="button" onClick={onEdit} className="text-[14px] text-[#409eff] hover:text-[#66b1ff]">
-              编辑
-            </button>
-            <button type="button" onClick={onToggleStatus} className="text-[14px] text-[#409eff] hover:text-[#66b1ff]">
-              {product.status === 'enabled' ? '停用' : '启用'}
-            </button>
-            <button type="button" onClick={onPublish} className="text-[14px] text-[#409eff] hover:text-[#66b1ff]">
-              去发布
-            </button>
-            <button type="button" onClick={onDelete} className="text-[14px] text-[#409eff] hover:text-[#66b1ff]">
-              删除
-            </button>
-          </div>
-        </td>
-      </tr>
-      {isExpanded && (
-        <>
-          <tr className="border-b border-[#f0f2f5] bg-[#fafbfc]">
-            <td className="py-2 pl-4 pr-2"></td>
-            <td className="py-2 pr-2 text-[12px] font-medium text-[#86909C]">sku图片</td>
-            <td className="py-2 pr-2 text-[12px] font-medium text-[#86909C]">sku编码</td>
-            <td className="py-2 pr-2 text-[12px] font-medium text-[#86909C]">规格</td>
-            <td className="py-2 pr-2"></td>
-            <td className="py-2 pr-2"></td>
-            <td className="py-2 pr-2 text-[12px] font-medium text-[#86909C]">成本价</td>
-            <td className="py-2 pr-2 text-[12px] font-medium text-[#86909C]">标准售价</td>
-            <td className="py-2 pr-2"></td>
-            <td className="py-2 pr-2"></td>
-            <td className="py-2 pr-2"></td>
-            <td className="py-2 pr-4"></td>
-          </tr>
-          {product.skus.map((sku, i) => (
-            <tr key={sku.id || sku.skuCode || i} className="border-b border-[#f0f2f5] bg-[#fafbfc]">
-              <td className="py-3 pl-4 pr-2"></td>
-              <td className="py-3 pr-2">
-                <div className="h-8 w-8 rounded bg-[#e9edf3]"></div>
-              </td>
-              <td className="py-3 pr-2 text-[13px] text-[#86909C]">{sku.skuCode}</td>
-              <td className="py-3 pr-2 text-[13px] text-[#86909C]">{sku.specName}</td>
-              <td className="py-3 pr-2"></td>
-              <td className="py-3 pr-2"></td>
-              <td className="py-3 pr-2 text-[13px] text-[#86909C]">¥{sku.costPrice}</td>
-              <td className="py-3 pr-2 text-[13px] text-[#86909C]">¥{sku.standardPrice}</td>
-              <td className="py-3 pr-2"></td>
-              <td className="py-3 pr-2"></td>
-              <td className="py-3 pr-2"></td>
-              <td className="py-3 pr-4"></td>
-            </tr>
-          ))}
-        </>
-      )}
-    </>
+    <Table
+      columns={SKU_COLUMNS}
+      data={skus}
+      rowKey={(s) => s.id || s.skuCode || 'sku'}
+      pagination={false}
+      size="small"
+      border={false}
+      className="mb-2"
+    />
   )
 }

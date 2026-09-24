@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft, ArrowUpRight, Download, Loader2, RefreshCw, X } from 'lucide-react'
-import { Message } from '@arco-design/web-react'
+import { Message, Table } from '@arco-design/web-react'
 import { PageHeader } from '../components/PageHeader'
 import { useAuth } from '../store/auth'
 
@@ -128,30 +128,21 @@ function RichLegacySections({ report }: { report: RichReportJson }) {
     <>
       {competitors.length > 0 && (
         <SectionCard badge="TOP" badgeColor="bg-[#f97316]" title="竞品 Top" subtitle="模型基于采集样本给出的竞品排序">
-          <table className="w-full text-left text-[13px]">
-            <thead>
-              <tr className="border-b border-[#eef1f5] text-[#86909C]">
-                <th className="py-2 font-medium">排名</th>
-                <th className="py-2 font-medium">竞品</th>
-                <th className="py-2 font-medium">价格</th>
-                <th className="py-2 font-medium">销量</th>
-                <th className="py-2 font-medium">销额</th>
-                <th className="py-2 font-medium">核心卖点</th>
-              </tr>
-            </thead>
-            <tbody>
-              {competitors.map((item, idx) => (
-                <tr key={idx} className="border-b border-[#eef1f5] text-[#344054]">
-                  <td className="py-2">{item.rank ?? idx + 1}</td>
-                  <td className="py-2">{item.title ?? '-'}</td>
-                  <td className="py-2">{item.price != null ? `¥${item.price}` : '-'}</td>
-                  <td className="py-2">{item.sold ?? '-'}</td>
-                  <td className="py-2">{item.salesAmount ?? '-'}</td>
-                  <td className="py-2">{item.sellingPoint ?? '-'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <Table
+            columns={[
+              { title: '排名', dataIndex: 'rank', width: 70, render: (rank: number | undefined, _record: unknown, idx: number) => rank ?? idx + 1 },
+              { title: '竞品', dataIndex: 'title', render: (title: string | undefined) => title ?? '-' },
+              { title: '价格', dataIndex: 'price', render: (price: number | undefined) => (price != null ? `¥${price}` : '-') },
+              { title: '销量', dataIndex: 'sold', render: (sold: number | undefined) => sold ?? '-' },
+              { title: '销额', dataIndex: 'salesAmount', render: (v: number | undefined) => v ?? '-' },
+              { title: '核心卖点', dataIndex: 'sellingPoint', render: (v: string | undefined) => v ?? '-' },
+            ]}
+            data={competitors}
+            rowKey={(record) => String(record.rank ?? record.title ?? '')}
+            border={false}
+            pagination={false}
+            size="small"
+          />
         </SectionCard>
       )}
 
@@ -384,6 +375,124 @@ export function AnalysisReportViewPage() {
     return '作为补充价格带观察，重点看是否有独立卖点或人群场景。'
   }
 
+  // 价格区间列（Arco Table，单元格渲染对照旧版：占比进度条 / 代表商品下钻）
+  const bandColumns = [
+    {
+      title: '价格区间',
+      dataIndex: 'bandName',
+      width: 130,
+      render: (_: unknown, band: RichPriceBand | TablePriceBand) => (
+        <span className="whitespace-nowrap text-[14px] font-bold text-[#0A1B39]">¥{band.priceMin} - ¥{band.priceMax}</span>
+      ),
+    },
+    {
+      title: '定位',
+      dataIndex: 'bandRole',
+      width: 100,
+      render: (_: unknown, band: RichPriceBand | TablePriceBand) => (
+        <span className="inline-block whitespace-nowrap rounded-md bg-[#eef6ff] px-2 py-1 text-[12px] font-semibold text-[#3388ff]">{bandRole(band)}</span>
+      ),
+    },
+    {
+      title: '竞品数',
+      dataIndex: 'productCount',
+      align: 'right' as const,
+      width: 90,
+      render: (v: number) => <span className="whitespace-nowrap text-[14px] text-[#344054]">{v} 款</span>,
+    },
+    {
+      title: '均价',
+      dataIndex: 'avgPrice',
+      align: 'right' as const,
+      width: 90,
+      render: (v: number | undefined, band: RichPriceBand | TablePriceBand) => (
+        <span className="whitespace-nowrap text-[14px] text-[#344054]">{'avgPrice' in band && band.avgPrice != null ? `¥${band.avgPrice}` : '—'}</span>
+      ),
+    },
+    {
+      title: '月销量',
+      dataIndex: 'soldTotal',
+      align: 'right' as const,
+      width: 110,
+      render: (_: unknown, band: RichPriceBand | TablePriceBand) => {
+        const sold = bandSoldTotal(band)
+        return <span className="whitespace-nowrap text-[14px] text-[#344054]">{sold ? `${sold.toLocaleString()} 件` : '未采集'}</span>
+      },
+    },
+    {
+      title: '销售额',
+      dataIndex: 'salesAmount',
+      align: 'right' as const,
+      width: 110,
+      render: (_: unknown, band: RichPriceBand | TablePriceBand) => {
+        const sales = bandSalesTotal(band)
+        return <span className="whitespace-nowrap text-[14px] font-semibold text-[#ff4d00]">{sales ? `¥${sales.toLocaleString()}` : '—'}</span>
+      },
+    },
+    {
+      title: '占比',
+      dataIndex: 'share',
+      width: 170,
+      render: (_: unknown, band: RichPriceBand | TablePriceBand) => {
+        const sold = bandSoldTotal(band)
+        const sales = bandSalesTotal(band)
+        const soldShare = totalSoldIn > 0 ? Math.round((sold / totalSoldIn) * 100) : 0
+        const salesShare = totalSalesIn > 0 ? Math.round((sales / totalSalesIn) * 100) : 0
+        return (
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-2">
+              <span className="w-6 text-[11px] text-[#86909C]">销量</span>
+              <div className="h-2 w-[92px] rounded-full bg-[#eef2f7]">
+                <div className="h-2 rounded-full bg-[#3388ff]" style={{ width: `${Math.min(100, soldShare)}%` }} />
+              </div>
+              <span className="text-[11px] text-[#3388ff]">{soldShare}%</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="w-6 text-[11px] text-[#86909C]">销额</span>
+              <div className="h-2 w-[92px] rounded-full bg-[#eef2f7]">
+                <div className="h-2 rounded-full bg-[#16a34a]" style={{ width: `${Math.min(100, salesShare)}%` }} />
+              </div>
+              <span className="text-[11px] text-[#16a34a]">{salesShare}%</span>
+            </div>
+          </div>
+        )
+      },
+    },
+    {
+      title: '铺货/图片建议',
+      dataIndex: 'suggestion',
+      render: (_: unknown, band: RichPriceBand | TablePriceBand) => (
+        <div className="max-w-[260px] text-[12px] leading-5 text-[#667085]">{bandSuggestion(band)}</div>
+      ),
+    },
+    {
+      title: '代表商品',
+      dataIndex: 'representativeProducts',
+      render: (_: unknown, band: RichPriceBand | TablePriceBand) => {
+        const reps = 'representativeProducts' in band ? ((band as RichPriceBand).representativeProducts || []) : []
+        if (!reps.length) return <span className="text-[13px] text-[#98A2B3]">—</span>
+        return (
+          <div className="flex flex-col gap-1.5">
+            {reps.slice(0, 3).map((p, i) => (
+              <button
+                key={i}
+                type="button"
+                onClick={() => setDetailProduct(p)}
+                className="flex cursor-pointer items-center truncate rounded px-1 text-left text-[13px] text-[#344054] transition-colors hover:bg-[#f0f7ff]"
+                title="点击查看商品详情"
+              >
+                <span className="font-semibold text-[#0A1B39]">{p.title || '无标题'}</span>
+                <span className="ml-2 text-[#98A2B3]">{p.shopName || '未知店铺'}</span>
+                <span className="ml-2 font-semibold text-[#ff4d00]">¥{p.price ?? '-'}</span>
+                {p.skuCount ? <span className="ml-2 text-[#98A2B3]">{p.skuCount} SKU</span> : null}
+              </button>
+            ))}
+          </div>
+        )
+      },
+    },
+  ]
+
   return (
     <div className="h-full overflow-y-auto bg-[#f4f7fb] p-6 custom-scrollbar">
       <PageHeader breadcrumbs={backBreadcrumbs.map((item, idx) => (idx === 3 ? { label: '报告查看' } : item))} />
@@ -462,99 +571,14 @@ export function AnalysisReportViewPage() {
 
       {/* ¥ 价格区间分析（含均价与代表商品） */}
       <SectionCard badge="¥" badgeColor="bg-[#22a06b]" title="价格区间分析" subtitle="各价格带竞品分布、均价与代表商品">
-        {bands.length === 0 ? (
-          <p className="m-0 py-10 text-center text-[14px] text-[#86909C]">暂无价格带数据</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[760px]">
-              <thead>
-                <tr className="border-b border-[#eef1f5] bg-[#f9fafb]">
-                  <th className="whitespace-nowrap px-4 py-3 text-left text-[13px] font-medium text-[#86909C]">价格区间</th>
-                  <th className="whitespace-nowrap px-4 py-3 text-left text-[13px] font-medium text-[#86909C]">定位</th>
-                  <th className="whitespace-nowrap px-4 py-3 text-right text-[13px] font-medium text-[#86909C]">竞品数</th>
-                  <th className="whitespace-nowrap px-4 py-3 text-right text-[13px] font-medium text-[#86909C]">均价</th>
-                  <th className="whitespace-nowrap px-4 py-3 text-right text-[13px] font-medium text-[#86909C]">月销量</th>
-                  <th className="whitespace-nowrap px-4 py-3 text-right text-[13px] font-medium text-[#86909C]">销售额</th>
-                  <th className="whitespace-nowrap px-4 py-3 text-left text-[13px] font-medium text-[#86909C]">占比</th>
-                  <th className="whitespace-nowrap px-4 py-3 text-left text-[13px] font-medium text-[#86909C]">铺货/图片建议</th>
-                  <th className="whitespace-nowrap px-4 py-3 text-left text-[13px] font-medium text-[#86909C]">代表商品</th>
-                </tr>
-              </thead>
-              <tbody>
-                {bands.map((band, idx) => {
-                  const reps = 'representativeProducts' in band ? ((band as RichPriceBand).representativeProducts || []) : []
-                  const sold = bandSoldTotal(band)
-                  const sales = bandSalesTotal(band)
-                  const soldShare = totalSoldIn > 0 ? Math.round((sold / totalSoldIn) * 100) : 0
-                  const salesShare = totalSalesIn > 0 ? Math.round((sales / totalSalesIn) * 100) : 0
-                  return (
-                    <tr key={band.bandName || idx} className="border-b border-[#eef1f5] transition-colors hover:bg-[#f9fafb]">
-                      <td className="whitespace-nowrap px-4 py-3.5 text-[14px] font-bold text-[#0A1B39]">
-                        ¥{band.priceMin} - ¥{band.priceMax}
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-3.5">
-                        <span className="inline-block rounded-md bg-[#eef6ff] px-2 py-1 text-[12px] font-semibold text-[#3388ff]">{bandRole(band)}</span>
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-3.5 text-right text-[14px] text-[#344054]">{band.productCount} 款</td>
-                      <td className="whitespace-nowrap px-4 py-3.5 text-right text-[14px] text-[#344054]">
-                        {'avgPrice' in band && band.avgPrice != null ? `¥${band.avgPrice}` : '—'}
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-3.5 text-right text-[14px] text-[#344054]">
-                        {sold ? `${sold.toLocaleString()} 件` : '未采集'}
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-3.5 text-right text-[14px] font-semibold text-[#ff4d00]">
-                        {sales ? `¥${sales.toLocaleString()}` : '—'}
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-3.5">
-                        <div className="space-y-1.5">
-                          <div className="flex items-center gap-2">
-                            <span className="w-6 text-[11px] text-[#86909C]">销量</span>
-                            <div className="h-2 w-[92px] rounded-full bg-[#eef2f7]">
-                              <div className="h-2 rounded-full bg-[#3388ff]" style={{ width: `${Math.min(100, soldShare)}%` }} />
-                            </div>
-                            <span className="text-[11px] text-[#3388ff]">{soldShare}%</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className="w-6 text-[11px] text-[#86909C]">销额</span>
-                            <div className="h-2 w-[92px] rounded-full bg-[#eef2f7]">
-                              <div className="h-2 rounded-full bg-[#16a34a]" style={{ width: `${Math.min(100, salesShare)}%` }} />
-                            </div>
-                            <span className="text-[11px] text-[#16a34a]">{salesShare}%</span>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="max-w-[260px] px-4 py-3.5 text-[12px] leading-5 text-[#667085]">
-                        {bandSuggestion(band)}
-                      </td>
-                      <td className="px-4 py-3.5">
-                        {reps.length ? (
-                          <div className="flex flex-col gap-1.5">
-                            {reps.slice(0, 3).map((p, i) => (
-                              <button
-                                key={i}
-                                type="button"
-                                onClick={() => setDetailProduct(p)}
-                                className="flex cursor-pointer items-center truncate rounded px-1 text-left text-[13px] text-[#344054] transition-colors hover:bg-[#f0f7ff]"
-                                title="点击查看商品详情"
-                              >
-                                <span className="font-semibold text-[#0A1B39]">{p.title || '无标题'}</span>
-                                <span className="ml-2 text-[#98A2B3]">{p.shopName || '未知店铺'}</span>
-                                <span className="ml-2 font-semibold text-[#ff4d00]">¥{p.price ?? '-'}</span>
-                                {p.skuCount ? <span className="ml-2 text-[#98A2B3]">{p.skuCount} SKU</span> : null}
-                              </button>
-                            ))}
-                          </div>
-                        ) : (
-                          <span className="text-[13px] text-[#98A2B3]">—</span>
-                        )}
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
+        <Table
+          columns={bandColumns}
+          data={bands}
+          rowKey={(band) => band.bandName || String((band as { priceMin?: unknown }).priceMin)}
+          border={false}
+          noDataElement={<span className="text-[14px] text-[#86909C]">暂无价格带数据</span>}
+          pagination={false}
+        />
       </SectionCard>
 
       {!hasRichStory ? (
@@ -806,22 +830,17 @@ export function AnalysisReportViewPage() {
             {detailProduct.skus && detailProduct.skus.length > 0 ? (
               <div className="rounded-lg border border-[#eef1f5]">
                 <div className="border-b border-[#eef1f5] bg-[#f9fafb] px-4 py-2 text-[13px] font-semibold text-[#0A1B39]">SKU 规格</div>
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-[#eef1f5] text-left text-[12px] text-[#86909C]">
-                      <th className="px-4 py-2 font-medium">规格名称</th>
-                      <th className="px-4 py-2 text-right font-medium">价格</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {detailProduct.skus.map((sku, i) => (
-                      <tr key={i} className="border-b border-[#f0f2f5] text-[13px] text-[#344054]">
-                        <td className="px-4 py-2">{sku.name || '-'}</td>
-                        <td className="px-4 py-2 text-right">{sku.price != null ? `¥${sku.price}` : '-'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <Table
+                  columns={[
+                    { title: '规格名称', dataIndex: 'name', render: (name: string | null | undefined) => name || '-' },
+                    { title: '价格', dataIndex: 'price', align: 'right' as const, render: (price: number | null | undefined) => (price != null ? `¥${price}` : '-') },
+                  ]}
+                  data={detailProduct.skus}
+                  rowKey={(record) => String(record.name ?? '')}
+                  border={false}
+                  pagination={false}
+                  size="small"
+                />
               </div>
             ) : (
               <p className="m-0 rounded-lg bg-[#f8fafc] p-4 text-[13px] text-[#98A2B3]">暂无 SKU 数据</p>

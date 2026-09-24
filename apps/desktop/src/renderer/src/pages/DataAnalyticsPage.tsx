@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { AlertTriangle, Zap } from 'lucide-react'
+import { Table } from '@arco-design/web-react'
 import { PageHeader } from '../components/PageHeader'
 
 // 数据看板：后端当前未提供 analytics 接口，旧版（DataAnalytics.tsx）与桌面端此前均硬编码示例数据。
@@ -13,6 +14,43 @@ type ProductPerf = { id: string; name: string; platform: string; impressions: nu
 
 const trendBarStyle = { backgroundColor: '#1f6feb', borderRadius: 4, height: '100%' } as const
 const convBarStyle = { backgroundColor: '#2e7d32', borderRadius: 4, height: '100%' } as const
+
+// 商品表现列（Arco Table，对照旧版表头与右对齐数字）
+const perfColumns = [
+  { title: '商品名称', dataIndex: 'name', render: (name: string) => <span style={{ fontWeight: 600 }}>{name}</span> },
+  { title: '曝光量', dataIndex: 'impressions', align: 'right' as const, render: (v: number) => v.toLocaleString() },
+  { title: '点击数', dataIndex: 'clicks', align: 'right' as const, render: (v: number) => v.toLocaleString() },
+  {
+    title: '点击率',
+    dataIndex: 'clickRate',
+    align: 'right' as const,
+    render: (_: unknown, record: ProductPerf) => (record.clicks && record.impressions ? `${((record.clicks / record.impressions) * 100).toFixed(1)}%` : '-'),
+  },
+  { title: '转化数', dataIndex: 'conversions', align: 'right' as const },
+  {
+    title: '转化率',
+    dataIndex: 'conversionRate',
+    align: 'right' as const,
+    render: (_: unknown, record: ProductPerf) => (record.conversions && record.clicks ? `${((record.conversions / record.clicks) * 100).toFixed(1)}%` : '-'),
+  },
+  {
+    title: '操作',
+    dataIndex: 'op',
+    align: 'right' as const,
+    render: () => (
+      <div className="flex items-center justify-end gap-2">
+        <button type="button" className="flex cursor-pointer items-center gap-1 rounded-lg bg-[#fff7e6] px-3 py-1.5 text-[12px] font-bold text-[#fa8c16] hover:bg-[#ffe7ba] transition-colors">
+          <AlertTriangle className="h-3.5 w-3.5" />
+          查看预警
+        </button>
+        <button type="button" className="flex cursor-pointer items-center gap-1 rounded-lg bg-[#e6f7ff] px-3 py-1.5 text-[12px] font-bold text-[#1890ff] hover:bg-[#bae7ff] transition-colors">
+          <Zap className="h-3.5 w-3.5" />
+          去优化
+        </button>
+      </div>
+    ),
+  },
+]
 
 export function DataAnalyticsPage() {
   const [platform, setPlatform] = useState('全部')
@@ -127,50 +165,14 @@ export function DataAnalyticsPage() {
         </div>
 
         <h2 style={{ margin: '0 0 12px', fontSize: 16, fontWeight: 800, color: '#0a1b39' }}>商品表现</h2>
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
-            <thead>
-              <tr style={{ background: '#f9fafb', color: '#86909c', textAlign: 'right' }}>
-                <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700 }}>商品名称</th>
-                <th style={{ padding: '10px 12px', fontWeight: 700 }}>曝光量</th>
-                <th style={{ padding: '10px 12px', fontWeight: 700 }}>点击数</th>
-                <th style={{ padding: '10px 12px', fontWeight: 700 }}>点击率</th>
-                <th style={{ padding: '10px 12px', fontWeight: 700 }}>转化数</th>
-                <th style={{ padding: '10px 12px', fontWeight: 700 }}>转化率</th>
-                <th style={{ padding: '10px 12px', fontWeight: 700 }}>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((p) => (
-                <tr key={p.id} style={{ borderTop: '1px solid #eef1f5', color: '#344054' }}>
-                  <td style={{ padding: '10px 12px', fontWeight: 600, textAlign: 'left' }}>{p.name}</td>
-                  <td style={{ padding: '10px 12px', textAlign: 'right' }}>{p.impressions.toLocaleString()}</td>
-                  <td style={{ padding: '10px 12px', textAlign: 'right' }}>{p.clicks.toLocaleString()}</td>
-                  <td style={{ padding: '10px 12px', textAlign: 'right' }}>{p.clicks && p.impressions ? `${((p.clicks / p.impressions) * 100).toFixed(1)}%` : '-'}</td>
-                  <td style={{ padding: '10px 12px', textAlign: 'right' }}>{p.conversions}</td>
-                  <td style={{ padding: '10px 12px', textAlign: 'right' }}>{p.conversions && p.clicks ? `${((p.conversions / p.clicks) * 100).toFixed(1)}%` : '-'}</td>
-                  <td style={{ padding: '10px 12px', textAlign: 'right' }}>
-                    <div className="flex items-center justify-end gap-2">
-                      <button type="button" className="flex cursor-pointer items-center gap-1 rounded-lg bg-[#fff7e6] px-3 py-1.5 text-[12px] font-bold text-[#fa8c16] hover:bg-[#ffe7ba] transition-colors">
-                        <AlertTriangle className="h-3.5 w-3.5" />
-                        查看预警
-                      </button>
-                      <button type="button" className="flex cursor-pointer items-center gap-1 rounded-lg bg-[#e6f7ff] px-3 py-1.5 text-[12px] font-bold text-[#1890ff] hover:bg-[#bae7ff] transition-colors">
-                        <Zap className="h-3.5 w-3.5" />
-                        去优化
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {filtered.length === 0 && (
-                <tr>
-                  <td colSpan={7} style={{ padding: '32px 12px', textAlign: 'center', color: '#9ca3af' }}>暂无数据，等待 analytics 数据接入</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+        <Table
+          columns={perfColumns}
+          data={filtered}
+          rowKey="id"
+          border={false}
+          noDataElement={<span style={{ color: '#9ca3af', fontSize: 13 }}>暂无数据，等待 analytics 数据接入</span>}
+          pagination={false}
+        />
       </section>
     </div>
   )

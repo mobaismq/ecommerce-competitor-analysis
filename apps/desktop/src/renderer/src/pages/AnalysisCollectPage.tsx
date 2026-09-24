@@ -5,8 +5,6 @@ import { AlertCircle, Loader2, Play, Square, Terminal } from 'lucide-react'
 import { parseRpaProgress } from '../utils/rpaProgress'
 import { PageHeader } from '../components/PageHeader'
 import { XInput } from '../components/XInput'
-import { nanoid } from 'nanoid'
-import { useAuth } from '../store/auth'
 
 type CollectionStatus = 'idle' | 'running' | 'completed' | 'failed' | 'stopped'
 
@@ -41,7 +39,6 @@ const FIELD_LABEL_CLASS = 'mb-2 block text-[13px] font-bold text-[#344054]'
 
 export function AnalysisCollectPage() {
   const navigate = useNavigate()
-  const currentUserId = useAuth((state) => state.user?.id ?? '')
 
   // 表单状态（对照旧版受控字段）
   const [keyword, setKeyword] = useState('')
@@ -49,12 +46,10 @@ export function AnalysisCollectPage() {
   const [maxPrice, setMaxPrice] = useState<string>('')
   const [competitorCount, setCompetitorCount] = useState('')
   const [searchPages, setSearchPages] = useState('8')
-  const [autoParse, setAutoParse] = useState(true)
 
-  // 状态控制（业务数据流保持桌面端现状：/api/jobs + 轮询 + 离线演示）
+  // 状态控制：驱动主进程真实店透视 RPA（collection:start / collection:status）
   const [status, setStatus] = useState<CollectionStatus>('idle')
   const [loading, setLoading] = useState(false)
-  const [demoMode, setDemoMode] = useState(false)
   const [jobId, setJobId] = useState<string>('')
   const [pid, setPid] = useState<number | null>(null)
   const [logs, setLogs] = useState<string>('')
@@ -66,11 +61,9 @@ export function AnalysisCollectPage() {
     minPrice?: number
     maxPrice?: number
     competitorCount: number
-    autoParse: boolean
   } | null>(null)
 
   const logContainerRef = useRef<HTMLPreElement | null>(null)
-  const demoTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const parsedProgress = useMemo(() => {
     return parseRpaProgress(logs, activeParams?.competitorCount || 20)
@@ -87,35 +80,32 @@ export function AnalysisCollectPage() {
     }
   }, [logs, autoScroll])
 
+  // 轮询真实采集状态：本地 job 会真实推进，进度由 run.log 的 === batch item 标记解析
   useEffect(() => {
-    return () => {
-      if (demoTimerRef.current) clearInterval(demoTimerRef.current)
-    }
-  }, [])
-
-  useEffect(() => {
-    if (demoMode || status !== 'running' || !jobId) return
+    if (status !== 'running' || !jobId) return
 
     const timer = setInterval(async () => {
       try {
-        const data = await window.desktop?.capabilities.invoke('analysis.jobs.get', { id: jobId }) as { status?: string; errorMessage?: string | null } | undefined
-        if (data) {
-          if (data.status === 'success' || data.status === 'completed') {
-            setStatus('completed')
-            setLogs((prev) => prev + `\n[${new Date().toLocaleTimeString()}] ✅ 采集任务已成功完成并入库！`)
-          } else if (data.status === 'failure' || data.status === 'failed') {
-            setStatus('failed')
-            setErrorMessage(data.errorMessage || '采集任务执行失败')
-            setLogs((prev) => prev + `\n[${new Date().toLocaleTimeString()}] ❌ 任务执行失败: ${data.errorMessage || '未知错误'}`)
-          }
+        const s = await window.desktop?.collection.status(jobId)
+        if (!s) return
+        if (s.logTail) setLogs(s.logTail)
+        if (s.status === 'success') {
+          setStatus('completed')
+          setLogs((prev) => prev + `\n[${new Date().toLocaleTimeString()}] ✅ 采集任务已成功完成并入库！`)
+        } else if (s.status === 'failure' || s.status === 'failed') {
+          setStatus('failed')
+          setErrorMessage(s.errorMessage || '采集任务执行失败')
+          setLogs((prev) => prev + `\n[${new Date().toLocaleTimeString()}] ❌ 任务执行失败: ${s.errorMessage || '未知错误'}`)
+        } else if (s.status === 'cancelled' || s.status === 'stopped') {
+          setStatus('stopped')
         }
       } catch {
-        // 忽略网络抖动
+        // 忽略轮询偶发报错
       }
     }, 3000)
 
     return () => clearInterval(timer)
-  }, [demoMode, status, jobId])
+  }, [status, jobId])
 
   const applyPreset = (preset: PresetItem) => {
     setKeyword(preset.keyword)
@@ -138,101 +128,72 @@ export function AnalysisCollectPage() {
       setErrorMessage('竞品数量需为 1-100 之间的整数')
       return
     }
+    if (!window.desktop?.collection) {
+      setErrorMessage('采集能力未就绪，请重启应用后重试')
+      return
+    }
 
     const newParams = {
       keyword: cleanKeyword,
       minPrice: minPrice.trim() === '' ? undefined : Number(minPrice),
       maxPrice: maxPrice.trim() === '' ? undefined : Number(maxPrice),
       competitorCount: count,
-      autoParse,
     }
     setActiveParams(newParams)
     setLoading(true)
 
     const nowStr = new Date().toLocaleTimeString()
-    const initLog = `[${nowStr}] 🚀 正在启动竞品数据采集任务...\n[${nowStr}] 目标关键词: ${newParams.keyword} | 计划采集数: ${count} | 价格区间: ${newParams.minPrice ?? '不限'} ~ ${newParams.maxPrice ?? '不限'}\n`
+    const initLog = `[${nowStr}] 🚀 正在启动店透视真实采集任务...\n[${nowStr}] 目标关键词: ${newParams.keyword} | 计划采集数: ${count} | 价格区间: ${newParams.minPrice ?? '不限'} ~ ${newParams.maxPrice ?? '不限'}\n`
     setLogs(initLog)
     setStatus('running')
 
-    if (demoMode) {
-      // 演示模式：模拟采集流式日志与进度推进，避免高频请求触发爬虫风控
-      const generatedJobId = `job_demo_${nanoid(10)}`
-      setJobId(generatedJobId)
-      setPid(Math.floor(10000 + Math.random() * 80000))
-      setLoading(false)
-
-      let step = 0
-      if (demoTimerRef.current) clearInterval(demoTimerRef.current)
-      demoTimerRef.current = setInterval(() => {
-        step += 1
-        const time = new Date().toLocaleTimeString()
-        if (step <= count) {
-          setLogs(
-            (prev) =>
-              prev +
-              `[${time}] === batch item ${step}/${count} 抓取竞品商品ID: p_${1000 + step} | 标题: ${newParams.keyword}热销款 #${step} | 售价: ¥${((newParams.minPrice || 100) + Math.random() * 50).toFixed(2)}\n`,
-          )
-        } else if (step === count + 1) {
-          setLogs((prev) => prev + `[${time}] === batch summary 采集完毕，开始生成特征快照与图片本地化...\n`)
-        } else if (step === count + 2) {
-          setLogs((prev) => prev + `[${time}] === mysql import 正在写入竞品主图、SKU及问大家数据集...\n`)
-        } else {
-          if (demoTimerRef.current) clearInterval(demoTimerRef.current)
-          setLogs((prev) => prev + `[${time}] === market analysis 采集完成！全部 ${count} 个竞品已入库。\n`)
-          setStatus('completed')
-          Message.success('演示模式采集已圆满完成！')
-        }
-      }, 500)
-      return
-    }
-
-    // 真实服务端模式
     try {
-      const data = await window.desktop?.capabilities.invoke('analysis.jobs.create', {
-        userId: currentUserId,
-        type: 'analysis',
+      const res = await window.desktop.collection.start({
+        productName: newParams.keyword,
         keyword: newParams.keyword,
-        analysisType: 'market',
+        tenantId: 'local',
         minPrice: newParams.minPrice,
         maxPrice: newParams.maxPrice,
         topN: count,
         searchPages: Number(searchPages) || 8,
-        autoParse: newParams.autoParse,
-      }) as { jobId?: string; id?: string } | undefined
-      const nextJobId = data?.jobId || data?.id || `job_${nanoid(10)}`
-      setJobId(nextJobId)
-      setPid(null)
-      setLogs((prev) => prev + `[${new Date().toLocaleTimeString()}] ✅ 任务创建成功，Job ID: ${nextJobId}\n[${new Date().toLocaleTimeString()}] 本机已登记采集任务（未触发真实爬虫，进度将在本机数据落地后推进）\n`)
-      Message.success('采集任务已启动')
+        speedProfile: 'fast',
+        mode: 'download-and-import',
+        importMysql: false,
+        fake: false,
+      })
+      if (!res?.jobId) throw new Error('未能启动采集任务')
+      setJobId(res.jobId)
+      setPid(res.pid ?? null)
+      setLogs((prev) => prev + `[${new Date().toLocaleTimeString()}] 已启动店透视真实采集（PID: ${res.pid ?? '-'}），日志将实时刷新。\n`)
+      Message.success('真实采集任务已启动（店透视浏览器）')
+      const s = await window.desktop.collection.status(res.jobId).catch(() => null)
+      if (s?.logTail) setLogs(s.logTail)
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : '创建任务失败，建议开启「离线演示模式」验证'
+      const msg = err instanceof Error ? err.message : '启动采集失败'
       setErrorMessage(msg)
       setStatus('failed')
-      setLogs((prev) => prev + `\n[${new Date().toLocaleTimeString()}] ❌ 接口调用异常: ${msg}\n`)
+      setLogs((prev) => prev + `\n[${new Date().toLocaleTimeString()}] ❌ 启动采集失败: ${msg}\n`)
     } finally {
       setLoading(false)
     }
   }
 
-  const handleStop = () => {
-    if (demoTimerRef.current) {
-      clearInterval(demoTimerRef.current)
-      demoTimerRef.current = null
-    }
-    // 真实服务端模式：调用任务取消接口，让后端落库 cancelled 并停止后续推进
-    if (jobId && !demoMode) {
-      void window.desktop?.capabilities
-        .invoke('analysis.jobs.cancel', { id: jobId })
-        .then(() => {
-          setStatus('stopped')
-          setLogs((prev) => prev + `\n[${new Date().toLocaleTimeString()}] ⚠️ 已向后端发起取消，任务将停止。`)
-          Message.warning('采集任务已停止')
-        })
-        .catch(() => {
-          setStatus('stopped')
-          setLogs((prev) => prev + `\n[${new Date().toLocaleTimeString()}] ⚠️ 用户手动停止了当前采集任务（取消请求未生效）。`)
-          Message.warning('采集任务已停止（本地）')
-        })
+  const handleStop = async () => {
+    if (jobId) {
+      try {
+        const res = await window.desktop?.collection.cancel()
+        setStatus('stopped')
+        if (res?.cancelled) {
+          setLogs((prev) => prev + `\n[${new Date().toLocaleTimeString()}] ⚠️ 采集任务已停止。`)
+        } else {
+          setLogs((prev) => prev + `\n[${new Date().toLocaleTimeString()}] ⚠️ ${res?.reason || '取消请求未生效，任务可能仍在运行。'}`)
+        }
+        Message.warning(res?.cancelled ? '采集任务已停止' : '取消请求未生效')
+      } catch {
+        setStatus('stopped')
+        setLogs((prev) => prev + `\n[${new Date().toLocaleTimeString()}] ⚠️ 用户手动停止了当前采集任务。`)
+        Message.warning('采集任务已停止（本地）')
+      }
       return
     }
     setStatus('stopped')
@@ -246,11 +207,12 @@ export function AnalysisCollectPage() {
     setMaxPrice('')
     setCompetitorCount('')
     setSearchPages('8')
-    setAutoParse(true)
     setStatus('idle')
     setLogs('')
     setActiveParams(null)
     setErrorMessage('')
+    setJobId('')
+    setPid(null)
   }
 
   const displayParams = activeParams || {
@@ -258,28 +220,11 @@ export function AnalysisCollectPage() {
     minPrice: minPrice.trim() === '' ? undefined : Number(minPrice),
     maxPrice: maxPrice.trim() === '' ? undefined : Number(maxPrice),
     competitorCount: Number(competitorCount) || 0,
-    autoParse,
   }
 
   return (
     <div className="h-full overflow-y-auto bg-[#f4f7fb] p-6 custom-scrollbar">
-      <PageHeader
-        breadcrumbs={[{ label: '市场' }, { label: '竞品分析' }, { label: 'AI数据采集' }]}
-        trailing={
-          <div className="flex items-center gap-2">
-            <Switch
-              size="small"
-              checked={demoMode}
-              onChange={(checked) => setDemoMode(checked)}
-              checkedText="演示"
-              uncheckedText="实时"
-            />
-            <Tooltip content="开启演示模式可在离线环境模拟完整数据流，防止触发平台风控">
-              <span className="cursor-help text-[13px] text-[#86909C]">离线演示模式</span>
-            </Tooltip>
-          </div>
-        }
-      />
+      <PageHeader breadcrumbs={[{ label: '市场' }, { label: '竞品分析' }, { label: 'AI数据采集' }]} />
 
       <div className="grid grid-cols-[minmax(420px,1fr)_1fr] gap-5">
         {/* ─── 左卡片：采集条件 ─── */}
@@ -333,31 +278,14 @@ export function AnalysisCollectPage() {
                 <XInput value={competitorCount} onChange={setCompetitorCount} disabled={isRunning} placeholder="请输入采集竞品数量，1-100之间" inputMode="numeric" />
                 <p className="m-0 mt-1 text-[12px] text-[#86909C]">限制 1 ~ 100 件商品</p>
               </div>
-              <div>
-                <label className={FIELD_LABEL_CLASS}>翻页深度 (页数)</label>
-                <XInput value={searchPages} onChange={setSearchPages} disabled={isRunning} placeholder="默认检索前 8 页" inputMode="numeric" />
-                <p className="m-0 mt-1 text-[12px] text-[#86909C]">默认检索前 8 页</p>
-              </div>
+            <div>
+              <label className={FIELD_LABEL_CLASS}>翻页深度 (页数)</label>
+              <XInput value={searchPages} onChange={setSearchPages} disabled={isRunning} placeholder="默认检索前 8 页" inputMode="numeric" />
+              <p className="m-0 mt-1 text-[12px] text-[#86909C]">默认检索前 8 页</p>
             </div>
+          </div>
 
-            {/* 自动入库开关（对照旧版自解析整行 checkbox 按钮） */}
-            <button
-              type="button"
-              onClick={() => setAutoParse(!autoParse)}
-              disabled={isRunning}
-              className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg border border-[#dce3ee] bg-[#f8fafc] px-4 py-3 text-left transition-colors hover:border-[#b8d7ff] disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              <div className={`flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded border-2 transition-colors ${autoParse ? 'border-[#3388ff] bg-[#3388ff]' : 'border-[#d0d5dd] bg-white'}`}>
-                {autoParse && (
-                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                    <path d="M2.5 6L5 8.5L9.5 3.5" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                )}
-              </div>
-              <span className="text-[14px] font-bold text-[#344054]">竞品数据采集后自动入库并保存图片</span>
-            </button>
-
-            {errorMessage && (
+          {errorMessage && (
               <div className="flex gap-2 rounded-lg border border-[#ffd7d7] bg-[#fff5f5] p-3 text-[13px] font-semibold text-[#c03535]">
                 <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
                 <span>{errorMessage}</span>

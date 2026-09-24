@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { ChevronLeft, ChevronRight, Download, Eye, Loader2, Search, Trash2 } from 'lucide-react'
-import { Button, Message, Modal } from '@arco-design/web-react'
+import { ChevronLeft, ChevronRight, Download, Eye, Loader2, Trash2 } from 'lucide-react'
+import { Button, DatePicker, Empty, Message, Modal, Pagination } from '@arco-design/web-react'
+import dayjs from 'dayjs'
 import { saveAs } from 'file-saver'
 import { PageHeader } from '../components/PageHeader'
 import { XSearchInput } from '../components/XInput'
@@ -390,18 +391,13 @@ export function ImageGalleryPage() {
         <div className="mt-3 flex items-center gap-3">
           <div className="flex items-center gap-2">
             <label className="shrink-0 text-[12px] text-[#86909C]">创建时间</label>
-            <input
-              type="date"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-              className="h-8 rounded-lg border border-[#e6e9ef] bg-white px-2 text-[13px] outline-none focus:border-[#409eff]"
-            />
-            <span className="text-[12px] text-[#86909C]">至</span>
-            <input
-              type="date"
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-              className="h-8 rounded-lg border border-[#e6e9ef] bg-white px-2 text-[13px] outline-none focus:border-[#409eff]"
+            <DatePicker.RangePicker
+              value={startDate && endDate ? [dayjs(startDate), dayjs(endDate)] : []}
+              onChange={(dateString) => {
+                setStartDate(dateString?.[0] ?? '')
+                setEndDate(dateString?.[1] ?? '')
+              }}
+              allowClear
             />
           </div>
           <button
@@ -454,14 +450,19 @@ export function ImageGalleryPage() {
             加载中…
           </div>
         ) : filteredImages.length === 0 ? (
-          <div className="flex flex-col items-center justify-center rounded-xl bg-white py-20">
-            <Search className="mb-4 h-14 w-14 text-[#d0d5dd]" />
-            <p className="text-[16px] text-[#86909C]">暂无数据</p>
-            <p className="m-0 mt-1 text-[13px] text-[#98A2B3]">
-              {applied.keyword || applied.format !== 'ALL' || applied.type !== 'ALL'
-                ? '未找到符合条件的图片资产'
-                : '可在「商品主图」或「详情图 A+」中一键生成图片资产'}
-            </p>
+          <div className="rounded-xl bg-white py-20">
+            <Empty
+              description={
+                <div>
+                  <p className="m-0 text-[15px] text-[#86909C]">暂无数据</p>
+                  <p className="m-0 mt-1 text-[13px] text-[#98A2B3]">
+                    {applied.keyword || applied.format !== 'ALL' || applied.type !== 'ALL'
+                      ? '未找到符合条件的图片资产'
+                      : '可在「商品主图」或「详情图 A+」中一键生成图片资产'}
+                  </p>
+                </div>
+              }
+            />
           </div>
         ) : (
           <GalleryGrid
@@ -477,42 +478,19 @@ export function ImageGalleryPage() {
           />
         )}
 
-        {/* 分页（对照旧版 justify-between + 页码） */}
+        {/* 分页（Arco Pagination，对照旧版 justify-between + 页码） */}
         {filteredImages.length > 0 && (
           <div className="mt-4 flex items-center justify-between">
             <span className="text-[13px] text-[#86909C]">
               共 {filteredImages.length} 张，第 {safePage} / {totalPages} 页
             </span>
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                disabled={safePage === 1}
-                className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border border-[#eef1f5] bg-white text-[#344054] transition-colors hover:bg-[#f9fafb] disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                <ChevronLeft className="h-4 w-4" />
-              </button>
-              {Array.from({ length: totalPages }, (_, i) => i + 1).slice(0, 7).map((page) => (
-                <button
-                  key={page}
-                  type="button"
-                  onClick={() => setCurrentPage(page)}
-                  className={`flex h-8 min-w-[32px] cursor-pointer items-center justify-center rounded-lg px-2 text-[13px] transition-colors ${
-                    safePage === page ? 'border-0 bg-[#409eff] text-white' : 'border border-[#eef1f5] bg-white text-[#344054] hover:bg-[#f9fafb]'
-                  }`}
-                >
-                  {page}
-                </button>
-              ))}
-              <button
-                type="button"
-                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                disabled={safePage === totalPages}
-                className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border border-[#eef1f5] bg-white text-[#344054] transition-colors hover:bg-[#f9fafb] disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                <ChevronRight className="h-4 w-4" />
-              </button>
-            </div>
+            <Pagination
+              total={filteredImages.length}
+              pageSize={PAGE_SIZE}
+              current={safePage}
+              onChange={(page) => setCurrentPage(page)}
+              sizeCanChange={false}
+            />
           </div>
         )}
       </div>
