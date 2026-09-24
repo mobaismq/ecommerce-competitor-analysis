@@ -101,6 +101,7 @@ export class ProviderProfileService {
 
   test(dto: { baseUrl?: string }) {
     assertSafeBaseUrl(dto.baseUrl)
-    return { ok: true, message: 'connection mock ok' }
+    // 诚实回落：未接入真实连接测试能力，明确返回失败，不返回假 "connection mock ok"。
+    return { ok: false, message: '未接入真实连接测试能力，暂无法校验该 Provider 连通性' }
   }
 }

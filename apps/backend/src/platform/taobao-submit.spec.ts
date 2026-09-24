@@ -108,17 +108,13 @@ describe('buildItemAddParams (taobao.item.add 参数映射)', () => {
 })
 
 describe('TaobaoAdapter.submitListing', () => {
-  it('无 key 时回落 mock（返回成功而非抛错）', async () => {
+  it('无真实凭证时诚实报错，不返回假上架成功', async () => {
     const adapter = new TaobaoAdapter()
-    // 强制走非 mock 分支（测试环境 NODE_ENV=test 时构造器会置 mock=true）
-    ;(adapter as unknown as { mock: boolean }).mock = false
     ;(adapter as unknown as { appKey: string }).appKey = ''
     ;(adapter as unknown as { appSecret: string }).appSecret = ''
     ;(adapter as unknown as { session: string }).session = ''
 
-    const result = await adapter.submitListing({ title: 'x' })
-    expect(result.status).toBe('success')
-    expect((result.rawPayload as { kind: string }).kind).toBe('taobao-mock-listing')
+    await expect(adapter.submitListing({ title: 'x' })).rejects.toThrow('未配置淘宝开放平台真实凭证')
   })
 
   it('有 key 时用 topRequest 调 taobao.item.add（stub fetch 断言请求体）', async () => {

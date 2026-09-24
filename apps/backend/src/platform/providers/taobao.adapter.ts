@@ -142,10 +142,9 @@ export class TaobaoAdapter implements PlatformAdapter {
   }
 
   async submitListing(input: PlatformListingInput): Promise<PlatformListingResult> {
-    if (this.mock) return { status: 'success', rawPayload: { kind: 'taobao-mock-listing', jobId: input.jobId } }
+    // 诚实回落：无真实 TOP 凭证时明确报错，绝不返回假上架成功（不骗人）。
     if (!isRealTopConfig(this.appKey, this.appSecret, this.session)) {
-      // 缺真实凭证：回落现有 mock 逻辑，不伪造真实上架成功
-      return { status: 'success', rawPayload: { kind: 'taobao-mock-listing', jobId: input.jobId, fallback: 'no-key' } }
+      throw new PlatformAdapterError('未配置淘宝开放平台真实凭证，无法实际上架（当前为演示，不产生真实订单）', 'TAOBAO_NOT_CONFIGURED')
     }
     const payload = await this.topRequest('taobao.item.add', buildItemAddParams(input))
     return { status: 'success', rawPayload: payload?.item_add_response ?? payload }
