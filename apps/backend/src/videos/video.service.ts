@@ -2,6 +2,8 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { nanoid } from 'nanoid'
 import { PrismaService } from '../prisma.service'
 import { StorageDriverService } from '../storage/storage.service'
+import { NotConfiguredVideoProvider } from './not-configured-video.provider'
+import type { VideoProvider } from './video.types'
 import { VideoProviderRegistry } from './video-registry'
 
 @Injectable()
@@ -14,7 +16,11 @@ export class VideoReplicationService {
 
   async replicate(input: { tenantId: string; sourceUrl?: string; sourceStorageKey?: string; title?: string }) {
     if (!input.sourceUrl && !input.sourceStorageKey) throw new BadRequestException('sourceUrl 或 sourceStorageKey 必填')
-    const provider = this.registry.create(process.env.VIDEO_PROVIDER ?? 'mock')
+    // 诚实回落：未显式配置 VIDEO_PROVIDER 时不返回假 mp4，明确报"未接入"；测试/开发期可显式 VIDEO_PROVIDER=mock 用演示数据。
+    const providerType = process.env.VIDEO_PROVIDER?.trim()
+    const provider: VideoProvider = providerType
+      ? this.registry.create(providerType)
+      : new NotConfiguredVideoProvider('视频复刻')
     const sourceKey = input.sourceStorageKey ?? `video-sources/${nanoid()}.mp4`
     const source = await this.prisma.mediaAsset.create({
       data: {
