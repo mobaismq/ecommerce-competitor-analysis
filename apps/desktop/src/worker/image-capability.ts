@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { readLocalAiConfig, CapabilityNotConfiguredError } from './ai-config'
+import { resolveEffectiveConfig, CapabilityNotConfiguredError } from './ai-config'
 import { getWorkerPrisma, putBytes } from './worker-db'
 
 export interface ImageProvider {
@@ -40,12 +40,14 @@ async function resolveBytes(imageRef: string): Promise<{ buffer: Buffer; content
 }
 
 export function createRealImageProvider(userId: string): ImageProvider {
-  const config = readLocalAiConfig(userId)
+  const config = resolveEffectiveConfig(userId)
+  if (!config) throw new CapabilityNotConfiguredError()
   return {
     async generate(input) {
-      const endpoint = `${config.baseUrl.replace(/\/+$/, '')}/${config.imageEndpoint ?? 'images/generations'}`
-      const body: Record<string, unknown> = { model: config.model, prompt: input.prompt, n: input.count }
-      if (config.imageEndpoint === 'images') {
+      // 统一走 images/generations；OpenRouter 类支持参考图（input_references），OpenAI 兼容类走 size
+      const endpoint = `${config.baseUrl.replace(/\/+$/, '')}/images/generations`
+      const body: Record<string, unknown> = { model: config.imageModel, prompt: input.prompt, n: input.count }
+      if (config.kind === 'openrouter') {
         if (input.aspectRatio) body.aspect_ratio = input.aspectRatio
         if (input.referenceImageUrls.length) body.input_references = input.referenceImageUrls.map((url) => ({ type: 'image_url', image_url: { url } }))
       } else body.size = input.size ?? '1024x1024'

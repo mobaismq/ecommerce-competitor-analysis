@@ -614,69 +614,249 @@ export async function rerunBandAnalysis(input: { userId: string; tenantId: strin
   return { ok: true, bandName, analysisStatus: status, extractedSellingPoints: sellingPoints, extractedDemands: demands, imagePrompts, model: ai.model }
 }
 
-export async function dataAgentDatasets(input: { tenantId: string; keyword?: string }) {
-  const db = getWorkerPrisma()
-  const runs = await db.analysisRun.findMany({
-    where: { tenantId: input.tenantId, ...(input.keyword?.trim() ? { keyword: { contains: input.keyword.trim() } } : {}) },
-    orderBy: { updatedAt: 'desc' },
-    take: 100,
-  })
-  const [rows, collections] = await Promise.all([
-    db.productSnapshot.findMany({ where: { tenantId: input.tenantId }, orderBy: { createdAt: 'desc' }, take: 1000 }),
-    db.collectionJob.findMany({ where: { tenantId: input.tenantId } }),
-  ])
-  const jobIdByCollectionId = new Map(collections.map((collection) => [collection.id, collection.jobId]))
-  const byJobId = new Map<string, { min?: number; max?: number; count: number }>()
-  for (const row of rows) {
-    const jobId = jobIdByCollectionId.get(row.collectionJobId)
-    if (!jobId) continue
-    const current = byJobId.get(jobId) ?? { min: undefined, max: undefined, count: 0 }
-    if (current.min === undefined || (row.price != null && row.price < current.min)) current.min = row.price ?? current.min
-    if (current.max === undefined || (row.price != null && row.price > current.max)) current.max = row.price ?? current.max
-    current.count += 1
-    byJobId.set(jobId, current)
-  }
-  return {
-    datasets: runs.map((run) => {
-      const price = byJobId.get(run.jobId)
+/** 旧版 backend money()：金额保留两位小数，无 ¥ 前缀。 */
+function agentMoney(value: unknown) {
+  const numeric = typeof value === 'number' && Number.isFinite(value) ? value : null
+  return numeric == null ? null : Math.round(numeric * 100) / 100
+}
+
+/** 旧版 backend compactDateTime()：去分隔符取前 14 位（YYYYMMDDHHMMSS）。 */
+function agentCompactDateTime(value?: string | null) {
+  return String(value ?? '').replace(/[-:T ]/g, '').slice(0, 14)
+}
+
+function agentPriceRangeText(min?: number | null, max?: number | null) {
+  const low = agentMoney(min)
+  const high = agentMoney(max)
+  if (low == null && high == null) return '-'
+  if (low != null && high != null && low !== high) return `${low}-${high}`
+  return String(low ?? high)
+}
+
+/** 本机时间（分钟精度），页面 formatDate 直接可读，避免 ISO/UTC 时区偏移。 */
+function agentLocalDateTime(value: Date) {
+  const pad = (input: number) => String(input).padStart(2, '0')
+  return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())} ${pad(value.getHours())}:${pad(value.getMinutes())}`
+}
+
+function agentText(value: unknown, limit = 220) {
+  return String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, limit)
+}
+
+function agentMetrics(items: unknown, limit = 8) {
+  return (Array.isArray(items) ? items : [])
+    .slice(0, limit)
+    .map((item) => {
+      const record = rawRecord(item)
       return {
-        id: run.id,
-        jobId: run.jobId,
-        keyword: run.keyword ?? '',
-        title: run.reportNo ? `报告 ${run.reportNo}` : run.keyword ? `竞品分析 - ${run.keyword}` : `分析任务 ${run.jobId}`,
-        status: run.status,
-        competitorCount: run.competitorCount ?? 0,
-        priceRange: price?.min != null && price.max != null ? `¥${price.min}-${price.max}` : '-',
-        updatedAt: run.updatedAt,
-        description: `状态: ${run.status}，竞品数: ${run.competitorCount ?? 0}`,
+        term: agentText(record ? record.term ?? record.keyword ?? record.title : item, 40),
+        count: record && typeof record.count === 'number' && Number.isFinite(record.count) ? record.count : null,
+        evidence: agentText(record ? record.evidence ?? record.reason : '', 120),
       }
-    }),
+    })
+    .filter((item) => item.term)
+}
+
+function agentTextList(items: unknown, limit = 8) {
+  return (Array.isArray(items) ? items : []).slice(0, limit).map((item) => agentText(item, 120)).filter(Boolean)
+}
+
+function agentProducts(items: unknown, limit = 20) {
+  return (Array.isArray(items) ? items : []).slice(0, limit).map((item) => {
+    const record = rawRecord(item) ?? {}
+    return {
+      id: record.id ?? record.externalProductId ?? record.productSnapshotId ?? record.product_id,
+      title: agentText(record.title ?? record.product_title, 120),
+      shop: agentText(record.shopName ?? record.shop_name, 60),
+      price: record.price ?? record.priceRange ?? record.price_range ?? null,
+      sold: record.sold ?? record.sold_count ?? null,
+      salesAmount: record.salesAmount ?? record.sales_amount ?? null,
+      skuCount: record.skuCount ?? (Array.isArray(record.skus) ? record.skus.length : null),
+    }
+  })
+}
+
+/** 旧版 compactAgentReport 在桌面端 reportJson（summary/priceBands/sellingPoints/painPoints/userDemands/opportunities）上的等价映射。 */
+function agentReportContext(run: { keyword: string | null; reportNo: string | null; competitorCount: number | null; createdAt: Date; reportJson: unknown }) {
+  const report = rawRecord(run.reportJson) ?? {}
+  const bandRecords = (Array.isArray(report.priceBands) ? report.priceBands : []).map((item) => rawRecord(item) ?? {})
+  const bandMins = bandRecords.map((band) => band.priceMin).filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
+  const bandMaxs = bandRecords.map((band) => band.priceMax).filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
+  return {
+    keyword: run.keyword ?? '',
+    title: run.reportNo ?? '',
+    generatedAt: agentLocalDateTime(run.createdAt),
+    competitorCount: run.competitorCount ?? 0,
+    priceRange: agentPriceRangeText(bandMins.length ? Math.min(...bandMins) : null, bandMaxs.length ? Math.max(...bandMaxs) : null),
+    coreConclusions: {
+      summary: agentText(report.summary, 500),
+    },
+    sellingPoints: agentMetrics(report.sellingPoints, 8),
+    painPoints: agentTextList(report.painPoints, 8),
+    userDemands: agentTextList(report.userDemands, 8),
+    opportunities: agentTextList(report.opportunities, 8),
+    priceBands: bandRecords.slice(0, 12).map((band) => ({
+      name: band.bandName,
+      competitorCount: band.productCount,
+      priceRange: agentPriceRangeText(typeof band.priceMin === 'number' ? band.priceMin : null, typeof band.priceMax === 'number' ? band.priceMax : null),
+      avgPrice: agentMoney(band.avgPrice),
+      soldTotal: typeof band.soldTotal === 'number' ? band.soldTotal : 0,
+      products: agentProducts(band.representativeProducts, 8),
+    })),
   }
 }
 
-export async function dataAgentChat(input: { userId: string; tenantId: string; question: string; datasetId?: string; jobId?: string }, provider?: ReportAiProvider) {
-  const question = String(input.question ?? '').trim()
-  if (!question) throw new Error('question 不能为空')
+export async function dataAgentDatasets(input: { tenantId: string; keyword?: string }) {
   const db = getWorkerPrisma()
-  const targetId = input.datasetId || input.jobId
-  const report = targetId
-    ? await db.analysisRun.findFirst({ where: { OR: [{ id: targetId }, { jobId: targetId }], tenantId: input.tenantId } })
-    : await db.analysisRun.findFirst({ where: { tenantId: input.tenantId }, orderBy: { updatedAt: 'desc' } })
-  if (!report) throw new Error('未找到可问答的本机报告')
-  const collection = await db.collectionJob.findUnique({ where: { jobId: report.jobId } })
-  const products = collection ? await db.productSnapshot.findMany({ where: { collectionJobId: collection.id }, take: 10, orderBy: { createdAt: 'desc' } }) : []
-  const context = JSON.stringify({ report: report.reportJson ?? null, products: products.map((product) => ({ title: product.title, price: product.price })) }).slice(0, 8000)
+  const keyword = input.keyword?.trim() ?? ''
+  const [runs, collections, snapshots, runJobIds] = await Promise.all([
+    db.analysisRun.findMany({
+      where: { tenantId: input.tenantId, ...(keyword ? { keyword: { contains: keyword } } : {}) },
+      orderBy: { updatedAt: 'desc' },
+      take: 100,
+    }),
+    db.collectionJob.findMany({ where: { tenantId: input.tenantId, ...(keyword ? { keyword: { contains: keyword } } : {}) } }),
+    db.productSnapshot.findMany({ where: { tenantId: input.tenantId }, orderBy: { createdAt: 'desc' }, take: 1000 }),
+    db.analysisRun.findMany({ where: { tenantId: input.tenantId }, select: { jobId: true } }),
+  ])
+  const statsByCollectionId = new Map<string, { min?: number; max?: number; count: number }>()
+  for (const row of snapshots) {
+    const current = statsByCollectionId.get(row.collectionJobId) ?? { min: undefined, max: undefined, count: 0 }
+    if (row.price != null) {
+      if (current.min == null || row.price < current.min) current.min = row.price
+      if (current.max == null || row.price > current.max) current.max = row.price
+    }
+    current.count += 1
+    statsByCollectionId.set(row.collectionJobId, current)
+  }
+  const collectionByJobId = new Map(collections.map((collection) => [collection.jobId, collection]))
+  const stats = (collectionId?: string) => {
+    const price = collectionId ? statsByCollectionId.get(collectionId) : undefined
+    return { min: price?.min, max: price?.max, count: price?.count ?? 0 }
+  }
+
+  const generated = runs.map((run) => {
+    const price = stats(collectionByJobId.get(run.jobId)?.id)
+    const priceRange = agentPriceRangeText(price.min, price.max)
+    const collectTime = agentLocalDateTime(run.createdAt)
+    return {
+      id: run.id,
+      source: 'analysis_run',
+      keyword: run.keyword ?? '',
+      title: `${run.keyword || '报告'}${agentCompactDateTime(collectTime)}`,
+      priceRange,
+      competitorCount: run.competitorCount ?? price.count,
+      collectTime,
+      status: 'generated',
+      description: `已生成整体报告，${run.competitorCount ?? price.count} 个商品，价格 ${priceRange}`,
+    }
+  })
+
+  // 旧版「原始数据」数据集：没有成功报告的已完成采集任务，问答时仅以商品上下文回答
+  const reportedJobIds = new Set(runJobIds.map((item) => item.jobId))
+  const raw = collections
+    .filter((collection) => collection.status === 'success' && !reportedJobIds.has(collection.jobId))
+    .map((collection) => {
+      const price = stats(collection.id)
+      const priceRange = agentPriceRangeText(price.min, price.max)
+      const collectTime = agentLocalDateTime(collection.updatedAt)
+      return {
+        id: `raw-${collection.jobId}`,
+        source: 'product_snapshot',
+        keyword: collection.keyword ?? '',
+        title: `${collection.keyword || '数据集'}${collectTime ? ` ${agentCompactDateTime(collectTime)}` : ''}`,
+        priceRange,
+        competitorCount: price.count,
+        collectTime,
+        status: 'not_generated',
+        description: `原始采集数据，${price.count} 个商品，价格 ${priceRange}`,
+      }
+    })
+    .filter((item) => item.competitorCount > 0)
+
+  return {
+    datasets: [...generated, ...raw]
+      .sort((a, b) => b.collectTime.localeCompare(a.collectTime))
+      .slice(0, 120),
+  }
+}
+
+export async function dataAgentChat(
+  input: { userId: string; tenantId: string; question: string; datasetId?: string; jobId?: string; keyword?: string; history?: Array<{ role?: string; content?: string }> },
+  provider?: ReportAiProvider,
+) {
+  const datasetId = String(input.datasetId ?? input.jobId ?? '').trim()
+  const keyword = String(input.keyword ?? '').trim()
+  const question = String(input.question ?? '').trim()
+  if (!datasetId && !keyword) throw new Error('请先选择要问答的数据')
+  if (!question) throw new Error('请输入要问的问题')
+
+  const db = getWorkerPrisma()
+  const rawRequested = datasetId.startsWith('raw-')
+  const report = !rawRequested && datasetId
+    ? await db.analysisRun.findFirst({ where: { OR: [{ id: datasetId }, { jobId: datasetId }], tenantId: input.tenantId } })
+    : !rawRequested && keyword
+      ? await db.analysisRun.findFirst({ where: { tenantId: input.tenantId, keyword }, orderBy: { updatedAt: 'desc' } })
+      : null
+  const collection = report
+    ? await db.collectionJob.findUnique({ where: { jobId: report.jobId } })
+    : rawRequested && datasetId
+      ? await db.collectionJob.findUnique({ where: { jobId: datasetId.slice(4) } })
+      : keyword
+        ? await db.collectionJob.findFirst({ where: { tenantId: input.tenantId, keyword }, orderBy: { updatedAt: 'desc' } })
+        : null
+  const products = collection ? await loadProducts(collection.id) : []
+  const prices = products.map((product) => product.price).filter((price): price is number => price != null)
+
+  const context = {
+    selectedDataset: {
+      id: datasetId,
+      keyword: keyword || report?.keyword || collection?.keyword || '',
+      source: report ? 'analysis_run' : 'product_snapshot',
+      title: collection?.keyword || report?.reportNo || keyword,
+      productCount: products.length,
+      priceRange: agentPriceRangeText(prices.length ? Math.min(...prices) : null, prices.length ? Math.max(...prices) : null),
+    },
+    report: report ? agentReportContext(report) : null,
+    products: agentProducts(products, 40),
+  }
+
+  const recentHistory = (Array.isArray(input.history) ? input.history : [])
+    .slice(-8)
+    .map((item) => ({
+      role: item?.role === 'assistant' ? 'assistant' : 'user',
+      content: agentText(item?.content, 500),
+    }))
+    .filter((item) => item.content)
+
   const selected = provider ?? createRealAiProvider(input.userId)
   const ai = await selected.generateText({
-    system: '你是电商数据 Agent。回答必须基于给定上下文，不能编造不存在的数据。',
-    prompt: `上下文：${context}\n问题：${question}`,
+    system: [
+      '你是这个电商竞品分析系统里的数据问答智能体。用户会选择一个数据集后提问，你只能基于输入上下文回答。',
+      '回答要求：',
+      '1）直接回答问题，中文，结构清晰；',
+      '2）涉及结论时引用上下文中的销量、价格、商品数、价格区间、问大家/评价样本或报告结论作为依据；',
+      '3）如果数据不足，明确说数据不足，并说明还需要哪类数据；',
+      '4）不要编造未提供的销量、价格、品牌、评价或外部事实；',
+      '5）如果用户要求策略建议，要给可执行动作。',
+    ].join('\n'),
+    prompt: [
+      '最近对话：',
+      JSON.stringify(recentHistory, null, 2),
+      '',
+      '当前选中的数据上下文：',
+      JSON.stringify(context, null, 2),
+      '',
+      '用户问题：',
+      question,
+    ].join('\n'),
     maxTokens: 3000,
   })
   return {
     answer: ai.text ?? '',
     sources: [
-      { type: 'report', id: report.id, title: report.reportNo ?? '分析报告' },
-      ...products.map((product) => ({ type: 'product', id: product.id, title: product.title ?? product.externalProductId })),
+      ...(report ? [{ type: 'report', id: report.id, title: report.reportNo ?? '分析报告' }] : []),
+      ...products.slice(0, 10).map((product) => ({ type: 'product', id: product.id, title: product.title ?? product.externalProductId })),
     ],
     model: ai.model,
   }

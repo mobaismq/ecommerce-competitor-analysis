@@ -17,7 +17,7 @@ import {
   type ListProductsInput,
 } from './platform-capability'
 import { expandPrompts, extractImageText, generateDetailWorkflow, generatePrompts, generateRetouchPrompt, mainImageDescriptions, type ProductSetsInput } from './product-sets-capability'
-import { getSelfConfig, saveSelfConfig, type SaveSelfConfigInput } from './ai-config'
+import { getSelfConfig, saveSelfConfig, setServerDefault, type SaveSelfConfigInput } from './ai-config'
 import { cancelAnalysisJob, createAnalysisJob, getAnalysisJob, type CreateAnalysisJobInput } from './analysis-capability'
 import { createProduct, deleteProduct, listProducts, updateProduct, type SaveProductInput } from './product-capability'
 import {
@@ -130,9 +130,10 @@ export function createBuiltinHandlers(): Record<string, CapabilityHandler> {
     'report.priceBandsPreview': async (payload) => priceBandsPreview(payload as { tenantId: string; keyword?: string; runId?: string; costPrice?: number; shippingCost?: number; packagingCost?: number; laborCost?: number; platformFeeRate?: number; adFeeRate?: number; targetMargin?: number }),
     'report.rerunBand': async (payload) => rerunBandAnalysis(payload as { userId: string; tenantId: string; keyword?: string; bandName: string }),
     'dataAgent.datasets': async (payload) => dataAgentDatasets(payload as { tenantId: string; keyword?: string }),
-    'dataAgent.chat': async (payload) => dataAgentChat(payload as { userId: string; tenantId: string; question: string; datasetId?: string; jobId?: string }),
+    'dataAgent.chat': async (payload) => dataAgentChat(payload as { userId: string; tenantId: string; question: string; datasetId?: string; jobId?: string; keyword?: string; history?: Array<{ role?: string; content?: string }> }),
     'ai.selfConfig.get': async (payload) => getSelfConfig(String((payload as { userId?: string })?.userId ?? '')),
     'ai.selfConfig.save': async (payload) => saveSelfConfig(String((payload as { userId?: string })?.userId ?? ''), payload as SaveSelfConfigInput),
+    'ai.defaultConfig.set': async (payload) => setServerDefault(String((payload as { userId?: string })?.userId ?? ''), payload as Parameters<typeof setServerDefault>[1]),
     'analysis.jobs.create': async (payload) => createAnalysisJob(payload as CreateAnalysisJobInput & { tenantId?: string; userId?: string }),
     'analysis.jobs.get': async (payload) => getAnalysisJob(String((payload as { id?: string })?.id ?? ''), String((payload as { tenantId?: string })?.tenantId ?? 'local')),
     'analysis.jobs.cancel': async (payload) => cancelAnalysisJob(String((payload as { id?: string })?.id ?? ''), String((payload as { tenantId?: string })?.tenantId ?? 'local')),
@@ -144,17 +145,25 @@ export function createBuiltinHandlers(): Record<string, CapabilityHandler> {
 }
 
 function electronHost(): WorkerHost | null {
+  type Port = { postMessage: (m: unknown) => void; on: (e: string, cb: (e: { data: unknown }) => void) => void }
+  let parentPort: Port | undefined
   try {
-    // 仅在 Electron utilityProcess 内存在 parentPort
-    const { parentPort } = require('electron') as { parentPort?: { postMessage: (m: unknown) => void; on: (e: string, cb: (e: { data: unknown }) => void) => void } }
-    if (!parentPort) return null
-    return {
-      pid: process.pid,
-      postMessage: (message) => parentPort!.postMessage(message),
-      onMessage: (handler) => parentPort!.on('message', (event) => handler(event.data)),
-    }
+    // Electron utilityProcess 通信端口存在两种暴露方式：require('electron').parentPort 或全局 process.parentPort。
+    // Electron 37 的主要通道是 process.parentPort，先两种都试一遍，避免某版本下取不到 parentPort 导致 worker 静默不 ready。
+    parentPort = (require('electron') as { parentPort?: Port }).parentPort
+    if (!parentPort) parentPort = (process as { parentPort?: Port }).parentPort
   } catch {
+    parentPort = (process as { parentPort?: Port }).parentPort
+  }
+  if (!parentPort) {
+    // 走到这里说明本 worker 不是被 Electron utilityProcess 拉起（例如单测/独立运行），打印到 stderr 便于在应用日志定位。
+    console.error('[worker] 未找到 Electron parentPort，能力 worker 未激活')
     return null
+  }
+  return {
+    pid: process.pid,
+    postMessage: (message) => parentPort!.postMessage(message),
+    onMessage: (handler) => parentPort!.on('message', (event) => handler(event.data)),
   }
 }
 

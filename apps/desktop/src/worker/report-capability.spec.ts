@@ -72,9 +72,22 @@ describe('report capabilities', () => {
 
   it('missing key fails honestly without network', async () => {
     await seedCollection()
-    const error = await generateReport({ userId: 'no-key-user', tenantId: 'local', keyword: '耳机' }).catch((error: Error & { code?: string }) => error)
-    expect(error).toBeInstanceOf(Error)
-    expect((error as { code?: string }).code).toBe('AI_NOT_CONFIGURED')
+    // 确保“完全无默认供应商”的确定性：临时清空默认供应商 env，避免主机/环境带 Key 而触发真实网络调用
+    const saved: Record<string, string | undefined> = {}
+    for (const k of ['OPENROUTER_API_KEY', 'OPENROUTER_BASE_URL', 'OPENROUTER_TEXT_MODEL', 'OPENROUTER_IMAGE_MODEL']) {
+      saved[k] = process.env[k]
+      delete process.env[k]
+    }
+    try {
+      const error = await generateReport({ userId: 'no-key-user', tenantId: 'local', keyword: '耳机' }).catch((error: Error & { code?: string }) => error)
+      expect(error).toBeInstanceOf(Error)
+      expect((error as { code?: string }).code).toBe('AI_NOT_CONFIGURED')
+    } finally {
+      for (const [k, v] of Object.entries(saved)) {
+        if (v === undefined) delete process.env[k]
+        else process.env[k] = v
+      }
+    }
   })
 
   it('generates report, persists metadata, exports to user tree, and serves product view', async () => {
@@ -135,9 +148,37 @@ describe('report capabilities', () => {
     expect(fetched.analysis?.resultJson).toMatchObject({ summary: '主体清晰' })
 
     const datasets = await dataAgentDatasets({ tenantId: 'local', keyword: '耳' })
-    expect(datasets.datasets[0]).toMatchObject({ id: generated.reportId, competitorCount: 1, priceRange: '¥199-199' })
-    const chat = await dataAgentChat({ userId: 'u1', tenantId: 'local', datasetId: generated.reportId, question: '哪个价格带值得做？' }, provider)
+    const generatedDataset = datasets.datasets.find((item) => item.id === generated.reportId)
+    expect(generatedDataset).toMatchObject({ status: 'generated', keyword: '耳机', competitorCount: 1, priceRange: '199' })
+    expect(generatedDataset?.collectTime).toBeTruthy()
+    expect(generatedDataset?.description).toContain('已生成整体报告')
+
+    // 旧版「原始数据」语义：无报告的已完成采集任务也进数据集，raw- 前缀问答仅用商品上下文
+    const bareSuffix = randomUUID().slice(0, 8)
+    await getWorkerPrisma().collectionJob.create({ data: { id: `cj-raw-${bareSuffix}`, tenantId: 'local', jobId: `job-raw-${bareSuffix}`, type: 'collection', status: 'success', keyword: '耳机' } })
+    await getWorkerPrisma().productSnapshot.create({
+      data: {
+        id: `p-raw-${bareSuffix}`,
+        tenantId: 'local',
+        collectionJobId: `cj-raw-${bareSuffix}`,
+        externalProductId: `ext-raw-${bareSuffix}`,
+        title: '普通蓝牙耳机',
+        price: 99,
+        snapshotTime: new Date(),
+        dataSnapshotDate: '2026-09-24',
+      },
+    })
+    const refreshed = await dataAgentDatasets({ tenantId: 'local', keyword: '耳' })
+    const rawDataset = refreshed.datasets.find((item) => item.id === `raw-job-raw-${bareSuffix}`)
+    expect(rawDataset).toMatchObject({ status: 'not_generated', keyword: '耳机', competitorCount: 1, priceRange: '99' })
+    expect(rawDataset?.description).toContain('原始采集数据')
+
+    const chat = await dataAgentChat({ userId: 'u1', tenantId: 'local', datasetId: generated.reportId, question: '哪个价格带值得做？', keyword: '耳机', history: [{ role: 'user', content: '你好' }, { role: 'assistant', content: '你好，请先选择数据集后提问。' }] }, provider)
     expect(chat.answer).toContain('高性价比需求明确')
     expect(chat.sources[0]).toMatchObject({ type: 'report', id: generated.reportId })
+    const rawChat = await dataAgentChat({ userId: 'u1', tenantId: 'local', datasetId: `raw-job-raw-${bareSuffix}`, question: '这些商品卖多少钱？' }, provider)
+    expect(rawChat.answer).toContain('高性价比需求明确')
+    expect(rawChat.sources[0]?.type).toBe('product')
+    expect(await dataAgentChat({ userId: 'u1', tenantId: 'local', question: '没有选择数据集' }).catch((error: Error) => error.message)).toBe('请先选择要问答的数据')
   })
 })

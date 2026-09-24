@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config'
 import { LoggerModule } from 'nestjs-pino'
 import { AuthModule } from './auth/auth.module'
 import { AdminModule } from './admin/admin.module'
+import { AiConfigModule } from './ai-config/ai-config.module'
 import { PrismaModule } from './prisma.module'
 import { HealthController } from './health.controller'
 import { buildPinoStream } from './log-streams'
@@ -15,6 +16,7 @@ import { buildPinoStream } from './log-streams'
     PrismaModule,
     AuthModule,
     AdminModule,
+    AiConfigModule,
     ConfigModule.forRoot({ isGlobal: true, envFilePath: ['.env'] }),
     LoggerModule.forRoot({
       pinoHttp: {
