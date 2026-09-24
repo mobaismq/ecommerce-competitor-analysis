@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { PrismaClient } from '../generated/prisma'
 import { resolveDataRoots } from '../main/data-root'
@@ -33,4 +33,16 @@ export function putBytes(relPath: string, bytes: Uint8Array | Buffer, opts: { us
 
 export function removeBytes(fullPath: string): void {
   if (existsSync(fullPath)) unlinkSync(fullPath)
+}
+
+/** raw 读取统一入口：按 storageKey 从用户根目录读真实字节（对齐后端 readBytes 语义），不存在返回 null。 */
+export function readBytesByKey(storageKey: string, roots: WorkerDataRoots): Buffer | null {
+  const full = join(roots.userRoot, storageKey)
+  if (!existsSync(full)) return null
+  return readFileSync(full)
+}
+
+/** 对所有本地能力表生效的 raw 字节定位：storageKey → 用户根相对路径。 */
+export function storageKeyToLocalPath(storageKey: string, roots: WorkerDataRoots): string {
+  return join(roots.userRoot, storageKey)
 }

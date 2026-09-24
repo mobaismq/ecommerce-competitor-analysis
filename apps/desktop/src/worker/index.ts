@@ -1,6 +1,8 @@
 import type { CapabilityInvokeMessage, WorkerOutbound } from './protocol'
 import { isInvoke } from './protocol'
 import { getWorkerPrisma, putBytes, removeBytes, workerDataRoots } from './worker-db'
+import { generateImageCapability, type GenerateImageInput } from './image-capability'
+import { listAssets, rawAsset, deleteAsset } from './asset-capability'
 
 export interface WorkerHost {
   postMessage: (message: WorkerOutbound) => void
@@ -54,6 +56,13 @@ export function createBuiltinHandlers(): Record<string, CapabilityHandler> {
       removeBytes(full)
       return { ok: !!found, storageKey: rel }
     },
+    'image.generate': async (payload) => {
+      const roots = workerDataRoots()
+      return generateImageCapability(payload as GenerateImageInput, undefined, roots.userRoot)
+    },
+    'asset.list': async (payload) => listAssets(undefined, String((payload as { jobId?: string })?.jobId ?? undefined)),
+    'asset.raw': async (payload) => rawAsset(String((payload as { id?: string })?.id ?? '')),
+    'asset.delete': async (payload) => deleteAsset(String((payload as { id?: string })?.id ?? '')),
   }
 }
 

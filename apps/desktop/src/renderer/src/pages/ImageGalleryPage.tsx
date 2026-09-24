@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { ChevronLeft, ChevronRight, Download, Eye, Loader2, Search, Trash2 } from 'lucide-react'
 import { Button, Message, Modal } from '@arco-design/web-react'
-import { api } from '../api/client'
 import { saveAs } from 'file-saver'
 import { PageHeader } from '../components/PageHeader'
 import { XSearchInput } from '../components/XInput'
@@ -126,12 +125,12 @@ export function ImageGalleryPage() {
   // 真实落盘字节的 objectURL 缓存（<img> 带不了鉴权头，故用 token-fetch 预取 raw 转 blob）
   const [blobUrls, setBlobUrls] = useState<Record<string, string>>({})
 
-  // 数据流保持桌面端现状：GET /api/assets + react-query
+  // 数据流走本地能力 IPC（worker 读本地 SQLite GeneratedAsset），不再经本地 HTTP 后端
   const { data = [], isLoading, refetch } = useQuery<Asset[]>({
     queryKey: ['assets'],
     queryFn: async () => {
-      const response = await api.get<Asset[]>('/api/assets')
-      return response.data
+      const result = await window.desktop?.capabilities.invoke('asset.list', {})
+      return (result as Asset[]) ?? []
     },
   })
 
@@ -191,20 +190,17 @@ export function ImageGalleryPage() {
   // 预取真实落盘字节为 objectURL：图库优先展示持久资产，而非模型可能过期的 sourceUrl
   useEffect(() => {
     let cancelled = false
-    const token = localStorage.getItem('eca.token')
-    const baseURL = api.defaults.baseURL || 'http://127.0.0.1:8787'
     const load = async () => {
       const next: Record<string, string> = {}
       await Promise.all(
         imageAssets.map(async (asset) => {
           if (asset.size === 0) return // 无真实落盘字节的占位资产不预取 raw，避免 404/401
           try {
-            const res = await fetch(`${baseURL}/api/assets/${asset.id}/raw`, {
-              headers: token ? { authorization: `Bearer ${token}` } : {},
-            })
-            if (!res.ok) return
-            const blob = await res.blob()
-            next[asset.id] = URL.createObjectURL(new Blob([blob], { type: asset.mimeType || res.headers.get('content-type') || 'image/png' }))
+            const dataUrl = await window.desktop?.capabilities.invoke('asset.raw', { id: asset.id }) as { dataUrl: string; mimeType: string } | undefined
+            if (!dataUrl) return
+            const mimeType = dataUrl.mimeType || asset.mimeType || 'image/png'
+            const bytes = Uint8Array.from(atob(dataUrl.dataUrl.split(',')[1]), (c) => c.charCodeAt(0))
+            next[asset.id] = URL.createObjectURL(new Blob([bytes], { type: mimeType }))
           } catch {
             /* 单个失败回退 sourceUrl/raw */
           }
@@ -223,33 +219,31 @@ export function ImageGalleryPage() {
   const getDisplayUrl = (asset: Asset) => {
     if (blobUrls[asset.id]) return blobUrls[asset.id]
     if (asset.sourceUrl) return asset.sourceUrl
-    if (asset.size > 0) {
-      const baseURL = api.defaults.baseURL || 'http://127.0.0.1:8787'
-      return `${baseURL}/api/assets/${asset.id}/raw`
-    }
+    if (asset.size > 0) return '' // 真实落盘字节经 blob 预取，未取到时无 safe raw 直链
     return ''
   }
 
-  // 下载单张图片：优先真实落盘字节（token 鉴权 raw 拉流），失败才回退 sourceUrl
+  // 下载单张图片：优先真实落盘字节（worker 本地 raw 拉流），失败才回退 sourceUrl
   const handleDownload = async (asset: Asset) => {
     setDownloadingId(asset.id)
     try {
-      const token = localStorage.getItem('eca.token')
-      const baseURL = api.defaults.baseURL || 'http://127.0.0.1:8787'
       const name = asset.originalName || asset.storageKey.split('/').pop() || `image-${asset.id}.png`
-      // 无真实落盘字节(size 0)的占位资产跳过 raw，直接回退 sourceUrl，避免 404/401
-      const rawUrl = `${baseURL}/api/assets/${asset.id}/raw`
-      const res = asset.size > 0
-        ? await fetch(rawUrl, { headers: token ? { authorization: `Bearer ${token}` } : {} })
-        : null
-      if (res && res.ok) {
-        const blob = await res.blob()
-        saveAs(blob, name)
-      } else if (asset.sourceUrl) {
-        saveAs(asset.sourceUrl, name)
-      } else {
-        throw new Error('下载失败')
+      let downloaded = false
+      if (asset.size > 0) {
+        try {
+          const dataUrl = await window.desktop?.capabilities.invoke('asset.raw', { id: asset.id }) as { dataUrl: string; mimeType: string } | undefined
+          if (dataUrl) {
+            const mimeType = dataUrl.mimeType || asset.mimeType || 'image/png'
+            const bytes = Uint8Array.from(atob(dataUrl.dataUrl.split(',')[1]), (c) => c.charCodeAt(0))
+            saveAs(new Blob([bytes], { type: mimeType }), name)
+            downloaded = true
+          }
+        } catch {
+          /* 回退 sourceUrl */
+        }
       }
+      if (!downloaded && asset.sourceUrl) saveAs(asset.sourceUrl, name)
+      if (!downloaded && !asset.sourceUrl) throw new Error('下载失败')
       Message.success('已开始下载图片')
     } catch {
       Message.error('下载图片失败')
@@ -286,8 +280,7 @@ export function ImageGalleryPage() {
       okButtonProps: { status: 'danger' },
       onOk: async () => {
         try {
-          // 图库资产来源不限于 generated-images，统一走通用资产删除端点，避免对非生成图资产 404
-          await api.delete(`/api/assets/${asset.id}`)
+          await window.desktop?.capabilities.invoke('asset.delete', { id: asset.id })
           Message.success('图片已删除')
           void refetch()
         } catch {
