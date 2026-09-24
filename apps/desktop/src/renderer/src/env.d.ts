@@ -27,6 +27,9 @@ declare global {
           deletedCapFiles: number
         }>
       }
+      capabilities: {
+        invoke: (capability: string, payload?: unknown) => Promise<unknown>
+      }
       collection: {
         start: (input?: {
           productName?: string

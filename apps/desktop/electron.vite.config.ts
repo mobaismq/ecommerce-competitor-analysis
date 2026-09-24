@@ -11,7 +11,10 @@ export default defineConfig({
         include: [/node_modules/, /src\/generated\/prisma/],
       },
       rollupOptions: {
-        input: resolve(__dirname, 'src/main/index.ts'),
+        input: {
+          index: resolve(__dirname, 'src/main/index.ts'),
+          'worker/index': resolve(__dirname, 'src/worker/index.ts'),
+        },
       },
     },
   },

@@ -6,6 +6,7 @@ import { registerCollectionHandlers } from './collection-handlers'
 import { ensureDataRoots, resolveDataRoots } from './data-root'
 import { registerStoreHandlers } from './store'
 import { registerLocalHandlers, startLocalCleanup, getLocalClient } from './local-db'
+import { registerCapabilityHandlers, startCapabilityWorker, stopCapabilityWorker } from './capability-handlers'
 import { logger } from './logger'
 
 let mainWindow: BrowserWindow | null = null
@@ -71,6 +72,8 @@ app.whenReady().then(async () => {
   const prisma = getLocalClient()
   registerLocalHandlers()
   registerCollectionHandlers(prisma)
+  startCapabilityWorker((line) => logger.info(line))
+  registerCapabilityHandlers()
   startLocalCleanup()
   createWindow()
 
@@ -80,6 +83,7 @@ app.whenReady().then(async () => {
 })
 
 app.on('before-quit', () => {
+  stopCapabilityWorker()
   if (backendRunner) void backendRunner.stop()
 })
 

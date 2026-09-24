@@ -14,7 +14,7 @@
     "test": "vitest run",
     "preview": "electron-vite preview",
     "db:generate": "prisma generate --schema prisma/schema.prisma",
-    "db:init": "prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script > prisma/migrations/20260912120000_init/migration.sql && node scripts/apply-local-migration.mjs",
+    "db:init": "prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script > prisma/migrations/20260912120000_init/migration.sql && prisma migrate diff --from-schema-datamodel prisma/snapshots/20260912_init.prisma --to-schema-datamodel prisma/schema.prisma --script > prisma/migrations/20260924_capability_tables/migration.sql && node scripts/apply-local-migration.mjs",
     "prepare-python": "node scripts/prepare-python.mjs",
     "build:package": "pnpm build && pnpm prepare-python && node scripts/package.mjs",
     "smoke": "electron scripts/shell-smoke.mjs",

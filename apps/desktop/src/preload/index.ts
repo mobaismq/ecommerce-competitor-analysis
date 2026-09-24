@@ -15,6 +15,9 @@ contextBridge.exposeInMainWorld('desktop', {
     getStats: () => ipcRenderer.invoke('local:get-stats'),
     runCleanup: () => ipcRenderer.invoke('local:run-cleanup'),
   },
+  capabilities: {
+    invoke: (capability: string, payload?: unknown) => ipcRenderer.invoke('capability:invoke', capability, payload),
+  },
   collection: {
     start: (input: {
       productName?: string
