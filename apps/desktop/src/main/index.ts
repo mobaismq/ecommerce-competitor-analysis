@@ -56,6 +56,8 @@ app.whenReady().then(async () => {
     baseUrl: process.env.BACKEND_REMOTE_URL,
     dataRoot: resolveDataRoots().base,
     storageDriver: process.env.STORAGE_DRIVER,
+    // 开发态(pnpm dev 已单独起 api)不 spawn 嵌入式后端，避免双后端抢 8787；打包后由桌面自带后端。
+    embeddedEnabled: app.isPackaged,
     onLog: (line) => logger.info(line),
   })
   backendRunner = runner

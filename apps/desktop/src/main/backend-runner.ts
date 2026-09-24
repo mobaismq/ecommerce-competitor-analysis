@@ -16,6 +16,8 @@ export interface BackendRunnerOptions {
   dataRoot?: string
   /** 要注入的存储开关（STORAGE_DRIVER）。 */
   storageDriver?: string
+  /** 是否允许嵌入式 spawn 后端。false=开发态（pnpm dev 已单独起 api）直接用外部后端，避免双后端抢端口。默认允许。 */
+  embeddedEnabled?: boolean
   startupTimeoutMs?: number
   startupPollMs?: number
   restartBackoffMs?: number
@@ -53,11 +55,13 @@ export class BackendRunner {
     return !!this.opts.entry && existsSync(this.opts.entry)
   }
 
-  /** 启动：远程模式(配了远程 URL)跳过内嵌；本地端口已有可用后端则复用（避免 dev 双后端抢端口）；否则 spawn 后端并等 /health 就绪。 */
+  /** 启动：远程模式(配了远程 URL)跳过内嵌；本地端口已有可用后端则复用（避免 dev 双后端抢端口）；开发态不 spawn；否则 spawn 后端并等 /health 就绪。 */
   async start(): Promise<{ mode: BackendRunMode; baseUrl: string }> {
     if (this.opts.baseUrl) return { mode: 'remote', baseUrl: this.opts.baseUrl }
     // 端口上已有健康后端（如 dev 下另起的 backend），不重复 spawn，直接复用，避免 EADDRINUSE。
     if (await this.isHealthy()) return { mode: 'external', baseUrl: this.baseUrl }
+    // 开发态（pnpm dev 会单独起 api）：不 spawn 嵌入式后端，直接复用 8787（api 正在/即将就绪），避免双后端抢端口。
+    if (this.opts.embeddedEnabled === false) return { mode: 'external', baseUrl: this.baseUrl }
     const entry = this.opts.entry
     if (!entry || !existsSync(entry)) {
       throw new Error(`未配置后端入口或入口不存在，无法嵌入式启动: ${entry ?? '(null)'}`)
