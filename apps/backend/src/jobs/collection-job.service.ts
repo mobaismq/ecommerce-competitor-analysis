@@ -1,8 +1,12 @@
+import { existsSync, readFileSync } from 'node:fs'
+import { basename } from 'node:path'
 import { Injectable, NotFoundException } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
+import { resolveDataRoots } from '../common/data-root'
 import { PrismaService } from '../prisma.service'
 import { LocalJobQueueService } from '../queue/local-job-queue.service'
 import { QUEUE_NAMES } from '../queue/queue-names'
+import { StorageDriverService } from '../storage/storage.service'
 import { CollectionResultDto } from './dto/collection-result.dto'
 
 @Injectable()
@@ -10,6 +14,7 @@ export class CollectionJobService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly localQueue: LocalJobQueueService,
+    private readonly storageDriverService: StorageDriverService,
   ) {}
 
   async importResults(jobId: string, tenantId: string, dto: CollectionResultDto) {
@@ -49,6 +54,8 @@ export class CollectionJobService {
         })
         fileCount = dto.files.length
       }
+      // 采集图直转：嵌入模式下把数据根内的本地图读字节，经 StorageDriver 落 COS/本地（STORAGE_DRIVER 决定），并回写新 storageKey。
+      const ingestCount = await this.ingestLocalFiles(tx, dto.files, tenantId, jobId)
 
       let skuCount = 0
       let qaCount = 0
@@ -151,7 +158,7 @@ export class CollectionJobService {
       return {
         imported: true,
         jobId,
-        counts: { productCount, skuCount, qaCount, reviewCount, fileCount },
+        counts: { productCount, skuCount, qaCount, reviewCount, fileCount, ingestCount },
       }
     })
 
@@ -164,5 +171,44 @@ export class CollectionJobService {
     }
 
     return result
+  }
+
+  /** 安全护栏：仅接纳数据根内的本地绝对路径（同机嵌入模式）；拒绝 `..` 越界。 */
+  private isIngestibleLocalPath(localPath: string, userRoot: string): boolean {
+    if (!localPath || localPath.includes('..')) return false
+    const rootPrefix = userRoot.replace(/\/+$/, '') + '/'
+    return localPath.startsWith(rootPrefix)
+  }
+
+  /** 把同步清单里的本地采集图读字节并落 StorageDriver（local→~/ecommerce，oss→COS），回写新 storageKey。 */
+  private async ingestLocalFiles(
+    tx: Prisma.TransactionClient,
+    files: CollectionResultDto['files'],
+    tenantId: string,
+    jobId: string,
+  ): Promise<number> {
+    if (!files?.length) return 0
+    const userRoot = resolveDataRoots().userRoot.replace(/\/+$/, '')
+    const driver = this.storageDriverService.getDriver()
+    let ingested = 0
+    for (const file of files) {
+      const local = file.storageKey
+      if (!this.isIngestibleLocalPath(local, userRoot) || !existsSync(local)) continue
+      try {
+        const buffer = readFileSync(local)
+        const configured = process.env.STORAGE_PREFIX
+        const prefix = configured && !configured.includes('{') ? configured : process.env.NODE_ENV || 'development'
+        const storageKey = `${prefix}/${tenantId}/collection/${jobId}/${basename(local)}`
+        const meta = await driver.putObject({ storageKey, buffer, contentType: file.mimeType })
+        await tx.sourceFileRecord.updateMany({
+          where: { collectionJobId: jobId, storageKey: local },
+          data: { storageKey: meta.storageKey, size: meta.size, mimeType: meta.mimeType },
+        })
+        ingested += 1
+      } catch {
+        // 读取/上传失败（如远端模式本地路径不存在）如实跳过，保留原清单
+      }
+    }
+    return ingested
   }
 }

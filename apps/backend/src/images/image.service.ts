@@ -1,10 +1,11 @@
+import { randomUUID } from 'node:crypto'
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
 import { buildAttemptKey } from '../ai/ai.types'
 import { ProviderRouter } from '../ai/provider-router.service'
 import { PrismaService } from '../prisma.service'
 import { QUEUE_NAMES } from '../queue/queue-names'
 import { LocalJobQueueService } from '../queue/local-job-queue.service'
-import { storeMockImage } from './mock-image-storage'
+import { StorageDriverService } from '../storage/storage.service'
 
 export const IMAGE_REVIEW_DECISIONS = ['approved', 'rejected', 'regenerate'] as const
 export type ImageReviewDecision = (typeof IMAGE_REVIEW_DECISIONS)[number]
@@ -16,7 +17,27 @@ export class ImageFlowService {
     private readonly prisma: PrismaService,
     private readonly router: ProviderRouter,
     private readonly localQueue: LocalJobQueueService,
+    private readonly storageDriverService: StorageDriverService,
   ) {}
+
+  /** 把 AI 返回的图（base64 data URL 或远程 http URL）落成 Buffer + content-type */
+  private async resolveImageBuffer(imageRef: string): Promise<{ buffer: Buffer; contentType: string }> {
+    if (imageRef.startsWith('data:')) {
+      const match = /^data:([^;,]+)?(?:;base64)?,(.*)$/s.exec(imageRef)
+      if (!match) throw new Error('AI 返回的图片 data URL 无法解析')
+      return {
+        buffer: Buffer.from(match[2], 'base64'),
+        contentType: match[1] || 'image/png',
+      }
+    }
+    if (!/^https?:\/\//i.test(imageRef)) throw new Error('AI 返回的图片引用不是可下载的 URL')
+    const res = await fetch(imageRef)
+    if (!res.ok) throw new Error(`下载 AI 返回图片失败: HTTP ${res.status}`)
+    return {
+      buffer: Buffer.from(await res.arrayBuffer()),
+      contentType: res.headers.get('content-type') || 'image/png',
+    }
+  }
 
   async generate(input: { jobId: string; tenantId: string; attempt?: number; prompt?: string }) {
     const job = await this.prisma.job.findUnique({ where: { id: input.jobId } })
@@ -43,18 +64,30 @@ export class ImageFlowService {
       { tenantId: input.tenantId, jobId: job.id, attemptKey },
     )
 
-    const stored = storeMockImage(job.id, 0)
+    const imageRef = aiResult.images?.[0]
+    if (!imageRef) throw new Error('AI 未返回可用的生成图片')
+
+    const { buffer, contentType } = await this.resolveImageBuffer(imageRef)
+    const ext = contentType === 'image/jpeg' ? 'jpg' : contentType === 'image/webp' ? 'webp' : 'png'
+    const configured = process.env.STORAGE_PREFIX
+    const prefix = configured && !configured.includes('{') ? configured : process.env.NODE_ENV || 'development'
+    const storageKey = `${prefix}/${input.tenantId}/image-gen/${job.id}/${randomUUID()}.${ext}`
+
+    const driver = this.storageDriverService.getDriver()
+    const meta = await driver.putObject({ storageKey, buffer, contentType })
     const asset = await this.prisma.generatedAsset.create({
       data: {
         tenantId: input.tenantId,
         jobId: job.id,
         runId: job.id,
-        storageKey: stored.storageKey,
-        mimeType: stored.mimeType,
-        size: stored.size,
-        sourceUrl: aiResult.images?.[0] ? aiResult.images[0].slice(0, 191) : null,
+        storageKey: meta.storageKey,
+        mimeType: meta.mimeType,
+        size: meta.size,
+        sha256: meta.sha256 ?? null,
+        sourceUrl: imageRef.startsWith('data:') ? null : imageRef.slice(0, 191),
       },
     })
+    const readUrl = await driver.getReadUrl(asset.storageKey).catch(() => null)
     const review = await this.prisma.reviewRecord.create({
       data: {
         tenantId: input.tenantId,
@@ -71,7 +104,7 @@ export class ImageFlowService {
     await this.prisma.jobEvent.create({
       data: { jobId: job.id, type: 'image-generated', data: { model: aiResult.model, assetId: asset.id, reviewId: review.id } },
     })
-    return { assetId: asset.id, reviewId: review.id, storageKey: stored.storageKey, absolutePath: stored.absolutePath }
+    return { assetId: asset.id, reviewId: review.id, storageKey: asset.storageKey, readUrl }
   }
 
   async decideReview(input: { reviewId: string; decision: ImageReviewDecision; reviewerId?: string }) {

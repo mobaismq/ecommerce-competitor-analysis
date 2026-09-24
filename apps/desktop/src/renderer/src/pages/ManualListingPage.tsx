@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { PageHeader } from '../components/PageHeader'
 import {
   Badge,
@@ -318,12 +318,15 @@ interface SkuItem {
   isListed: boolean
 }
 
-// 主图条目
+// 主图条目（富媒体去内嵌化：本地预览用 objectURL，提交时上传落盘得 storageKey 引用）
 interface ImageItem {
   id: string
   url: string
   isMain?: boolean
   isWhiteBg?: boolean
+  file?: File
+  /** 已上传落盘返回的 storageKey（提交时作为引用进 contentJson，不再内嵌 base64） */
+  key?: string
 }
 
 export function ManualListingPage() {
@@ -368,7 +371,10 @@ export function ManualListingPage() {
   const [mainImages, setMainImages] = useState<ImageItem[]>([])
   const [whiteImage, setWhiteImage] = useState<ImageItem | null>(null)
   const [videoUrl, setVideoUrl] = useState<string>('')
+  const [videoFile, setVideoFile] = useState<File | undefined>(undefined)
   const [detailImages, setDetailImages] = useState<ImageItem[]>([])
+  // 富媒体 storageKey 缓存（提交后落盘引用，避免重复保存/发布时重复上传）
+  const mediaKeysRef = useRef<Record<string, string>>({})
   // 商品属性 k/v（旧版 productAttrs，保存为 key → value 映射）
   const [productAttrs, setProductAttrs] = useState<Array<{ key: string; value: string }>>([])
 
@@ -557,25 +563,60 @@ export function ManualListingPage() {
     Message.success('已完成全规格批量更新！')
   }
 
+  // 本地预览用 objectURL（内存态，不写入 contentJson）；提交时再上传落盘取 storageKey 引用
+  const objectUrl = (file: File) => URL.createObjectURL(file)
+
+  // 富媒体去内嵌化：字节上传后端落盘，返回 storageKey；contentJson 只存引用，不再内嵌 base64
+  const uploadListingMedia = async (file: File, kind: 'main' | 'video' | 'white' | 'detail'): Promise<string> => {
+    const token = localStorage.getItem('eca.token')
+    const baseURL = api.defaults.baseURL || 'http://127.0.0.1:8787'
+    const res = await fetch(`${baseURL}/api/platform-adapters/media`, {
+      method: 'POST',
+      headers: {
+        authorization: token ? `Bearer ${token}` : '',
+        'x-media-kind': kind,
+        'x-content-type': file.type || 'application/octet-stream',
+        'x-original-name': file.name,
+      },
+      body: file,
+    })
+    if (!res.ok) throw new Error(`媒体上传失败（${res.status}）`)
+    const data = (await res.json()) as { storageKey: string }
+    return data.storageKey
+  }
+
+  // 上传中途失败时清理已落盘对象，避免孤儿文件
+  const cleanupUploadedMedia = async (keys: string[]) => {
+    if (!keys.length) return
+    const token = localStorage.getItem('eca.token')
+    const baseURL = api.defaults.baseURL || 'http://127.0.0.1:8787'
+    try {
+      await fetch(`${baseURL}/api/platform-adapters/media`, {
+        method: 'DELETE',
+        headers: { authorization: token ? `Bearer ${token}` : '', 'content-type': 'application/json' },
+        body: JSON.stringify({ keys }),
+      })
+    } catch {
+      /* 清理失败不影响主流程 */
+    }
+  }
+
   // 添加主图
   const handleUploadMainImage = (file: File) => {
     if (mainImages.length >= 5) {
       Message.warning('主图最多上传 5 张')
       return false
     }
-    const reader = new FileReader()
-    reader.onload = () => {
-      setMainImages((prev) => [
-        ...prev,
-        {
-          id: `img-${nanoid(8)}`,
-          url: reader.result as string,
-          isMain: prev.length === 0,
-        },
-      ])
-      Message.success('主图添加成功')
-    }
-    reader.readAsDataURL(file)
+    setMainImages((prev) => [
+      ...prev,
+      {
+        id: `img-${nanoid(8)}`,
+        url: objectUrl(file),
+        isMain: prev.length === 0,
+        file,
+      },
+    ])
+    Message.success('主图添加成功')
     return false
   }
 
@@ -601,39 +642,30 @@ export function ManualListingPage() {
     })
   }
 
-  // 富媒体上传（白底图 / 详情图 / 主视频），统一读成 dataURL（对齐主图上传逻辑）
-  const readFileAsDataURL = (file: File): Promise<string> =>
-    new Promise((resolve, reject) => {
-      const reader = new FileReader()
-      reader.onload = () => resolve(reader.result as string)
-      reader.onerror = () => reject(new Error('读取文件失败'))
-      reader.readAsDataURL(file)
-    })
-
-  const handleUploadWhiteImage = async (file: File) => {
-    const url = await readFileAsDataURL(file)
-    setWhiteImage({ id: `white-${nanoid(8)}`, url })
+  // 富媒体上传（白底图 / 详情图 / 主视频）：本地 objectURL 预览，file 留待提交时落盘
+  const handleUploadWhiteImage = (file: File) => {
+    setWhiteImage({ id: `white-${nanoid(8)}`, url: objectUrl(file), file })
     Message.success('白底图已添加')
     return false
   }
 
-  const handleUploadDetailImage = async (file: File) => {
+  const handleUploadDetailImage = (file: File) => {
     if (detailImages.length >= 50) {
       Message.warning('详情图最多上传 50 张')
       return false
     }
-    const url = await readFileAsDataURL(file)
-    setDetailImages((prev) => [...prev, { id: `detail-${nanoid(8)}`, url }])
+    setDetailImages((prev) => [...prev, { id: `detail-${nanoid(8)}`, url: objectUrl(file), file }])
     return false
   }
 
-  const handleUploadVideo = async (file: File) => {
+  const handleUploadVideo = (file: File) => {
     if (!file.type.startsWith('video/')) {
       Message.warning('请上传视频文件 (mp4 等)')
       return false
     }
-    const url = await readFileAsDataURL(file)
-    setVideoUrl(url)
+    setVideoUrl(objectUrl(file))
+    setVideoFile(file)
+    delete mediaKeysRef.current['video']
     Message.success('主视频已添加')
     return false
   }
@@ -645,27 +677,55 @@ export function ManualListingPage() {
 
   const buildListingPayload = async () => {
     const values = await form.validate()
-    return {
-      platform: currentPlatform,
-      storeId: values.storeId,
-      title: values.title,
-      subTitle: values.subTitle,
-      categoryPath: categoryPathFromValue(values.categoryPath),
-      categoryId: Array.isArray(values.categoryPath) ? values.categoryPath[values.categoryPath.length - 1] : undefined,
-      brand: values.brand,
-      origin: joinPath(values.shippingOrigin),
-      freightTemplate: values.freightTemplate,
-      skus,
-      mainImages: mainImages.map((img) => img.url),
-      video: videoUrl || undefined,
-      whiteImage: whiteImage?.url || undefined,
-      detailImages: detailImages.map((img) => img.url),
-      productAttrs: Object.fromEntries(productAttrs.filter((a) => a.key.trim()).map((a) => [a.key.trim(), a.value.trim()])),
-      detailContent: values.detailContent,
-      originPlace: values.originPlace,
-      warranty: values.warranty,
-      shippingTime: values.shippingTime,
-      serviceGuarantees: values.serviceGuarantees,
+    const uploadedNow: string[] = []
+    // 富媒体：已缓存引用直接复用，否则上传落盘得 storageKey；上传中途失败清理本次落盘对象
+    const ensureKey = async (id: string, file: File | undefined, kind: 'main' | 'video' | 'white' | 'detail'): Promise<string | undefined> => {
+      if (!file) return undefined
+      const cached = mediaKeysRef.current[id]
+      if (cached) return cached
+      const key = await uploadListingMedia(file, kind)
+      mediaKeysRef.current[id] = key
+      uploadedNow.push(key)
+      return key
+    }
+    try {
+      const mainKeys: string[] = []
+      for (const img of mainImages) {
+        const k = await ensureKey(img.id, img.file, 'main')
+        if (k) mainKeys.push(k)
+      }
+      const video = await ensureKey('video', videoFile, 'video')
+      const white = await ensureKey(whiteImage?.id ?? 'white', whiteImage?.file, 'white')
+      const detailKeys: string[] = []
+      for (const img of detailImages) {
+        const k = await ensureKey(img.id, img.file, 'detail')
+        if (k) detailKeys.push(k)
+      }
+      return {
+        platform: currentPlatform,
+        storeId: values.storeId,
+        title: values.title,
+        subTitle: values.subTitle,
+        categoryPath: categoryPathFromValue(values.categoryPath),
+        categoryId: Array.isArray(values.categoryPath) ? values.categoryPath[values.categoryPath.length - 1] : undefined,
+        brand: values.brand,
+        origin: joinPath(values.shippingOrigin),
+        freightTemplate: values.freightTemplate,
+        skus,
+        mainImages: mainKeys,
+        video: video || undefined,
+        whiteImage: white || undefined,
+        detailImages: detailKeys,
+        productAttrs: Object.fromEntries(productAttrs.filter((a) => a.key.trim()).map((a) => [a.key.trim(), a.value.trim()])),
+        detailContent: values.detailContent,
+        originPlace: values.originPlace,
+        warranty: values.warranty,
+        shippingTime: values.shippingTime,
+        serviceGuarantees: values.serviceGuarantees,
+      }
+    } catch (error) {
+      await cleanupUploadedMedia(uploadedNow)
+      throw error
     }
   }
 

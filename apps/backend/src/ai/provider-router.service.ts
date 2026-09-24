@@ -5,6 +5,7 @@ import { PrismaService } from '../prisma.service'
 import { AiAuditService } from './ai-audit.service'
 import { AiCallError, type AiCapability, type AiImageRequest, type AiProvider, type AiResult, type AiTextRequest, type AiVisionRequest, type ProviderConfig } from './ai.types'
 import { ProviderRegistry } from './provider-registry'
+import { readUserAiSelfConfig, type UserAiSelfConfig } from './user-ai-config'
 
 interface ExecuteOptions {
   tenantId: string
@@ -13,15 +14,6 @@ interface ExecuteOptions {
   providerProfileId?: string
   /** 发起用户 id：命中个人自配的 AI 供应商（优先级 用户自配 > 租户/系统 ProviderProfile > 环境默认） */
   userId?: string
-}
-
-interface UserSelfConfig {
-  aiSelfEnabled: boolean | null
-  aiProviderType: string | null
-  aiBaseUrl: string | null
-  aiApiKey: string | null
-  aiModel: string | null
-  aiTimeoutMs: number | null
 }
 
 interface CapabilityProfile {
@@ -150,22 +142,12 @@ export class ProviderRouter {
     capability: AiCapability,
     options: ExecuteOptions,
   ): Promise<{ type: string; config: ProviderConfig; profileId?: string }> {
-    // 1) 个人自配优先：用户主动开启且配置了 Key
+    // 1) 个人自配优先：用户主动开启且配置了 Key（密钥存用户本机 ~/.ecommerce/users/<id>/config/ai-self.json）
     if (options.userId) {
-      const user = await this.prisma.user.findUnique({
-        where: { id: options.userId },
-        select: {
-          aiSelfEnabled: true,
-          aiProviderType: true,
-          aiBaseUrl: true,
-          aiApiKey: true,
-          aiModel: true,
-          aiTimeoutMs: true,
-        },
-      })
-      const userConfig = this.resolveUserConfig(user)
+      const userCfg = readUserAiSelfConfig(options.userId)
+      const userConfig = this.resolveUserConfig(userCfg)
       if (userConfig) {
-        return { type: user?.aiProviderType ?? this.defaultProviderType(), config: userConfig }
+        return { type: userCfg.providerType ?? this.defaultProviderType(), config: userConfig }
       }
     }
 
@@ -181,15 +163,15 @@ export class ProviderRouter {
   }
 
   /**
-   * 将用户的个人自配字段解析为可用的 ProviderConfig；未开启 / 缺 Key 时返回 null，回落下一优先级。
+   * 将用户的个人自配配置解析为可用的 ProviderConfig；未开启 / 缺 Key 时返回 null，回落下一优先级。
    */
-  private resolveUserConfig(user: UserSelfConfig | null): ProviderConfig | null {
-    if (!user || user.aiSelfEnabled !== true || !user.aiApiKey) return null
+  private resolveUserConfig(user: UserAiSelfConfig | null): ProviderConfig | null {
+    if (!user || user.selfEnabled !== true || !user.apiKey) return null
     return {
-      baseUrl: user.aiBaseUrl ?? undefined,
-      apiKey: user.aiApiKey,
-      model: user.aiModel ?? undefined,
-      timeoutMs: user.aiTimeoutMs ?? undefined,
+      baseUrl: user.baseUrl ?? undefined,
+      apiKey: user.apiKey,
+      model: user.model ?? undefined,
+      timeoutMs: user.timeoutMs ?? undefined,
     }
   }
 

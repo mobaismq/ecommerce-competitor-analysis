@@ -1,10 +1,23 @@
 import { app, BrowserWindow } from 'electron'
+import { existsSync } from 'node:fs'
 import { join } from 'node:path'
+import { BackendRunner } from './backend-runner'
 import { registerCollectionHandlers } from './collection-handlers'
+import { ensureDataRoots, resolveDataRoots } from './data-root'
 import { registerStoreHandlers } from './store'
 import { registerLocalHandlers, startLocalCleanup, getLocalClient } from './local-db'
+import { logger } from './logger'
 
 let mainWindow: BrowserWindow | null = null
+let backendRunner: BackendRunner | null = null
+
+/** 解析打包后的后端入口（打包→resourcesPath，开发→backend/dist）。 */
+function resolveBackendEntry(): string | undefined {
+  const candidates = app.isPackaged
+    ? [join(process.resourcesPath, 'backend', 'dist', 'src', 'main.js'), join(process.resourcesPath, 'backend', 'main.js')]
+    : [join(app.getAppPath(), '..', 'backend', 'dist', 'src', 'main.js')]
+  return candidates.find((p) => existsSync(p))
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -34,7 +47,24 @@ function createWindow() {
   })
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  ensureDataRoots()
+  const entry = resolveBackendEntry()
+  const runner = new BackendRunner({
+    entry,
+    port: Number(process.env.BACKEND_PORT || 8787),
+    baseUrl: process.env.BACKEND_REMOTE_URL,
+    dataRoot: resolveDataRoots().base,
+    storageDriver: process.env.STORAGE_DRIVER,
+    onLog: (line) => logger.info(line),
+  })
+  backendRunner = runner
+  try {
+    const { mode, baseUrl } = await runner.start()
+    logger.info('backend runner', { mode, baseUrl })
+  } catch (error) {
+    logger.warn('内嵌后端未启动，回退外部/远程后端模式', error)
+  }
   registerStoreHandlers()
   const prisma = getLocalClient()
   registerLocalHandlers()
@@ -45,6 +75,10 @@ app.whenReady().then(() => {
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
+})
+
+app.on('before-quit', () => {
+  if (backendRunner) void backendRunner.stop()
 })
 
 app.on('window-all-closed', () => {

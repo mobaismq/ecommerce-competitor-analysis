@@ -59,6 +59,10 @@ describe('Storage Drivers', () => {
       expect(readUrl).toContain('tenant-1/images/test.png')
       expect(fs.existsSync(readUrl)).toBe(true)
 
+      const bytes = await driver.readBytes('tenant-1/images/test.png')
+      expect(bytes.buffer).toEqual(buffer)
+      expect(bytes.mimeType).toBe('image/png')
+
       const deleted = await driver.delete('tenant-1/images/test.png')
       expect(deleted).toBe(true)
       expect(await driver.head('tenant-1/images/test.png')).toBeNull()
@@ -88,11 +92,16 @@ describe('Storage Drivers', () => {
     })
   })
 
-  describe('OssStorageDriver 占位检查', () => {
-    it('未接入前调用方法抛出友好提示', async () => {
+  describe('OssStorageDriver 真实驱动', () => {
+    it('未配置 OSS_* 时抛出清晰配置错误（离线安全）', async () => {
+      delete process.env.OSS_REGION
+      delete process.env.OSS_BUCKET
+      delete process.env.OSS_ACCESS_KEY_ID
+      delete process.env.OSS_ACCESS_KEY_SECRET
       const driver = new OssStorageDriver()
-      await expect(driver.listObjects()).rejects.toThrow('OSS 驱动待接入')
-      await expect(driver.head('any-key')).rejects.toThrow('OSS 驱动待接入')
+      await expect(driver.listObjects()).rejects.toThrow('OSS 驱动未配置')
+      await expect(driver.head('any-key')).rejects.toThrow('OSS 驱动未配置')
+      await expect(driver.putObject({ storageKey: 'x.png', buffer: Buffer.from('x') })).rejects.toThrow('OSS 驱动未配置')
     })
   })
 })

@@ -5,6 +5,7 @@ import { join, resolve } from 'node:path'
 import type { PrismaClient } from '../generated/prisma'
 import { assertCollectionMode, type CollectionMode } from './collection-modes'
 import { runLocalCollection } from './collection-runner'
+import { resolveDataRoots } from './data-root'
 import { logger } from './logger'
 import { resolveEmbeddedPython, killPythonProcesses } from './python-runner'
 
@@ -24,10 +25,9 @@ export interface CollectionStartInput {
   fake?: boolean
 }
 
-/** 采集数据工作目录根：用户数据目录下 collection/<jobId>。 */
+/** 采集数据工作目录根：用户可见工作区根下 collection/<jobId>。 */
 function workDirFor(jobId: string): string {
-  const base = app.isPackaged ? app.getPath('userData') : join(app.getAppPath(), 'data')
-  const dir = join(base, 'collection', jobId)
+  const dir = join(resolveDataRoots().userRoot, 'collections', jobId)
   mkdirSync(dir, { recursive: true })
   return dir
 }

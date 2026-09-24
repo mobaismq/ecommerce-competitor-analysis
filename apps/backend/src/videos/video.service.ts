@@ -1,6 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
 import { nanoid } from 'nanoid'
-import { readFileSync } from 'node:fs'
 import { PrismaService } from '../prisma.service'
 import { StorageDriverService } from '../storage/storage.service'
 import { VideoProviderRegistry } from './video-registry'
@@ -81,7 +80,8 @@ export class VideoReplicationService {
     const driver = this.storageDriverService.getDriver()
     const meta = await driver.head(asset.storageKey)
     if (!meta) throw new NotFoundException('视频文件不存在')
-    const absolute = await driver.getReadUrl(asset.storageKey)
-    return { buffer: readFileSync(absolute), mimeType: meta.mimeType }
+    // readBytes 兼容 local 与 oss，避免 COS 下 getReadUrl 返回 URL 被 readFileSync 误用。
+    const { buffer, mimeType } = await driver.readBytes(asset.storageKey)
+    return { buffer, mimeType }
   }
 }

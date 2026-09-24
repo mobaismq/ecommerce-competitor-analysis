@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs'
 import { Injectable, NotFoundException } from '@nestjs/common'
 import { PrismaService } from '../prisma.service'
 import { StorageDriverService } from '../storage/storage.service'
@@ -42,8 +41,9 @@ export class AssetService {
     const driver = this.storageDriverService.getDriver()
     const meta = await driver.head(asset.storageKey)
     if (!meta) throw new NotFoundException('资产文件不存在')
-    const absolute = await driver.getReadUrl(asset.storageKey)
-    return { buffer: readFileSync(absolute), mimeType: meta.mimeType }
+    // readBytes 兼容 local(readFile) 与 oss(fetch 预签名)，避免 getReadUrl 在 COS 下返回 URL 被 readFileSync 误用。
+    const { buffer, mimeType } = await driver.readBytes(asset.storageKey)
+    return { buffer, mimeType }
   }
 
   async remove(assetId: string, tenantId: string) {

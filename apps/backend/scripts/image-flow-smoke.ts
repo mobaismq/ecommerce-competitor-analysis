@@ -1,21 +1,38 @@
-import { execFileSync, type ChildProcess } from 'node:child_process'
-import { existsSync, mkdirSync, rmSync } from 'node:fs'
+import { mkdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { AiAuditService } from '../src/ai/ai-audit.service'
 import { ProviderRegistry } from '../src/ai/provider-registry'
 import { ProviderRouter } from '../src/ai/provider-router.service'
+import type { AiProvider } from '../src/ai/ai.types'
 import { loadBackendEnv } from '../src/env'
 import { ImageFlowService, MAX_REGENERATE } from '../src/images/image.service'
 import { ImageGenWorker } from '../src/images/image.worker'
 import { LocalJobQueueService } from '../src/queue/local-job-queue.service'
 import { PrismaService } from '../src/prisma.service'
+import { StorageDriverService } from '../src/storage/storage.service'
 
 const backendRoot = resolve(__dirname, '..')
-const workspaceRoot = resolve(backendRoot, '..', '..')
+
+// 1x1 透明 PNG，作为离线 smoke 的"真实图像字节"，走完整落盘链路（非 mock:// 伪造）。
+const TINY_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
+
+function smokeProviderRegistry(): ProviderRegistry {
+  const provider: AiProvider = {
+    type: 'mock',
+    supports: (capability) => capability === 'text' || capability === 'vision' || capability === 'image',
+    generateText: async (request) => ({ status: 'success', text: `mock-reply:${request.prompt.slice(0, 32)}`, model: 'smoke-image', durationMs: 1 }),
+    analyzeImage: async (request) => ({ status: 'success', text: `mock-vision:${request.prompt.slice(0, 32)}`, model: 'smoke-image', durationMs: 1 }),
+    generateImage: async (request) => ({ status: 'success', images: [TINY_PNG], model: 'smoke-image', durationMs: 1, rawPayload: { kind: 'smoke-image', fake: true } }),
+  }
+  const registry = new ProviderRegistry()
+  registry.register('mock', () => provider)
+  return registry
+}
 
 interface FakeQueueService {
   addJob: () => Promise<{ ok: true }>
+  enqueue: () => Promise<void>
 }
 
 async function createImageJob(prisma: PrismaService, tenantId: string, suffix: string) {
@@ -37,18 +54,17 @@ async function cleanupImageJob(prisma: PrismaService, jobId: string) {
   await prisma.job.deleteMany({ where: { id: jobId } })
 }
 
-async function directFlow(prisma: PrismaService, tenantId: string, suffix: string) {
-  const registry = new ProviderRegistry()
+async function directFlow(prisma: PrismaService, tenantId: string, suffix: string, storage: StorageDriverService) {
   const audit = new AiAuditService(prisma)
-  const router = new ProviderRouter(prisma, registry, audit)
-  const queueService: FakeQueueService = { addJob: async () => ({ ok: true }) }
-  const service = new ImageFlowService(prisma, router, queueService as never)
+  const router = new ProviderRouter(prisma, smokeProviderRegistry(), audit)
+  const queueService: FakeQueueService = { addJob: async () => ({ ok: true }), enqueue: async () => undefined }
+  const service = new ImageFlowService(prisma, router, queueService as never, storage)
   const job = await createImageJob(prisma, tenantId, suffix)
 
   const generated = await service.generate({ jobId: job.id, tenantId })
   const asset = await prisma.generatedAsset.findUnique({ where: { id: generated.assetId } })
   const review = await prisma.reviewRecord.findUnique({ where: { id: generated.reviewId } })
-  const fileExists = existsSync(generated.absolutePath)
+  const persisted = await storage.getDriver().head(asset!.storageKey)
   const jobAfterGenerate = await prisma.job.findUnique({ where: { id: job.id } })
 
   const approved = await service.decideReview({ reviewId: review!.id, decision: 'approved', reviewerId: 'smoke-reviewer' })
@@ -81,7 +97,7 @@ async function directFlow(prisma: PrismaService, tenantId: string, suffix: strin
   const limitJobRow = await prisma.job.findUnique({ where: { id: limitJob.id } })
 
   const output = {
-    generate: { asset: asset?.storageKey != null, review: review?.decision, fileExists, jobStage: jobAfterGenerate?.stage },
+    generate: { asset: asset?.storageKey != null, review: review?.decision, persisted: persisted != null, jobStage: jobAfterGenerate?.stage },
     approved: { decision: approved.decision, jobStatus: jobAfterApprove?.status },
     rejected: { jobStatus: rejectedDecision },
     regenerate: { limitReached, jobStatus: limitJobRow?.status, regenerateCount: MAX_REGENERATE + 1 },
@@ -94,7 +110,7 @@ async function directFlow(prisma: PrismaService, tenantId: string, suffix: strin
   const ok =
     asset?.storageKey != null &&
     review?.decision === 'pending' &&
-    fileExists &&
+    persisted != null &&
     jobAfterGenerate?.stage === 'reviewing' &&
     approved.decision === 'approved' &&
     jobAfterApprove?.status === 'success' &&
@@ -114,12 +130,12 @@ async function waitForReview(prisma: PrismaService, jobId: string, timeoutMs = 1
   throw new Error(`image queue job timeout: ${jobId}`)
 }
 
-async function queueFlow(prisma: PrismaService, tenantId: string, suffix: string) {
+async function queueFlow(prisma: PrismaService, tenantId: string, suffix: string, storage: StorageDriverService) {
   const job = await createImageJob(prisma, tenantId, `${suffix}-queue`)
   const localQueue = new LocalJobQueueService(prisma)
   const audit = new AiAuditService(prisma)
-  const router = new ProviderRouter(prisma, new ProviderRegistry(), audit)
-  const imageService = new ImageFlowService(prisma, router, localQueue)
+  const router = new ProviderRouter(prisma, smokeProviderRegistry(), audit)
+  const imageService = new ImageFlowService(prisma, router, localQueue, storage)
   const worker = new ImageGenWorker(prisma, imageService, {} as any, localQueue)
   localQueue.registerProcessor('server-image-gen', worker)
 
@@ -130,10 +146,11 @@ async function queueFlow(prisma: PrismaService, tenantId: string, suffix: string
   const reviewId = review.id
 
   const asset = await prisma.generatedAsset.findFirst({ where: { jobId: job.id } })
-  const output = { reviewCreated: reviewId !== '', assetCreated: asset != null, storageKey: asset?.storageKey != null }
+  const persisted = asset ? await storage.getDriver().head(asset.storageKey) : null
+  const output = { reviewCreated: reviewId !== '', assetCreated: asset != null, storageKey: asset?.storageKey != null, persisted: persisted != null }
   console.log(JSON.stringify(output))
   await cleanupImageJob(prisma, job.id)
-  return output.reviewCreated && output.assetCreated && output.storageKey
+  return output.reviewCreated && output.assetCreated && output.storageKey && output.persisted
 }
 
 async function main() {
@@ -142,13 +159,16 @@ async function main() {
   process.env.AI_MOCK_MODEL = 'mock-model'
   const assetDir = join(tmpdir(), `eca-image-flow-${Date.now()}`)
   mkdirSync(assetDir, { recursive: true })
-  process.env.MOCK_ASSET_DIR = assetDir
+  // smoke 离线跑：图像落本地磁盘，不真上 COS。
+  process.env.STORAGE_DRIVER = 'local'
+  process.env.STORAGE_LOCAL_DIR = assetDir
+  const storage = new StorageDriverService()
   const prisma = new PrismaService()
   const tenant = await prisma.tenant.findFirst()
   if (!tenant) throw new Error('seed tenant missing')
   const suffix = Date.now().toString(36)
-  const directOk = await directFlow(prisma, tenant.id, suffix)
-  const queueOk = await queueFlow(prisma, tenant.id, suffix)
+  const directOk = await directFlow(prisma, tenant.id, suffix, storage)
+  const queueOk = await queueFlow(prisma, tenant.id, suffix, storage)
   await prisma.$disconnect()
   rmSync(assetDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
   console.log(JSON.stringify({ directOk, queueOk }))

@@ -1,8 +1,9 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { basename, extname, join, relative, resolve } from 'node:path'
+import { resolveDataRoots } from '../common/data-root'
 import { signUploadTicket } from './upload-ticket'
-import type { ConfirmUploadInput, SignUploadInput, StorageDriver, StorageObjectMeta, StoragePutObjectInput, UploadTicket } from './storage.types'
+import type { ConfirmUploadInput, SignUploadInput, StorageDriver, StorageObjectMeta, StoragePutObjectInput, StoredBytes, UploadTicket } from './storage.types'
 
 const MIME_BY_EXT: Record<string, string> = {
   '.png': 'image/png',
@@ -22,7 +23,7 @@ export class LocalStorageDriver implements StorageDriver {
   readonly name = 'local'
   private readonly baseDir: string
 
-  constructor(baseDir = process.env.STORAGE_LOCAL_DIR || join(process.cwd(), 'data', 'storage')) {
+  constructor(baseDir = process.env.STORAGE_LOCAL_DIR || join(resolveDataRoots().userRoot, 'data')) {
     this.baseDir = resolve(baseDir)
   }
 
@@ -73,6 +74,12 @@ export class LocalStorageDriver implements StorageDriver {
     const absolute = this.resolvePath(storageKey)
     if (!existsSync(absolute)) throw new Error(`object not found: ${storageKey}`)
     return absolute
+  }
+
+  async readBytes(storageKey: string): Promise<StoredBytes> {
+    const absolute = this.resolvePath(storageKey)
+    if (!existsSync(absolute)) throw new Error(`object not found: ${storageKey}`)
+    return { buffer: readFileSync(absolute), mimeType: this.mime(storageKey) }
   }
 
   async signUploadUrl(input: SignUploadInput): Promise<UploadTicket> {

@@ -1,11 +1,13 @@
 import { NotFoundException } from '@nestjs/common'
 import type { PrismaService } from '../prisma.service'
 import type { LocalJobQueueService } from '../queue/local-job-queue.service'
+import type { StorageDriverService } from '../storage/storage.service'
 import { CollectionJobService } from './collection-job.service'
 
 describe('CollectionJobService', () => {
   let prisma: any
   let localQueue: any
+  let storageDriverService: any
   let service: CollectionJobService
 
   beforeEach(() => {
@@ -41,9 +43,16 @@ describe('CollectionJobService', () => {
       enqueue: jest.fn().mockResolvedValue('local-q-id'),
     }
 
+    storageDriverService = {
+      getDriver: jest.fn().mockReturnValue({
+        putObject: jest.fn(),
+      }),
+    }
+
     service = new CollectionJobService(
       prisma as unknown as PrismaService,
       localQueue as unknown as LocalJobQueueService,
+      storageDriverService as unknown as StorageDriverService,
     )
   })
 

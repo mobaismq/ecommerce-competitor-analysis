@@ -7,6 +7,7 @@ import { LocalJobQueueService } from '../src/queue/local-job-queue.service'
 import { PlatformAdapterService } from '../src/platform/platform.service'
 import { PlatformRegistry } from '../src/platform/platform-registry'
 import type { PlatformAdapter, PlatformCategory, PlatformListingInput, PlatformListingResult, PlatformMethod, PlatformShop } from '../src/platform/platform.types'
+import { StorageDriverService } from '../src/storage/storage.service'
 import { PrismaService } from '../src/prisma.service'
 
 const backendRoot = resolve(__dirname, '..')
@@ -72,7 +73,7 @@ async function cleanupListing(prisma: PrismaService, jobId: string, genJobId?: s
 async function directFlow(prisma: PrismaService, tenantId: string, suffix: string) {
   const registry = new PlatformRegistry()
   registry.register('failing-platform', () => new FailingPlatformAdapter())
-  const platformService = new PlatformAdapterService(prisma, registry)
+  const platformService = new PlatformAdapterService(prisma, registry, new StorageDriverService())
   const service = new ListingFlowService(prisma, platformService)
   const { genJob, asset } = await createGenAsset(prisma, tenantId, suffix)
   const job = await createListingJob(prisma, tenantId, suffix)
@@ -142,7 +143,7 @@ async function queueFlow(prisma: PrismaService, tenantId: string, suffix: string
 
   const localQueue = new LocalJobQueueService(prisma)
   const registry = new PlatformRegistry()
-  const platformService = new PlatformAdapterService(prisma, registry)
+  const platformService = new PlatformAdapterService(prisma, registry, new StorageDriverService())
   const listingService = new ListingFlowService(prisma, platformService)
   const listingWorker = new ListingWorker(prisma, listingService, localQueue)
   const imageWorker = new ImageGenWorker(prisma, {} as any, listingService, localQueue)

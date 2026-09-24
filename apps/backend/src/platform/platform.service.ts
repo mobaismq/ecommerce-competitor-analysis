@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { BadRequestException, Injectable } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { PrismaService } from '../prisma.service'
+import { StorageDriverService } from '../storage/storage.service'
 import { PlatformRegistry } from './platform-registry'
 import { resolveAdapterCode } from './adapter-resolve'
 import { assertRequiredFields } from './platform-required-fields'
@@ -16,11 +17,14 @@ export interface QueryProductsInput {
   pageSize?: number
 }
 
+const LISTINGS_MEDIA_PREFIX = 'listings/'
+
 @Injectable()
 export class PlatformAdapterService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly registry: PlatformRegistry,
+    private readonly storageService: StorageDriverService,
   ) {}
 
   listPlatforms() {
@@ -186,6 +190,15 @@ export class PlatformAdapterService {
         where: { id: draft.id },
         data: { status: 'failed' },
       })
+      // 发布失败：一并清理该草稿已落盘的富媒体对象，避免孤儿文件
+      const cj = (draft.contentJson ?? {}) as Record<string, unknown>
+      const mediaKeys = [
+        String(cj.video || ''),
+        String(cj.whiteImage || ''),
+        ...(Array.isArray(cj.mainImages) ? (cj.mainImages as unknown[]) : []),
+        ...(Array.isArray(cj.detailImages) ? (cj.detailImages as unknown[]) : []),
+      ].map((k) => String(k)).filter(Boolean)
+      await this.cleanupListingMedia(mediaKeys)
       throw err
     }
 
@@ -203,6 +216,19 @@ export class PlatformAdapterService {
       title: dto.title,
       rawPayload: result.rawPayload,
     }
+  }
+
+  /** 清理手动发布富媒体落盘对象（key 需以 `listings/` 开头，防止误删其它资产）。 */
+  async cleanupListingMedia(mediaKeys: string[]): Promise<{ removed: number }> {
+    if (!mediaKeys.length) return { removed: 0 }
+    const driver = this.storageService.getDriver()
+    let removed = 0
+    for (const key of mediaKeys) {
+      if (!key || !key.startsWith(LISTINGS_MEDIA_PREFIX)) continue
+      const ok = await driver.delete(key).catch(() => false)
+      if (ok) removed += 1
+    }
+    return { removed }
   }
 }
 

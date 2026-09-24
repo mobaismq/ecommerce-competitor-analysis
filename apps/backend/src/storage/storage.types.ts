@@ -13,6 +13,11 @@ export interface StorageObjectMeta {
   lastModified: Date
 }
 
+export interface StoredBytes {
+  buffer: Buffer
+  mimeType: string
+}
+
 export interface UploadTicket {
   uploadId: string
   storageKey: string
@@ -43,6 +48,8 @@ export interface StorageDriver {
   head(storageKey: string): Promise<StorageObjectMeta | null>
   delete(storageKey: string): Promise<boolean>
   getReadUrl(storageKey: string): Promise<string>
+  /** 读取对象字节（local 用 readFile，oss 用 fetch/getObject）。raw/流式展示统一走这里，避免 local 语义泄漏到 COS。 */
+  readBytes(storageKey: string): Promise<StoredBytes>
   signUploadUrl(input: SignUploadInput): Promise<UploadTicket>
   confirmUpload(input: ConfirmUploadInput): Promise<StorageObjectMeta>
 }

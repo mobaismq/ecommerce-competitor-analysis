@@ -1,8 +1,12 @@
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { PrismaService } from '../prisma.service'
 import { ProviderRegistry } from './provider-registry'
 import { ProviderRouter } from './provider-router.service'
 import type { AiAuditService } from './ai-audit.service'
 import type { AiProvider, AiResult } from './ai.types'
+import { writeUserAiSelfConfig } from './user-ai-config'
 
 function fakeProvider(registry: ProviderRegistry) {
   const provider: AiProvider = {
@@ -16,14 +20,23 @@ function fakeProvider(registry: ProviderRegistry) {
   return registry
 }
 
-describe('ProviderRouter · 个人自配优先级', () => {
-  function build(overrides: Record<string, unknown>) {
+describe('ProviderRouter · 个人自配优先级（密钥存本机 local 配置）', () => {
+  let tmpRoot: string
+  beforeEach(() => {
+    tmpRoot = mkdtempSync(join(tmpdir(), 'eca-router-'))
+    process.env.ECOMMERCE_DATA_ROOT = tmpRoot
+  })
+  afterEach(() => {
+    rmSync(tmpRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
+    delete process.env.ECOMMERCE_DATA_ROOT
+  })
+
+  function build() {
     const prisma = {
       user: { findUnique: jest.fn() },
       providerProfile: { findFirst: jest.fn(), findMany: jest.fn(), count: jest.fn().mockResolvedValue(0) },
       aiCallCache: { findUnique: jest.fn().mockResolvedValue(null), upsert: jest.fn() },
     } as any
-    prisma.user.findUnique.mockImplementation(({ where }: any) => overrides[where.id] ?? null)
     const registry = fakeProvider(new ProviderRegistry())
     const audit = {
       findSuccess: jest.fn().mockResolvedValue(null),
@@ -39,10 +52,15 @@ describe('ProviderRouter · 个人自配优先级', () => {
   }
 
   it('用户自配存在且启用 + 有 Key → 命中用户配置（优先于租户）', async () => {
-    const { router, registry } = build({
-      'user-self': { id: 'user-self', aiSelfEnabled: true, aiProviderType: 'openai-compatible', aiBaseUrl: 'https://my.ai', aiApiKey: 'user-secret', aiModel: 'gpt-x', aiTimeoutMs: 5000 },
+    writeUserAiSelfConfig('user-self', {
+      selfEnabled: true,
+      providerType: 'openai-compatible',
+      baseUrl: 'https://my.ai',
+      apiKey: 'user-secret',
+      model: 'gpt-x',
+      timeoutMs: 5000,
     })
-    const prisma = (router as any).prisma
+    const { router, registry, prisma } = build()
     await router.execute('text', { prompt: 'hi' }, { tenantId: 't1', userId: 'user-self' })
 
     expect(registry.create).toHaveBeenCalledWith(
@@ -53,7 +71,7 @@ describe('ProviderRouter · 个人自配优先级', () => {
   })
 
   it('用户未配置时回落租户 ProviderProfile', async () => {
-    const { router, registry, prisma } = build({})
+    const { router, registry, prisma } = build()
     prisma.providerProfile.findMany.mockResolvedValue([
       { id: 'p1', type: 'ark', baseUrl: null, apiKeyRef: 'ARK_API_KEY', modelConfigJson: { model: 'ark-model' }, timeoutMs: 1000, capabilitiesJson: { capabilities: ['text'] }, priority: 10, enabled: true },
     ])
@@ -65,7 +83,7 @@ describe('ProviderRouter · 个人自配优先级', () => {
   })
 
   it('未自配也未配租户/系统时回落环境默认', async () => {
-    const { router, registry, prisma } = build({})
+    const { router, registry, prisma } = build()
     prisma.providerProfile.findMany.mockResolvedValue([])
     const before = process.env.OPENROUTER_API_KEY
     process.env.OPENROUTER_API_KEY = 'YOUR_OPENROUTER_API_KEY_HERE' // 视为未配置 → mock 兜底

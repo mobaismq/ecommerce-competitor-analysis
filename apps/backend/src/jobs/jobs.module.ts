@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common'
 import { AuthModule } from '../auth/auth.module'
 import { PrismaModule } from '../prisma.module'
 import { QueueModule } from '../queue/queue.module'
+import { StorageModule } from '../storage/storage.module'
 import { JobController } from './job.controller'
 import { CollectionJobController } from './collection-job.controller'
 import { CollectionJobService } from './collection-job.service'
@@ -11,7 +12,7 @@ import { WorkflowController } from './workflow.controller'
 import { WorkflowService } from './workflow.service'
 
 @Module({
-  imports: [AuthModule, PrismaModule, QueueModule],
+  imports: [AuthModule, PrismaModule, QueueModule, StorageModule],
   controllers: [JobController, WorkflowController, JobSseController, CollectionJobController],
   providers: [JobService, WorkflowService, CollectionJobService],
   exports: [JobService, WorkflowService, CollectionJobService],

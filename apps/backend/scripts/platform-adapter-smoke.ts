@@ -1,6 +1,7 @@
 import { loadBackendEnv } from '../src/env'
 import { PlatformRegistry } from '../src/platform/platform-registry'
 import { PlatformAdapterService } from '../src/platform/platform.service'
+import { StorageDriverService } from '../src/storage/storage.service'
 import { PrismaService } from '../src/prisma.service'
 
 async function main() {
@@ -8,7 +9,7 @@ async function main() {
   process.env.PLATFORM_MOCK = 'true'
   const prisma = new PrismaService()
   const registry = new PlatformRegistry()
-  const service = new PlatformAdapterService(prisma, registry)
+  const service = new PlatformAdapterService(prisma, registry, new StorageDriverService())
 
   const taobao = registry.create('taobao')
   const mock = registry.create('mock')

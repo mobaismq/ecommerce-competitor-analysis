@@ -33,13 +33,18 @@ async function main() {
     traversalRejected = true
   }
 
-  let ossNotReady = false
+  let ossConfigGuard = false
   process.env.STORAGE_DRIVER = 'oss'
+  delete process.env.OSS_REGION
+  delete process.env.OSS_BUCKET
+  delete process.env.OSS_ACCESS_KEY_ID
+  delete process.env.OSS_ACCESS_KEY_SECRET
+  delete process.env.OSS_ENDPOINT
   const ossDriver = service.getDriver()
   try {
     await ossDriver.putObject({ storageKey: 'x.png', buffer: Buffer.from('x') })
   } catch (error) {
-    ossNotReady = error instanceof Error && error.message.includes('待接入')
+    ossConfigGuard = error instanceof Error && error.message.includes('未配置')
   }
 
   const output = {
@@ -51,7 +56,7 @@ async function main() {
     confirm: { size: confirmed.size, mime: confirmed.mimeType },
     delete: { deleted, afterDelete: afterDelete === null },
     traversalRejected,
-    ossNotReady,
+    ossConfigGuard,
   }
   console.log(JSON.stringify(output))
 
@@ -73,7 +78,7 @@ async function main() {
     output.delete.deleted &&
     output.delete.afterDelete &&
     output.traversalRejected &&
-    output.ossNotReady
+    output.ossConfigGuard
   process.exit(ok ? 0 : 1)
 }
 
