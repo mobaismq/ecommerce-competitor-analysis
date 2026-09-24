@@ -96,19 +96,14 @@ const nav: NavItem[] = [
   },
 ]
 
-// 权限驱动导航（2.3）：menuCodes 为空时显示全部（兜底，兼容未配置账号）；非空按菜单码过滤；超管全显
-function filterNavByPermission(items: NavItem[], isSuper: boolean, menuCodes: string[]): NavItem[] {
-  const can = (item: NavItem) => {
-    if (item.superOnly) return isSuper
-    if (item.perm) return isSuper || menuCodes.includes(item.perm)
-    return true
-  }
+// 权限驱动导航：业务菜单一律显示（当前权限按宽松放行，未配置即全显），仅 superOnly（账号/角色管理）限定超管
+function filterNavByPermission(items: NavItem[], isSuper: boolean): NavItem[] {
   const result: NavItem[] = []
   for (const item of items) {
     if (item.children) {
-      const children = filterNavByPermission(item.children, isSuper, menuCodes)
+      const children = filterNavByPermission(item.children, isSuper)
       if (children.length > 0) result.push({ ...item, children })
-    } else if (can(item)) {
+    } else if (!item.superOnly || isSuper) {
       result.push(item)
     }
   }
@@ -155,7 +150,6 @@ export function AppLayout() {
   const navigate = useNavigate()
   const user = useAuth((state) => state.user)
   const logout = useAuth((state) => state.logout)
-  const menuCodes = useAuth((state) => state.menuCodes)
   const isSuper = useAuth((state) => state.isSuper)
 
   const [expanded, setExpanded] = useState(() => {
@@ -172,9 +166,14 @@ export function AppLayout() {
     return saved ? new Set(JSON.parse(saved)) : new Set()
   })
 
+  // 已登录进入受保护界面时补拉一次 me()（权限/默认 AI 供应商等），覆盖“应用重启、token 已持久化、未重新登录”的场景。
+  useEffect(() => {
+    void useAuth.getState().loadMe()
+  }, [])
+
   const filteredNav = useMemo(
-    () => (!isSuper && menuCodes.length > 0 ? filterNavByPermission(nav, isSuper, menuCodes) : nav),
-    [isSuper, menuCodes],
+    () => filterNavByPermission(nav, isSuper),
+    [isSuper],
   )
   const activeKey = getSelectedKey(location.pathname)
 

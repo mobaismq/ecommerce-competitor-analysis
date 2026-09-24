@@ -53,9 +53,12 @@ export class WorkerManager {
     this.child = child
     this.ready = false
     child.on('message', (raw) => this.onMessage(raw as WorkerOutbound))
-    child.on('exit', () => {
+    child.on('exit', (exitInfo) => {
       this.child = null
       this.ready = false
+      const code = (exitInfo as { exitCode?: number })?.exitCode
+      const signal = (exitInfo as { signal?: string })?.signal
+      this.opts.onLog?.(`capability worker 退出(exitCode=${code ?? '?'},signal=${signal ?? '?'})`)
       this.rejectAll(new Error('能力 worker 已退出'))
       if (!this.stopping) {
         const delay = this.opts.restartDelayMs ?? 1000
@@ -74,6 +77,7 @@ export class WorkerManager {
     this.rejectAll(new Error('能力 worker 已停止'))
   }
 
+  /** 渲染层调用：能力 worker 就绪则同步派发（ready 在 worker 加载时即置位，早于渲染层首屏），未就绪时诚实拒绝。 */
   invoke(capability: string, payload?: unknown, opts: InvokeOptions = {}): Promise<unknown> {
     if (!this.child || !this.ready) return Promise.reject(new Error('能力 worker 未就绪'))
     const msgId = randomUUID()
