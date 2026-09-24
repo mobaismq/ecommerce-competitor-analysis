@@ -3,6 +3,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { buildAttemptKey } from '../ai/ai.types'
 import { ProviderRouter } from '../ai/provider-router.service'
 import { PrismaService } from '../prisma.service'
+import { StorageDriverService } from '../storage/storage.service'
 import {
   buildDetailImagePromptGenerationPrompt,
   buildImagePromptGenerationPrompt,
@@ -30,11 +31,25 @@ export function normalizeReferenceImages(image?: string, images?: string[]): str
   return Array.from(new Set(raw.map((item) => String(item || '').trim()).filter(Boolean))).slice(0, 4)
 }
 
+/** 把模型返回的图（data URL 或 http URL）还原成真实字节，统一落盘（与 image.service 同款处理）。 */
+async function resolveMediaBytes(imageRef: string): Promise<{ buffer: Buffer; contentType: string }> {
+  if (imageRef.startsWith('data:')) {
+    const match = /^data:([^;,]+)?(?:;base64)?,(.*)$/s.exec(imageRef)
+    if (!match) throw new Error('模型返回的图片 data URL 无法解析')
+    return { buffer: Buffer.from(match[2], 'base64'), contentType: match[1] || 'image/png' }
+  }
+  if (!/^https?:\/\//i.test(imageRef)) throw new Error('模型返回的图片引用不是可下载的 URL')
+  const res = await fetch(imageRef)
+  if (!res.ok) throw new Error(`下载模型返回图片失败: HTTP ${res.status}`)
+  return { buffer: Buffer.from(await res.arrayBuffer()), contentType: res.headers.get('content-type') || 'image/png' }
+}
+
 @Injectable()
 export class ProductSetsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly router: ProviderRouter,
+    private readonly storageDriverService: StorageDriverService,
   ) {}
 
   async generatePrompts(input: GeneratePromptsInput) {
@@ -91,32 +106,45 @@ export class ProductSetsService {
       return { ok: true, images: [], assetId: null, assetIds: [], jobId: input.jobId ?? null }
     }
     const jobId = input.jobId ?? `product-sets-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-    // 一批结果逐张登记，避免 count>1 时只落第一张；sourceUrl 保持供应商真实返回。
-    const assets = await Promise.all(
-      urls.map((url, index) =>
-        this.prisma.generatedAsset.create({
-          data: {
-            tenantId: input.tenantId,
-            jobId,
-            storageKey: `product-sets/${jobId}/image-${Date.now()}-${index}-${randomUUID().slice(0, 8)}.png`,
-            mimeType: url.startsWith('data:image/jpeg') ? 'image/jpeg' : 'image/png',
-            size: 0,
-            sourceUrl: url,
-            originalName: input.name ? `${input.name}${urls.length > 1 ? `-${index + 1}` : ''}` : undefined,
-            category: input.slotType,
-            prompt: input.prompt,
-            ratio: input.ratio,
-            productName: input.productName || undefined,
-            productId: input.productId || undefined,
-            createdBy: input.createdBy || undefined,
-          },
-        }),
-      ),
-    )
+    // 逐张把模型返回的图落成真实字节（data URL 解码 / http 下载），asset 记录真实 storageKey/size/sha256；sourceUrl 仅作溯源。
+    const driver = this.storageDriverService.getDriver()
+    const assets: Array<{ id: string; storageKey: string; mimeType: string; sourceUrl: string }> = []
+    for (let i = 0; i < urls.length; i += 1) {
+      const url = urls[i]
+      const { buffer, contentType } = await resolveMediaBytes(url)
+      const ext = contentType === 'image/jpeg' ? 'jpg' : contentType === 'image/webp' ? 'webp' : 'png'
+      const storageKey = `product-sets/${jobId}/image-${Date.now()}-${i}-${randomUUID().slice(0, 8)}.${ext}`
+      const meta = await driver.putObject({ storageKey, buffer, contentType })
+      const asset = await this.prisma.generatedAsset.create({
+        data: {
+          tenantId: input.tenantId,
+          jobId,
+          storageKey: meta.storageKey,
+          mimeType: meta.mimeType,
+          size: meta.size,
+          sha256: meta.sha256 ?? null,
+          sourceUrl: url,
+          originalName: input.name ? `${input.name}${urls.length > 1 ? `-${i + 1}` : ''}` : undefined,
+          category: input.slotType,
+          prompt: input.prompt,
+          ratio: input.ratio,
+          productName: input.productName || undefined,
+          productId: input.productId || undefined,
+          createdBy: input.createdBy || undefined,
+        },
+      })
+      assets.push({ id: asset.id, storageKey: asset.storageKey, mimeType: asset.mimeType, sourceUrl: url })
+    }
     return {
       ok: true,
-      images: urls.map((u) => ({ url: u, dataUrl: u })),
-      assetIds: assets.map((asset) => asset.id),
+      images: assets.map((a) => ({
+        id: a.id,
+        url: a.sourceUrl,
+        dataUrl: a.sourceUrl,
+        mimeType: a.mimeType,
+        rawUrl: `/api/assets/${a.id}/raw`,
+      })),
+      assetIds: assets.map((a) => a.id),
       jobId,
     }
   }
@@ -151,15 +179,21 @@ export class ProductSetsService {
     const rows = (input.images ?? []).filter((item) => item && String(item.url || '').trim())
     if (!rows.length) return { ok: true, saved: 0 }
     const assetIds: string[] = []
+    const driver = this.storageDriverService.getDriver()
     for (const item of rows) {
       const url = String(item.url).trim()
+      const { buffer, contentType } = await resolveMediaBytes(url)
+      const ext = contentType === 'image/jpeg' ? 'jpg' : contentType === 'image/webp' ? 'webp' : 'png'
+      const storageKey = `generated-main/${tenantId}/${Date.now()}-${randomUUID().slice(0, 8)}.${ext}`
+      const meta = await driver.putObject({ storageKey, buffer, contentType })
       const asset = await this.prisma.generatedAsset.create({
         data: {
           tenantId,
           runId: input.runId || undefined,
-          storageKey: `generated-main/${tenantId}/${Date.now()}-${randomUUID().slice(0, 8)}.png`,
-          mimeType: url.startsWith('data:image/jpeg') ? 'image/jpeg' : 'image/png',
-          size: 0,
+          storageKey: meta.storageKey,
+          mimeType: meta.mimeType,
+          size: meta.size,
+          sha256: meta.sha256 ?? null,
           sourceUrl: url,
           originalName: String(item.name || '').trim() || '生成主图',
           category: String(item.type || '').trim() || undefined,

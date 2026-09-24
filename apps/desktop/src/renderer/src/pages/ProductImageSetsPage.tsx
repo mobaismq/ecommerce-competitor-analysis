@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Button,
   Card,
@@ -228,6 +228,20 @@ export function ProductImageSetsPage() {
     }
   }, [selectedReportId])
 
+  // 用真实落盘字节生成可展示 objectURL（raw 端点需鉴权，<img> 直接 src 会 401），失败回落 sourceUrl
+  const loadAssetImg = useCallback(async (id: string): Promise<string> => {
+    const baseURL = api.defaults.baseURL || 'http://127.0.0.1:8787'
+    const token = localStorage.getItem('eca.token')
+    try {
+      const res = await fetch(`${baseURL}/api/assets/${id}/raw`, { headers: token ? { authorization: `Bearer ${token}` } : {} })
+      if (!res.ok) return ''
+      const blob = await res.blob()
+      return URL.createObjectURL(new Blob([blob], { type: res.headers.get('content-type') || 'image/png' }))
+    } catch {
+      return ''
+    }
+  }, [])
+
   // 刷新后按最近一次生成批次回显真实结果，不再依赖本地 state
   useEffect(() => {
     const latestJobId = localStorage.getItem('eca.productImageSets.latestJobId')
@@ -237,26 +251,28 @@ export function ProductImageSetsPage() {
       .get<{ generatedImages?: Array<{ id: string; sourceUrl?: string | null; originalName?: string | null; category?: string | null; prompt?: string | null }> }>(
         `/api/product-sets/generated-images?jobId=${encodeURIComponent(latestJobId)}`,
       )
-      .then(({ data }) => {
+      .then(async ({ data }) => {
         if (cancelled) return
         const rows = [...(data?.generatedImages ?? [])].sort((a, b) =>
           String(a.originalName || '').localeCompare(String(b.originalName || ''), 'zh-Hans-CN', { numeric: true }),
         )
         if (!rows.length) return
         setGenerationJobId(latestJobId)
+        setResultViewActive(true)
+        const withImg = await Promise.all(rows.map(async (row) => ({ row, img: await loadAssetImg(row.id) })))
+        if (cancelled) return
         setSlots(
-          rows.map((row, index) => ({
+          withImg.map(({ row, img }, index) => ({
             id: row.id,
             slotIndex: index + 1,
             typeKey: (SUITE_TYPES.find((item) => item.label === row.category)?.key ?? 'white') as SuiteTypeKey,
             name: row.originalName || `图${index + 1}`,
             type: row.category || '生成图片',
             prompt: row.prompt || '',
-            imageUrl: row.sourceUrl || undefined,
+            imageUrl: img || row.sourceUrl || undefined,
             status: 'done' as const,
           })),
         )
-        setResultViewActive(true)
       })
       .catch(() => undefined)
     return () => {
