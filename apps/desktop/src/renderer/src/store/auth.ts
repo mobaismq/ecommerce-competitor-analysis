@@ -91,6 +91,15 @@ export const useAuth = create<AuthState>((set, get) => ({
         dataScope: data.dataScope ?? 'all',
         isSuper: data.isSuper,
       })
+      // 服务端默认 AI 供应商：接口有值则下发到 worker（加密落盘）；返回空则清除默认（个人自配仍优先）。
+      // 失败/离线时不强刷，保留上次默认。
+      try {
+        const dd = await api.get<{ baseUrl?: string; apiKey?: string; textModel?: string; imageModel?: string; protocol?: string }>('/api/ai/default-config')
+        const d = dd.data
+        await window.desktop?.capabilities.invoke('ai.defaultConfig.set', { userId: user.id, ...(d?.apiKey ? d : null) })
+      } catch {
+        /* no-op */
+      }
     } catch {
       // 静默：拿到 me 前不根据权限收窄导航
     }
