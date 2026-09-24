@@ -68,9 +68,9 @@ export function buildItemAddParams(input: PlatformListingInput): Record<string, 
 
 function mockCategories(): PlatformCategory[] {
   return [
-    { externalId: '50008163', parentExternalId: '0', name: '女装', isParent: true, rawPayload: { kind: 'mock', cid: 50008163 } },
-    { externalId: '162102', parentExternalId: '50008163', name: '连衣裙', isParent: false, rawPayload: { kind: 'mock', cid: 162102 } },
-    { externalId: '50008907', parentExternalId: '0', name: '男装', isParent: true, rawPayload: { kind: 'mock', cid: 50008907 } },
+    { externalId: '50008163', parentExternalId: '0', name: 'Mock 女装', isParent: true, rawPayload: { kind: 'mock', cid: 50008163 } },
+    { externalId: '162102', parentExternalId: '50008163', name: 'Mock 连衣裙', isParent: false, rawPayload: { kind: 'mock', cid: 162102 } },
+    { externalId: '50008907', parentExternalId: '0', name: 'Mock 男装', isParent: true, rawPayload: { kind: 'mock', cid: 50008907 } },
   ]
 }
 
@@ -78,7 +78,7 @@ function mockShops(): PlatformShop[] {
   return [
     {
       externalId: 'mock-shop-1',
-      name: '测试店铺',
+      name: 'Mock 测试店铺',
       nick: 'mock_shop',
       approveStatus: 'ok',
       rawPayload: { kind: 'mock', sid: 'mock-shop-1' },
