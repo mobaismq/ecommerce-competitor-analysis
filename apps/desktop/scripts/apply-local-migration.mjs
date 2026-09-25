@@ -32,7 +32,7 @@ try {
       'sqlite3',
       [
         dbFile,
-        `SELECT CASE WHEN (SELECT count(*) FROM sqlite_master WHERE type='table' AND name='LocalJob')>0 THEN 'has_collection' ELSE 'empty' END || '|' || CASE WHEN (SELECT count(*) FROM sqlite_master WHERE type='table' AND name='GeneratedAsset')>0 THEN 'has_cap' ELSE 'no_cap' END`,
+        `SELECT CASE WHEN (SELECT count(*) FROM sqlite_master WHERE type='table' AND name='LocalJob')>0 THEN 'has_collection' ELSE 'empty' END || '|' || CASE WHEN (SELECT count(*) FROM sqlite_master WHERE type='table' AND name='GeneratedAsset')>0 THEN 'has_cap' ELSE 'no_cap' END || '|' || CASE WHEN (SELECT count(*) FROM sqlite_master WHERE type='table' AND name='LangGraphCheckpoint')>0 THEN 'has_cp' ELSE 'no_cp' END`,
       ],
       { stdio: 'pipe' },
     )
@@ -42,7 +42,7 @@ try {
   }
 } catch {
   // sqlite3 不可用则回退：直接执行增量（表已存在时走 already-exists 幂等忽略）
-  state = 'has_collection|no_cap'
+  state = 'has_collection|no_cap|no_cp'
 }
 
 try {
@@ -54,6 +54,10 @@ try {
     runExecute(resolve(root, 'prisma/migrations/20260924_capability_tables/migration.sql'))
   }
   // 否则已全量迁移，无需再执行
+  // 增量能力迁移已就绪后，单独补 checkpoint 表（LangGraph 断点续跑），幂等跳过已存在
+  if (!state.includes('has_cp')) {
+    runExecute(resolve(root, 'prisma/migrations/20260925_langgraph_checkpoint/migration.sql'))
+  }
 } catch (e) {
   const msg = String(e?.stderr || e?.stdout || e?.message || '')
   if (msg.includes('already exists')) {

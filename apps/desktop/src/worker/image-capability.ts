@@ -20,6 +20,8 @@ export interface GenerateImageInput {
   productName?: string
   productId?: string
   createdBy?: string
+  // 前端成套生成时会传入同一 jobId 以便按批次回查（asset.list）；缺省时 worker 自行生成。
+  jobId?: string
 }
 
 function references(image?: string, images?: string[]) {
@@ -77,7 +79,7 @@ export async function generateImageCapability(input: GenerateImageInput, provide
   })
   if (!images.length) throw new Error('AI 未返回可用的生成图片')
   const db = getWorkerPrisma()
-  const jobId = `product-sets-${Date.now()}-${randomUUID().slice(0, 8)}`
+  const jobId = input.jobId || `product-sets-${Date.now()}-${randomUUID().slice(0, 8)}`
   const assetIds: string[] = []
   const resultImages: Array<{ id: string; url: string; dataUrl: string; mimeType: string }> = []
   for (const [index, image] of images.entries()) {

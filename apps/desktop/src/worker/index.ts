@@ -17,6 +17,9 @@ import {
   type ListProductsInput,
 } from './platform-capability'
 import { expandPrompts, extractImageText, generateDetailWorkflow, generatePrompts, generateRetouchPrompt, mainImageDescriptions, type ProductSetsInput } from './product-sets-capability'
+import { PrismaCheckpointSaver } from './checkpoint-saver'
+import { runProductSetGraph, type GenerationSlotGraph } from './product-sets-graph'
+import { runDetailGraph, type DetailModuleGraph } from './detail-graph'
 import { getSelfConfig, saveSelfConfig, setServerDefault, type SaveSelfConfigInput } from './ai-config'
 import { cancelAnalysisJob, createAnalysisJob, getAnalysisJob, type CreateAnalysisJobInput } from './analysis-capability'
 import { createProduct, deleteProduct, listProducts, updateProduct, type SaveProductInput } from './product-capability'
@@ -118,6 +121,143 @@ export function createBuiltinHandlers(): Record<string, CapabilityHandler> {
     'productSets.generateRetouchPrompt': async (payload) => generateRetouchPrompt(payload as Parameters<typeof generateRetouchPrompt>[0]),
     'productSets.extractImageText': async (payload) => extractImageText(payload as { userId: string; imageUrl: string }),
     'productSets.mainImageDescriptions': async (payload) => mainImageDescriptions(String((payload as { runId?: string })?.runId ?? '')),
+    // LangGraph 编排的商品主图套图生成：planPrompts → Send 扇出逐图 generateOne，checkpoint 落本地 SQLite。
+    // 流式经 ctx.emit 转发节点级进度（node:planPrompts / node:generateImage / done）。
+    'productSets.graph.run': async (payload, ctx) => {
+      const roots = workerDataRoots()
+      const p = payload as {
+        userId: string
+        tenantId?: string
+        settings?: ProductSetsInput['settings']
+        baseText?: string
+        reportText?: string
+        information?: string
+        productName?: string
+        mainImage?: string
+        images?: string[]
+        slots?: unknown[]
+        jobId: string
+      }
+      const slots: GenerationSlotGraph[] = (Array.isArray(p.slots) ? p.slots : []).map((s, index) => {
+        const rec = (s ?? {}) as Record<string, unknown>
+        return {
+          id: String(rec.id ?? `slot-${index}`),
+          name: String(rec.name ?? ''),
+          type: String(rec.type ?? ''),
+          typeKey: String(rec.typeKey ?? ''),
+          sequence: Number(rec.sequence ?? index + 1),
+          prompt: String(rec.prompt ?? ''),
+          status: 'idle' as const,
+        }
+      })
+      const deps = {
+        checkpointer: new PrismaCheckpointSaver(),
+        planPrompts: async (slotItems: GenerationSlotGraph[]): Promise<Record<string, string>> => {
+          const res = await generatePrompts({
+            userId: p.userId,
+            settings: p.settings,
+            baseText: p.baseText,
+            reportText: p.reportText,
+            information: p.information,
+            promptSlots: slotItems.map((s) => ({ id: s.id, name: s.name, type: s.type, sequence: s.sequence })),
+          })
+          return Object.fromEntries((res.prompts ?? []).map((x) => [x.id ?? '', x.prompt ?? '']))
+        },
+        generateImage: async ({ slot, jobId }: { slot: GenerationSlotGraph; jobId: string }) => {
+          const imgRes = await generateImageCapability(
+            {
+              userId: p.userId,
+              tenantId: p.tenantId ?? 'local',
+              prompt: slot.prompt,
+              size: '2K',
+              ratio: p.settings?.ratio,
+              image: p.mainImage || undefined,
+              images: p.images ?? [],
+              name: slot.name,
+              slotType: slot.type,
+              productName: p.productName?.trim() || undefined,
+              jobId,
+            },
+            undefined,
+            roots.userRoot,
+          )
+          const img = imgRes.images[0]
+          if (!img) throw new Error('当前未接入真实图像服务，未返回可展示图片')
+          return {
+            url: img.url,
+            asset: {
+              id: img.id,
+              url: img.url,
+              originalName: slot.name,
+              category: slot.type,
+              prompt: slot.prompt,
+              ratio: p.settings?.ratio ?? '1:1',
+              productName: p.productName?.trim() || undefined,
+            },
+          }
+        },
+      }
+      return runProductSetGraph(deps, { slots }, { threadId: p.jobId, emit: (event) => ctx?.emit(event) })
+    },
+    // LangGraph 编排的详情图批量生成：dispatch → Send 扇出逐模块 generateOne（规划阶段仍为页内单次调用 + 人工审改）。
+    // 流式经 ctx.emit 转发节点级进度（node:generateImage / done）。
+    'productSets.detailGraph.run': async (payload, ctx) => {
+      const roots = workerDataRoots()
+      const p = payload as {
+        userId: string
+        tenantId?: string
+        settings?: ProductSetsInput['settings']
+        images?: string[]
+        modules?: unknown[]
+        jobId: string
+      }
+      const modules: DetailModuleGraph[] = (Array.isArray(p.modules) ? p.modules : []).map((m, index) => {
+        const rec = (m ?? {}) as Record<string, unknown>
+        return {
+          instanceId: String(rec.instanceId ?? `module-${index}`),
+          title: String(rec.title ?? ''),
+          key: String(rec.key ?? ''),
+          prompt: String(rec.prompt ?? ''),
+          status: 'idle' as const,
+          sequence: Number(rec.sequence ?? index + 1),
+        }
+      })
+      const deps = {
+        checkpointer: new PrismaCheckpointSaver(),
+        generateImage: async ({ module, jobId }: { module: DetailModuleGraph; jobId: string }) => {
+          const imgRes = await generateImageCapability(
+            {
+              userId: p.userId,
+              tenantId: p.tenantId ?? 'local',
+              prompt: module.prompt,
+              size: '2K',
+              ratio: p.settings?.ratio,
+              image: p.images?.[0],
+              images: p.images ?? [],
+              name: module.title,
+              slotType: module.title,
+              jobId,
+            },
+            undefined,
+            roots.userRoot,
+          )
+          const img = imgRes.images[0]
+          if (!img) throw new Error('当前未接入真实图像服务，未返回可展示图片')
+          return {
+            url: img.url,
+            asset: {
+              id: img.id,
+              url: img.url,
+              originalName: module.title,
+              category: module.title,
+              prompt: module.prompt,
+              ratio: p.settings?.ratio ?? '1:1',
+            },
+          }
+        },
+      }
+      return runDetailGraph(deps, { modules }, { threadId: p.jobId, emit: (event) => ctx?.emit(event) })
+    },
     'report.generate': async (payload) => generateReport(payload as GenerateReportInput),
     'report.jobs': async (payload) => listReportJobs(payload as { tenantId: string; status?: string; page?: number; pageSize?: number }),
     'report.list': async (payload) => listReports(payload as { tenantId: string; keyword?: string; status?: string; page?: number; pageSize?: number }),

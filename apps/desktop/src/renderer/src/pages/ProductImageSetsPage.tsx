@@ -394,55 +394,46 @@ export function ProductImageSetsPage() {
         selectedReport ? `已选择AI报告：${selectedReport.label || selectedReport.keyword || ''}` : '',
         reportSellingPoints.length ? `报告主图卖点：${reportSellingPoints.join('、')}` : '',
       ].filter(Boolean).join('\n')
-      const promptData = await window.desktop?.capabilities.invoke('productSets.generatePrompts', {
-        userId: currentUserId,
-        settings,
-        baseText: generationText,
-        reportText,
-        information: generationText.trim() || '以用户上传商品原图中可见信息为准',
-        promptSlots: newSlots.map((slot, index) => ({
-          id: slot.id,
-          name: slot.name,
-          type: slot.type,
-          typeKey: slot.typeKey,
-          sequence: index + 1,
-        })),
-      }) as { ok?: boolean; prompts?: Array<{ id?: string; prompt?: string }> } | undefined
-      const promptMap = new Map((promptData?.prompts ?? []).map((item) => [item.id ?? '', item.prompt ?? '']))
-      const preparedSlots = newSlots.map((slot) => ({ ...slot, prompt: promptMap.get(slot.id) ?? '' }))
-      if (preparedSlots.some((slot) => !slot.prompt.trim())) {
-        throw new Error('生成主图提示词不完整，请重试。')
-      }
-      setSlots(preparedSlots)
-
       const jobId = `product-sets-${nanoid(12)}`
       setGenerationJobId(jobId)
       localStorage.setItem('eca.productImageSets.latestJobId', jobId)
 
-      let failedCount = 0
-      for (const slot of preparedSlots) {
-        try {
-          const res = await window.desktop?.capabilities.invoke('image.generate', {
-            userId: currentUserId,
-            tenantId: 'local',
-            prompt: slot.prompt,
-            size: '2K',
-            jobId,
-            name: slot.name,
-            slotType: slot.type,
-            image: uploadedImages.find((i) => i.isMain)?.url || uploadedImages[0]?.url,
-            images: uploadedImages.map((i) => i.url),
-            ratio: settings.ratio,
-            productName: productName.trim() || undefined,
-          }) as { images?: Array<{ url: string }>; url?: string } | undefined
-          const imgUrl = res?.images?.[0]?.url || res?.url
-          if (!imgUrl) throw new Error('当前未接入真实图像服务，未返回可展示图片')
-          setSlots((prev) => prev.map((s) => (s.id === slot.id ? { ...s, status: 'done', imageUrl: imgUrl } : s)))
-        } catch (err) {
-          failedCount += 1
-          const message = err instanceof Error ? err.message : String(err)
-          setSlots((prev) => prev.map((s) => (s.id === slot.id ? { ...s, status: 'failed', error: message } : s)))
+      // LangGraph 编排：planPrompts → 逐图 generateOne（worker 内 Send 扇出 + checkpoint 落本地 SQLite）。
+      // 每张图位的进度经 IPC 流式节点事件回显；jobId 即 thread_id，崩溃后可同 jobId 续跑。
+      const unsub = window.desktop?.capabilities.onStream((event) => {
+        if (event.type === 'node' && event.data?.node === 'generateImage') {
+          const d = event.data as { slotId?: string; status?: GenerationSlot['status']; imageUrl?: string; error?: string }
+          if (!d.slotId) return
+          setSlots((prev) =>
+            prev.map((s) => (s.id === d.slotId ? { ...s, status: d.status ?? s.status, imageUrl: d.imageUrl, error: d.error } : s)),
+          )
         }
+      })
+      let failedCount = 0
+      try {
+        const res = (await window.desktop?.capabilities.invoke('productSets.graph.run', {
+          userId: currentUserId,
+          tenantId: 'local',
+          settings,
+          baseText: generationText,
+          reportText,
+          information: generationText.trim() || '以用户上传商品原图中可见信息为准',
+          productName: productName.trim() || undefined,
+          mainImage: uploadedImages.find((i) => i.isMain)?.url || uploadedImages[0]?.url,
+          images: uploadedImages.map((i) => i.url),
+          slots: newSlots.map((slot) => ({
+            id: slot.id,
+            name: slot.name,
+            type: slot.type,
+            typeKey: slot.typeKey,
+            sequence: slot.slotIndex,
+            prompt: '',
+          })),
+          jobId,
+        })) as { ok?: boolean; failedCount?: number } | undefined
+        failedCount = res?.failedCount ?? 0
+      } finally {
+        unsub?.()
       }
       if (failedCount) setError(`${failedCount} 张图片生成失败，其余图片已保留在右侧。`)
     } catch (err) {

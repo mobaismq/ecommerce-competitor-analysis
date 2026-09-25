@@ -319,6 +319,37 @@ model GeneratedAsset {
   @@index([tenantId, createdAt])
 }
 
+// ===== LangGraph checkpoint（供 productSets.graph.run 断点续跑；由 checkpoint-saver.ts 读写）=====
+// checkpoint/metadata/value 为 JsonPlusSerializer.dumpsTyped 结果的 base64（兼容 json/bytes 两种类型）。
+model LangGraphCheckpoint {
+  id                 String   @id @default(cuid())
+  threadId           String
+  checkpointNs       String   @default("")
+  checkpointId       String
+  parentCheckpointId String?
+  checkpoint         String
+  metadata           String
+  createdAt          DateTime @default(now())
+
+  @@unique([threadId, checkpointNs, checkpointId])
+  @@index([threadId])
+}
+
+model LangGraphCheckpointWrite {
+  id           String   @id @default(cuid())
+  threadId     String
+  checkpointNs String   @default("")
+  checkpointId String
+  taskId       String
+  writeIdx     Int
+  channel      String
+  value        String
+  createdAt    DateTime @default(now())
+
+  @@unique([threadId, checkpointNs, checkpointId, taskId, writeIdx])
+  @@index([threadId])
+}
+
 model Agent {
   id               String   @id @default(cuid())
   tenantId         String

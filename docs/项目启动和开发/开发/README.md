@@ -12,6 +12,7 @@
 | [04-代码写法与验证门禁.md](./04-代码写法与验证门禁.md) | 分层写法、IPC 契约、唯一权威判据铁律、测试红线、typecheck/test/build 门禁 | 写代码过程中与提交前 |
 | [05-Git协作与冲突处理.md](./05-Git协作与冲突处理.md) | 分支模型、拉分支/提交流程、提交信息风格、冲突（lockfile/迁移文件）解决 | 拉代码、提交、合并遇冲突时 |
 | [06-采集报告链路与断点.md](./06-采集报告链路与断点.md) | 「采集→分析报告」链路的当前逻辑、已解决的坑、**未闭环的诚实边界**（真实店透视爬虫缺 structured products 清单）与给同事的提醒 | **改 `run_diantoushi_rpa_cdp.py` / `collection-*` / `collection-importer` / 快照表 / `report-capability` 前必读** |
+| [07-工作流编排技术方案.md](./07-工作流编排技术方案.md) | LangGraph + 自研 checkpoint 的技术方案：已编排场景（商品主图 `productSets.graph.run` / 详情图 `productSets.detailGraph.run`）、流事件协议、**未迁场景与「照做模板」**、LangGraph JS v1 关键坑、checkpoint 表与后续改造方向 | **改 `product-sets-graph` / `detail-graph` / `checkpoint-saver` / 新增 LangGraph 编排能力前必读** |
 
 ## 使用约定
 

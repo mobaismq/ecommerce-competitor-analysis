@@ -235,6 +235,9 @@ export function APlusDetailPage() {
 
       const data = await desktopInvoke('productSets.generateDetailWorkflow', {
         userId: currentUserId,
+        settings,
+        // 透传商品卖点作为 information，避免 worker 端【信息整理补全】为空
+        baseText: detailGenerationText,
         reportText,
         // 后端 normalizeDetailModuleType 仅识别中文模块名（DETAIL_MODULE_ORDER），故传 title 而非英文 key
         promptSlots: checkedModules.map((m) => m.title),
@@ -383,12 +386,37 @@ export function APlusDetailPage() {
   }
 
   const handleBatchGenerateAll = async () => {
+    if (!selectedModules.length) return
     setBatchGenerating(true)
-    for (const mod of selectedModules) {
-      await generateSingleModuleImage(mod.instanceId)
+    const jobId = `detail-${nanoid(12)}`
+    // LangGraph 编排：dispatch → Send 扇出逐模块 generateOne；每模块进度经 IPC 节点事件回显。
+    const unsub = window.desktop?.capabilities.onStream((event) => {
+      if (event.type === 'node' && event.data?.node === 'generateImage') {
+        const d = event.data as { instanceId?: string; status?: SelectedModuleItem['status']; imageUrl?: string; error?: string }
+        if (!d.instanceId) return
+        setSelectedModules((prev) =>
+          prev.map((m) => (m.instanceId === d.instanceId ? { ...m, status: d.status ?? m.status, imageUrl: d.imageUrl, error: d.error } : m)),
+        )
+      }
+    })
+    try {
+      setSelectedModules((prev) => prev.map((m) => ({ ...m, status: 'generating' as const })))
+      const res = (await desktopInvoke('productSets.detailGraph.run', {
+        userId: currentUserId,
+        tenantId: 'local',
+        settings,
+        images: uploadedImages.map((i) => i.url),
+        modules: selectedModules.map((m, i) => ({ instanceId: m.instanceId, title: m.title, key: m.key, prompt: m.prompt, sequence: i + 1 })),
+        jobId,
+      })) as { ok?: boolean; failedCount?: number } | undefined
+      if (res?.failedCount) Message.error(`${res.failedCount} 个模块生成失败，其余已保留。`)
+      else Message.success('全部详情切片图已生成完毕！')
+    } catch (err) {
+      Message.error(err instanceof Error ? err.message : '批量生成失败')
+    } finally {
+      unsub?.()
+      setBatchGenerating(false)
     }
-    setBatchGenerating(false)
-    Message.success('全部详情切片图已生成完毕！')
   }
 
   const handleDownloadImage = (url: string, filename = 'detail-image.png') => {
