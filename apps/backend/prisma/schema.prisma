@@ -105,7 +105,7 @@ model Platform {
   code      String    @unique
   name      String
   enabled   Boolean   @default(true)
-  logo      String?
+  logo      String?   @db.Text
   deletedAt DateTime?
   stores    Store[]
 }
@@ -275,7 +275,7 @@ model AnalysisPriceBand {
   priceMax          Decimal? @db.Decimal(12, 2)
   productCount      Int
   // 价格段 AI 分析状态：raw(仅基础数据) / partial(历史运行未产出) / analyzed(已AI产出卖点需求)
-  analysisStatus    String  @default("raw")
+  analysisStatus    String   @default("raw") @db.VarChar(32)
   sellingPointsJson Json?
   demandsJson       Json?
   imagePromptsJson  Json?
@@ -386,13 +386,13 @@ model GeneratedAsset {
   originalName String?
   sourceUrl    String?
   runId        String?
-  category     String?
-  prompt       String?
-  ratio        String?
-  productId    String?
-  productName  String?
+  category     String?  @db.Text
+  prompt       String?  @db.Text
+  ratio        String?  @db.Text
+  productId    String?  @db.Text
+  productName  String?  @db.Text
   createdBy    String?
-  platform     String?
+  platform     String?  @db.Text
   createdAt    DateTime @default(now())
 
   @@index([tenantId, createdAt])
