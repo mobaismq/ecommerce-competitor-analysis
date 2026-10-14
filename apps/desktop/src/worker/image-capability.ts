@@ -6,6 +6,46 @@ export interface ImageProvider {
   generate(input: { prompt: string; count: number; size?: string; aspectRatio?: string; referenceImageUrls: string[] }): Promise<string[]>
 }
 
+/**
+ * 简单信号量：限制同一时刻并发执行的任务数（无第三方依赖）。
+ * 用于给"真实生图请求"加并发闸，避免 LangGraph 并行扇出时无界并发触发供应商限流/429。
+ */
+export class Semaphore {
+  private running = 0
+  private readonly queue: Array<() => void> = []
+
+  constructor(private readonly limit: number) {}
+
+  async acquire(): Promise<void> {
+    if (this.running < this.limit) {
+      this.running += 1
+      return
+    }
+    await new Promise<void>((resolve) => this.queue.push(resolve))
+    this.running += 1
+  }
+
+  release(): void {
+    this.running -= 1
+    const next = this.queue.shift()
+    if (next) next()
+  }
+
+  /** 以信号量为界执行任务：入队等待 → 执行 → 释放。 */
+  async run<T>(fn: () => Promise<T>): Promise<T> {
+    await this.acquire()
+    try {
+      return await fn()
+    } finally {
+      this.release()
+    }
+  }
+}
+
+/** 真实生图最大并发数（用户确认 4-5，取上限 5）：主图 5 张≈全量一批，详情图多模块分批排队。 */
+export const MAX_CONCURRENT_IMAGE_GENERATIONS = 5
+const imageGenerateSemaphore = new Semaphore(MAX_CONCURRENT_IMAGE_GENERATIONS)
+
 export interface GenerateImageInput {
   userId: string
   tenantId: string
@@ -46,24 +86,27 @@ export function createRealImageProvider(userId: string): ImageProvider {
   if (!config) throw new CapabilityNotConfiguredError()
   return {
     async generate(input) {
-      // 统一走 images/generations；OpenRouter 类支持参考图（input_references），OpenAI 兼容类走 size
-      const endpoint = `${config.baseUrl.replace(/\/+$/, '')}/images/generations`
-      const body: Record<string, unknown> = { model: config.imageModel, prompt: input.prompt, n: input.count }
-      if (config.kind === 'openrouter') {
-        if (input.aspectRatio) body.aspect_ratio = input.aspectRatio
-        if (input.referenceImageUrls.length) body.input_references = input.referenceImageUrls.map((url) => ({ type: 'image_url', image_url: { url } }))
-      } else body.size = input.size ?? '1024x1024'
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${config.apiKey}` },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(config.timeoutMs ?? 120_000),
+      // 真实生图请求过并发闸（默认 5），排队等待而非无界并发，避免触发供应商限流
+      return imageGenerateSemaphore.run(async () => {
+        // 统一走 images/generations；OpenRouter 类支持参考图（input_references），OpenAI 兼容类走 size
+        const endpoint = `${config.baseUrl.replace(/\/+$/, '')}/images/generations`
+        const body: Record<string, unknown> = { model: config.imageModel, prompt: input.prompt, n: input.count }
+        if (config.kind === 'openrouter') {
+          if (input.aspectRatio) body.aspect_ratio = input.aspectRatio
+          if (input.referenceImageUrls.length) body.input_references = input.referenceImageUrls.map((url) => ({ type: 'image_url', image_url: { url } }))
+        } else body.size = input.size ?? '1024x1024'
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', authorization: `Bearer ${config.apiKey}` },
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(config.timeoutMs ?? 120_000),
+        })
+        const payload = await response.json().catch(() => ({}))
+        if (!response.ok) throw new Error(`AI 生图请求失败: HTTP ${response.status}`)
+        return ((payload as { data?: Array<{ url?: string; b64_json?: string; media_type?: string }> }).data ?? [])
+          .map((item) => item.url || (item.b64_json ? `data:${item.media_type || 'image/png'};base64,${item.b64_json}` : ''))
+          .filter(Boolean)
       })
-      const payload = await response.json().catch(() => ({}))
-      if (!response.ok) throw new Error(`AI 生图请求失败: HTTP ${response.status}`)
-      return ((payload as { data?: Array<{ url?: string; b64_json?: string; media_type?: string }> }).data ?? [])
-        .map((item) => item.url || (item.b64_json ? `data:${item.media_type || 'image/png'};base64,${item.b64_json}` : ''))
-        .filter(Boolean)
     },
   }
 }
