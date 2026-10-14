@@ -69,6 +69,37 @@ describe('expandPrompts streaming', () => {
       global.fetch = originalFetch
     }
   })
+
+  it('sends the 5-segment product-info template (M6/D1), not slot-prompt JSON', async () => {
+    const originalFetch = global.fetch
+    let sentBody = ''
+    global.fetch = (async (_url: unknown, init?: RequestInit) => {
+      sentBody = String(init?.body ?? '')
+      return new Response(
+        new ReadableStream({
+          start(controller) {
+            const enc = new TextEncoder()
+            controller.enqueue(enc.encode('data: {"choices":[{"delta":{"content":"1、商品名称：测试裙\\n2、核心卖点：A"}}]}\n\n'))
+            controller.enqueue(enc.encode('data: [DONE]\n\n'))
+            controller.close()
+          },
+        }),
+        { status: 200 },
+      )
+    }) as unknown as typeof fetch
+    try {
+      await expandPrompts({ userId: 'u1', information: '粉色吊带裙', settings: { platform: '淘宝', country: '中国', language: '中文', ratio: '1:1' } }, () => undefined)
+      expect(sentBody).toContain('1、商品名称')
+      expect(sentBody).toContain('2、核心卖点')
+      expect(sentBody).toContain('3、适用人群')
+      expect(sentBody).toContain('5、规格参数')
+      expect(sentBody).toContain('用户上传的商品原图为唯一事实依据')
+      expect(sentBody).not.toContain('"prompts"')
+      expect(sentBody).not.toContain('完整图生图提示词')
+    } finally {
+      global.fetch = originalFetch
+    }
+  })
 })
 
 describe('mainImageDescriptions', () => {

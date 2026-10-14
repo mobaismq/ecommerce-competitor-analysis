@@ -1,5 +1,6 @@
 import { createRealAiProvider, type StreamEvent } from './ai-provider'
 import {
+  buildAiHelpWritePrompt,
   buildImagePromptGenerationPrompt,
   buildImageRetouchPromptGenerationPrompt,
   normalizeGeneratedImagePrompts,
@@ -36,18 +37,14 @@ export async function generatePrompts(input: ProductSetsInput) {
   return { ok: true, prompts, model: ai.model }
 }
 
-/** AI 帮写提示词（text）。对齐后端 expandPrompts；经 IPC 事件流逐块下发。 */
+/** AI 帮写（走查 M6/D1）：输出商品信息 5 段结构。对齐后端 expandPrompts；经 IPC 事件流逐块下发。 */
 export async function expandPrompts(input: ProductSetsInput, emit: (event: StreamEvent) => void) {
-  const selected = normalizeSelectedSlots(input.selectedSlots ?? [])
-  const slots = selected.length ? selected : normalizeRequestedPromptSlots(input.promptSlots ?? [])
-  const prompt = buildImagePromptGenerationPrompt({
+  const prompt = buildAiHelpWritePrompt({
     settings: input.settings,
     information: input.information,
-    designPlan: input.reportText,
-    promptSlots: slots,
   })
   const provider = createRealAiProvider(input.userId)
-  const ai = await provider.streamText({ prompt, system: '你是电商主图提示词策划，请输出详细可执行的各图位提示词。', maxTokens: 3000 }, emit)
+  const ai = await provider.streamText({ prompt, system: '你是电商资深运营，只输出商品信息 5 段结构，不要输出任何解释。', maxTokens: 2000 }, emit)
   emit({ type: 'done', text: ai.text, data: { content: ai.text, model: ai.model } })
   return { text: ai.text, model: ai.model }
 }

@@ -4,39 +4,37 @@ import {
   Card,
   Grid,
   Input,
-  InputNumber,
   Message,
   Modal,
-  Popover,
-  Progress,
-  Radio,
   Select,
   Spin,
   Switch,
-  Tag,
-  Tooltip,
 } from '@arco-design/web-react'
 import {
   Check,
-  ChevronDown,
   Download,
   Image as ImageIcon,
-  Lightbulb,
   Loader2,
   Maximize2,
   Minus,
+  MoreHorizontal,
   Plus,
   RefreshCw,
   Sparkles,
   Trash2,
+  Type,
   Upload as UploadIcon,
+  Wand2,
   X,
 } from 'lucide-react'
 import { AIReportSelector, SectionTitle, type SuiteProduct } from '../components/AIReportSelector'
+import { AiHelpPopover } from '../components/AiHelpPopover'
+import { CircleHelp } from 'lucide-react'
 import { ProductImageHelpTooltip } from '../components/ProductImageHelpTooltip'
 import { useAuth } from '../store/auth'
 import { saveAs } from 'file-saver'
 import { nanoid } from 'nanoid'
+import { imageSourceToJpegBlob } from '../image-tools'
 import mainHeadphone from '../assets/main-headphone.png'
 import sceneDisplay from '../assets/scene-display.png'
 import sellingPoint from '../assets/selling-point.png'
@@ -54,6 +52,15 @@ const PLATFORM_OPTIONS = [
 const COUNTRY_OPTIONS = ['中国', '美国', '英国', '德国', '法国', '意大利', '西班牙', '日本', '韩国', '加拿大', '澳大利亚', '新加坡', '马来西亚', '泰国', '越南', '巴西', '墨西哥']
 const LANGUAGE_OPTIONS = ['英文', '中文', '日文', '韩文', '德文', '法文', '意大利文', '西班牙文', '葡萄牙文', '荷兰文', '波兰文', '泰文', '越南文', '印尼文']
 const RATIO_OPTIONS = ['1:1', '3:4', '4:3', '9:16', '16:9']
+const RESIZE_OPTIONS: Array<{ label: string; value: string }> = [
+  { label: '普通A+ 970:600', value: '970:600' },
+  { label: '高级A+（Web端）1464:600', value: '1464:600' },
+  { label: '高级A+（移动端）600:450', value: '600:450' },
+  { label: '1:1', value: '1:1' },
+  { label: '3:4', value: '3:4' },
+  { label: '9:16', value: '9:16' },
+  { label: '16:9', value: '16:9' },
+]
 
 interface UploadedImage {
   id: string
@@ -69,7 +76,7 @@ const SUITE_TYPES: Array<{ key: SuiteTypeKey; label: string; desc: string }> = [
   { key: 'scene', label: '场景图', desc: '单一真实使用场景，突出商品佩戴/使用效果' },
   { key: 'selling', label: '卖点图', desc: '聚焦单个核心卖点，配合短文案说明' },
   { key: 'function', label: '细节说明', desc: '展示商品可见细节、结构、使用方式和参数信息' },
-  { key: 'detail', label: '卖点详解', desc: '拆解商品核心卖点、适用场景和购买理由' },
+  { key: 'detail', label: '买点详解', desc: '拆解商品核心卖点、适用场景和购买理由' },
 ]
 
 interface GenerationSlot {
@@ -120,7 +127,6 @@ export function ProductImageSetsPage() {
   const [loadingDescriptions, setLoadingDescriptions] = useState(false)
   const [aiHelpOpen, setAiHelpOpen] = useState(false)
   const [expandingPrompts, setExpandingPrompts] = useState(false)
-  const [aiHelpThinking, setAiHelpThinking] = useState('')
   const [aiHelpText, setAiHelpText] = useState('')
   const [error, setError] = useState('')
 
@@ -144,6 +150,13 @@ export function ProductImageSetsPage() {
   const [generating, setGenerating] = useState(false)
   const [generationJobId, setGenerationJobId] = useState('')
   const [actionPanel, setActionPanel] = useState<SlotActionPanel | null>(null)
+  // 结果看板：已勾选图位（M10 全选/批量操作）
+  const [selectedSlotIds, setSelectedSlotIds] = useState<string[]>([])
+  // 更多操作悬浮面板目标（M11）
+  const [moreMenuSlotId, setMoreMenuSlotId] = useState<string | null>(null)
+  // 智能改尺寸面板目标：null=关闭；'batch'=批量；slotId=单张（M14/M15）
+  const [resizeTargets, setResizeTargets] = useState<string[] | null>(null)
+  const [resizeRatio, setResizeRatio] = useState(settings.ratio)
 
   // 计算当前总张数
   const totalImageCount = useMemo(() => {
@@ -283,16 +296,13 @@ export function ProductImageSetsPage() {
     }
     setAiHelpOpen(true)
     setExpandingPrompts(true)
-    setAiHelpThinking('')
     setAiHelpText('')
 
     try {
       let fullContent = ''
       // 流式经本地 IPC 事件通道（worker→主进程→渲染层），替代原 SSE HTTP 传输
       const unsub = window.desktop?.capabilities.onStream((event) => {
-        if (event.type === 'thinking') {
-          setAiHelpThinking((prev) => prev + '\n' + (event.data?.content || event.text || ''))
-        } else if (event.type === 'content') {
+        if (event.type === 'content') {
           fullContent += event.text || ''
           setAiHelpText(fullContent)
         } else if (event.type === 'done') {
@@ -316,7 +326,6 @@ export function ProductImageSetsPage() {
       setAiHelpText(fullContent)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      setAiHelpThinking('')
       setAiHelpText('')
       Message.error(message)
     } finally {
@@ -503,6 +512,37 @@ export function ProductImageSetsPage() {
     }
   }
 
+  // 带目标比例的图位生成（智能改尺寸用，M14）
+  const generateSlotWithPromptWithRatio = async (slotId: string, prompt: string, referenceImages: string[], ratio: string) => {
+    const slot = slots.find((item) => item.id === slotId)
+    if (!slot) return
+    setActionPanel(null)
+    setSlots((prev) => prev.map((item) => (item.id === slotId ? { ...item, status: 'generating', error: undefined } : item)))
+    try {
+      const data = await window.desktop?.capabilities.invoke('image.generate', {
+        userId: currentUserId,
+        tenantId: 'local',
+        prompt,
+        size: '2K',
+        jobId: generationJobId || `product-sets-${nanoid(12)}`,
+        name: slot.name,
+        slotType: slot.type,
+        image: referenceImages[0],
+        images: referenceImages.slice(0, 4),
+        ratio,
+        productName: productName.trim() || undefined,
+      }) as { images?: Array<{ url: string }> } | undefined
+      const url = data?.images?.[0]?.url
+      if (!url) throw new Error('当前未接入真实图像服务，未返回可展示图片')
+      setSlots((prev) => prev.map((item) => (item.id === slotId ? { ...item, status: 'done', imageUrl: url } : item)))
+      Message.success('图片处理完成')
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      setSlots((prev) => prev.map((item) => (item.id === slotId ? { ...item, status: 'failed', error: message } : item)))
+      Message.error(message)
+    }
+  }
+
   const openTextEditor = async (slot: GenerationSlot) => {
     if (!slot.imageUrl) {
       Message.warning('请先生成图片，再编辑文字')
@@ -529,22 +569,31 @@ export function ProductImageSetsPage() {
     )
   }
 
+  // AI 改图双逻辑（M12）：描述提到商品错误 → 以商品原图为主重新生成；未提及 → 以已生成图为原图微调
+  const PRODUCT_ERROR_KEYWORDS = ['变形', '颜色错', '外观错', '结构错', '不像', '错误', '出错', '错位', '比例错', '商品坏了', '瑕疵']
+
   const runRetouchEditor = async () => {
     if (!actionPanel || !actionPanel.direction.trim()) return
     const slot = slots.find((item) => item.id === actionPanel.slotId)
     if (!slot?.imageUrl) return
     setActionPanel((prev) => (prev ? { ...prev, loading: true } : prev))
     try {
+      const direction = actionPanel.direction.trim()
+      const mentionsProductError = PRODUCT_ERROR_KEYWORDS.some((kw) => direction.includes(kw))
+      // 参考图组合：商品出错 → [商品原图, 已生成图]（product_fix 语义）；未出错 → [已生成图]（retouch 语义）
+      const referenceImages = mentionsProductError
+        ? [uploadedImages.find((i) => i.isMain)?.url || uploadedImages[0]?.url, slot.imageUrl].filter(Boolean) as string[]
+        : [slot.imageUrl]
       const data = await window.desktop?.capabilities.invoke('productSets.generateRetouchPrompt', {
         userId: currentUserId,
         settings,
         slot: { id: slot.id, name: slot.name, type: slot.type },
         originalPrompt: slot.prompt,
-        userDirection: actionPanel.direction.trim(),
+        userDirection: direction,
       }) as { prompt?: string } | undefined
       const retouchPrompt = data?.prompt?.trim()
       if (!retouchPrompt) throw new Error('AI改图提示词为空，请重试')
-      await generateSlotWithPrompt(actionPanel.slotId, retouchPrompt, [slot.imageUrl])
+      await generateSlotWithPrompt(actionPanel.slotId, retouchPrompt, referenceImages)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       setActionPanel((prev) => (prev ? { ...prev, loading: false } : prev))
@@ -552,70 +601,112 @@ export function ProductImageSetsPage() {
     }
   }
 
-  const runSmartResize = async (slot: GenerationSlot) => {
+  // 单图智能改尺寸：按指定目标比例扩图/缩图，已生成图作原图，不改变样式布局（M14）
+  const runSmartResize = async (slot: GenerationSlot, targetRatio: string) => {
     if (!slot.imageUrl) {
       Message.warning('请先生成图片，再智能改尺寸')
       return
     }
-    await generateSlotWithPrompt(
-      slot.id,
-      `智能调整电商图片尺寸到${settings.ratio}，保留商品主体、文字可读性和视觉层次，不裁切关键信息。`,
-      [slot.imageUrl],
-    )
+    setActionPanel(null)
+    setResizeTargets(null)
+    // 透传目标比例而非 settings.ratio，改图按所选尺寸生成
+    await generateSlotWithPromptWithRatio(slot.id, `智能调整电商图片尺寸到${targetRatio}，保留商品主体、文字可读性和视觉层次，不裁切关键信息。`, [slot.imageUrl], targetRatio)
   }
 
-  // 打包下载
-  const handleBatchDownload = () => {
-    const done = slots.filter((s) => s.imageUrl)
+  // 批量智能改尺寸：对已勾选图片逐张执行（M15，逻辑同单张）
+  const runBatchResize = async () => {
+    if (!resizeTargets?.length) {
+      Message.warning('请先选择要改尺寸的图片')
+      return
+    }
+    const targets = slots.filter((s) => resizeTargets.includes(s.id) && s.imageUrl)
+    if (!targets.length) {
+      Message.warning('所选图片尚未生成，无法改尺寸')
+      setResizeTargets(null)
+      return
+    }
+    setResizeTargets(null)
+    for (const slot of targets) {
+      await runSmartResize(slot, resizeRatio)
+    }
+  }
+
+  // 单张下载 jpg（M16）
+  const downloadSingleJpg = async (slot: GenerationSlot) => {
+    if (!slot.imageUrl) return
+    try {
+      const blob = await imageSourceToJpegBlob(slot.imageUrl)
+      saveAs(blob, `${slot.name.replace(/[^\w\u4e00-\u9fa5]/g, '_')}.jpg`)
+    } catch (err) {
+      Message.error(err instanceof Error ? err.message : '下载失败')
+    }
+  }
+
+  // 批量下载：真实落盘到桌面文件夹（M16 批量=文件夹到桌面，主进程 files.saveImageBatch）
+  const handleBatchDownload = async () => {
+    const scope = selectedSlotIds.length ? selectedSlotIds : slots.map((s) => s.id)
+    const done = slots.filter((s) => s.imageUrl && scope.includes(s.id))
     if (done.length === 0) {
       Message.warning('暂无已生成的图片可供下载')
       return
     }
-    done.forEach((s, idx) => {
-      setTimeout(() => {
-        saveAs(s.imageUrl!, `${s.name.replace(/[^\w\u4e00-\u9fa5]/g, '_')}.png`)
-      }, idx * 300)
-    })
-    Message.success(`正在下载 ${done.length} 张套图`)
+    if (!window.desktop?.files) {
+      Message.error('当前环境未接入桌面文件能力，无法批量保存')
+      return
+    }
+    try {
+      const files: Array<{ name: string; data: Uint8Array }> = []
+      for (const s of done) {
+        const blob = await imageSourceToJpegBlob(s.imageUrl!)
+        const bytes = new Uint8Array(await blob.arrayBuffer())
+        files.push({ name: `${s.slotIndex}_${s.type.replace(/[^\w\u4e00-\u9fa5]/g, '')}_${s.name.replace(/[^\w\u4e00-\u9fa5]/g, '_')}.jpg`, data: bytes })
+      }
+      const result = await window.desktop.files.saveImageBatch({ folderName: '商品主图', kind: 'main', files })
+      Message.success(`已保存 ${result.count} 张图片到桌面：${result.folderPath}`)
+    } catch (err) {
+      Message.error(err instanceof Error ? err.message : '批量保存失败')
+    }
   }
 
-  const aiHelpPopoverContent = (
-    <div className="w-[380px] p-3 text-[13px] text-[#0A1B39]">
-      <div className="flex items-center justify-between pb-2 mb-2 border-b border-[#f0f2f5]">
-        <div className="flex items-center gap-1.5 font-bold text-[#1683FF]">
-          <Sparkles className="h-4 w-4" />
-          <span>AI 智能帮写商品卖点</span>
-        </div>
-        {expandingPrompts && <Loader2 className="h-4 w-4 animate-spin text-[#1683FF]" />}
-      </div>
+  // 全选/取消全选（M10：勾选全部已生成图片）
+  const toggleSelectAll = () => {
+    const doneIds = slots.filter((s) => s.imageUrl).map((s) => s.id)
+    if (!doneIds.length) {
+      Message.warning('暂无已生成的图片可供选择')
+      return
+    }
+    setSelectedSlotIds((prev) => (prev.length === doneIds.length ? [] : doneIds))
+  }
 
-      {aiHelpThinking && (
-        <div className="mb-2 p-2 bg-[#f8fafc] rounded text-[11px] text-[#86909C] max-h-24 overflow-y-auto whitespace-pre-wrap font-mono">
-          {aiHelpThinking}
-        </div>
-      )}
+  // 批量删除（M10：删除勾选图位及其落盘资产）
+  const handleBatchDelete = async () => {
+    const targets = slots.filter((s) => selectedSlotIds.includes(s.id))
+    if (!targets.length) {
+      Message.warning('请先勾选要删除的图片')
+      return
+    }
+    await Promise.all(
+      targets.map((s) =>
+        window.desktop?.capabilities
+          .invoke('asset.delete', { id: s.id })
+          .catch(() => undefined),
+      ),
+    )
+    setSlots((prev) => prev.filter((s) => !selectedSlotIds.includes(s.id)))
+    setSelectedSlotIds([])
+    Message.success(`已删除 ${targets.length} 张图片`)
+  }
 
-      <div className="mb-3">
-        <label className="block text-[11px] text-[#86909C] mb-1">提炼出的结构化要求（可编辑）：</label>
-        <Input.TextArea
-          value={aiHelpText}
-          onChange={setAiHelpText}
-          rows={5}
-          placeholder="AI 正在分析并提取..."
-          className="text-[12px]"
-        />
-      </div>
-
-      <div className="flex justify-end gap-2">
-        <Button size="small" onClick={() => setAiHelpOpen(false)}>
-          取消
-        </Button>
-        <Button size="small" type="primary" disabled={!aiHelpText.trim()} onClick={confirmAiHelp}>
-          确认采纳
-        </Button>
-      </div>
-    </div>
-  )
+  // 单图删除（更多操作面板内）
+  const handleDeleteSingle = async (slotId: string) => {
+    const slot = slots.find((s) => s.id === slotId)
+    if (!slot) return
+    await window.desktop?.capabilities.invoke('asset.delete', { id: slot.id }).catch(() => undefined)
+    setSlots((prev) => prev.filter((s) => s.id !== slotId))
+    setSelectedSlotIds((prev) => prev.filter((id) => id !== slotId))
+    setMoreMenuSlotId(null)
+    Message.success('已删除该图片')
+  }
 
   return (
     <div className="relative flex h-full bg-[#f4f7fb] overflow-hidden">
@@ -627,9 +718,8 @@ export function ProductImageSetsPage() {
             <span className="flex items-center gap-1">
               商品原图
               <ProductImageHelpTooltip />
-              <span className="text-[#86909C]">({uploadedImages.length}/6)</span>
             </span>
-            <span className="text-[12px] font-normal text-[#86909C]">最多 6 张</span>
+            <span className="text-[12px] font-normal text-[#86909C]"></span>
           </h2>
 
           <input
@@ -698,7 +788,7 @@ export function ProductImageSetsPage() {
               onClick={() => fileInputRef.current?.click()}
               className="flex h-[94px] cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-[#c9d5e8] bg-[#fbfcfe] hover:bg-[#f5f9ff] hover:border-[#1683FF] transition-colors"
             >
-              <Button size="small" type="secondary" icon={<UploadIcon className="h-3.5 w-3.5" />} className="mb-1.5">
+              <Button size="small" type="secondary" icon={<UploadIcon className="h-3.5 w-3.5" />} className="mb-1.5 rounded-[8px]">
                 上传图片
               </Button>
               <p className="text-[11px] text-[#86909C]">同一产品，最多 6 张</p>
@@ -745,6 +835,7 @@ export function ProductImageSetsPage() {
           <div className="grid grid-cols-2 gap-2 mt-2">
             <Select
               size="small"
+              style={{ borderRadius: 8 }}
               value={settings.platform}
               onChange={(val) => setSettings((s) => ({ ...s, platform: val }))}
             >
@@ -757,6 +848,7 @@ export function ProductImageSetsPage() {
 
             <Select
               size="small"
+              style={{ borderRadius: 8 }}
               value={settings.country}
               onChange={(val) => setSettings((s) => ({ ...s, country: val }))}
             >
@@ -769,6 +861,7 @@ export function ProductImageSetsPage() {
 
             <Select
               size="small"
+              style={{ borderRadius: 8 }}
               value={settings.language}
               onChange={(val) => setSettings((s) => ({ ...s, language: val }))}
             >
@@ -781,6 +874,7 @@ export function ProductImageSetsPage() {
 
             <Select
               size="small"
+              style={{ borderRadius: 8 }}
               value={settings.ratio}
               onChange={(val) => setSettings((s) => ({ ...s, ratio: val }))}
             >
@@ -793,36 +887,31 @@ export function ProductImageSetsPage() {
           </div>
         </div>
 
-        {/* 4. 商品卖点 & 要求 + AI帮写（grid 两列，标题列 min-w-0 防挤压按钮换行裁切） */}
+        {/* 4. 商品卖点 & 要求 + AI帮写（标题与按钮同行垂直居中，M4） */}
         <div className="mb-5">
-          <div className="mb-2 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
-            <SectionTitle help>
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <h2 className="flex min-w-0 items-center gap-1 text-[14px] font-semibold text-[#171A1D]">
               商品卖点&要求
-            </SectionTitle>
-            <Popover
-              content={aiHelpPopoverContent}
-              trigger="click"
-              popupVisible={aiHelpOpen}
+              <CircleHelp className="h-3.5 w-3.5 shrink-0 text-[#8B949E]" />
+            </h2>
+            <AiHelpPopover
+              visible={aiHelpOpen}
               onVisibleChange={setAiHelpOpen}
-              position="right"
-            >
-              <button
-                type="button"
-                onClick={handleAiHelp}
-                disabled={expandingPrompts}
-                className="flex h-7 shrink-0 cursor-pointer items-center gap-1 whitespace-nowrap rounded-full border border-[#D9E8FF] bg-white px-2.5 text-[12px] font-medium text-[#1683FF] shadow-sm disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {expandingPrompts ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Lightbulb className="h-3.5 w-3.5" />}
-                AI 帮写
-              </button>
-            </Popover>
+              busy={expandingPrompts}
+              text={aiHelpText}
+              onTextChange={setAiHelpText}
+              onStart={handleAiHelp}
+              onRetry={handleAiHelp}
+              onConfirm={confirmAiHelp}
+              triggerDisabled={uploadedImages.length === 0}
+            />
           </div>
 
           <Input.TextArea
             value={generationText}
             onChange={setGenerationText}
             rows={4}
-            placeholder={`建议包含以下信息生成更精准：\n1.产品名称\n2.核心卖点\n3.适用人群\n4.期望场景`}
+            placeholder={`建议包含以下信息生成更精准：\n1.产品名称\n2.核心卖点\n3.适用人群\n4.期望场景\n5.具体参数`}
             className="text-[12px] rounded-lg"
           />
 
@@ -1005,12 +1094,12 @@ export function ProductImageSetsPage() {
                   <img src={detailExplain} alt="04 细节说明" className="h-full w-full object-cover group-hover:scale-105 transition-transform" />
                 </div>
 
-                {/* 05 卖点详解 */}
+                {/* 05 买点详解 */}
                 <div className="relative overflow-hidden rounded-xl border border-[#f0f2f5] bg-[#fafbfc] group">
                   <span className="absolute left-2 top-2 z-10 rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-bold text-[#4e5969] shadow-sm">
-                    05 卖点详解
+                    05 买点详解
                   </span>
-                  <img src={modelScene} alt="05 卖点详解" className="h-full w-full object-cover group-hover:scale-105 transition-transform" />
+                  <img src={modelScene} alt="05 买点详解" className="h-full w-full object-cover group-hover:scale-105 transition-transform" />
                 </div>
               </div>
             </div>
@@ -1018,7 +1107,7 @@ export function ProductImageSetsPage() {
         ) : (
           /* ===================== 成图工作台结果看板 ===================== */
           <div className="max-w-[1200px] mx-auto pb-12">
-            {/* 顶栏操作 */}
+            {/* 顶栏操作（M10：全选 → 顶部批量改尺寸/批量下载/批量删除） */}
             <div className="flex items-center justify-between mb-6 pb-4 border-b border-[#e5e8ef]">
               <button
                 type="button"
@@ -1029,21 +1118,69 @@ export function ProductImageSetsPage() {
               </button>
               <h2 className="text-[18px] font-bold text-[#171A1D]">生成结果：</h2>
               <div className="flex items-center gap-3">
-                <Button type="primary" icon={<Download className="h-3.5 w-3.5" />} onClick={handleBatchDownload}>
-                  批量下载
-                </Button>
+                <button
+                  type="button"
+                  onClick={toggleSelectAll}
+                  className="flex h-9 cursor-pointer items-center gap-2 rounded-[8px] bg-white px-3 text-[13px] font-medium text-[#5F6B7A] shadow-[0_1px_0_rgba(15,23,41,.06)] transition-colors hover:bg-[#F5F6F8]"
+                >
+                  <span
+                    className={`grid h-4 w-4 place-items-center rounded-[4px] border ${
+                      selectedSlotIds.length === slots.filter((s) => s.imageUrl).length && selectedSlotIds.length
+                        ? 'border-[#171A1D] bg-[#171A1D] text-white'
+                        : 'border-[#171A1D] bg-white text-transparent'
+                    }`}
+                  >
+                    <Check className="h-3 w-3" />
+                  </span>
+                  全选
+                </button>
+                {selectedSlotIds.length > 0 && (
+                  <>
+                    <Button
+                      type="primary"
+                      icon={<Maximize2 className="h-3.5 w-3.5" />}
+                      onClick={() => setResizeTargets(selectedSlotIds)}
+                    >
+                      批量改尺寸
+                    </Button>
+                    <Button icon={<Download className="h-3.5 w-3.5" />} onClick={handleBatchDownload}>
+                      批量下载
+                    </Button>
+                    <Button type="outline" icon={<Trash2 className="h-3.5 w-3.5" />} status="danger" onClick={() => void handleBatchDelete()}>
+                      批量删除
+                    </Button>
+                  </>
+                )}
               </div>
             </div>
 
-            {/* 成图网格 */}
+            {/* 成图网格（M8：首个格显示上传商品图，区域 1:1，左下角类型标签） */}
             <div className="grid grid-cols-3 gap-5">
+              {/* 首位原图格：展示用户上传的商品图 */}
+              {uploadedImages[0] && (
+                <Card
+                  className="rounded-xl border border-[#e5eaf2] bg-white shadow-sm overflow-hidden"
+                  bodyStyle={{ padding: 14 }}
+                >
+                  <div className="relative aspect-square rounded-lg overflow-hidden bg-[#f4f7fb] mb-3 flex items-center justify-center">
+                    <img src={uploadedImages[0].url} alt="商品原图" className="h-full w-full object-cover" />
+                    <span className="absolute bottom-2 left-2 rounded bg-black/60 px-2 py-0.5 text-[10px] font-bold text-white">
+                      原图
+                    </span>
+                  </div>
+                  <div className="space-y-2">
+                    <p className="text-[13px] font-bold text-[#0A1B39] truncate">商品原图</p>
+                  </div>
+                </Card>
+              )}
+
               {slots.map((slot) => (
                 <Card
                   key={slot.id}
                   className="rounded-xl border border-[#e5eaf2] bg-white shadow-sm overflow-hidden"
                   bodyStyle={{ padding: 14 }}
                 >
-                  <div className="relative aspect-square rounded-lg overflow-hidden bg-[#f4f7fb] mb-3 flex items-center justify-center">
+                  <div className="relative aspect-square rounded-lg overflow-hidden bg-[#f4f7fb] mb-3 flex items-center justify-center group">
                     {slot.status === 'generating' ? (
                       <div className="flex flex-col items-center gap-2">
                         <Spin />
@@ -1055,64 +1192,118 @@ export function ProductImageSetsPage() {
                       <ImageIcon className="h-8 w-8 text-[#c9d5e8]" />
                     )}
 
-                    <span className="absolute top-2 left-2 rounded bg-black/60 px-2 py-0.5 text-[10px] font-bold text-white">
+                    {/* 左下角类型标签（M8） */}
+                    <span className="absolute bottom-2 left-2 rounded bg-black/60 px-2 py-0.5 text-[10px] font-bold text-white">
                       #{slot.slotIndex} {slot.type}
                     </span>
+
+                    {/* 悬浮操作层（M11：左上选择；右上下载+更多；底部 AI改图+编辑文字） */}
+                    {slot.imageUrl && (
+                      <div className="absolute inset-0 bg-black/35 opacity-0 transition-opacity group-hover:opacity-100">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setSelectedSlotIds((prev) =>
+                              prev.includes(slot.id) ? prev.filter((id) => id !== slot.id) : [...prev, slot.id],
+                            )
+                          }
+                          className={`absolute left-3 top-3 grid h-6 w-6 place-items-center rounded border ${
+                            selectedSlotIds.includes(slot.id)
+                              ? 'border-[#1683FF] bg-[#1683FF] text-white'
+                              : 'border-white bg-white/80 text-transparent'
+                          }`}
+                          title={selectedSlotIds.includes(slot.id) ? '取消选择' : '选择'}
+                        >
+                          <Check className="h-3.5 w-3.5" />
+                        </button>
+                        <div className="absolute right-3 top-3 flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => void downloadSingleJpg(slot)}
+                            className="grid h-7 w-7 place-items-center rounded bg-white text-[#171A1D] shadow-sm hover:bg-[#F5F6F8]"
+                            title="下载"
+                          >
+                            <Download className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setMoreMenuSlotId(moreMenuSlotId === slot.id ? null : slot.id)}
+                            className="grid h-7 w-7 place-items-center rounded bg-white text-[#171A1D] shadow-sm hover:bg-[#F5F6F8]"
+                            title="更多操作"
+                          >
+                            <MoreHorizontal className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                        <div className="absolute bottom-3 left-3 right-3 flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setActionPanel({ mode: 'retouch', slotId: slot.id, title: slot.name, text: '', direction: '', loading: false })
+                            }
+                            className="flex h-9 flex-1 items-center justify-center gap-1 rounded-lg bg-[#171A1D]/90 text-[12px] font-semibold text-white hover:bg-[#2A2F36]"
+                          >
+                            <Wand2 className="h-3.5 w-3.5" />
+                            AI改图
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void openTextEditor(slot)}
+                            className="flex h-9 flex-1 items-center justify-center gap-1 rounded-lg bg-[#171A1D]/90 text-[12px] font-semibold text-white hover:bg-[#2A2F36]"
+                          >
+                            <Type className="h-3.5 w-3.5" />
+                            编辑文字
+                          </button>
+                        </div>
+
+                        {/* 更多操作面板（M11：智能改尺寸/删除） */}
+                        {moreMenuSlotId === slot.id && (
+                          <div className="absolute right-3 top-12 z-10 w-[132px] overflow-hidden rounded-lg bg-white shadow-[0_8px_24px_rgba(15,23,41,.18)]">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setMoreMenuSlotId(null)
+                                setResizeTargets([slot.id])
+                              }}
+                              className="flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-[12px] text-[#171A1D] hover:bg-[#F5F6F8]"
+                            >
+                              <Maximize2 className="h-3.5 w-3.5 text-[#86909C]" />
+                              智能改尺寸
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void handleDeleteSingle(slot.id)}
+                              className="flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-[12px] text-[#C03535] hover:bg-[#FFF5F5]"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                              删除
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     {slot.status === 'failed' && (
                       <span className="absolute inset-x-2 bottom-2 rounded bg-[#ffEBEE]/95 px-2 py-1 text-[10px] font-bold text-[#c62828]">
                         {slot.error || '生成失败'}
                       </span>
                     )}
+
+                    {/* 失败/生成中保留重新生成入口，避免能力丢失（走查成功态悬浮操作不含重试） */}
+                    {!slot.imageUrl && slot.status !== 'generating' && (
+                      <button
+                        type="button"
+                        onClick={() => void handleRegenerateSingle(slot.id)}
+                        className="absolute right-2 top-2 z-10 grid h-6 w-6 cursor-pointer place-items-center rounded-full border-0 bg-white text-[#171A1D] shadow-sm hover:bg-[#F5F6F8]"
+                        title="重新生成"
+                      >
+                        <RefreshCw className="h-3 w-3" />
+                      </button>
+                    )}
                   </div>
 
+                  {/* 精简区：图名（M9 完成态只保留必要元素） */}
                   <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <p className="text-[13px] font-bold text-[#0A1B39] truncate">{slot.name}</p>
-                      <Tag size="small" color={slot.status === 'done' ? 'green' : 'blue'}>
-                        {slot.status === 'done' ? '已生成' : '生成中'}
-                      </Tag>
-                    </div>
-
-                    <p className="text-[11px] text-[#86909C] line-clamp-2 leading-4">{slot.prompt}</p>
-
-                    <div className="flex flex-wrap gap-1 pt-2 border-t border-[#f0f2f5]">
-                      <Button
-                        size="mini"
-                        type="text"
-                        icon={<RefreshCw className="h-3 w-3" />}
-                        loading={slot.status === 'generating'}
-                        onClick={() => handleRegenerateSingle(slot.id)}
-                      >
-                        重新生成
-                      </Button>
-                      {slot.imageUrl && (
-                        <>
-                          <Button size="mini" type="text" onClick={() => void openTextEditor(slot)}>
-                            编辑文字
-                          </Button>
-                          <Button
-                            size="mini"
-                            type="text"
-                            onClick={() =>
-                              setActionPanel({ mode: 'retouch', slotId: slot.id, title: slot.name, text: '', direction: '', loading: false })
-                            }
-                          >
-                            AI改图
-                          </Button>
-                          <Button size="mini" type="text" onClick={() => void runSmartResize(slot)}>
-                            智能改尺寸
-                          </Button>
-                          <Button
-                            size="mini"
-                            type="text"
-                            icon={<Download className="h-3 w-3" />}
-                            onClick={() => saveAs(slot.imageUrl!, `${slot.name}.png`)}
-                          >
-                            下载
-                          </Button>
-                        </>
-                      )}
-                    </div>
+                    <p className="text-[13px] font-bold text-[#0A1B39] truncate">{slot.name}</p>
                   </div>
                 </Card>
               ))}
@@ -1130,15 +1321,22 @@ export function ProductImageSetsPage() {
         okButtonProps={{ disabled: !actionPanel || (actionPanel.mode === 'text' ? !actionPanel.text.trim() : !actionPanel.direction.trim()) }}
       >
         {actionPanel?.mode === 'text' ? (
-          <div className="space-y-2">
-            <p className="m-0 text-[12px] text-[#86909C]">AI 已识别当前图片文字，可直接修改后重新生成。</p>
-            <Input.TextArea
-              value={actionPanel.text}
-              onChange={(value) => setActionPanel((prev) => (prev ? { ...prev, text: value } : prev))}
-              rows={5}
-              placeholder="输入替换后的图片文字"
-            />
-          </div>
+          actionPanel.loading ? (
+            <div className="flex flex-col items-center justify-center gap-2 py-6">
+              <Loader2 className="h-5 w-5 animate-spin text-[#1683FF]" />
+              <p className="m-0 text-[12px] text-[#86909C]">AI 正在识别图片文字...</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <p className="m-0 text-[12px] text-[#86909C]">AI 已识别当前图片文字，可直接修改后重新生成。</p>
+              <Input.TextArea
+                value={actionPanel.text}
+                onChange={(value) => setActionPanel((prev) => (prev ? { ...prev, text: value } : prev))}
+                rows={5}
+                placeholder="输入替换后的图片文字"
+              />
+            </div>
+          )
         ) : actionPanel?.mode === 'retouch' ? (
           <div className="space-y-2">
             <p className="m-0 text-[12px] text-[#86909C]">描述需要调整的画面、背景、文字或风格。</p>
@@ -1150,6 +1348,39 @@ export function ProductImageSetsPage() {
             />
           </div>
         ) : null}
+      </Modal>
+
+      {/* 智能改尺寸选项面板（M14/M15：选尺寸 → AI生成中 → 完成） */}
+      <Modal
+        title="智能改尺寸"
+        visible={Boolean(resizeTargets)}
+        onCancel={() => setResizeTargets(null)}
+        onOk={() => void (resizeTargets && resizeTargets.length > 1 ? runBatchResize() : resizeTargets?.length === 1 ? runSmartResize(slots.find((s) => s.id === resizeTargets[0])!, resizeRatio) : undefined)}
+        okButtonProps={{ disabled: !resizeTargets?.length }}
+        okText={resizeTargets && resizeTargets.length > 1 ? '开始批量改尺寸' : '开始改尺寸'}
+      >
+        <div className="space-y-2">
+          <p className="m-0 text-[12px] text-[#86909C]">
+            选择目标尺寸，将已生成图片作为原图进行扩图或缩图，不改变原有样式和布局。
+            {resizeTargets && resizeTargets.length > 1 && `（已选 ${resizeTargets.length} 张）`}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {RESIZE_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => setResizeRatio(option.value)}
+                className={`h-8 cursor-pointer rounded-lg border px-3 text-[12px] font-medium transition-colors ${
+                  resizeRatio === option.value
+                    ? 'border-[#1683FF] bg-[#f0f7ff] text-[#1683FF]'
+                    : 'border-[#e5e8ef] bg-white text-[#4e5969] hover:bg-[#f8fafc]'
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
       </Modal>
     </div>
   )

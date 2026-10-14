@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { registerCollectionHandlers } from './collection-handlers'
 import { ensureDataRoots } from './data-root'
 import { registerStoreHandlers } from './store'
+import { registerFilesHandlers } from './files-handlers'
 import { registerLocalHandlers, startLocalCleanup, getLocalClient } from './local-db'
 import { registerCapabilityHandlers, startCapabilityWorker, stopCapabilityWorker } from './capability-handlers'
 import { logger } from './logger'
@@ -42,6 +43,7 @@ app.whenReady().then(() => {
   // 能力已迁 worker 子进程（utilityProcess.fork + IPC），主进程不再内嵌拉起本地 HTTP 后端。
   // 账号/权限/店铺等服务端能力由独立后端服务提供，渲染层经 env 配置的服务端地址访问。
   registerStoreHandlers()
+  registerFilesHandlers()
   const prisma = getLocalClient()
   registerLocalHandlers()
   registerCollectionHandlers(prisma)

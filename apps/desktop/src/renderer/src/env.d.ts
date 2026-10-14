@@ -27,6 +27,19 @@ declare global {
           deletedCapFiles: number
         }>
       }
+      files: {
+        saveImageBatch: (input: {
+          folderName?: string
+          kind?: 'main' | 'detail'
+          files: Array<{ name: string; data: Uint8Array }>
+        }) => Promise<{ ok: boolean; folderPath: string; count: number; files: string[] }>
+        saveImage: (input: {
+          folderName?: string
+          kind?: 'main' | 'detail'
+          name: string
+          data: Uint8Array
+        }) => Promise<{ ok: boolean; folderPath: string; path: string; name: string }>
+      }
       capabilities: {
         invoke: (capability: string, payload?: unknown) => Promise<unknown>
         onStream: (listener: (event: { type: string; text?: string; data?: Record<string, unknown> }) => void) => () => void

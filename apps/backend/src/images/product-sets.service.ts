@@ -5,6 +5,7 @@ import { ProviderRouter } from '../ai/provider-router.service'
 import { PrismaService } from '../prisma.service'
 import { StorageDriverService } from '../storage/storage.service'
 import {
+  buildAiHelpWritePrompt,
   buildDetailImagePromptGenerationPrompt,
   buildImagePromptGenerationPrompt,
   buildImageRetouchPromptGenerationPrompt,
@@ -300,20 +301,16 @@ export class ProductSetsService {
     return { ok: true, text: ai.text ?? '', model: ai.model }
   }
 
-  /** AI 帮写提示词（SSE 流式数据源） */
+  /** AI 帮写（走查 M6/D1）：输出商品信息 5 段结构，契约对齐 worker expandPrompts。 */
   async expandPrompts(input: GeneratePromptsInput) {
-    const selected = normalizeSelectedSlots(input.selectedSlots ?? [])
-    const slots = selected.length ? selected : normalizeRequestedPromptSlots(input.promptSlots ?? [])
-    const prompt = buildImagePromptGenerationPrompt({
+    const prompt = buildAiHelpWritePrompt({
       settings: input.settings,
       information: input.information,
-      designPlan: input.reportText,
-      promptSlots: slots,
     })
     const attemptKey = buildAttemptKey({ jobId: 'product-sets', capability: 'text', suffix: 'expand-stream' })
     const ai = await this.router.execute(
       'text',
-      { prompt, system: '你是电商主图提示词策划，请输出详细可执行的各图位提示词。', maxTokens: 3000 },
+      { prompt, system: '你是电商资深运营，只输出商品信息 5 段结构，不要输出任何解释。', maxTokens: 2000 },
       { tenantId: 'local', jobId: 'product-sets', attemptKey },
     )
     return { text: ai.text ?? '', model: ai.model }

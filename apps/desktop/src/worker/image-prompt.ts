@@ -20,7 +20,7 @@ export const IMAGE_PROMPT_TYPE_RULES: Record<string, string> = {
   场景图: '生成一个完整真实的使用/佩戴/陈列场景，商品必须是第一视觉中心；场景服务于商品用途和风格，允许1个短标题和少量短标签；同批多张场景图必须在场景、人物姿势、镜头距离、光线氛围、标题和标签上明显不同。',
   卖点图: '只聚焦1个核心卖点，用商品局部、佩戴/使用效果、放大窗、对比区或视觉证据证明；标题短、标签少、层级清晰；同批多张卖点图必须分别讲不同卖点，不得复用同一主标题、卖点词或版式。',
   细节说明: '重点说明1个真实可见细节，或2到3个相互关联的真实细节、结构、尺寸关系、佩戴/使用方式；可使用局部放大、引线、尺寸线、参数卡片或说明小窗；只标注图片可见或用户明确提供的信息，不得编造参数、材质、结构、工艺或认证。',
-  卖点详解: '围绕2到3个不同核心卖点做综合拆解，形成购买理由；可使用主体产品、场景小窗、局部小窗、参数卡片、图标标签或证据模块；不得只讲单一卖点，不得做成大段文字，不得虚构品牌、型号、功效、材质等级或具体数值。',
+  买点详解: '围绕2到3个不同核心卖点做综合拆解，形成购买理由；可使用主体产品、场景小窗、局部小窗、参数卡片、图标标签或证据模块；不得只讲单一卖点，不得做成大段文字，不得虚构品牌、型号、功效、材质等级或具体数值。',
 }
 
 const MAIN_FALLBACK_TYPES = Object.keys(IMAGE_PROMPT_TYPE_RULES)
@@ -101,7 +101,7 @@ export const DEFAULT_SLOT_CONFIGS: PromptSlot[] = [
   { id: 'image-2', name: '图2｜场景图', type: '场景图', sequence: 2 },
   { id: 'image-3', name: '图3｜卖点图', type: '卖点图', sequence: 3 },
   { id: 'image-4', name: '图4｜细节说明', type: '细节说明', sequence: 4 },
-  { id: 'image-5', name: '图5｜卖点详解', type: '卖点详解', sequence: 5 },
+  { id: 'image-5', name: '图5｜买点详解', type: '买点详解', sequence: 5 },
 ]
 
 export function buildImagePromptGenerationPrompt(options: { settings?: PromptSettings; information?: string; designPlan?: string; promptSlots: PromptSlot[] }): string {
@@ -139,7 +139,7 @@ ${typeRules}
 2. 每条 prompt 都必须严格基于对应图位的“主图设计规划”和该图位规则生成，不得只套用通用短规则。
 3. 必须以用户上传的商品图为唯一商品主体，保持商品外观、颜色、结构、比例、关键部件、包装文字和可见特征一致，不替换商品，不生成其他品类。
 4. 所有颜色、材质、结构、花型、纹理、参数、场景和文案都只能来自商品图片、商品信息或保守可确认的品类常识。
-5. 同类型多张图必须各自有不同主题：场景图区分使用场景、人物姿势、镜头距离和光线；卖点图区分核心卖点；卖点详解图区分购买理由组合；细节说明图区分真实细节对象。
+5. 同类型多张图必须各自有不同主题：场景图区分使用场景、人物姿势、镜头距离和光线；卖点图区分核心卖点；买点详解图区分购买理由组合；细节说明图区分真实细节对象。
 6. 每条 prompt 写成中文自然段，包含图位目标、主体要求、背景/场景、构图、光影、配色、文字版式、禁止事项，长度300-600字。
 7. 文案必须短、清楚、适合${options.settings?.language || '简体中文'}，不得输出无法读清的小字、错字、无关品牌、水印、UI按钮或促销角标。
 
@@ -148,6 +148,36 @@ ${typeRules}
 {
   "prompts": ${JSON.stringify(schema, null, 2)}
 }`
+}
+
+/**
+ * AI 帮写专用模板（走查 M6/D1 唯一判据）。
+ * 与 buildImagePromptGenerationPrompt（图位生图提示词 JSON）不同：
+ * 此模板输出「商品信息 5 段结构」自然文本，直接回填卖点输入框，供后续生图/规划使用。
+ * 权威定义在 worker；后端镜像同款（见 apps/backend/src/images/image-prompt.ts buildAiHelpWritePrompt）。
+ */
+export function buildAiHelpWritePrompt(options: { settings?: PromptSettings; information?: string }): string {
+  return `你是一名资深电商运营，正在为一件真实商品撰写「商品卖点与要求」结构化信息，供后续 AI 生图使用。
+
+【输入信息】
+${String(options.information ?? '').trim() || '以用户上传商品原图中可见信息为准'}
+
+【页面设置】
+目标平台：${options.settings?.platform || '电商平台'}
+销售地区：${options.settings?.country || '中国'}
+页面语言：${options.settings?.language || '中文'}
+输出比例：${options.settings?.ratio || '1:1'}
+
+【硬性要求】
+1. 商品名称、颜色、材质、结构、版型、用途、参数等一切信息，必须以用户上传的商品原图为唯一事实依据；不得替换商品、不得张冠李戴、不得虚构原图不可见内容（品牌、价格、认证、销量等）。
+2. 严格按以下 5 段结构输出，每段一行，以「数字、」开头，数字与标题之间不加空格：
+   1、商品名称：…
+   2、核心卖点：…
+   3、适用人群：…
+   4、使用场景：…
+   5、规格参数：…
+3. 核心卖点用顿号或分号连接多个卖点；规格参数按「属性：值」分号分隔。
+4. 只输出 5 段结构文本本身，不要前言、解释、Markdown 标记或 JSON。`
 }
 
 export interface RetouchSlot {

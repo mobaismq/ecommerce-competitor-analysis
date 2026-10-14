@@ -15,6 +15,12 @@ contextBridge.exposeInMainWorld('desktop', {
     getStats: () => ipcRenderer.invoke('local:get-stats'),
     runCleanup: () => ipcRenderer.invoke('local:run-cleanup'),
   },
+  files: {
+    saveImageBatch: (input: { folderName?: string; kind?: 'main' | 'detail'; files: Array<{ name: string; data: Uint8Array }> }) =>
+      ipcRenderer.invoke('files:saveImageBatch', input),
+    saveImage: (input: { folderName?: string; kind?: 'main' | 'detail'; name: string; data: Uint8Array }) =>
+      ipcRenderer.invoke('files:saveImage', input),
+  },
   capabilities: {
     invoke: (capability: string, payload?: unknown) => ipcRenderer.invoke('capability:invoke', capability, payload),
     onStream: (listener: (event: { type: string; text?: string; data?: Record<string, unknown> }) => void) => {

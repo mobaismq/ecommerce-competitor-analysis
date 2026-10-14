@@ -1,11 +1,13 @@
 import { useRef, useState } from 'react'
-import { Check, ChevronDown, ChevronUp, Download, Eye, Loader2, Plus, Sparkles, Trash2, Upload, X } from 'lucide-react'
+import { Check, ChevronDown, ChevronUp, Download, Eye, Loader2, Maximize2, MoreHorizontal, Plus, Trash2, Type, Upload, Wand2, X } from 'lucide-react'
 import { Button, Input, Message, Modal, Select } from '@arco-design/web-react'
 import { saveAs } from 'file-saver'
 import { nanoid } from 'nanoid'
 import { useAuth } from '../store/auth'
 import { AIReportSelector, type SuiteProduct } from '../components/AIReportSelector'
+import { AiHelpPopover } from '../components/AiHelpPopover'
 import { ProductImageHelpTooltip } from '../components/ProductImageHelpTooltip'
+import { imageSourceToJpegBlob } from '../image-tools'
 import mainHeadphone from '../assets/main-headphone.png'
 import sceneDisplay from '../assets/scene-display.png'
 import sellingPoint from '../assets/selling-point.png'
@@ -42,6 +44,15 @@ const PLATFORM_OPTIONS = ['淘宝天猫1688', '淘宝', '天猫', '抖音', '京
 const COUNTRY_OPTIONS = ['中国', '美国', '英国', '德国', '法国', '意大利', '西班牙', '日本', '韩国', '加拿大', '澳大利亚', '新加坡', '马来西亚', '泰国', '越南', '巴西', '墨西哥']
 const LANGUAGE_OPTIONS = ['英文', '中文', '日文', '韩文', '德文', '法文', '意大利文', '西班牙文', '葡萄牙文', '荷兰文', '波兰文', '泰文', '越南文', '印尼文']
 const RATIO_OPTIONS = ['1:1', '3:4', '4:3', '9:16', '16:9']
+const RESIZE_OPTIONS: Array<{ label: string; value: string }> = [
+  { label: '普通A+ 970:600', value: '970:600' },
+  { label: '高级A+（Web端）1464:600', value: '1464:600' },
+  { label: '高级A+（移动端）600:450', value: '600:450' },
+  { label: '1:1', value: '1:1' },
+  { label: '3:4', value: '3:4' },
+  { label: '9:16', value: '9:16' },
+  { label: '16:9', value: '16:9' },
+]
 
 interface SelectedModuleItem {
   instanceId: string
@@ -87,8 +98,10 @@ export function APlusDetailPage() {
   // 生成设置（对照旧版 settings 四项）
   const [settings, setSettings] = useState({ platform: '淘宝天猫1688', country: '中国', language: '中文', ratio: '1:1' })
 
-  // 商品卖点 & 要求 + AI 帮写
+  // 商品卖点 & 要求 + AI 帮写（弹窗态：流式到 aiHelpText，确认后回填 detailGenerationText）
   const [detailGenerationText, setDetailGenerationText] = useState('')
+  const [aiHelpOpen, setAiHelpOpen] = useState(false)
+  const [aiHelpText, setAiHelpText] = useState('')
   const [aiWriting, setAiWriting] = useState(false)
 
   // 双步工作流
@@ -106,6 +119,11 @@ export function APlusDetailPage() {
   const [composingLongImage, setComposingLongImage] = useState(false)
   const [selectedImageIds, setSelectedImageIds] = useState<string[]>([])
   const [actionPanel, setActionPanel] = useState<ModuleActionPanel | null>(null)
+  // 更多操作悬浮面板目标（D7/M11）
+  const [moreMenuModuleId, setMoreMenuModuleId] = useState<string | null>(null)
+  // 智能改尺寸目标模块（D7/M14）
+  const [resizeTarget, setResizeTarget] = useState<string | null>(null)
+  const [resizeRatio, setResizeRatio] = useState(settings.ratio)
 
   const checkedModules = MODULES.filter((m) => checked.includes(m.title))
   const strategyModuleCount = checkedModules.length
@@ -171,16 +189,18 @@ export function APlusDetailPage() {
       return
     }
     setError('')
+    setAiHelpOpen(true)
     setAiWriting(true)
+    setAiHelpText('')
     try {
       let fullText = ''
       const unsub = window.desktop?.capabilities.onStream((event) => {
         if (event.type === 'content') {
           fullText += event.text || event.data?.content || ''
-          setDetailGenerationText(fullText)
+          setAiHelpText(fullText)
         } else if (event.type === 'done') {
           fullText = String(event.text ?? fullText)
-          setDetailGenerationText(fullText)
+          setAiHelpText(fullText)
         } else if (event.type === 'error') {
           throw new Error(String(event.data?.message || event.data?.content || 'AI 帮写失败'))
         }
@@ -195,13 +215,18 @@ export function APlusDetailPage() {
       })
       unsub?.()
       if (!fullText.trim()) throw new Error('AI 帮写没有返回可用商品信息，请稍后重试。')
-      setDetailGenerationText(fullText)
+      setAiHelpText(fullText)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       setError(message)
     } finally {
       setAiWriting(false)
     }
+  }
+
+  const confirmAiHelp = () => {
+    if (aiHelpText.trim()) setDetailGenerationText(aiHelpText)
+    setAiHelpOpen(false)
   }
 
   const toggleModule = (title: string) => {
@@ -335,6 +360,66 @@ export function APlusDetailPage() {
     }
   }
 
+  // 带目标比例的模块生成（智能改尺寸用，D7/M14：已生成图作原图扩/缩）
+  const generateModuleWithPromptRatio = async (instanceId: string, prompt: string, referenceImages: string[], ratio: string) => {
+    const target = selectedModules.find((item) => item.instanceId === instanceId)
+    if (!target) return
+    setActionPanel(null)
+    setSelectedModules((prev) =>
+      prev.map((item) => (item.instanceId === instanceId ? { ...item, status: 'generating', error: undefined } : item)),
+    )
+    try {
+      const data = await desktopInvoke('image.generate', {
+        userId: currentUserId,
+        tenantId: 'local',
+        prompt,
+        size: '2K',
+        name: target.title,
+        slotType: target.title,
+        image: referenceImages[0],
+        images: referenceImages.slice(0, 4),
+        ratio,
+      }) as { images?: Array<{ url?: string; dataUrl?: string }> } | undefined
+      const generatedUrl = data?.images?.[0]?.url || data?.images?.[0]?.dataUrl
+      if (!generatedUrl) throw new Error('当前未接入真实图像服务，未返回可展示图片')
+      setSelectedModules((prev) =>
+        prev.map((item) => (item.instanceId === instanceId ? { ...item, status: 'done', imageUrl: generatedUrl } : item)),
+      )
+      Message.success('图片处理完成')
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      setSelectedModules((prev) =>
+        prev.map((item) => (item.instanceId === instanceId ? { ...item, status: 'failed', error: message } : item)),
+      )
+      Message.error(message)
+    }
+  }
+
+  // 单模块智能改尺寸（更多操作面板内，D7/M11）
+  const runModuleSmartResize = async (mod: SelectedModuleItem, targetRatio: string) => {
+    if (!mod.imageUrl) {
+      Message.warning('请先生成图片，再智能改尺寸')
+      return
+    }
+    setMoreMenuModuleId(null)
+    setResizeTarget(null)
+    setResizeRatio(targetRatio)
+    await generateModuleWithPromptRatio(
+      mod.instanceId,
+      `智能调整电商图片尺寸到${targetRatio}，保留商品主体、文字可读性和视觉层次，不裁切关键信息。`,
+      [mod.imageUrl],
+      targetRatio,
+    )
+  }
+
+  // 单模块删除（更多操作面板内，从列表移除）
+  const handleDeleteSingleModule = (instanceId: string) => {
+    setSelectedModules((prev) => prev.filter((m) => m.instanceId !== instanceId))
+    setSelectedImageIds((prev) => prev.filter((id) => id !== instanceId))
+    setMoreMenuModuleId(null)
+    Message.success('已移除该模块')
+  }
+
   const openTextEditor = async (moduleId: string) => {
     const target = selectedModules.find((item) => item.instanceId === moduleId)
     if (!target?.imageUrl) {
@@ -419,9 +504,44 @@ export function APlusDetailPage() {
     }
   }
 
-  const handleDownloadImage = (url: string, filename = 'detail-image.png') => {
-    saveAs(url, filename)
-    Message.success('已下载')
+  const handleDownloadImage = async (url: string, filename = 'detail-image.jpg') => {
+    try {
+      // 统一转 jpg（M16 单张下载 jpg；长图/切片同路径）
+      const blob = await imageSourceToJpegBlob(url)
+      saveAs(blob, filename.replace(/\.png$/, '.jpg'))
+      Message.success('已下载')
+    } catch (err) {
+      Message.error(err instanceof Error ? err.message : '下载失败')
+    }
+  }
+
+  // 批量下载到桌面文件夹（M16 批量=文件夹；主进程 files.saveImageBatch）
+  const handleBatchDownloadToDesktop = async (targets: SelectedModuleItem[]) => {
+    const done = targets.filter((m) => m.imageUrl)
+    if (!done.length) {
+      Message.warning('暂无已生成的模块图片可下载')
+      return
+    }
+    if (!window.desktop?.files) {
+      Message.error('当前环境未接入桌面文件能力，无法批量保存')
+      return
+    }
+    try {
+      const files: Array<{ name: string; data: Uint8Array }> = []
+      for (const m of done) {
+        const blob = await imageSourceToJpegBlob(m.imageUrl!)
+        files.push({ name: `${m.title.replace(/[^\w\u4e00-\u9fa5]/g, '_')}.jpg`, data: new Uint8Array(await blob.arrayBuffer()) })
+      }
+      const result = await window.desktop.files.saveImageBatch({ folderName: '详情图', kind: 'detail', files })
+      Message.success(`已保存 ${result.count} 张图片到桌面：${result.folderPath}`)
+    } catch (err) {
+      Message.error(err instanceof Error ? err.message : '批量保存失败')
+    }
+  }
+
+  // 预览弹窗「下载全部图片」：全部已生成模块落桌面文件夹（D6）
+  const handleDownloadAllFromPreview = () => {
+    if (previewModalUrl) void handleBatchDownloadToDesktop(strategyModules)
   }
 
   const loadImage = (url: string) =>
@@ -587,20 +707,22 @@ export function APlusDetailPage() {
               </div>
             </div>
 
-            {/* 商品卖点&要求 + AI 帮写胶囊（对照旧版） */}
+            {/* 商品卖点&要求 + AI 帮写（与主图共用 AiHelpPopover 组件） */}
             <div className="mb-2 flex items-center justify-between">
               <h2 className="m-0 text-[14px] font-bold text-[#171A1D]">
                 商品卖点&要求 <span className="cursor-help text-[13px] text-[#86909C]" title="填写产品名、卖点、人群和场景，AI 生图更精准">?</span>
               </h2>
-              <button
-                type="button"
-                onClick={() => void handleAiHelp()}
-                disabled={aiWriting || !uploadedImages.length}
-                className="flex h-7 cursor-pointer items-center gap-1 rounded-full border border-[#D9E8FF] bg-white px-2.5 text-[12px] font-medium text-[#1683FF] shadow-sm disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {aiWriting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-                {aiWriting ? '帮写中' : 'AI 帮写'}
-              </button>
+              <AiHelpPopover
+                visible={aiHelpOpen}
+                onVisibleChange={setAiHelpOpen}
+                busy={aiWriting}
+                text={aiHelpText}
+                onTextChange={setAiHelpText}
+                onStart={() => void handleAiHelp()}
+                onRetry={() => void handleAiHelp()}
+                onConfirm={confirmAiHelp}
+                triggerDisabled={!uploadedImages.length}
+              />
             </div>
             <textarea
               className="mb-4 h-[114px] w-full resize-none rounded-lg border border-[#DDE3EC] bg-white p-3 text-[12px] leading-[20px] text-[#5F6B7A] outline-none focus:border-[#4690FF]"
@@ -642,6 +764,19 @@ export function APlusDetailPage() {
                 })}
               </div>
             </div>
+
+            {/* 生成中：规划生成中独立 loading 展示（D4 微调） */}
+            {strategyStatus === 'generating' && (
+              <div className="mb-4 rounded-xl border border-[#e5e8ef] bg-white p-4">
+                <div className="flex items-center gap-3">
+                  <Loader2 className="h-5 w-5 animate-spin text-[#3388ff]" />
+                  <div>
+                    <p className="m-0 text-[13px] font-bold text-[#171A1D]">AI 规划中...</p>
+                    <p className="m-0 mt-0.5 text-[12px] text-[#8B949E]">正在生成详情页设计与各模块提示词</p>
+                  </div>
+                </div>
+              </div>
+            )}
           </>
         ) : (
           <>
@@ -840,9 +975,7 @@ export function APlusDetailPage() {
                             onClick={() => {
                               const done = selectedModules.filter((m) => selectedImageIds.includes(m.instanceId) && m.imageUrl)
                               if (!done.length) return
-                              done.forEach((m, idx) =>
-                                setTimeout(() => handleDownloadImage(m.imageUrl!, `${idx + 1}_${m.title}.png`), idx * 300),
-                              )
+                              void handleBatchDownloadToDesktop(done)
                             }}
                             className="flex h-9 items-center gap-2 rounded-[10px] bg-white px-4 text-[13px] font-semibold text-[#171A1D] shadow-[0_1px_0_rgba(15,23,41,.06)] transition-colors hover:bg-[#F5F6F8]"
                           >
@@ -874,7 +1007,7 @@ export function APlusDetailPage() {
                     </div>
                     {selectedModules.map((mod, index) => (
                       <div key={mod.instanceId} className="overflow-hidden rounded-xl border border-[#e5eaf2] bg-white shadow-sm">
-                        <div className="relative mb-3 flex aspect-square items-center justify-center overflow-hidden rounded-lg bg-[#f4f7fb]">
+                        <div className="group relative mb-3 flex aspect-square items-center justify-center overflow-hidden rounded-lg bg-[#f4f7fb]">
                           {mod.status === 'generating' ? (
                             <div className="flex flex-col items-center gap-2">
                               <Loader2 className="h-6 w-6 animate-spin text-[#3388ff]" />
@@ -891,6 +1024,92 @@ export function APlusDetailPage() {
                           <span className="absolute left-2 top-2 rounded bg-black/60 px-2 py-0.5 text-[10px] font-bold text-white">
                             #{index + 1} {mod.title}
                           </span>
+
+                          {/* 悬浮操作层（D7/M11，与主图一致）：左上选择；右上下载+更多；底部 AI改图+编辑文字 */}
+                          {mod.imageUrl && (
+                            <div className="absolute inset-0 bg-black/35 opacity-0 transition-opacity group-hover:opacity-100">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setSelectedImageIds((prev) =>
+                                    prev.includes(mod.instanceId) ? prev.filter((id) => id !== mod.instanceId) : [...prev, mod.instanceId],
+                                  )
+                                }
+                                className={`absolute left-3 top-3 grid h-6 w-6 place-items-center rounded border ${
+                                  selectedImageIds.includes(mod.instanceId)
+                                    ? 'border-[#1683FF] bg-[#1683FF] text-white'
+                                    : 'border-white bg-white/80 text-transparent'
+                                }`}
+                                title={selectedImageIds.includes(mod.instanceId) ? '取消选择' : '选择'}
+                              >
+                                <Check className="h-3.5 w-3.5" />
+                              </button>
+                              <div className="absolute right-3 top-3 flex gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => void handleDownloadImage(mod.imageUrl!, `${mod.title}.jpg`)}
+                                  className="grid h-7 w-7 place-items-center rounded bg-white text-[#171A1D] shadow-sm hover:bg-[#F5F6F8]"
+                                  title="下载"
+                                >
+                                  <Download className="h-3.5 w-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setMoreMenuModuleId(moreMenuModuleId === mod.instanceId ? null : mod.instanceId)}
+                                  className="grid h-7 w-7 place-items-center rounded bg-white text-[#171A1D] shadow-sm hover:bg-[#F5F6F8]"
+                                  title="更多操作"
+                                >
+                                  <MoreHorizontal className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
+                              <div className="absolute bottom-3 left-3 right-3 flex gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setActionPanel({ mode: 'retouch', moduleId: mod.instanceId, title: mod.title, text: '', direction: '', loading: false })
+                                  }
+                                  className="flex h-9 flex-1 items-center justify-center gap-1 rounded-lg bg-[#171A1D]/90 text-[12px] font-semibold text-white hover:bg-[#2A2F36]"
+                                >
+                                  <Wand2 className="h-3.5 w-3.5" />
+                                  AI改图
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => void openTextEditor(mod.instanceId)}
+                                  className="flex h-9 flex-1 items-center justify-center gap-1 rounded-lg bg-[#171A1D]/90 text-[12px] font-semibold text-white hover:bg-[#2A2F36]"
+                                >
+                                  <Type className="h-3.5 w-3.5" />
+                                  编辑文字
+                                </button>
+                              </div>
+
+                              {/* 更多操作面板（智能改尺寸/删除） */}
+                              {moreMenuModuleId === mod.instanceId && (
+                                <div className="absolute right-3 top-12 z-10 w-[132px] overflow-hidden rounded-lg bg-white shadow-[0_8px_24px_rgba(15,23,41,.18)]">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setMoreMenuModuleId(null)
+                                      setResizeTarget(mod.instanceId)
+                                    }}
+                                    className="flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-[12px] text-[#171A1D] hover:bg-[#F5F6F8]"
+                                  >
+                                    <Maximize2 className="h-3.5 w-3.5 text-[#86909C]" />
+                                    智能改尺寸
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteSingleModule(mod.instanceId)}
+                                    className="flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-[12px] text-[#C03535] hover:bg-[#FFF5F5]"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                    删除
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          )}
+
                           {mod.status === 'failed' && (
                             <span className="absolute inset-x-2 bottom-2 rounded bg-[#ffEBEE]/95 px-2 py-1 text-[10px] font-bold text-[#c62828]">
                               {mod.error || '生成失败'}
@@ -903,25 +1122,6 @@ export function APlusDetailPage() {
                             <Button size="mini" type="text" loading={mod.status === 'generating'} onClick={() => generateSingleModuleImage(mod.instanceId)}>
                               单独渲染
                             </Button>
-                            {mod.imageUrl && (
-                              <>
-                                <Button size="mini" type="text" onClick={() => void openTextEditor(mod.instanceId)}>
-                                  编辑文字
-                                </Button>
-                                <Button
-                                  size="mini"
-                                  type="text"
-                                  onClick={() =>
-                                    setActionPanel({ mode: 'retouch', moduleId: mod.instanceId, title: mod.title, text: '', direction: '', loading: false })
-                                  }
-                                >
-                                  AI改图
-                                </Button>
-                                <Button size="mini" type="text" icon={<Download className="h-3 w-3" />} onClick={() => handleDownloadImage(mod.imageUrl!, `${index + 1}_${mod.title}.png`)}>
-                                  下载
-                                </Button>
-                              </>
-                            )}
                           </div>
                         </div>
                       </div>
@@ -988,12 +1188,22 @@ export function APlusDetailPage() {
         okButtonProps={{ disabled: !actionPanel || (actionPanel.mode === 'text' ? !actionPanel.text.trim() : !actionPanel.direction.trim()) }}
       >
         {actionPanel?.mode === 'text' ? (
-          <Input.TextArea
-            value={actionPanel.text}
-            onChange={(value) => setActionPanel((prev) => (prev ? { ...prev, text: value } : prev))}
-            rows={5}
-            placeholder="输入替换后的详情图文字"
-          />
+          actionPanel.loading ? (
+            <div className="flex flex-col items-center justify-center gap-2 py-6">
+              <Loader2 className="h-5 w-5 animate-spin text-[#3388ff]" />
+              <p className="m-0 text-[12px] text-[#8B949E]">AI 正在识别图片文字...</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <p className="m-0 text-[12px] text-[#8B949E]">AI 已识别当前图片文字，可直接修改后重新生成。</p>
+              <Input.TextArea
+                value={actionPanel.text}
+                onChange={(value) => setActionPanel((prev) => (prev ? { ...prev, text: value } : prev))}
+                rows={5}
+                placeholder="输入替换后的详情图文字"
+              />
+            </div>
+          )
         ) : (
           <Input.TextArea
             value={actionPanel?.direction ?? ''}
@@ -1002,6 +1212,41 @@ export function APlusDetailPage() {
             placeholder="描述需要调整的画面、背景、文字或风格"
           />
         )}
+      </Modal>
+
+      {/* 智能改尺寸选项面板（D7/M14：选尺寸 → AI生成中 → 完成） */}
+      <Modal
+        title="智能改尺寸"
+        visible={Boolean(resizeTarget)}
+        onCancel={() => setResizeTarget(null)}
+        onOk={() => {
+          const mod = selectedModules.find((m) => m.instanceId === resizeTarget)
+          if (mod) void runModuleSmartResize(mod, resizeRatio)
+        }}
+        okButtonProps={{ disabled: !resizeTarget }}
+        okText="开始改尺寸"
+      >
+        <div className="space-y-2">
+          <p className="m-0 text-[12px] text-[#86909C]">
+            选择目标尺寸，将已生成图片作为原图进行扩图或缩图，不改变原有样式和布局。
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {RESIZE_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => setResizeRatio(option.value)}
+                className={`h-8 cursor-pointer rounded-lg border px-3 text-[12px] font-medium transition-colors ${
+                  resizeRatio === option.value
+                    ? 'border-[#1683FF] bg-[#f0f7ff] text-[#1683FF]'
+                    : 'border-[#e5e8ef] bg-white text-[#4e5969] hover:bg-[#f8fafc]'
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
       </Modal>
 
       {/* 大图预览 */}
@@ -1015,9 +1260,12 @@ export function APlusDetailPage() {
                   type="primary"
                   size="small"
                   icon={<Download className="h-3.5 w-3.5" />}
-                  onClick={() => handleDownloadImage(previewModalUrl, 'detail-long-image.png')}
+                  onClick={() => void handleDownloadImage(previewModalUrl, 'detail-long-image.png')}
                 >
                   下载长图
+                </Button>
+                <Button size="small" icon={<Download className="h-3.5 w-3.5" />} onClick={() => void handleDownloadAllFromPreview()}>
+                  下载全部图片
                 </Button>
                 <Button size="small" onClick={() => setPreviewModalUrl(null)}>
                   关闭

@@ -60,3 +60,46 @@ export function concatVerticalImages(images: HTMLImageElement[], text?: string):
   }
   return canvas
 }
+
+/** 将图片引用（dataURL/html/src）转成 JPG Blob（走查 M16 单张下载 jpg）。 */
+export function imageSourceToJpegBlob(source: string | HTMLImageElement | HTMLCanvasElement, quality = 0.92): Promise<Blob> {
+  const canvas = document.createElement('canvas')
+  const context = canvas.getContext('2d')
+  if (!context) throw new Error('canvas not available')
+
+  if (source instanceof HTMLCanvasElement) {
+    canvas.width = source.width
+    canvas.height = source.height
+    context.drawImage(source, 0, 0)
+    return Promise.resolve(dataUrlToBlob(canvas.toDataURL('image/jpeg', quality)))
+  }
+
+  const image = source instanceof HTMLImageElement ? source : new Image()
+  const ready = typeof source === 'string'
+    ? new Promise<HTMLImageElement>((resolve, reject) => {
+        image.onload = () => resolve(image)
+        image.onerror = () => reject(new Error('图片加载失败，无法转 jpg'))
+        image.src = source
+      })
+    : Promise.resolve(image)
+
+  return ready.then((img) => {
+    canvas.width = img.naturalWidth || img.width
+    canvas.height = img.naturalHeight || img.height
+    // 白底填充再绘制，避免 PNG 透明区域在 JPG 中变黑
+    context.fillStyle = '#ffffff'
+    context.fillRect(0, 0, canvas.width, canvas.height)
+    context.drawImage(img, 0, 0)
+    return dataUrlToBlob(canvas.toDataURL('image/jpeg', quality))
+  })
+}
+
+/** dataURL → Blob（不做 mime 转换）。 */
+export function dataUrlToBlob(dataUrl: string): Blob {
+  const [head, body] = dataUrl.split(',')
+  const mime = /data:([^;,]+)/.exec(head)?.[1] ?? 'image/png'
+  const binary = atob(body)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i)
+  return new Blob([bytes], { type: mime })
+}
