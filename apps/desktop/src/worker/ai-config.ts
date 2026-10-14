@@ -19,6 +19,8 @@ export interface LocalAiConfig {
   apiKey: string
   /** 文本/对话模型（chat completions 或 /messages） */
   textModel: string
+  /** 视觉分析模型（多模态/识图） */
+  visionModel?: string
   /** 生图模型（images/generations） */
   imageModel: string
   timeoutMs?: number
@@ -81,7 +83,7 @@ export function readServerDefault(userId: string, env: Record<string, string | u
   const file = aiDefaultPath(userId, env)
   if (!existsSync(file)) return null
   try {
-    const raw = JSON.parse(readFileSync(file, 'utf8')) as { baseUrl?: string; apiKey?: string; textModel?: string; imageModel?: string; protocol?: string }
+    const raw = JSON.parse(readFileSync(file, 'utf8')) as { baseUrl?: string; apiKey?: string; textModel?: string; visionModel?: string; imageModel?: string; protocol?: string }
     if (!raw || !raw.apiKey) return null
     return {
       kind: 'openrouter',
@@ -89,6 +91,7 @@ export function readServerDefault(userId: string, env: Record<string, string | u
       baseUrl: raw.baseUrl || 'https://openrouter.ai/api/v1',
       apiKey: decryptSecret(String(raw.apiKey)),
       textModel: raw.textModel || 'deepseek/deepseek-chat',
+      visionModel: raw.visionModel || 'deepseek/deepseek-v4-flash-vision-exp',
       imageModel: raw.imageModel || 'openai/gpt-image-2',
     }
   } catch {
@@ -99,7 +102,7 @@ export function readServerDefault(userId: string, env: Record<string, string | u
 /** 写入/清除服务端默认供应商：传 null（或无 Key）即删除文件 = 去掉默认。 */
 export function setServerDefault(
   userId: string,
-  config: { baseUrl?: string; apiKey?: string; textModel?: string; imageModel?: string; protocol?: string } | null,
+  config: { baseUrl?: string; apiKey?: string; textModel?: string; visionModel?: string; imageModel?: string; protocol?: string } | null,
   env: Record<string, string | undefined> = process.env,
 ): void {
   const file = aiDefaultPath(userId, env)
@@ -115,6 +118,7 @@ export function setServerDefault(
         baseUrl: config.baseUrl || 'https://openrouter.ai/api/v1',
         apiKey: encryptSecret(config.apiKey),
         textModel: config.textModel || 'deepseek/deepseek-chat',
+        visionModel: config.visionModel || 'deepseek/deepseek-v4-flash-vision-exp',
         imageModel: config.imageModel || 'openai/gpt-image-2',
         protocol: config.protocol === 'anthropic' ? 'anthropic' : 'openai',
       },

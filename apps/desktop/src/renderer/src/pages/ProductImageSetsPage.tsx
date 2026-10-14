@@ -239,13 +239,29 @@ export function ProductImageSetsPage() {
     }
   }, [selectedReportId])
 
-  // 用真实落盘字节生成可展示 objectURL（worker 本地 raw 取字节，失败回落 sourceUrl）
+  // 将浏览器临时 blob: 转为 base64 dataUrl，避免向后台或 AI 服务传递未落盘的 blob: 协议地址
+  const resolveImageRefForAi = useCallback(async (url: string): Promise<string> => {
+    if (!url || !url.startsWith('blob:')) return url
+    try {
+      const res = await fetch(url)
+      const blob = await res.blob()
+      return await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onloadend = () => resolve((reader.result as string) || url)
+        reader.onerror = reject
+        reader.readAsDataURL(blob)
+      })
+    } catch {
+      return url
+    }
+  }, [])
+
+  // 用真实落盘字节生成可展示 base64 dataUrl（直接返回真实图片数据，避免生成 blob: 导致后端/AI 视觉识别失败）
   const loadAssetImg = useCallback(async (id: string): Promise<string> => {
     try {
       const dataUrl = await window.desktop?.capabilities.invoke('asset.raw', { id }) as { dataUrl: string; mimeType: string } | undefined
-      if (!dataUrl) return ''
-      const bytes = Uint8Array.from(atob(dataUrl.dataUrl.split(',')[1]), (c) => c.charCodeAt(0))
-      return URL.createObjectURL(new Blob([bytes], { type: dataUrl.mimeType || 'image/png' }))
+      if (!dataUrl?.dataUrl) return ''
+      return dataUrl.dataUrl
     } catch {
       return ''
     }
@@ -484,6 +500,7 @@ export function ProductImageSetsPage() {
     setActionPanel(null)
     setSlots((prev) => prev.map((item) => (item.id === slotId ? { ...item, status: 'generating', error: undefined } : item)))
     try {
+      const resolvedRefs = await Promise.all(referenceImages.map(resolveImageRefForAi))
       const data = await window.desktop?.capabilities.invoke('image.generate', {
         userId: currentUserId,
         tenantId: 'local',
@@ -492,8 +509,8 @@ export function ProductImageSetsPage() {
         jobId: generationJobId || `product-sets-${nanoid(12)}`,
         name: slot.name,
         slotType: slot.type,
-        image: referenceImages[0],
-        images: referenceImages.slice(0, 4),
+        image: resolvedRefs[0],
+        images: resolvedRefs.slice(0, 4),
         ratio: settings.ratio,
         productName: productName.trim() || undefined,
       }) as { images?: Array<{ url: string }> } | undefined
@@ -515,6 +532,7 @@ export function ProductImageSetsPage() {
     setActionPanel(null)
     setSlots((prev) => prev.map((item) => (item.id === slotId ? { ...item, status: 'generating', error: undefined } : item)))
     try {
+      const resolvedRefs = await Promise.all(referenceImages.map(resolveImageRefForAi))
       const data = await window.desktop?.capabilities.invoke('image.generate', {
         userId: currentUserId,
         tenantId: 'local',
@@ -523,8 +541,8 @@ export function ProductImageSetsPage() {
         jobId: generationJobId || `product-sets-${nanoid(12)}`,
         name: slot.name,
         slotType: slot.type,
-        image: referenceImages[0],
-        images: referenceImages.slice(0, 4),
+        image: resolvedRefs[0],
+        images: resolvedRefs.slice(0, 4),
         ratio,
         productName: productName.trim() || undefined,
       }) as { images?: Array<{ url: string }> } | undefined
@@ -546,8 +564,14 @@ export function ProductImageSetsPage() {
     }
     setActionPanel({ mode: 'text', slotId: slot.id, title: slot.name, text: '', direction: '', loading: true })
     try {
-      const data = await window.desktop?.capabilities.invoke('productSets.extractImageText', { userId: currentUserId, imageUrl: slot.imageUrl }) as { text?: string } | undefined
-      setActionPanel((prev) => (prev ? { ...prev, text: data?.text ?? '', loading: false } : prev))
+      const resolvedUrl = await resolveImageRefForAi(slot.imageUrl)
+      const data = await window.desktop?.capabilities.invoke('productSets.extractImageText', {
+        userId: currentUserId,
+        imageUrl: resolvedUrl,
+        assetId: slot.id,
+      }) as { text?: string; texts?: string[] } | undefined
+      const extractedText = (data?.texts && data.texts.length > 0 ? data.texts.join('\n') : data?.text) ?? ''
+      setActionPanel((prev) => (prev ? { ...prev, text: extractedText, loading: false } : prev))
     } catch (err) {
       setActionPanel(null)
       Message.error(err instanceof Error ? err.message : '读取图片文字失败')
@@ -558,10 +582,11 @@ export function ProductImageSetsPage() {
     if (!actionPanel || !actionPanel.text.trim()) return
     const slot = slots.find((item) => item.id === actionPanel.slotId)
     if (!slot?.imageUrl) return
+    const resolvedUrl = await resolveImageRefForAi(slot.imageUrl)
     await generateSlotWithPrompt(
       actionPanel.slotId,
       `保留商品主体、构图和视觉风格，仅更新图片文字内容。新文字：${actionPanel.text.trim()}`,
-      [slot.imageUrl],
+      [resolvedUrl],
     )
   }
 
@@ -577,9 +602,10 @@ export function ProductImageSetsPage() {
       const direction = actionPanel.direction.trim()
       const mentionsProductError = PRODUCT_ERROR_KEYWORDS.some((kw) => direction.includes(kw))
       // 参考图组合：商品出错 → [商品原图, 已生成图]（product_fix 语义）；未出错 → [已生成图]（retouch 语义）
-      const referenceImages = mentionsProductError
+      const rawRefs = mentionsProductError
         ? [uploadedImages.find((i) => i.isMain)?.url || uploadedImages[0]?.url, slot.imageUrl].filter(Boolean) as string[]
         : [slot.imageUrl]
+      const referenceImages = await Promise.all(rawRefs.map(resolveImageRefForAi))
       const data = await window.desktop?.capabilities.invoke('productSets.generateRetouchPrompt', {
         userId: currentUserId,
         settings,
@@ -605,8 +631,9 @@ export function ProductImageSetsPage() {
     }
     setActionPanel(null)
     setResizeTargets(null)
+    const resolvedUrl = await resolveImageRefForAi(slot.imageUrl)
     // 透传目标比例而非 settings.ratio，改图按所选尺寸生成
-    await generateSlotWithPromptWithRatio(slot.id, `智能调整电商图片尺寸到${targetRatio}，保留商品主体、文字可读性和视觉层次，不裁切关键信息。`, [slot.imageUrl], targetRatio)
+    await generateSlotWithPromptWithRatio(slot.id, `智能调整电商图片尺寸到${targetRatio}，保留商品主体、文字可读性和视觉层次，不裁切关键信息。`, [resolvedUrl], targetRatio)
   }
 
   // 批量智能改尺寸：对已勾选图片逐张执行（M15，逻辑同单张）
@@ -900,6 +927,7 @@ export function ProductImageSetsPage() {
               onRetry={handleAiHelp}
               onConfirm={confirmAiHelp}
               triggerDisabled={uploadedImages.length === 0}
+              onDisabledClick={() => Message.warning('请先上传商品原图，再使用 AI 帮写')}
             />
           </div>
 

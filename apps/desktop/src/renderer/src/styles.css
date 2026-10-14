@@ -118,6 +118,45 @@ body {
   justify-content: center;
 }
 
+/* AI 帮写等胶囊按钮通用单行与图标防折行样式（修复普通态与 loading 态上下折行事故） */
+.ai-help-btn {
+  display: inline-flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: center !important;
+  white-space: nowrap !important;
+  word-break: keep-all !important;
+}
+
+.ai-help-btn svg {
+  display: inline-block !important;
+  vertical-align: middle !important;
+  flex-shrink: 0 !important;
+}
+
+/* AI 帮写 Popover 弹出容器样式重置：消除 Arco 默认的 padding、背景和多层阴影，避免视觉上出现双层白底 */
+.ai-help-popover-content.arco-popover-content,
+.arco-trigger-popup:has(.ai-help-popover-content) .arco-popover-content,
+.ai-help-popover-content {
+  padding: 0 !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+  border: none !important;
+}
+
+.ai-help-popover-content .arco-popover-inner,
+.ai-help-popover-content .arco-popover-inner-content {
+  padding: 0 !important;
+  background-color: transparent !important;
+  border: none !important;
+}
+
+.arco-trigger-popup:has(.ai-help-popover-content) .arco-trigger-arrow,
+.ai-help-popover-content .arco-trigger-arrow,
+.ai-help-popover-content .arco-popover-arrow {
+  display: none !important;
+}
+
 /* 修复：arco.css 未分层 normalize 的 button/input { margin: 0 }（特异性 0,0,1）
    会压过 Tailwind v4 space-y 工具类的 :where 零特异性规则——
    容器内原生 button/input 的垂直间距全部失效（采集页「开始采集」与勾选行贴合事故）。

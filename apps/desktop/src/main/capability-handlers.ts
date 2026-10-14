@@ -10,9 +10,13 @@ const LONG_RUNNING_CAPABILITIES = new Set([
   'dataAgent.chat',
   'report.rerunBand',
   'report.mainImageAnalysis.run',
-  // LangGraph 套图/详情图编排：planPrompts + 逐图真实生图，需长超时（走查 M8/D5）
+  // 套图/详情图与提示词/工作流生成：含大模型调用与多轮推理，需长超时
   'productSets.graph.run',
   'productSets.detailGraph.run',
+  'productSets.generateDetailWorkflow',
+  'productSets.generatePrompts',
+  'productSets.expandPrompts',
+  'productSets.generateRetouchPrompt',
 ])
 const LONG_RUNNING_TIMEOUT_MS = 180_000
 

@@ -16,7 +16,8 @@ export class AiConfigController {
     return {
       baseUrl: (process.env.OPENROUTER_BASE_URL ?? '').trim() || 'https://openrouter.ai/api/v1',
       apiKey: key,
-      textModel: (process.env.OPENROUTER_TEXT_MODEL ?? process.env.OPENROUTER_VISION_MODEL ?? '').trim() || 'deepseek/deepseek-chat',
+      textModel: (process.env.OPENROUTER_TEXT_MODEL ?? '').trim() || 'deepseek/deepseek-chat',
+      visionModel: (process.env.OPENROUTER_VISION_MODEL ?? '').trim() || 'deepseek/deepseek-v4-flash-vision-exp',
       imageModel: (process.env.OPENROUTER_IMAGE_MODEL ?? '').trim() || 'openai/gpt-image-2',
       protocol: 'openai',
     }

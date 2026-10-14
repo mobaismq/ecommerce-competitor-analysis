@@ -14,6 +14,7 @@ interface AiHelpPopoverProps {
   trigger?: ReactNode
   triggerDisabled?: boolean
   triggerLabel?: string
+  onDisabledClick?: () => void
 }
 
 function ThinkingDots() {
@@ -42,11 +43,30 @@ export function AiHelpPopover({
   trigger,
   triggerDisabled = false,
   triggerLabel = 'AI 帮写',
+  onDisabledClick,
 }: AiHelpPopoverProps) {
   const waitingForContent = busy && !text.trim()
 
+  const handleTriggerClick = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (triggerDisabled) {
+      onDisabledClick?.()
+      return
+    }
+    if (busy) return
+    if (visible) {
+      onVisibleChange(false)
+      return
+    }
+    onVisibleChange(true)
+    // 只有在当前内容为空时才触发首次转写；已有转写内容仅打开展示，绝不重复调用接口
+    if (!text.trim()) {
+      onStart()
+    }
+  }
+
   const content = (
-    <div className="w-[380px] overflow-hidden rounded-[12px] bg-white p-4 text-[13px] text-[#0A1B39] shadow-[0_12px_36px_rgba(15,23,41,.18)]">
+    <div className="w-[390px] overflow-hidden rounded-[12px] border border-[#E5E8EF] bg-white p-4 text-[13px] text-[#0A1B39] shadow-[0_12px_36px_rgba(15,23,41,.18)]">
       <div className="mb-3 flex items-center justify-between border-b border-[#f0f2f5] pb-3">
         <div className="flex items-center gap-1.5 text-[15px] font-bold text-[#171A1D]">
           <Sparkles className="h-4 w-4 text-[#1683FF]" />
@@ -102,19 +122,53 @@ export function AiHelpPopover({
       content={content}
       trigger="click"
       popupVisible={visible}
-      onVisibleChange={onVisibleChange}
+      onVisibleChange={(nextVisible) => {
+        if (!nextVisible) {
+          onVisibleChange(false)
+        }
+      }}
       position="right"
+      triggerProps={{
+        showArrow: false,
+        popupStyle: {
+          padding: 0,
+          backgroundColor: 'transparent',
+          boxShadow: 'none',
+          border: 'none',
+        },
+      }}
+      className="ai-help-popover-content"
     >
       {trigger ?? (
         <button
           type="button"
-          onClick={onStart}
-          disabled={triggerDisabled || busy}
-          className="flex h-9 min-w-[108px] shrink-0 flex-nowrap cursor-pointer items-center justify-center gap-1 whitespace-nowrap rounded-full border border-[#D9E8FF] bg-white px-3 text-[14px] font-medium leading-none text-[#1683FF] shadow-sm disabled:cursor-not-allowed disabled:opacity-60"
-          style={{ whiteSpace: 'nowrap', wordBreak: 'keep-all' }}
+          onClick={handleTriggerClick}
+          className={`ai-help-btn inline-flex h-8 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-full border border-[#D9E8FF] bg-white px-3 text-[13px] font-medium leading-none text-[#1683FF] shadow-sm transition-all hover:bg-[#F2F7FF] hover:border-[#1683FF] ${
+            triggerDisabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'
+          }`}
+          style={{
+            display: 'inline-flex',
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'center',
+            whiteSpace: 'nowrap',
+            wordBreak: 'keep-all',
+          }}
         >
-          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Lightbulb className="h-3.5 w-3.5" />}
-          {triggerLabel}
+          {busy ? (
+            <Loader2
+              className="h-3.5 w-3.5 shrink-0 animate-spin text-[#1683FF]"
+              style={{ display: 'inline-block', flexShrink: 0 }}
+            />
+          ) : (
+            <Lightbulb
+              className="h-3.5 w-3.5 shrink-0 text-[#1683FF]"
+              style={{ display: 'inline-block', flexShrink: 0 }}
+            />
+          )}
+          <span style={{ display: 'inline-block', whiteSpace: 'nowrap', lineHeight: 1 }}>
+            {triggerLabel}
+          </span>
         </button>
       )}
     </Popover>

@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { Check, ChevronDown, ChevronUp, Download, Eye, Loader2, Maximize2, MoreHorizontal, Plus, Trash2, Type, Upload, Wand2, X } from 'lucide-react'
 import { Button, Input, Message, Modal, Select } from '@arco-design/web-react'
 import { saveAs } from 'file-saver'
@@ -326,6 +326,23 @@ export function APlusDetailPage() {
     }
   }
 
+  // 将浏览器临时 blob: 转为 base64 dataUrl，避免向后台或 AI 服务传递未落盘的 blob: 协议地址
+  const resolveImageRefForAi = useCallback(async (url: string): Promise<string> => {
+    if (!url || !url.startsWith('blob:')) return url
+    try {
+      const res = await fetch(url)
+      const blob = await res.blob()
+      return await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onloadend = () => resolve((reader.result as string) || url)
+        reader.onerror = reject
+        reader.readAsDataURL(blob)
+      })
+    } catch {
+      return url
+    }
+  }, [])
+
   const generateModuleWithPrompt = async (instanceId: string, prompt: string, referenceImages: string[]) => {
     const target = selectedModules.find((item) => item.instanceId === instanceId)
     if (!target) return
@@ -334,6 +351,7 @@ export function APlusDetailPage() {
       prev.map((item) => (item.instanceId === instanceId ? { ...item, status: 'generating', error: undefined } : item)),
     )
     try {
+      const resolvedRefs = await Promise.all(referenceImages.map(resolveImageRefForAi))
       const data = await desktopInvoke('image.generate', {
         userId: currentUserId,
         tenantId: 'local',
@@ -341,8 +359,8 @@ export function APlusDetailPage() {
         size: '2K',
         name: target.title,
         slotType: target.title,
-        image: referenceImages[0],
-        images: referenceImages.slice(0, 4),
+        image: resolvedRefs[0],
+        images: resolvedRefs.slice(0, 4),
         ratio: settings.ratio,
       }) as { images?: Array<{ url?: string; dataUrl?: string }> } | undefined
       const generatedUrl = data?.images?.[0]?.url || data?.images?.[0]?.dataUrl
@@ -369,6 +387,7 @@ export function APlusDetailPage() {
       prev.map((item) => (item.instanceId === instanceId ? { ...item, status: 'generating', error: undefined } : item)),
     )
     try {
+      const resolvedRefs = await Promise.all(referenceImages.map(resolveImageRefForAi))
       const data = await desktopInvoke('image.generate', {
         userId: currentUserId,
         tenantId: 'local',
@@ -376,8 +395,8 @@ export function APlusDetailPage() {
         size: '2K',
         name: target.title,
         slotType: target.title,
-        image: referenceImages[0],
-        images: referenceImages.slice(0, 4),
+        image: resolvedRefs[0],
+        images: resolvedRefs.slice(0, 4),
         ratio,
       }) as { images?: Array<{ url?: string; dataUrl?: string }> } | undefined
       const generatedUrl = data?.images?.[0]?.url || data?.images?.[0]?.dataUrl
@@ -404,10 +423,11 @@ export function APlusDetailPage() {
     setMoreMenuModuleId(null)
     setResizeTarget(null)
     setResizeRatio(targetRatio)
+    const resolvedUrl = await resolveImageRefForAi(mod.imageUrl)
     await generateModuleWithPromptRatio(
       mod.instanceId,
       `智能调整电商图片尺寸到${targetRatio}，保留商品主体、文字可读性和视觉层次，不裁切关键信息。`,
-      [mod.imageUrl],
+      [resolvedUrl],
       targetRatio,
     )
   }
@@ -428,8 +448,14 @@ export function APlusDetailPage() {
     }
     setActionPanel({ mode: 'text', moduleId, title: target.title, text: '', direction: '', loading: true })
     try {
-      const data = await desktopInvoke('productSets.extractImageText', { userId: currentUserId, imageUrl: target.imageUrl }) as { text?: string } | undefined
-      setActionPanel((prev) => (prev ? { ...prev, text: data?.text ?? '', loading: false } : prev))
+      const resolvedUrl = await resolveImageRefForAi(target.imageUrl)
+      const data = await desktopInvoke('productSets.extractImageText', {
+        userId: currentUserId,
+        imageUrl: resolvedUrl,
+        assetId: target.instanceId,
+      }) as { text?: string; texts?: string[] } | undefined
+      const extractedText = (data?.texts && data.texts.length > 0 ? data.texts.join('\n') : data?.text) ?? ''
+      setActionPanel((prev) => (prev ? { ...prev, text: extractedText, loading: false } : prev))
     } catch (err) {
       setActionPanel(null)
       Message.error(err instanceof Error ? err.message : '读取图片文字失败')
@@ -440,10 +466,11 @@ export function APlusDetailPage() {
     if (!actionPanel?.text.trim()) return
     const target = selectedModules.find((item) => item.instanceId === actionPanel.moduleId)
     if (!target?.imageUrl) return
+    const resolvedUrl = await resolveImageRefForAi(target.imageUrl)
     await generateModuleWithPrompt(
       actionPanel.moduleId,
       `保留详情图版式和商品主体，仅更新图片文字内容。新文字：${actionPanel.text.trim()}`,
-      [target.imageUrl],
+      [resolvedUrl],
     )
   }
 
@@ -462,7 +489,8 @@ export function APlusDetailPage() {
       }) as { prompt?: string } | undefined
       const retouchPrompt = data?.prompt?.trim()
       if (!retouchPrompt) throw new Error('AI改图提示词为空，请重试')
-      await generateModuleWithPrompt(actionPanel.moduleId, retouchPrompt, [target.imageUrl])
+      const resolvedUrl = await resolveImageRefForAi(target.imageUrl)
+      await generateModuleWithPrompt(actionPanel.moduleId, retouchPrompt, [resolvedUrl])
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       setActionPanel((prev) => (prev ? { ...prev, loading: false } : prev))
@@ -722,6 +750,7 @@ export function APlusDetailPage() {
                 onRetry={() => void handleAiHelp()}
                 onConfirm={confirmAiHelp}
                 triggerDisabled={!uploadedImages.length}
+                onDisabledClick={() => Message.warning('请先上传商品原图，再使用 AI 帮写')}
               />
             </div>
             <textarea

@@ -9,7 +9,7 @@ import {
   parseJsonFromText,
   type PromptSettings,
 } from './image-prompt'
-import { getWorkerPrisma } from './worker-db'
+import { getWorkerPrisma, readBytesByKey, workerDataRoots } from './worker-db'
 
 export interface ProductSetsInput {
   userId: string
@@ -188,15 +188,118 @@ export async function generateDetailWorkflow(input: { userId: string; settings?:
   return { ok: true, data: detailWorkflowPrompt, detailStrategyPlan: parsed, model: ai.model }
 }
 
-/** OCR（vision）：提取图片文字。 */
-export async function extractImageText(input: { userId: string; imageUrl: string }) {
-  if (!input.imageUrl.trim()) throw new Error('imageUrl 不能为空')
+const IMAGE_TEXT_UI_BLACKLIST = [
+  /^原图$/,
+  /^AI改图$/,
+  /^编辑文字$/,
+  /^下载$/,
+  /^全选$/,
+  /^生成结果[:：]?$/,
+  /^未识别到图片文字$/,
+  /^\d{2}\s*(?:白底图|场景图|卖点图|细节说明|卖点详解|功能说明图|细节特写图|主图)/,
+]
+
+function cleanExtractedTextLine(value: string) {
+  const text = String(value || '')
+    .replace(/^[\s"'`*•·\-—、，。:：]+/, '')
+    .replace(/[\s"'`]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!text) return ''
+  if (/^(?:texts|items|text)\b/i.test(text)) return ''
+  if (/^[\[\]{}:,]+$/.test(text)) return ''
+  if (IMAGE_TEXT_UI_BLACKLIST.some((pattern) => pattern.test(text))) return ''
+  return text
+}
+
+function normalizeExtractedTexts(json: unknown, fallbackText = ''): string[] {
+  if (json && typeof json === 'object') {
+    const list = Array.isArray((json as { texts?: unknown[] }).texts)
+      ? (json as { texts: unknown[] }).texts
+      : Array.isArray((json as { items?: unknown[] }).items)
+        ? (json as { items: unknown[] }).items
+        : null
+    if (list) {
+      return list.map((item) => cleanExtractedTextLine(String(item ?? ''))).filter(Boolean)
+    }
+  }
+  return String(fallbackText || '')
+    .replace(/```json/gi, '')
+    .replace(/```/g, '')
+    .replace(/[{}[\]]/g, '\n')
+    .split(/\r?\n|\\n|；|;/)
+    .map((line) => line.replace(/^\s*(?:"texts"|"items"|"text")\s*[:：]\s*/i, ''))
+    .map((line) => line.replace(/^\s*["']?text["']?\s*[:：]\s*/i, ''))
+    .map((line) => line.replace(/^\s*\d+\s*[、.．]\s*/, ''))
+    .map((line) => line.replace(/^[\s,，"']+|[\s,，"']+$/g, ''))
+    .map(cleanExtractedTextLine)
+    .filter(Boolean)
+}
+
+/** OCR（vision）：提取图片文字（对齐 dev 分支规则与 UI 标签过滤）。 */
+export async function extractImageText(input: { userId: string; imageUrl?: string; image?: string; assetId?: string }) {
+  let img = String(input.imageUrl || input.image || '').trim()
+
+  const db = getWorkerPrisma()
+  // 支持直接通过 assetId 或 DB 检索读取落盘 base64 数据
+  if (input.assetId || (img && !img.startsWith('http') && !img.startsWith('data:') && !img.startsWith('blob:'))) {
+    const targetId = input.assetId || img
+    const asset = await db.generatedAsset.findFirst({ where: { id: targetId } })
+    if (asset) {
+      const bytes = readBytesByKey(asset.storageKey, workerDataRoots())
+      if (bytes) {
+        img = `data:${asset.mimeType || 'image/png'};base64,${bytes.toString('base64')}`
+      }
+    }
+  }
+
+  // 针对 blob: 临时地址容错：尝试通过 assetId 补救
+  if (img.startsWith('blob:')) {
+    if (input.assetId) {
+      const asset = await db.generatedAsset.findFirst({ where: { id: input.assetId } })
+      if (asset) {
+        const bytes = readBytesByKey(asset.storageKey, workerDataRoots())
+        if (bytes) {
+          img = `data:${asset.mimeType || 'image/png'};base64,${bytes.toString('base64')}`
+        }
+      }
+    }
+    if (img.startsWith('blob:')) {
+      throw new Error('当前图片引用为浏览器临时 blob 地址，无法由后台视觉模型直接读取，请刷新重试')
+    }
+  }
+
+  if (!img) throw new Error('imageUrl 不能为空')
+
+  const prompt = `你是电商图片 OCR 文案提取智能体。请只识别用户提供图片画面中真实可见的文案。
+
+规则：
+1. 只提取图片本身包含的文字、数字、符号、短句，按视觉阅读顺序输出。
+2. 不要根据商品、品类、提示词、常识或页面上下文补写任何文字。
+3. 不要输出网页 UI 叠加标签，例如“01 白底图”“02 场景图”“下载”“AI改图”“编辑文字”等。
+4. 需要重点识别图片里的标题、卖点短句、参数、底部说明、小字、白色描边字、贴纸字和拼图中的文字。
+5. 同一段文案如果被换行拆开，请合并成一句；相同文案只输出一次。
+6. 如果图片中没有可识别文字，返回空数组。
+
+必须只输出 JSON，不要使用 Markdown：
+{
+  "texts": ["图片中真实可见的文案1", "图片中真实可见的文案2"]
+}`
+
   const ai = await createRealAiProvider(input.userId).analyzeImage({
-    prompt: '请提取这张图片中的所有文字，原样输出。',
-    images: [input.imageUrl],
+    prompt,
+    images: [img],
     maxTokens: 1500,
   })
-  return { ok: true, text: ai.text ?? '', model: ai.model }
+
+  const parsed = ai.text ? parseJsonFromText(ai.text) : null
+  const texts = normalizeExtractedTexts(parsed, ai.text || '')
+  return {
+    ok: true,
+    text: texts.join('\n') || (ai.text ?? ''),
+    texts,
+    model: ai.model,
+  }
 }
 
 /** 主图描述：读本地 AnalysisRun.reportJson 生成设计输入（对齐后端 mainImageDescriptions）。 */

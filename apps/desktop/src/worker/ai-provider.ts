@@ -135,6 +135,7 @@ export function createRealAiProvider(userId: string): RealAiProvider {
   }
 
   const model = config.textModel
+  const visionModel = config.visionModel || config.textModel
   return {
     type: config.kind,
     generateText: async (request) => {
@@ -149,7 +150,10 @@ export function createRealAiProvider(userId: string): RealAiProvider {
         signal: AbortSignal.timeout(timeout),
       })
       const payload = await response.json().catch(() => ({}))
-      if (!response.ok) throw new Error(`AI 请求失败: HTTP ${response.status}`)
+      if (!response.ok) {
+        const errMessage = (payload as { error?: { message?: string } })?.error?.message
+        throw new Error(errMessage ? `AI 请求失败: ${errMessage}` : `AI 请求失败: HTTP ${response.status}`)
+      }
       const text = (payload as { choices?: Array<{ message?: { content?: string } }> }).choices?.[0]?.message?.content
       return { text: typeof text === 'string' ? text : JSON.stringify(payload), model }
     },
@@ -158,7 +162,7 @@ export function createRealAiProvider(userId: string): RealAiProvider {
         method: 'POST',
         headers,
         body: JSON.stringify({
-          model,
+          model: visionModel,
           messages: [
             ...(request.system ? [{ role: 'system', content: request.system }] : []),
             { role: 'user', content: [{ type: 'text', text: request.prompt }, ...request.images.map((url) => ({ type: 'image_url', image_url: { url } }))] },
@@ -168,9 +172,12 @@ export function createRealAiProvider(userId: string): RealAiProvider {
         signal: AbortSignal.timeout(timeout),
       })
       const payload = await response.json().catch(() => ({}))
-      if (!response.ok) throw new Error(`AI 请求失败: HTTP ${response.status}`)
+      if (!response.ok) {
+        const errMessage = (payload as { error?: { message?: string } })?.error?.message
+        throw new Error(errMessage ? `AI 视觉请求失败: ${errMessage}` : `AI 视觉请求失败: HTTP ${response.status}`)
+      }
       const text = (payload as { choices?: Array<{ message?: { content?: string } }> }).choices?.[0]?.message?.content
-      return { text: typeof text === 'string' ? text : JSON.stringify(payload), model }
+      return { text: typeof text === 'string' ? text : JSON.stringify(payload), model: visionModel }
     },
     streamText: async (request, emit) => {
       const response = await fetch(endpoint, {
@@ -179,7 +186,11 @@ export function createRealAiProvider(userId: string): RealAiProvider {
         body: JSON.stringify({ model, messages: messages(request), stream: true, ...(request.maxTokens ? { max_tokens: request.maxTokens } : {}) }),
         signal: AbortSignal.timeout(timeout + 30_000),
       })
-      if (!response.ok || !response.body) throw new Error(`AI 流式请求失败: HTTP ${response.status}`)
+      if (!response.ok || !response.body) {
+        const payload = await response.json().catch(() => ({})) as { error?: { message?: string } }
+        const errMessage = payload?.error?.message
+        throw new Error(errMessage ? `AI 流式请求失败: ${errMessage}` : `AI 流式请求失败: HTTP ${response.status}`)
+      }
       const reader = response.body.getReader()
       const decoder = new TextDecoder()
       let buffer = ''

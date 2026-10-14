@@ -158,10 +158,17 @@ export function ViralVideoReplicationPage() {
               <SectionTitle help>商品卖点</SectionTitle>
               <button
                 type="button"
-                className="flex h-7 cursor-pointer items-center gap-1 rounded-full border border-[#D9E8FF] bg-white px-2.5 text-[12px] font-medium text-[#1683FF] shadow-sm"
+                className="ai-help-btn flex h-7 cursor-pointer items-center gap-1 rounded-full border border-[#D9E8FF] bg-white px-2.5 text-[12px] font-medium text-[#1683FF] shadow-sm"
+                style={{
+                  display: 'inline-flex',
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  whiteSpace: 'nowrap',
+                  wordBreak: 'keep-all',
+                }}
               >
-                <Sparkles className="h-3.5 w-3.5" />
-                AI 帮写
+                <Sparkles className="h-3.5 w-3.5 shrink-0 text-[#1683FF]" style={{ display: 'inline-block' }} />
+                <span style={{ display: 'inline-block', whiteSpace: 'nowrap', lineHeight: 1 }}>AI 帮写</span>
               </button>
             </div>
             <textarea
