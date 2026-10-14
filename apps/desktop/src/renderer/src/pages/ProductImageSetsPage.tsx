@@ -343,16 +343,12 @@ export function ProductImageSetsPage() {
 
   // 步进器调整自定义数量
   const updateCustomCount = (key: SuiteTypeKey, delta: number) => {
-    setCustomCounts((prev) => {
-      const current = prev[key]
-      const nextVal = Math.max(0, current + delta)
-      const currentTotal = Object.values(prev).reduce((s, n) => s + n, 0)
-      if (delta < 0 && currentTotal <= 5) {
-        Message.warning('套图总数量至少选择 5 张')
-        return prev
-      }
-      return { ...prev, [key]: nextVal }
-    })
+    const currentTotal = Object.values(customCounts).reduce((s, n) => s + n, 0)
+    if (delta < 0 && currentTotal <= 5) {
+      Message.warning('套图总数量至少选择 5 张')
+      return
+    }
+    setCustomCounts((prev) => ({ ...prev, [key]: Math.max(0, prev[key] + delta) }))
   }
 
   // 一键全套生成：先 AI 策划每个图位提示词，再按图位图生图

@@ -4,7 +4,16 @@ import { WorkerManager } from './worker-manager'
 let manager: WorkerManager | null = null
 
 /** 长耗时 AI 能力不能沿用 30 秒默认超时（真实外部模型可能超过 1 分钟）。 */
-const LONG_RUNNING_CAPABILITIES = new Set(['image.generate', 'report.generate', 'dataAgent.chat', 'report.rerunBand', 'report.mainImageAnalysis.run'])
+const LONG_RUNNING_CAPABILITIES = new Set([
+  'image.generate',
+  'report.generate',
+  'dataAgent.chat',
+  'report.rerunBand',
+  'report.mainImageAnalysis.run',
+  // LangGraph 套图/详情图编排：planPrompts + 逐图真实生图，需长超时（走查 M8/D5）
+  'productSets.graph.run',
+  'productSets.detailGraph.run',
+])
 const LONG_RUNNING_TIMEOUT_MS = 180_000
 
 export function startCapabilityWorker(onLog?: (line: string) => void) {
