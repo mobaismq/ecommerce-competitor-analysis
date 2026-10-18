@@ -118,6 +118,24 @@ body {
   justify-content: center;
 }
 
+/* 商品主图页：覆盖 Arco 实际绘制背景/边框的节点，避免只给外层设置圆角。 */
+.product-image-sets-page .arco-select-view,
+.product-image-sets-page .arco-input-wrapper,
+.product-image-sets-page .arco-input,
+.product-image-sets-page .arco-textarea-wrapper,
+.product-image-sets-page .arco-textarea {
+  border-radius: 8px;
+}
+
+/* 详情图页与商品主图页统一表单控件圆角。 */
+.aplus-detail-page .arco-select-view,
+.aplus-detail-page .arco-input-wrapper,
+.aplus-detail-page .arco-input,
+.aplus-detail-page .arco-textarea-wrapper,
+.aplus-detail-page .arco-textarea {
+  border-radius: 8px;
+}
+
 /* AI 帮写等胶囊按钮通用单行与图标防折行样式（修复普通态与 loading 态上下折行事故） */
 .ai-help-btn {
   display: inline-flex !important;

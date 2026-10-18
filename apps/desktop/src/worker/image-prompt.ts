@@ -104,7 +104,7 @@ export const DEFAULT_SLOT_CONFIGS: PromptSlot[] = [
   { id: 'image-5', name: '图5｜买点详解', type: '买点详解', sequence: 5 },
 ]
 
-export function buildImagePromptGenerationPrompt(options: { settings?: PromptSettings; information?: string; designPlan?: string; promptSlots: PromptSlot[] }): string {
+export function buildImagePromptGenerationPrompt(options: { settings?: PromptSettings; information?: string; designPlan?: string; visualFacts?: string; promptSlots: PromptSlot[] }): string {
   const schema = options.promptSlots.map((slot) => ({
     id: slot.id,
     name: slot.name,
@@ -118,6 +118,9 @@ export function buildImagePromptGenerationPrompt(options: { settings?: PromptSet
 
 【信息整理补全】
 ${String(options.information ?? '').trim() || '以用户上传商品图中的可见信息为准'}
+
+【商品原图视觉事实（最高优先级）】
+${String(options.visualFacts ?? '').trim() || '未提供视觉识别结果；必须在生图阶段严格使用商品原图作为参考，不得根据文字猜测替换商品。'}
 
 【主图设计规划】
 ${String(options.designPlan ?? '').trim()}
@@ -135,13 +138,14 @@ ${slotList}
 ${typeRules}
 
 【总规则】
-1. 只为“需要生成的图位”输出 prompts，数量和顺序必须完全一致。
-2. 每条 prompt 都必须严格基于对应图位的“主图设计规划”和该图位规则生成，不得只套用通用短规则。
-3. 必须以用户上传的商品图为唯一商品主体，保持商品外观、颜色、结构、比例、关键部件、包装文字和可见特征一致，不替换商品，不生成其他品类。
-4. 所有颜色、材质、结构、花型、纹理、参数、场景和文案都只能来自商品图片、商品信息或保守可确认的品类常识。
-5. 同类型多张图必须各自有不同主题：场景图区分使用场景、人物姿势、镜头距离和光线；卖点图区分核心卖点；买点详解图区分购买理由组合；细节说明图区分真实细节对象。
-6. 每条 prompt 写成中文自然段，包含图位目标、主体要求、背景/场景、构图、光影、配色、文字版式、禁止事项，长度300-600字。
-7. 文案必须短、清楚、适合${options.settings?.language || '简体中文'}，不得输出无法读清的小字、错字、无关品牌、水印、UI按钮或促销角标。
+1. 《商品原图视觉事实》是商品识别的最高优先级。它与《信息整理补全》或《主图设计规划》冲突时，必须以视觉事实为准；不得把商品替换成外观相近但颜色、品类、袖型、领型、轮廓或纹理不同的商品。
+2. 只为“需要生成的图位”输出 prompts，数量和顺序必须完全一致。
+3. 每条 prompt 都必须严格基于对应图位的“主图设计规划”和该图位规则生成，不得只套用通用短规则。
+4. 必须以用户上传的商品图为唯一商品主体，保持商品外观、颜色、结构、比例、关键部件、包装文字和可见特征一致，不替换商品，不生成其他品类。
+5. 所有颜色、材质、结构、花型、纹理、参数、场景和文案都只能来自商品图片、商品信息或保守可确认的品类常识。
+6. 同类型多张图必须各自有不同主题：场景图区分使用场景、人物姿势、镜头距离和光线；卖点图区分核心卖点；买点详解图区分购买理由组合；细节说明图区分真实细节对象。
+7. 每条 prompt 写成中文自然段，包含图位目标、主体要求、背景/场景、构图、光影、配色、文字版式、禁止事项，长度300-600字。
+8. 文案必须短、清楚、适合${options.settings?.language || '简体中文'}，不得输出无法读清的小字、错字、无关品牌、水印、UI按钮或促销角标。
 
 【输出格式】
 必须只输出 JSON，不要使用 Markdown，不要输出解释或分析过程。
@@ -157,10 +161,14 @@ ${typeRules}
  * 权威定义在 worker；后端镜像同款（见 apps/backend/src/images/image-prompt.ts buildAiHelpWritePrompt）。
  */
 export function buildAiHelpWritePrompt(options: { settings?: PromptSettings; information?: string }): string {
-  return `你是一名资深电商运营，正在为一件真实商品撰写「商品卖点与要求」结构化信息，供后续 AI 生图使用。
+  const information = String(options.information ?? '').trim()
+  return `你是一名资深电商运营，正在根据用户上传的真实商品图片整理「商品卖点与要求」，供后续 AI 生图使用。
 
-【输入信息】
-${String(options.information ?? '').trim() || '以用户上传商品原图中可见信息为准'}
+【商品原图】
+已随本次请求提供。商品图是必填且最高优先级的事实来源，请直接观察图片中的商品主体。
+
+【用户已填写内容（可为空）】
+${information || '（用户未填写内容；只能根据商品原图中可见信息整理。）'}
 
 【页面设置】
 目标平台：${options.settings?.platform || '电商平台'}
@@ -169,15 +177,17 @@ ${String(options.information ?? '').trim() || '以用户上传商品原图中可
 输出比例：${options.settings?.ratio || '1:1'}
 
 【硬性要求】
-1. 商品名称、颜色、材质、结构、版型、用途、参数等一切信息，必须以用户上传的商品原图为唯一事实依据；不得替换商品、不得张冠李戴、不得虚构原图不可见内容（品牌、价格、认证、销量等）。
-2. 严格按以下 5 段结构输出，每段一行，以「数字、」开头，数字与标题之间不加空格：
-   1、商品名称：…
-   2、核心卖点：…
-   3、适用人群：…
-   4、使用场景：…
-   5、规格参数：…
-3. 核心卖点用顿号或分号连接多个卖点；规格参数按「属性：值」分号分隔。
-4. 只输出 5 段结构文本本身，不要前言、解释、Markdown 标记或 JSON。`
+1. 必须先识别商品原图中的商品主体。商品名称、颜色、品类、结构、袖型、领型、轮廓、纹理和可见细节以商品原图为准；不得替换商品，不得把商品替换成其他品类或外观相近的商品。
+2. 用户已填写内容是可选补充：为空时，只根据商品原图整理；不为空时，结合其中与商品原图不冲突的信息补全卖点、适用人群、使用场景和参数。用户内容与商品原图可见事实冲突时，以商品原图为准。
+3. 不得虚构商品原图不可见、且用户未明确提供的信息，例如品牌、价格、认证、具体尺寸、材质成分、容量、防水等级或功能参数。
+4. 严格按以下 5 段结构输出，顺序和标题不可改变：
+   1.产品名称：…
+   2.核心卖点：…
+   3.适用人群：…
+   4.期望场景：…
+   5.具体参数：…
+5. 核心卖点整理为 3 条短句；适用人群和期望场景各整理为 3 项；具体参数只列出图片可见或用户明确给出的「属性：值」。
+6. 只输出上述 5 段正文，不要前言、解释、Markdown 标记、JSON 或分析过程。`
 }
 
 export interface RetouchSlot {

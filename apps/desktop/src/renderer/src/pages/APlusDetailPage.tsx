@@ -1,18 +1,25 @@
 import { useCallback, useRef, useState } from 'react'
-import { Check, ChevronDown, ChevronUp, Download, Eye, Loader2, Maximize2, MoreHorizontal, Plus, Trash2, Type, Upload, Wand2, X } from 'lucide-react'
-import { Button, Input, Message, Modal, Select } from '@arco-design/web-react'
+import { Check, ChevronDown, Download, Eye, GripVertical, Loader2, Minus, MoreHorizontal, Plus, Sparkles, Trash2, Type, Upload, Wand2, X } from 'lucide-react'
+import { Message, Select, Trigger } from '@arco-design/web-react'
 import { saveAs } from 'file-saver'
 import { nanoid } from 'nanoid'
 import { useAuth } from '../store/auth'
 import { AIReportSelector, type SuiteProduct } from '../components/AIReportSelector'
 import { AiHelpPopover } from '../components/AiHelpPopover'
 import { ProductImageHelpTooltip } from '../components/ProductImageHelpTooltip'
+import { ResultActionDialog } from '../components/ResultActionDialog'
+import { ImageResizeDialog } from '../components/ImageResizeDialog'
 import { imageSourceToJpegBlob } from '../image-tools'
-import mainHeadphone from '../assets/main-headphone.png'
-import sceneDisplay from '../assets/scene-display.png'
-import sellingPoint from '../assets/selling-point.png'
-import detailExplain from '../assets/detail-explain.png'
-import modelScene from '../assets/model-scene.png'
+import previewProductFront from '../assets/detail-preview/image-15.png'
+import previewProductCase from '../assets/detail-preview/image-16.png'
+import previewProductEarbud from '../assets/detail-preview/image-17.png'
+import previewLongImage from '../assets/detail-preview/image-18.png'
+import previewDetailOne from '../assets/detail-preview/image-19.png'
+import previewDetailTwo from '../assets/detail-preview/image-20.png'
+import previewDetailThree from '../assets/detail-preview/image-21.png'
+import previewDetailFour from '../assets/detail-preview/image-23.png'
+import previewDetailFive from '../assets/detail-preview/image-24.png'
+import previewDetailSix from '../assets/detail-preview/image-25.png'
 
 const Option = Select.Option
 
@@ -44,15 +51,6 @@ const PLATFORM_OPTIONS = ['淘宝天猫1688', '淘宝', '天猫', '抖音', '京
 const COUNTRY_OPTIONS = ['中国', '美国', '英国', '德国', '法国', '意大利', '西班牙', '日本', '韩国', '加拿大', '澳大利亚', '新加坡', '马来西亚', '泰国', '越南', '巴西', '墨西哥']
 const LANGUAGE_OPTIONS = ['英文', '中文', '日文', '韩文', '德文', '法文', '意大利文', '西班牙文', '葡萄牙文', '荷兰文', '波兰文', '泰文', '越南文', '印尼文']
 const RATIO_OPTIONS = ['1:1', '3:4', '4:3', '9:16', '16:9']
-const RESIZE_OPTIONS: Array<{ label: string; value: string }> = [
-  { label: '普通A+ 970:600', value: '970:600' },
-  { label: '高级A+（Web端）1464:600', value: '1464:600' },
-  { label: '高级A+（移动端）600:450', value: '600:450' },
-  { label: '1:1', value: '1:1' },
-  { label: '3:4', value: '3:4' },
-  { label: '9:16', value: '9:16' },
-  { label: '16:9', value: '16:9' },
-]
 
 interface SelectedModuleItem {
   instanceId: string
@@ -88,7 +86,10 @@ export function APlusDetailPage() {
   const currentUserId = useAuth((s) => s.user?.id ?? '')
   // 上传商品原图（对照旧版：uploadedImages，生成入口依赖它）
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const uploadInProgressRef = useRef(false)
+  const planRequestIdRef = useRef(0)
   const [uploadedImages, setUploadedImages] = useState<UploadedProductImage[]>([])
+  const [uploadNotice, setUploadNotice] = useState('')
   const [error, setError] = useState('')
 
   // 联动报告
@@ -107,33 +108,53 @@ export function APlusDetailPage() {
   // 双步工作流
   const [step, setStep] = useState<'form' | 'strategy'>('form')
   const [strategyExpanded, setStrategyExpanded] = useState(false)
+  const [strategyPlanText, setStrategyPlanText] = useState('')
+  const [expandedPromptIds, setExpandedPromptIds] = useState<string[]>([])
 
   // 模块（勾选集合对照旧版 checked 初始值）
   const [checked, setChecked] = useState<string[]>([...DEFAULT_CHECKED])
   const [selectedModules, setSelectedModules] = useState<SelectedModuleItem[]>([])
   const [orderedTitles, setOrderedTitles] = useState<string[]>([])
+  const [draggingModuleId, setDraggingModuleId] = useState<string | null>(null)
 
   const [batchGenerating, setBatchGenerating] = useState(false)
   const [strategyStatus, setStrategyStatus] = useState<'idle' | 'generating' | 'ready' | 'error'>('idle')
-  const [previewModalUrl, setPreviewModalUrl] = useState<string | null>(null)
+  const [previewImage, setPreviewImage] = useState<{ url: string; kind: 'single' | 'long'; title: string; openedAt: Date } | null>(null)
   const [composingLongImage, setComposingLongImage] = useState(false)
   const [selectedImageIds, setSelectedImageIds] = useState<string[]>([])
   const [actionPanel, setActionPanel] = useState<ModuleActionPanel | null>(null)
   // 更多操作悬浮面板目标（D7/M11）
   const [moreMenuModuleId, setMoreMenuModuleId] = useState<string | null>(null)
-  // 智能改尺寸目标模块（D7/M14）
-  const [resizeTarget, setResizeTarget] = useState<string | null>(null)
+  // 单张或批量智能改尺寸目标模块（D7/M14）
+  const [resizeTargets, setResizeTargets] = useState<string[] | null>(null)
+  const [batchResizeModuleIds, setBatchResizeModuleIds] = useState<string[]>([])
   const [resizeRatio, setResizeRatio] = useState(settings.ratio)
+
+  const editableTextLines = actionPanel?.mode === 'text' ? actionPanel.text.split('\n') : []
+  const updateTextLine = (index: number, value: string) => setActionPanel((prev) => {
+    if (!prev) return prev
+    const lines = prev.text.split('\n')
+    lines[index] = value
+    return { ...prev, text: lines.join('\n') }
+  })
+  const removeTextLine = (index: number) => setActionPanel((prev) => {
+    if (!prev) return prev
+    return { ...prev, text: prev.text.split('\n').filter((_, lineIndex) => lineIndex !== index).join('\n') }
+  })
 
   const checkedModules = MODULES.filter((m) => checked.includes(m.title))
   const strategyModuleCount = checkedModules.length
 
-  const handleUploadFiles = (files: FileList | null) => {
+  const handleUploadFiles = async (files: FileList | null) => {
     const selectedFiles = Array.from(files || [])
     if (!selectedFiles.length) return
+    if (uploadInProgressRef.current) {
+      Message.info('图片正在读取，请稍后再添加')
+      return
+    }
     const availableSlots = 6 - uploadedImages.length
     if (availableSlots <= 0) {
-      setError('同一产品最多上传 6 张图片')
+      setUploadNotice('同一产品最多上传 6 张图片，已保留前 6 张')
       return
     }
     const filesToRead = selectedFiles.slice(0, availableSlots)
@@ -147,24 +168,36 @@ export function APlusDetailPage() {
       setError('图片太大，请上传 12MB 以内的图片')
       return
     }
-    filesToRead.forEach((file) => {
-      const reader = new FileReader()
-      reader.onload = (e) => {
-        if (e.target?.result) {
-          setUploadedImages((prev) => [...prev, { id: nanoid(8), url: e.target!.result as string }].slice(0, 6))
-        }
-      }
-      reader.readAsDataURL(file)
-    })
+    uploadInProgressRef.current = true
+    try {
+      // 保留选择顺序，避免异步读取时首张原图或“前 6 张”发生变化。
+      const images = await Promise.all(filesToRead.map((file) => new Promise<UploadedProductImage>((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve({ id: nanoid(8), url: String(reader.result || '') })
+        reader.onerror = () => reject(new Error('图片读取失败，请重新上传'))
+        reader.onabort = () => reject(new Error('图片读取已取消，请重新上传'))
+        reader.readAsDataURL(file)
+      })))
+      setUploadedImages((prev) => [...prev, ...images].slice(0, 6))
+      setUploadNotice(selectedFiles.length > availableSlots ? '同一产品最多上传 6 张图片，已保留前 6 张' : '')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '图片读取失败，请重新上传')
+      return
+    } finally {
+      uploadInProgressRef.current = false
+    }
     // 上传后重置生成结果与规划（对照旧版联动）
-    setError(selectedFiles.length > availableSlots ? '同一产品最多上传 6 张图片，已保留前 6 张。' : '')
+    planRequestIdRef.current += 1
+    setError('')
     setSelectedModules([])
     setOrderedTitles([])
+    setStrategyPlanText('')
     setStrategyStatus('idle')
     setStep('form')
   }
 
   const removeUploadedImage = (id: string) => {
+    planRequestIdRef.current += 1
     setUploadedImages((prev) => prev.filter((img) => img.id !== id))
     // 删图后重置生成结果与规划（对照旧版联动）
     setSelectedModules([])
@@ -172,9 +205,12 @@ export function APlusDetailPage() {
     setStrategyStatus('idle')
     setStep('form')
     setError('')
+    setUploadNotice('')
+    setStrategyPlanText('')
   }
 
   const handleReportChange = (reportId: string, report: SuiteProduct | null) => {
+    planRequestIdRef.current += 1
     setSelectedReportId(reportId)
     setCurrentReport(report)
     setError('')
@@ -243,8 +279,15 @@ export function APlusDetailPage() {
       setError('请至少选择一个详情图模块')
       return
     }
+    const requestId = ++planRequestIdRef.current
     setError('')
+    setStep('strategy')
     setStrategyStatus('generating')
+    setStrategyPlanText('')
+    setStrategyExpanded(false)
+    setExpandedPromptIds([])
+    setSelectedModules([])
+    setOrderedTitles([])
     try {
       const reportText = [
         `商品名称: ${currentReport?.keyword || currentReport?.label || ''}`,
@@ -264,14 +307,24 @@ export function APlusDetailPage() {
         // 透传商品卖点作为 information，避免 worker 端【信息整理补全】为空
         baseText: detailGenerationText,
         reportText,
+        image: uploadedImages[0]?.url || '',
+        images: uploadedImages.map((item) => item.url),
         // 后端 normalizeDetailModuleType 仅识别中文模块名（DETAIL_MODULE_ORDER），故传 title 而非英文 key
         promptSlots: checkedModules.map((m) => m.title),
-      }) as { data?: Array<{ type: string; prompt: string; name?: string }> } | undefined
+      }) as { data?: Array<{ type: string; prompt: string; name?: string }>; designPlan?: string; detailStrategyPlan?: unknown } | undefined
+      if (requestId !== planRequestIdRef.current) return
 
+      // 开发时页面可热更新，但已启动的能力 Worker 不会随构建文件自动换成新版本。
+      if (data && 'detailStrategyPlan' in data && !('designPlan' in data)) {
+        throw new Error('详情图能力服务仍在运行旧版本，请重启客户端后重试。')
+      }
       const returnedItems = data?.data || []
       const prompts = returnedItems.filter((p) => p.type && p.prompt)
       if (prompts.length < checkedModules.length) throw new Error('详情图提示词返回不完整，请重试。')
+      const planText = String(data?.designPlan || '').trim()
+      if (!planText) throw new Error('详情页规划返回为空，请重试。')
       const byTitle = new Map(prompts.map((p) => [p.type, p.prompt]))
+      setStrategyPlanText(planText)
       setSelectedModules(
         checkedModules.map((m) => ({
           instanceId: nanoid(8),
@@ -282,9 +335,8 @@ export function APlusDetailPage() {
         })),
       )
       setStrategyStatus('ready')
-      setStep('strategy')
-      setStrategyExpanded(true)
     } catch (err) {
+      if (requestId !== planRequestIdRef.current) return
       const message = err instanceof Error ? err.message : String(err)
       setStrategyStatus('error')
       setError(message)
@@ -421,7 +473,7 @@ export function APlusDetailPage() {
       return
     }
     setMoreMenuModuleId(null)
-    setResizeTarget(null)
+    setResizeTargets(null)
     setResizeRatio(targetRatio)
     const resolvedUrl = await resolveImageRefForAi(mod.imageUrl)
     await generateModuleWithPromptRatio(
@@ -430,6 +482,44 @@ export function APlusDetailPage() {
       [resolvedUrl],
       targetRatio,
     )
+  }
+
+  // 与商品主图一致：确认后先占住所有已生成目标图位，再逐张按目标尺寸重新生成。
+  const runBatchSmartResize = async (targetIds: string[], targetRatio: string) => {
+    const targets = selectedModules.filter((mod) => targetIds.includes(mod.instanceId) && mod.imageUrl)
+    if (!targets.length) {
+      Message.warning('所选图片尚未生成，无法改尺寸')
+      setResizeTargets(null)
+      return
+    }
+    const ids = targets.map((mod) => mod.instanceId)
+    const idSet = new Set(ids)
+    setResizeTargets(null)
+    setSelectedImageIds([])
+    setBatchResizeModuleIds(ids)
+    setSelectedModules((prev) => prev.map((mod) => idSet.has(mod.instanceId) ? { ...mod, status: 'generating', error: undefined } : mod))
+    try {
+      for (const mod of targets) {
+        await generateModuleWithPromptRatio(
+          mod.instanceId,
+          `智能调整电商图片尺寸到${targetRatio}，保留商品主体、文字可读性和视觉层次，不裁切关键信息。`,
+          [mod.imageUrl!],
+          targetRatio,
+        )
+      }
+    } finally {
+      setBatchResizeModuleIds([])
+    }
+  }
+
+  const confirmResize = () => {
+    if (!resizeTargets?.length) return
+    if (resizeTargets.length > 1) {
+      void runBatchSmartResize(resizeTargets, resizeRatio)
+      return
+    }
+    const target = selectedModules.find((mod) => mod.instanceId === resizeTargets[0])
+    if (target) void runModuleSmartResize(target, resizeRatio)
   }
 
   // 单模块删除（更多操作面板内，从列表移除）
@@ -475,7 +565,7 @@ export function APlusDetailPage() {
   }
 
   const runRetouchEditor = async () => {
-    if (!actionPanel?.direction.trim()) return
+    if (!actionPanel) return
     const target = selectedModules.find((item) => item.instanceId === actionPanel.moduleId)
     if (!target?.imageUrl) return
     setActionPanel((prev) => (prev ? { ...prev, loading: true } : prev))
@@ -485,7 +575,7 @@ export function APlusDetailPage() {
         settings,
         slot: { id: target.instanceId, name: target.title, type: target.title },
         originalPrompt: target.prompt,
-        userDirection: actionPanel.direction.trim(),
+        userDirection: actionPanel.direction.trim() || '保持商品主体、构图和视觉风格，重新生成此图片。',
       }) as { prompt?: string } | undefined
       const retouchPrompt = data?.prompt?.trim()
       if (!retouchPrompt) throw new Error('AI改图提示词为空，请重试')
@@ -569,7 +659,7 @@ export function APlusDetailPage() {
 
   // 预览弹窗「下载全部图片」：全部已生成模块落桌面文件夹（D6）
   const handleDownloadAllFromPreview = () => {
-    if (previewModalUrl) void handleBatchDownloadToDesktop(strategyModules)
+    if (previewImage) void handleBatchDownloadToDesktop(strategyModules)
   }
 
   const loadImage = (url: string) =>
@@ -607,11 +697,20 @@ export function APlusDetailPage() {
     setComposingLongImage(true)
     try {
       const dataUrl = await buildDetailLongImage()
-      setPreviewModalUrl(dataUrl)
+      setPreviewImage({ url: dataUrl, kind: 'long', title: '详情长图', openedAt: new Date() })
     } catch (err) {
       Message.error(err instanceof Error ? err.message : '长图合成失败')
     } finally {
       setComposingLongImage(false)
+    }
+  }
+
+  const handleDownloadLongImageFromPreview = async () => {
+    try {
+      const url = previewImage?.kind === 'long' ? previewImage.url : await buildDetailLongImage()
+      await handleDownloadImage(url, 'detail-long-image.jpg')
+    } catch (err) {
+      Message.error(err instanceof Error ? err.message : '长图合成失败')
     }
   }
 
@@ -622,9 +721,10 @@ export function APlusDetailPage() {
   const hasResults = selectedModules.some((m) => m.status !== 'idle')
 
   return (
-    <div className="relative flex h-full bg-[#F2F4F7]">
+    <div className="aplus-detail-page relative flex h-full bg-[#F2F4F7]">
       {/* ===================== 左侧 360px 配置面板（对照旧版 form/strategy 双步） ===================== */}
-      <div className="h-full w-[360px] shrink-0 overflow-y-auto border-r border-[#E5E8EF] bg-white px-5 pt-5 pb-4 custom-scrollbar">
+      <div className="flex h-full w-[360px] shrink-0 flex-col overflow-hidden border-r border-[#E5E8EF] bg-white">
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 pt-5 pb-4 custom-scrollbar">
         {step === 'form' ? (
           <>
             {/* 商品原图上传（对照旧版：空态白底虚线+灰钮 / 已传 grid-cols-3 + 继续上传灰块） */}
@@ -645,17 +745,17 @@ export function APlusDetailPage() {
                 }}
               />
               {uploadedImages.length > 0 ? (
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-3 gap-2">
                   {uploadedImages.map((img) => (
-                    <div key={img.id} className="group relative h-[82px] overflow-hidden rounded-lg bg-[#F2F3F5]">
-                      <img src={img.url} alt="" className="h-full w-full object-contain p-1" />
+                    <div key={img.id} className="group relative aspect-square overflow-hidden rounded-[8px] border border-[#e5e8ef] bg-white transition-shadow hover:shadow-md">
+                      <img src={img.url} alt="商品原图" className="h-full w-full object-contain" />
                       <button
                         type="button"
                         onClick={() => removeUploadedImage(img.id)}
-                        className="absolute right-1 top-1 grid h-5 w-5 cursor-pointer place-items-center rounded-full border-0 bg-white/90 text-[#c62828] opacity-0 transition-opacity group-hover:opacity-100"
+                        className="absolute right-1.5 top-1.5 grid h-5 w-5 cursor-pointer place-items-center rounded-[4px] border-0 bg-black/50 text-white opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 hover:bg-black/65"
                         aria-label="删除图片"
                       >
-                        <X className="h-3 w-3" />
+                        <Trash2 className="h-3 w-3" />
                       </button>
                     </div>
                   ))}
@@ -663,10 +763,10 @@ export function APlusDetailPage() {
                     <button
                       type="button"
                       onClick={() => fileInputRef.current?.click()}
-                      className="grid h-[82px] cursor-pointer place-items-center rounded-lg bg-[#F2F3F5] text-[#171A1D] transition-colors hover:bg-[#ECEFF4]"
+                      className="grid aspect-square cursor-pointer place-items-center rounded-[8px] border-0 bg-[#f5f6f8] text-[#171A1D] transition-colors hover:bg-[#eef0f3]"
                       aria-label="继续上传商品图"
                     >
-                      <Plus className="h-6 w-6" />
+                      <Plus className="h-5 w-5" />
                     </button>
                   )}
                 </div>
@@ -681,6 +781,11 @@ export function APlusDetailPage() {
                     上传图片
                   </button>
                   <p className="m-0 text-[12px] text-[#8B949E]">同一产品，最多6张。</p>
+                </div>
+              )}
+              {uploadNotice && (
+                <div role="alert" className="mt-3 rounded-[8px] border border-[#FFD7D7] bg-[#FFF5F5] px-3 py-2 text-[12px] font-semibold text-[#C03535]">
+                  {uploadNotice}
                 </div>
               )}
             </div>
@@ -794,31 +899,40 @@ export function APlusDetailPage() {
               </div>
             </div>
 
-            {/* 生成中：规划生成中独立 loading 展示（D4 微调） */}
-            {strategyStatus === 'generating' && (
-              <div className="mb-4 rounded-xl border border-[#e5e8ef] bg-white p-4">
-                <div className="flex items-center gap-3">
-                  <Loader2 className="h-5 w-5 animate-spin text-[#3388ff]" />
-                  <div>
-                    <p className="m-0 text-[13px] font-bold text-[#171A1D]">AI 规划中...</p>
-                    <p className="m-0 mt-0.5 text-[12px] text-[#8B949E]">正在生成详情页设计与各模块提示词</p>
-                  </div>
+          </>
+        ) : strategyStatus === 'generating' ? (
+          <div className="flex min-h-[520px] flex-col">
+            <h2 className="m-0 mb-4 text-[14px] font-bold text-[#171A1D]">详情图工作流</h2>
+            <div className="grid min-h-[360px] flex-1 place-items-center rounded-[10px] bg-[#F2F3F5] text-[#A0A7B2]">
+              <div className="flex flex-col items-center gap-3 text-center">
+                <div className="flex gap-2" aria-hidden="true">
+                  <span className="h-2 w-2 animate-pulse rounded-full bg-[#A0A7B2]" />
+                  <span className="h-2 w-2 animate-pulse rounded-full bg-[#A0A7B2] [animation-delay:120ms]" />
+                  <span className="h-2 w-2 animate-pulse rounded-full bg-[#A0A7B2] [animation-delay:240ms]" />
                 </div>
+                <span className="text-[12px] font-medium">正在整理信息、规划详情页并生成提示词...</span>
               </div>
-            )}
+            </div>
+          </div>
+        ) : strategyStatus === 'error' ? (
+          <>
+            <h2 className="m-0 mb-4 text-[14px] font-bold text-[#171A1D]">详情图工作流</h2>
+            <div role="alert" className="rounded-[8px] border border-[#FFD7D7] bg-[#FFF5F5] p-4 text-[12px] font-semibold leading-5 text-[#C03535]">
+              {error || '详情图工作流生成失败，请返回上一步重新生成。'}
+            </div>
           </>
         ) : (
           <>
             {/* 详情页规划（对照旧版折叠卡） */}
-            <div className="mb-4 rounded-xl border border-[#e5e8ef] bg-white p-3">
-              <h2 className="m-0 mb-2 text-[14px] font-bold text-[#171A1D]">详情页规划</h2>
-              <div className={`overflow-hidden text-[12px] leading-5 text-[#5F6B7A] transition-all ${strategyExpanded ? '' : 'max-h-[112px]'}`}>
-                {strategyModules.map((m) => `${m.title}：${m.prompt}`).join('\n')}
+            <h2 className="m-0 mb-3 text-[14px] font-bold text-[#171A1D]">详情页规划</h2>
+            <div className="mb-6 rounded-[10px] border border-[#e5e8ef] bg-white px-4 py-5">
+              <div className={`whitespace-pre-line text-[13px] leading-7 text-[#171A1D] ${strategyExpanded ? '' : 'max-h-[112px] overflow-hidden'}`}>
+                {strategyPlanText || '暂无详情页规划，请返回上一步重新生成。'}
               </div>
               <button
                 type="button"
                 onClick={() => setStrategyExpanded((v) => !v)}
-                className="mt-2 flex w-full cursor-pointer items-center justify-center gap-1 border-0 bg-transparent p-0 text-[12px] font-bold text-[#3388ff]"
+                className="mt-3 flex w-full cursor-pointer items-center justify-center gap-1 border-0 bg-transparent p-0 text-[12px] font-semibold text-[#171A1D]"
               >
                 {strategyExpanded ? '收起' : '展开全部'}
                 <ChevronDown className={`h-3.5 w-3.5 transition-transform ${strategyExpanded ? 'rotate-180' : ''}`} />
@@ -826,60 +940,67 @@ export function APlusDetailPage() {
             </div>
 
             {/* 模块提示词（对照旧版列表，支持排序） */}
-            <div className="mb-2 flex items-center justify-between">
+            <div className="mb-3">
               <h2 className="m-0 text-[14px] font-bold text-[#171A1D]">模块提示词</h2>
-              <span className="text-[12px] text-[#86909C]">{strategyModules.length} 个模块</span>
             </div>
-            <div className="space-y-3">
-              {strategyModules.map((mod, index) => (
-                <div key={mod.instanceId} className="rounded-lg bg-[#F5F6F8] p-3">
-                  <div className="mb-2 flex items-center justify-between gap-2">
-                    <span className="truncate text-[12px] font-bold text-[#171A1D]">
-                      #{index + 1} {mod.title}
-                    </span>
-                    <div className="flex shrink-0 items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setOrderedTitles((prev) => {
-                            const titles = prev.length ? [...prev] : strategyModules.map((m) => m.title)
-                            const i = titles.indexOf(mod.title)
-                            if (i <= 0) return prev
-                            ;[titles[i - 1], titles[i]] = [titles[i], titles[i - 1]]
-                            return titles
-                          })
-                        }}
-                        className="grid h-6 w-6 cursor-pointer place-items-center rounded border-0 bg-transparent text-[#86909C] hover:bg-white"
-                        title="上移"
-                      >
-                        <ChevronUp className="h-3.5 w-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setOrderedTitles((prev) => {
-                            const titles = prev.length ? [...prev] : strategyModules.map((m) => m.title)
-                            const i = titles.indexOf(mod.title)
-                            if (i < 0 || i >= titles.length - 1) return prev
-                            ;[titles[i + 1], titles[i]] = [titles[i], titles[i + 1]]
-                            return titles
-                          })
-                        }}
-                        className="grid h-6 w-6 cursor-pointer place-items-center rounded border-0 bg-transparent text-[#86909C] hover:bg-white"
-                        title="下移"
-                      >
-                        <ChevronDown className="h-3.5 w-3.5" />
-                      </button>
+            <div className="space-y-4">
+              {strategyModules.map((mod) => (
+                <div
+                  key={mod.instanceId}
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={(event) => {
+                    event.preventDefault()
+                    if (!draggingModuleId || draggingModuleId === mod.instanceId) return
+                    const titles = strategyModules.map((item) => item.title)
+                    const from = strategyModules.findIndex((item) => item.instanceId === draggingModuleId)
+                    const to = strategyModules.findIndex((item) => item.instanceId === mod.instanceId)
+                    if (from < 0 || to < 0) return
+                    const [moved] = titles.splice(from, 1)
+                    titles.splice(to, 0, moved)
+                    setOrderedTitles(titles)
+                    setDraggingModuleId(null)
+                  }}
+                  className={`rounded-[12px] bg-[#F5F6F8] p-4 ${draggingModuleId === mod.instanceId ? 'opacity-60' : ''}`}
+                >
+                  <div className="mb-4 flex items-center justify-between gap-2">
+                    <span className="truncate text-[14px] font-bold text-[#171A1D]">{mod.title}</span>
+                    <div className="flex shrink-0 items-center gap-2">
                       <button
                         type="button"
                         onClick={() => {
                           setSelectedModules((prev) => prev.filter((m) => m.instanceId !== mod.instanceId))
+                          setSelectedImageIds((prev) => prev.filter((id) => id !== mod.instanceId))
                           setOrderedTitles((prev) => prev.filter((t) => t !== mod.title))
                         }}
-                        className="grid h-6 w-6 cursor-pointer place-items-center rounded border-0 bg-transparent text-[#c62828] hover:bg-white"
-                        title="移除"
+                        className="grid h-6 w-6 cursor-pointer place-items-center rounded-[6px] border-0 bg-transparent text-[#98A2B3] hover:bg-white hover:text-[#C03535]"
+                        aria-label={`删除${mod.title}`}
                       >
-                        <X className="h-3.5 w-3.5" />
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                      <button
+                        type="button"
+                        draggable
+                        onDragStart={(event) => {
+                          event.dataTransfer.effectAllowed = 'move'
+                          event.dataTransfer.setData('text/plain', mod.instanceId)
+                          setDraggingModuleId(mod.instanceId)
+                        }}
+                        onDragEnd={() => setDraggingModuleId(null)}
+                        onKeyDown={(event) => {
+                          if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return
+                          event.preventDefault()
+                          const titles = strategyModules.map((item) => item.title)
+                          const from = titles.indexOf(mod.title)
+                          const to = from + (event.key === 'ArrowUp' ? -1 : 1)
+                          if (to < 0 || to >= titles.length) return
+                          ;[titles[from], titles[to]] = [titles[to], titles[from]]
+                          setOrderedTitles(titles)
+                        }}
+                        className="grid h-6 w-6 cursor-grab place-items-center rounded-[6px] border-0 bg-transparent text-[#98A2B3] hover:bg-white active:cursor-grabbing"
+                        aria-label={`拖动调整${mod.title}顺序`}
+                        title="拖动或按上下方向键调整顺序"
+                      >
+                        <GripVertical className="h-4 w-4" />
                       </button>
                     </div>
                   </div>
@@ -890,10 +1011,18 @@ export function APlusDetailPage() {
                         prev.map((m) => (m.instanceId === mod.instanceId ? { ...m, prompt: e.target.value } : m)),
                       )
                     }
-                    rows={3}
+                    rows={expandedPromptIds.includes(mod.instanceId) ? 10 : 4}
                     placeholder="暂无提示词，请返回上一步重新生成。"
-                    className="w-full resize-none rounded-lg border border-[#e5e8ef] bg-white p-2 text-[12px] leading-5 text-[#344054] outline-none focus:border-[#3388ff]"
+                    className="block w-full resize-none rounded-[8px] border border-[#e5e8ef] bg-white p-3 text-[12px] leading-6 text-[#344054] outline-none focus:border-[#3388ff]"
                   />
+                  <button
+                    type="button"
+                    onClick={() => setExpandedPromptIds((prev) => prev.includes(mod.instanceId) ? prev.filter((id) => id !== mod.instanceId) : [...prev, mod.instanceId])}
+                    className="mt-7 flex min-h-9 w-full cursor-pointer items-center justify-center gap-1 border-0 bg-transparent py-2 text-[12px] font-semibold text-[#171A1D]"
+                  >
+                    {expandedPromptIds.includes(mod.instanceId) ? '收起' : '展开'}
+                    <ChevronDown className={`h-3.5 w-3.5 ${expandedPromptIds.includes(mod.instanceId) ? 'rotate-180' : ''}`} />
+                  </button>
                 </div>
               ))}
               {strategyModules.length === 0 && (
@@ -904,14 +1033,19 @@ export function APlusDetailPage() {
             </div>
           </>
         )}
+        </div>
 
         {/* 吸底操作条（对照旧版：form 步深色全宽三态文案 / strategy 步上一步+生成详情图） */}
-        <div className="sticky bottom-0 -mx-5 mt-4 border-t border-[#EEF1F5] bg-white p-4">
+        <div className="shrink-0 border-t border-[#EEF1F5] bg-white p-4">
           {step === 'strategy' ? (
             <div className="flex gap-3">
               <button
                 type="button"
-                onClick={() => setStep('form')}
+                onClick={() => {
+                  planRequestIdRef.current += 1
+                  setStrategyStatus('idle')
+                  setStep('form')
+                }}
                 disabled={batchGenerating}
                 className="h-10 w-[96px] shrink-0 cursor-pointer rounded-lg border-0 bg-[#F2F3F5] text-[13px] font-semibold text-[#171A1D] transition-colors hover:bg-[#E8EAED] disabled:opacity-60"
               >
@@ -920,14 +1054,14 @@ export function APlusDetailPage() {
               <button
                 type="button"
                 onClick={handleBatchGenerateAll}
-                disabled={batchGenerating || strategyStatus !== 'ready' || !uploadedImages.length}
+                disabled={batchGenerating || strategyStatus !== 'ready' || !uploadedImages.length || !strategyModules.length}
                 className={`h-10 flex-1 cursor-pointer rounded-lg border-0 text-[13px] font-semibold text-white transition-colors ${
-                  strategyStatus === 'ready' && uploadedImages.length && !batchGenerating
+                  strategyStatus === 'ready' && uploadedImages.length && strategyModules.length && !batchGenerating
                     ? 'bg-[#171A1D] hover:bg-[#2A2F36]'
                     : 'bg-[#C4C6CA]'
                 } disabled:cursor-not-allowed`}
               >
-                {batchGenerating ? '正在生成...' : `生成详情图（${strategyModuleCount}张）`}
+                {batchGenerating ? '正在生成...' : `生成详情图（${strategyStatus === 'ready' ? strategyModules.length : strategyModuleCount}张）`}
               </button>
             </div>
           ) : (
@@ -963,36 +1097,33 @@ export function APlusDetailPage() {
             <div className={hasResults ? 'mt-0' : 'mt-12'}>
               {hasResults ? (
                 /* 结果视图 */
-                <div className="text-left">
-                  <div className="mb-5 flex items-center justify-between border-b border-[#e5e8ef] pb-4">
+                <div className="mx-auto max-w-[1200px] text-left">
+                  <div className="mb-4 flex items-center justify-between">
                     <h2 className="m-0 text-[20px] font-extrabold text-[#171A1D]">生成结果：</h2>
-                    <div className="flex items-center gap-3">
+                    <div className="flex flex-wrap items-center justify-end gap-3">
                       <button
                         type="button"
                         onClick={() => {
-                          const selectable = selectedModules.filter((m) => m.imageUrl)
-                          setSelectedImageIds((prev) =>
-                            selectable.length && prev.length === selectable.length ? [] : selectable.map((m) => m.instanceId),
-                          )
+                          const selectable = strategyModules.filter((m) => m.imageUrl).map((m) => m.instanceId)
+                          setSelectedImageIds((prev) => selectable.length && selectable.every((id) => prev.includes(id)) ? [] : selectable)
                         }}
-                        className="flex items-center gap-2 text-[13px] font-medium text-[#5F6B7A] transition-colors hover:text-[#171A1D]"
+                        className="flex h-11 cursor-pointer items-center gap-2 rounded-[8px] px-2 text-[14px] font-semibold text-[#4E5969] transition-colors hover:bg-white"
                       >
-                        <span
-                          className={`grid h-4 w-4 place-items-center rounded-[4px] border ${
-                            selectedImageIds.length === selectedModules.filter((m) => m.imageUrl).length && selectedImageIds.length
-                              ? 'border-[#171A1D] bg-[#171A1D] text-white'
-                              : 'border-[#171A1D] bg-white text-transparent'
-                          }`}
-                        >
-                          <Check className="h-3 w-3" />
-                        </span>
+                        {(() => {
+                          const selectable = strategyModules.filter((m) => m.imageUrl).map((m) => m.instanceId)
+                          const all = selectable.length > 0 && selectable.every((id) => selectedImageIds.includes(id))
+                          const partial = !all && selectable.some((id) => selectedImageIds.includes(id))
+                          return <span className={`grid h-5 w-5 place-items-center rounded-[5px] border ${all || partial ? 'border-[#171A1D] bg-[#171A1D] text-white' : 'border-[#86909C] bg-white text-transparent'}`}>
+                            {partial ? <Minus className="h-3.5 w-3.5" /> : <Check className="h-3.5 w-3.5" />}
+                          </span>
+                        })()}
                         全选
                       </button>
                       <button
                         type="button"
                         onClick={() => void handlePreviewLongImage()}
                         disabled={!strategyModules.some((m) => m.imageUrl) || composingLongImage}
-                        className="flex h-9 items-center gap-2 rounded-[10px] bg-white px-4 text-[13px] font-semibold text-[#171A1D] shadow-[0_1px_0_rgba(15,23,41,.06)] transition-colors hover:bg-[#F5F6F8] disabled:cursor-not-allowed disabled:text-[#A0A7B2]"
+                        className="flex h-11 items-center gap-2 rounded-[12px] bg-white px-4 text-[14px] font-semibold text-[#171A1D] shadow-[0_1px_3px_rgba(15,23,41,.08)] transition-colors hover:bg-[#F5F6F8] disabled:cursor-not-allowed disabled:text-[#A0A7B2]"
                       >
                         {composingLongImage ? <Loader2 className="h-4 w-4 animate-spin" /> : <Eye className="h-4 w-4" />}
                         预览长图
@@ -1001,12 +1132,20 @@ export function APlusDetailPage() {
                         <>
                           <button
                             type="button"
+                            onClick={() => setResizeTargets(selectedImageIds.filter((id) => strategyModules.some((mod) => mod.instanceId === id && mod.imageUrl)))}
+                            className="flex h-11 cursor-pointer items-center gap-2 rounded-[12px] border-0 bg-white px-4 text-[14px] font-semibold text-[#171A1D] shadow-[0_1px_3px_rgba(15,23,41,.08)] transition-colors hover:bg-[#F5F6F8]"
+                          >
+                            <Sparkles className="h-4 w-4" />
+                            批量改尺寸
+                          </button>
+                          <button
+                            type="button"
                             onClick={() => {
                               const done = selectedModules.filter((m) => selectedImageIds.includes(m.instanceId) && m.imageUrl)
                               if (!done.length) return
                               void handleBatchDownloadToDesktop(done)
                             }}
-                            className="flex h-9 items-center gap-2 rounded-[10px] bg-white px-4 text-[13px] font-semibold text-[#171A1D] shadow-[0_1px_0_rgba(15,23,41,.06)] transition-colors hover:bg-[#F5F6F8]"
+                            className="flex h-11 cursor-pointer items-center gap-2 rounded-[12px] border-0 bg-white px-4 text-[14px] font-semibold text-[#171A1D] shadow-[0_1px_3px_rgba(15,23,41,.08)] transition-colors hover:bg-[#F5F6F8]"
                           >
                             <Download className="h-4 w-4" />
                             批量下载
@@ -1017,7 +1156,7 @@ export function APlusDetailPage() {
                               setSelectedModules((prev) => prev.filter((m) => !selectedImageIds.includes(m.instanceId)))
                               setSelectedImageIds([])
                             }}
-                            className="flex h-9 items-center gap-2 rounded-[10px] bg-white px-4 text-[13px] font-semibold text-[#171A1D] shadow-[0_1px_0_rgba(15,23,41,.06)] transition-colors hover:bg-[#F5F6F8]"
+                            className="flex h-11 cursor-pointer items-center gap-2 rounded-[12px] border-0 bg-white px-4 text-[14px] font-semibold text-[#171A1D] shadow-[0_1px_3px_rgba(15,23,41,.08)] transition-colors hover:bg-[#F5F6F8]"
                           >
                             <Trash2 className="h-4 w-4" />
                             批量删除
@@ -1026,54 +1165,70 @@ export function APlusDetailPage() {
                       )}
                     </div>
                   </div>
-                  <div className="grid grid-cols-3 gap-4">
+                  <div className="grid grid-cols-3 gap-5">
                     {/* 首位原图格（对照旧版） */}
                     <div className="relative aspect-square overflow-hidden rounded-[8px] bg-white">
                       <img src={uploadedImages[0]?.url || ''} alt="原图" className="h-full w-full object-contain" />
-                      <span className="pointer-events-none absolute bottom-3 left-3 z-10 rounded-[6px] bg-black/35 px-2 py-1 text-[11px] font-medium text-white shadow-sm backdrop-blur-[2px]">
+                      <span className="pointer-events-none absolute bottom-2 left-2 z-10 rounded-[4px] bg-black/60 px-2 py-0.5 text-[10px] font-bold text-white">
                         原图
                       </span>
                     </div>
-                    {selectedModules.map((mod, index) => (
-                      <div key={mod.instanceId} className="overflow-hidden rounded-xl border border-[#e5eaf2] bg-white shadow-sm">
-                        <div className="group relative mb-3 flex aspect-square items-center justify-center overflow-hidden rounded-lg bg-[#f4f7fb]">
+                    {strategyModules.map((mod) => (
+                      <div
+                        key={mod.instanceId}
+                        className={`group relative aspect-square overflow-hidden rounded-[8px] bg-white ${selectedImageIds.includes(mod.instanceId) || batchResizeModuleIds.includes(mod.instanceId) ? 'ring-2 ring-[#171A1D]' : ''}`}
+                      >
+                        <div className="flex h-full w-full items-center justify-center">
                           {mod.status === 'generating' ? (
                             <div className="flex flex-col items-center gap-2">
-                              <Loader2 className="h-6 w-6 animate-spin text-[#3388ff]" />
+                              <div className="flex items-center gap-1.5" aria-hidden="true">
+                                {[0, 1, 2].map((dot) => <span key={dot} className="h-2 w-2 rounded-full bg-[#C9CDD4]" />)}
+                              </div>
                               <span className="text-[11px] text-[#86909C]">AI生成中...</span>
                             </div>
                           ) : mod.imageUrl ? (
-                            <img src={mod.imageUrl} alt={mod.title} className="h-full w-full cursor-zoom-in object-cover" onClick={() => setPreviewModalUrl(mod.imageUrl!)} />
+                            <button type="button" onClick={() => setPreviewImage({ url: mod.imageUrl!, kind: 'single', title: mod.title, openedAt: new Date() })} className="h-full w-full cursor-zoom-in border-0 bg-transparent p-0" title={`预览${mod.title}`}>
+                              <img src={mod.imageUrl} alt={mod.title} className="h-full w-full object-contain" />
+                            </button>
                           ) : (
                             <div className="text-center">
                               <Eye className="mx-auto mb-1 h-8 w-8 text-[#c9d5e8]" />
                               <span className="text-[11px] text-[#86909C]">等待生成</span>
                             </div>
                           )}
-                          <span className="absolute left-2 top-2 rounded bg-black/60 px-2 py-0.5 text-[10px] font-bold text-white">
-                            #{index + 1} {mod.title}
-                          </span>
+                        </div>
+                        <span className="pointer-events-none absolute bottom-2 left-2 z-10 rounded-[4px] bg-black/60 px-2 py-0.5 text-[10px] font-bold text-white">
+                          {mod.title}
+                        </span>
+
+                        {mod.status !== 'generating' && !mod.imageUrl && (
+                          <button
+                            type="button"
+                            onClick={() => void generateSingleModuleImage(mod.instanceId)}
+                            className="absolute right-2 top-2 rounded-[6px] border-0 bg-[#F2F3F5] px-2 py-1 text-[11px] font-semibold text-[#4E5969] hover:bg-[#E8EAED]"
+                          >
+                            单独渲染
+                          </button>
+                        )}
 
                           {/* 悬浮操作层（D7/M11，与主图一致）：左上选择；右上下载+更多；底部 AI改图+编辑文字 */}
-                          {mod.imageUrl && (
-                            <div className="absolute inset-0 bg-black/35 opacity-0 transition-opacity group-hover:opacity-100">
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setSelectedImageIds((prev) =>
-                                    prev.includes(mod.instanceId) ? prev.filter((id) => id !== mod.instanceId) : [...prev, mod.instanceId],
-                                  )
-                                }
-                                className={`absolute left-3 top-3 grid h-6 w-6 place-items-center rounded border ${
-                                  selectedImageIds.includes(mod.instanceId)
-                                    ? 'border-[#1683FF] bg-[#1683FF] text-white'
-                                    : 'border-white bg-white/80 text-transparent'
-                                }`}
-                                title={selectedImageIds.includes(mod.instanceId) ? '取消选择' : '选择'}
-                              >
-                                <Check className="h-3.5 w-3.5" />
-                              </button>
-                              <div className="absolute right-3 top-3 flex gap-2">
+                          {mod.imageUrl && mod.status !== 'generating' && (
+                            <button
+                              type="button"
+                              onClick={() => setSelectedImageIds((prev) => prev.includes(mod.instanceId) ? prev.filter((id) => id !== mod.instanceId) : [...prev, mod.instanceId])}
+                              className={`absolute left-3 top-3 z-30 grid h-7 w-7 place-items-center rounded-[6px] border-0 transition-opacity ${
+                                selectedImageIds.includes(mod.instanceId)
+                                  ? 'bg-[#171A1D] text-white opacity-100'
+                                  : 'border border-[#86909C] bg-white/90 text-transparent opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'
+                              }`}
+                              title={selectedImageIds.includes(mod.instanceId) ? '取消选择' : '选择'}
+                            >
+                              <Check className="h-4 w-4" />
+                            </button>
+                          )}
+                          {mod.imageUrl && mod.status !== 'generating' && (
+                            <div className={`pointer-events-none absolute inset-0 z-20 rounded-[8px] bg-black/35 transition-opacity ${moreMenuModuleId === mod.instanceId ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'}`}>
+                              <div className="pointer-events-auto absolute right-3 top-3 flex gap-2">
                                 <button
                                   type="button"
                                   onClick={() => void handleDownloadImage(mod.imageUrl!, `${mod.title}.jpg`)}
@@ -1082,16 +1237,35 @@ export function APlusDetailPage() {
                                 >
                                   <Download className="h-3.5 w-3.5" />
                                 </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setMoreMenuModuleId(moreMenuModuleId === mod.instanceId ? null : mod.instanceId)}
-                                  className="grid h-7 w-7 place-items-center rounded bg-white text-[#171A1D] shadow-sm hover:bg-[#F5F6F8]"
-                                  title="更多操作"
+                                <Trigger
+                                  trigger={['hover', 'click']}
+                                  position="br"
+                                  popupVisible={moreMenuModuleId === mod.instanceId}
+                                  onVisibleChange={(visible) => setMoreMenuModuleId((current) => visible ? mod.instanceId : current === mod.instanceId ? null : current)}
+                                  getPopupContainer={() => document.body}
+                                  autoFitPosition
+                                  popupHoverStay
+                                  clickToClose={false}
+                                  containerScrollToClose
+                                  popupAlign={{ bottom: 8 }}
+                                  style={{ zIndex: 70 }}
+                                  popup={() => (
+                                    <div role="menu" aria-label={`${mod.title} 更多操作`} className="w-[180px] overflow-hidden rounded-[8px] bg-white p-1.5 shadow-[0_8px_24px_rgba(15,23,41,.18)]">
+                                      <button type="button" role="menuitem" onClick={() => { setMoreMenuModuleId(null); setResizeTargets([mod.instanceId]) }} className="flex h-10 w-full cursor-pointer items-center gap-2.5 rounded-[6px] border-0 bg-transparent px-3 text-left text-[14px] font-semibold text-[#171A1D] hover:bg-[#F5F6F8]">
+                                        <Sparkles className="h-4 w-4 shrink-0" />智能改尺寸
+                                      </button>
+                                      <button type="button" role="menuitem" onClick={() => handleDeleteSingleModule(mod.instanceId)} className="flex h-10 w-full cursor-pointer items-center gap-2.5 rounded-[6px] border-0 bg-transparent px-3 text-left text-[14px] font-semibold text-[#F04438] hover:bg-[#FFF5F5]">
+                                        <Trash2 className="h-4 w-4 shrink-0" />删除
+                                      </button>
+                                    </div>
+                                  )}
                                 >
-                                  <MoreHorizontal className="h-3.5 w-3.5" />
-                                </button>
+                                  <button type="button" onFocus={() => setMoreMenuModuleId(mod.instanceId)} aria-haspopup="menu" aria-expanded={moreMenuModuleId === mod.instanceId} className={`grid h-7 w-7 place-items-center rounded-[6px] shadow-sm ${moreMenuModuleId === mod.instanceId ? 'bg-[#171A1D] text-white' : 'bg-white text-[#171A1D] hover:bg-[#171A1D] hover:text-white'}`} title="更多操作">
+                                    <MoreHorizontal className="h-4 w-4" />
+                                  </button>
+                                </Trigger>
                               </div>
-                              <div className="absolute bottom-3 left-3 right-3 flex gap-2">
+                              <div className="pointer-events-auto absolute bottom-3 left-3 right-3 flex gap-2">
                                 <button
                                   type="button"
                                   onClick={() =>
@@ -1112,47 +1286,14 @@ export function APlusDetailPage() {
                                 </button>
                               </div>
 
-                              {/* 更多操作面板（智能改尺寸/删除） */}
-                              {moreMenuModuleId === mod.instanceId && (
-                                <div className="absolute right-3 top-12 z-10 w-[132px] overflow-hidden rounded-lg bg-white shadow-[0_8px_24px_rgba(15,23,41,.18)]">
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setMoreMenuModuleId(null)
-                                      setResizeTarget(mod.instanceId)
-                                    }}
-                                    className="flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-[12px] text-[#171A1D] hover:bg-[#F5F6F8]"
-                                  >
-                                    <Maximize2 className="h-3.5 w-3.5 text-[#86909C]" />
-                                    智能改尺寸
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleDeleteSingleModule(mod.instanceId)}
-                                    className="flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-[12px] text-[#C03535] hover:bg-[#FFF5F5]"
-                                  >
-                                    <Trash2 className="h-3.5 w-3.5" />
-                                    删除
-                                  </button>
-                                </div>
-                              )}
                             </div>
                           )}
 
                           {mod.status === 'failed' && (
-                            <span className="absolute inset-x-2 bottom-2 rounded bg-[#ffEBEE]/95 px-2 py-1 text-[10px] font-bold text-[#c62828]">
+                            <span className="absolute inset-x-2 bottom-9 rounded-[4px] bg-[#ffEBEE]/95 px-2 py-1 text-[10px] font-bold text-[#c62828]">
                               {mod.error || '生成失败'}
                             </span>
                           )}
-                        </div>
-                        <div className="space-y-2 p-3.5 pt-0">
-                          <p className="m-0 line-clamp-2 text-[11px] leading-4 text-[#86909C]">{mod.prompt}</p>
-                          <div className="flex flex-wrap gap-1 border-t border-[#f0f2f5] pt-2">
-                            <Button size="mini" type="text" loading={mod.status === 'generating'} onClick={() => generateSingleModuleImage(mod.instanceId)}>
-                              单独渲染
-                            </Button>
-                          </div>
-                        </div>
                       </div>
                     ))}
                   </div>
@@ -1161,7 +1302,7 @@ export function APlusDetailPage() {
                 /* 默认态：示例卡（对照旧版 h-444 w-792 rounded-20 + 三产品图/长图/六宫格浮层） */
                 <div className="mx-auto flex h-[444px] w-[792px] items-center gap-4 rounded-[20px] bg-white p-6 shadow-[0_18px_40px_rgba(31,37,45,.06)]">
                   <div className="grid h-[396px] w-[123px] shrink-0 grid-rows-3 gap-1.5">
-                    {[mainHeadphone, sceneDisplay, sellingPoint].map((src, i) => (
+                    {[previewProductFront, previewProductCase, previewProductEarbud].map((src, i) => (
                       <div key={i} className="relative overflow-hidden rounded-[14px] bg-[#dbe4f0]">
                         <img src={src} alt={`产品图 ${i + 1}`} className="h-full w-full object-contain" />
                         {i === 2 && (
@@ -1178,12 +1319,12 @@ export function APlusDetailPage() {
                   </div>
 
                   <div className="relative h-[396px] w-[111px] shrink-0 overflow-hidden rounded-[18px] bg-[#dbe4f0]">
-                    <img src={modelScene} alt="电商详情长图" className="h-full w-full object-contain" />
+                    <img src={previewLongImage} alt="电商详情长图" className="h-full w-full object-contain" />
                     <span className="absolute inset-x-2 bottom-2 rounded-full bg-black/45 py-1.5 text-center text-[12px] font-semibold text-white">生成电商长图</span>
                   </div>
 
                   <div className="grid h-[396px] w-[420px] shrink-0 grid-cols-2 grid-rows-3 gap-1.5 overflow-hidden rounded-[18px]">
-                    {[detailExplain, sellingPoint, sceneDisplay, modelScene, mainHeadphone, detailExplain].map((src, i) => (
+                    {[previewDetailOne, previewDetailFour, previewDetailTwo, previewDetailFive, previewDetailThree, previewDetailSix].map((src, i) => (
                       <div key={i} className="relative overflow-hidden bg-[#dbe4f0]">
                         <img src={src} alt={`详情横幅 ${i + 1}`} className="h-full w-full object-contain" />
                         {i === 5 && (
@@ -1208,107 +1349,91 @@ export function APlusDetailPage() {
         ?
       </button>
 
-      <Modal
-        title={actionPanel?.mode === 'text' ? `编辑文字 · ${actionPanel?.title ?? ''}` : `AI改图 · ${actionPanel?.title ?? ''}`}
+      <ResultActionDialog
         visible={Boolean(actionPanel)}
-        onCancel={() => setActionPanel(null)}
-        onOk={() => void (actionPanel?.mode === 'text' ? runTextEditor() : runRetouchEditor())}
-        confirmLoading={actionPanel?.loading}
-        okButtonProps={{ disabled: !actionPanel || (actionPanel.mode === 'text' ? !actionPanel.text.trim() : !actionPanel.direction.trim()) }}
+        title={actionPanel?.mode === 'text' ? '编辑文字' : '输入微调方向（选填）'}
+        onClose={() => setActionPanel(null)}
+        footer={actionPanel?.mode === 'text' ? (
+          <div className="grid grid-cols-2 gap-2">
+            <button type="button" onClick={() => setActionPanel(null)} className="h-11 cursor-pointer rounded-[8px] border-0 bg-[#F2F3F5] text-[14px] font-semibold text-[#171A1D] hover:bg-[#E5E6EB]">取消</button>
+            <button type="button" onClick={() => void runTextEditor()} disabled={actionPanel.loading || !actionPanel.text.trim()} className="flex h-11 items-center justify-center gap-2 rounded-[8px] border-0 bg-[#8AB6F6] text-[14px] font-semibold text-white hover:bg-[#6EA4F4] disabled:cursor-not-allowed disabled:bg-[#C9CDD4]">
+              {actionPanel.loading && <Loader2 className="h-4 w-4 animate-spin" />}确认改字 · 15
+            </button>
+          </div>
+        ) : (
+          <button type="button" onClick={() => void runRetouchEditor()} disabled={Boolean(actionPanel?.loading)} className="flex h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-[8px] border-0 bg-[#171A1D] text-[14px] font-semibold text-white hover:bg-[#2A2F36] disabled:cursor-not-allowed disabled:bg-[#86909C]">
+            {actionPanel?.loading && <Loader2 className="h-5 w-5 animate-spin" />}{actionPanel?.loading ? '正在重新生成...' : '重新生成 · 15'}
+          </button>
+        )}
       >
         {actionPanel?.mode === 'text' ? (
           actionPanel.loading ? (
-            <div className="flex flex-col items-center justify-center gap-2 py-6">
-              <Loader2 className="h-5 w-5 animate-spin text-[#3388ff]" />
-              <p className="m-0 text-[12px] text-[#8B949E]">AI 正在识别图片文字...</p>
+            <div className="flex h-[190px] flex-col items-center justify-center gap-3 rounded-[8px] border border-[#E5E8EF] bg-white">
+              <Loader2 className="h-6 w-6 animate-spin text-[#98A1AF]" />
+              <p className="m-0 text-[14px] font-medium text-[#86909C]">正在识别图片文字...</p>
             </div>
           ) : (
-            <div className="space-y-2">
-              <p className="m-0 text-[12px] text-[#8B949E]">AI 已识别当前图片文字，可直接修改后重新生成。</p>
-              <Input.TextArea
-                value={actionPanel.text}
-                onChange={(value) => setActionPanel((prev) => (prev ? { ...prev, text: value } : prev))}
-                rows={5}
-                placeholder="输入替换后的详情图文字"
-              />
+            <div className="max-h-[300px] space-y-2 overflow-y-auto pr-1">
+              {(editableTextLines.length ? editableTextLines : ['']).map((line, index) => (
+                <div key={index} className="flex items-center gap-2 rounded-[8px] border border-[#E5E8EF] bg-[#F7F8FA] px-3">
+                  <input value={line} onChange={(event) => updateTextLine(index, event.target.value)} placeholder="输入图片文字" className="h-11 min-w-0 flex-1 border-0 bg-transparent text-[13px] text-[#171A1D] outline-none placeholder:text-[#AAB2BF]" />
+                  <button type="button" onClick={() => removeTextLine(index)} className="grid h-8 w-8 shrink-0 cursor-pointer place-items-center rounded-[6px] border-0 bg-transparent text-[#98A1AF] hover:bg-white hover:text-[#4E5969]" title="删除文字"><Trash2 className="h-4 w-4" /></button>
+                </div>
+              ))}
             </div>
           )
         ) : (
-          <Input.TextArea
-            value={actionPanel?.direction ?? ''}
-            onChange={(value) => setActionPanel((prev) => (prev ? { ...prev, direction: value } : prev))}
-            rows={5}
-            placeholder="描述需要调整的画面、背景、文字或风格"
-          />
+          <div>
+            <textarea value={actionPanel?.direction ?? ''} onChange={(event) => setActionPanel((prev) => prev ? { ...prev, direction: event.target.value } : prev)} placeholder={'输入调整要求（选填，空着将默认重绘）。\n如：商品向左移动一点，换成浅灰色背景...'} className="h-[175px] w-full resize-none rounded-[8px] border border-[#E5E8EF] bg-white p-3 text-[14px] leading-[22px] text-[#171A1D] outline-none placeholder:text-[#AAB2BF] focus:border-[#86909C]" />
+            <p className="mb-0 mt-3 text-[12px] text-[#86909C]">重新生成将消耗 15 点。</p>
+          </div>
         )}
-      </Modal>
+      </ResultActionDialog>
 
       {/* 智能改尺寸选项面板（D7/M14：选尺寸 → AI生成中 → 完成） */}
-      <Modal
-        title="智能改尺寸"
-        visible={Boolean(resizeTarget)}
-        onCancel={() => setResizeTarget(null)}
-        onOk={() => {
-          const mod = selectedModules.find((m) => m.instanceId === resizeTarget)
-          if (mod) void runModuleSmartResize(mod, resizeRatio)
-        }}
-        okButtonProps={{ disabled: !resizeTarget }}
-        okText="开始改尺寸"
-      >
-        <div className="space-y-2">
-          <p className="m-0 text-[12px] text-[#86909C]">
-            选择目标尺寸，将已生成图片作为原图进行扩图或缩图，不改变原有样式和布局。
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {RESIZE_OPTIONS.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                onClick={() => setResizeRatio(option.value)}
-                className={`h-8 cursor-pointer rounded-lg border px-3 text-[12px] font-medium transition-colors ${
-                  resizeRatio === option.value
-                    ? 'border-[#1683FF] bg-[#f0f7ff] text-[#1683FF]'
-                    : 'border-[#e5e8ef] bg-white text-[#4e5969] hover:bg-[#f8fafc]'
-                }`}
-              >
-                {option.label}
+      <ImageResizeDialog
+        visible={Boolean(resizeTargets)}
+        batch={Boolean(resizeTargets && resizeTargets.length > 1)}
+        ratio={resizeRatio}
+        onRatioChange={setResizeRatio}
+        onClose={() => setResizeTargets(null)}
+        onConfirm={confirmResize}
+      />
+
+      {/* 单张图片与商品主图使用相同的深色预览；长图保留白底滚动预览。 */}
+      {previewImage?.kind === 'single' && (
+        <div className="fixed inset-0 z-[80] flex flex-col items-center bg-black/75 p-6" onClick={() => setPreviewImage(null)}>
+          <div className="flex w-full max-w-[920px] items-center justify-between pb-4 text-white" onClick={(event) => event.stopPropagation()}>
+            <h2 className="m-0 text-[16px] font-bold">{previewImage.title}</h2>
+            <div className="flex items-center gap-3">
+              <button type="button" onClick={() => void handleDownloadImage(previewImage.url, `${previewImage.title}.jpg`)} className="flex h-11 items-center gap-2 rounded-full border-0 bg-white px-5 text-[13px] font-semibold text-[#0A1B39] hover:bg-[#F5F6F8]">
+                <Download className="h-4 w-4" />保存到本地
               </button>
-            ))}
+              <button type="button" onClick={() => setPreviewImage(null)} className="grid h-11 w-11 place-items-center rounded-full border-0 bg-white/20 text-white hover:bg-white/30" title="关闭预览">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+          </div>
+          <div className="flex min-h-0 w-full flex-1 items-center justify-center" onClick={(event) => event.stopPropagation()}>
+            <img src={previewImage.url} alt={previewImage.title} className="max-h-full max-w-[920px] rounded-[8px] object-contain" />
           </div>
         </div>
-      </Modal>
-
-      {/* 大图预览 */}
-      {previewModalUrl && (
-        <div className="fixed inset-0 z-[80] grid place-items-center bg-black/70" onClick={() => setPreviewModalUrl(null)}>
-          <div className="relative max-h-[88vh] max-w-[88vw]" onClick={(e) => e.stopPropagation()}>
-            <div className="flex max-h-[88vh] max-w-[88vw] flex-col items-end gap-2">
-              <img src={previewModalUrl} alt="预览" className="max-h-[82vh] max-w-[88vw] rounded-lg object-contain" />
-              <div className="flex items-center gap-2">
-                <Button
-                  type="primary"
-                  size="small"
-                  icon={<Download className="h-3.5 w-3.5" />}
-                  onClick={() => void handleDownloadImage(previewModalUrl, 'detail-long-image.png')}
-                >
-                  下载长图
-                </Button>
-                <Button size="small" icon={<Download className="h-3.5 w-3.5" />} onClick={() => void handleDownloadAllFromPreview()}>
-                  下载全部图片
-                </Button>
-                <Button size="small" onClick={() => setPreviewModalUrl(null)}>
-                  关闭
-                </Button>
+      )}
+      {previewImage?.kind === 'long' && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-4 sm:p-8" onClick={() => setPreviewImage(null)}>
+          <section role="dialog" aria-modal="true" aria-label={`预览${previewImage.title}`} className="flex h-[88vh] w-full max-w-[1400px] flex-col overflow-hidden rounded-[12px] bg-white shadow-2xl" onClick={(event) => event.stopPropagation()}>
+            <header className="flex min-h-[72px] shrink-0 items-center justify-between gap-4 border-b border-[#EEF0F3] px-6">
+              <h2 className="m-0 truncate text-[18px] font-semibold text-[#171A1D]">生成结果 {previewImage.openedAt.toLocaleString('zh-CN', { hour12: false })}</h2>
+              <div className="flex shrink-0 items-center gap-3">
+                <button type="button" onClick={() => void handleDownloadLongImageFromPreview()} className="flex h-10 items-center gap-2 rounded-[8px] bg-[#F5F6F8] px-4 text-[13px] font-semibold text-[#171A1D] hover:bg-[#E9EBEF]"><Download className="h-4 w-4" />下载长图</button>
+                <button type="button" onClick={handleDownloadAllFromPreview} className="flex h-10 items-center gap-2 rounded-[8px] bg-[#F5F6F8] px-4 text-[13px] font-semibold text-[#171A1D] hover:bg-[#E9EBEF]"><Download className="h-4 w-4" />下载全部图片</button>
+                <button type="button" onClick={() => setPreviewImage(null)} className="grid h-10 w-10 place-items-center rounded-[8px] text-[#98A2B3] hover:bg-[#F5F6F8]" title="关闭预览"><X className="h-5 w-5" /></button>
               </div>
+            </header>
+            <div className="min-h-0 flex-1 overflow-auto bg-white p-6 text-center">
+              <img src={previewImage.url} alt={previewImage.title} className="mx-auto block max-w-full object-contain" />
             </div>
-            <button
-              type="button"
-              onClick={() => setPreviewModalUrl(null)}
-              className="absolute -right-10 top-0 grid h-8 w-8 cursor-pointer place-items-center rounded-full border-0 bg-white/90 text-[#0A1B39]"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          </div>
+          </section>
         </div>
       )}
     </div>

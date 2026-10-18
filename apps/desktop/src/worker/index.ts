@@ -159,6 +159,8 @@ export function createBuiltinHandlers(): Record<string, CapabilityHandler> {
             baseText: p.baseText,
             reportText: p.reportText,
             information: p.information,
+            image: p.mainImage,
+            images: p.images,
             promptSlots: slotItems.map((s) => ({ id: s.id, name: s.name, type: s.type, sequence: s.sequence })),
           })
           return Object.fromEntries((res.prompts ?? []).map((x) => [x.id ?? '', x.prompt ?? '']))

@@ -1,21 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Button,
-  Card,
   Grid,
   Input,
   Message,
-  Modal,
   Select,
-  Spin,
   Switch,
+  Trigger,
 } from '@arco-design/web-react'
 import {
   Check,
   Download,
   Image as ImageIcon,
   Loader2,
-  Maximize2,
   Minus,
   MoreHorizontal,
   Plus,
@@ -29,8 +26,9 @@ import {
 } from 'lucide-react'
 import { AIReportSelector, SectionTitle, type SuiteProduct } from '../components/AIReportSelector'
 import { AiHelpPopover } from '../components/AiHelpPopover'
-import { CircleHelp } from 'lucide-react'
 import { ProductImageHelpTooltip } from '../components/ProductImageHelpTooltip'
+import { ResultActionDialog } from '../components/ResultActionDialog'
+import { ImageResizeDialog } from '../components/ImageResizeDialog'
 import { useAuth } from '../store/auth'
 import { saveAs } from 'file-saver'
 import { nanoid } from 'nanoid'
@@ -44,6 +42,10 @@ import suiteArrow from '../assets/suite-arrow.svg'
 
 const { Row, Col } = Grid
 const Option = Select.Option
+const PRODUCT_SETS_DRAFT_DATABASE = 'ecommerce-competitor-analysis'
+const PRODUCT_SETS_DRAFT_STORE = 'product-image-sets'
+const PRODUCT_SETS_DRAFT_KEY = 'latest-form'
+const PRODUCT_SETS_LATEST_JOB_KEY = 'eca.productImageSets.latestJobId'
 
 // 生成设置三组 options 逐字对照旧版 ProductImageSets.tsx GENERATION_OPTIONS（平台 17 / 国家 17 / 语言 14 / 比例 5）
 const PLATFORM_OPTIONS = [
@@ -52,21 +54,19 @@ const PLATFORM_OPTIONS = [
 const COUNTRY_OPTIONS = ['中国', '美国', '英国', '德国', '法国', '意大利', '西班牙', '日本', '韩国', '加拿大', '澳大利亚', '新加坡', '马来西亚', '泰国', '越南', '巴西', '墨西哥']
 const LANGUAGE_OPTIONS = ['英文', '中文', '日文', '韩文', '德文', '法文', '意大利文', '西班牙文', '葡萄牙文', '荷兰文', '波兰文', '泰文', '越南文', '印尼文']
 const RATIO_OPTIONS = ['1:1', '3:4', '4:3', '9:16', '16:9']
-const RESIZE_OPTIONS: Array<{ label: string; value: string }> = [
-  { label: '普通A+ 970:600', value: '970:600' },
-  { label: '高级A+（Web端）1464:600', value: '1464:600' },
-  { label: '高级A+（移动端）600:450', value: '600:450' },
-  { label: '1:1', value: '1:1' },
-  { label: '3:4', value: '3:4' },
-  { label: '9:16', value: '9:16' },
-  { label: '16:9', value: '16:9' },
-]
 
 interface UploadedImage {
   id: string
   url: string
   name: string
   isMain?: boolean
+}
+
+interface GenerationSettings {
+  platform: string
+  country: string
+  language: string
+  ratio: string
 }
 
 type SuiteTypeKey = 'white' | 'scene' | 'selling' | 'function' | 'detail'
@@ -100,19 +100,88 @@ interface SlotActionPanel {
   loading: boolean
 }
 
+interface ProductImageSetsDraft {
+  uploadedImages: UploadedImage[]
+  selectedReportId: string
+  settings: GenerationSettings
+  generationText: string
+  productName: string
+  reportSellingPoints: string[]
+  mode: '智能匹配' | '自定义配置'
+  customCounts: Record<SuiteTypeKey, number>
+  styleAnalysis: boolean
+  listingCopy: boolean
+}
+
+function openProductSetsDraftDatabase(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(PRODUCT_SETS_DRAFT_DATABASE, 1)
+    request.onerror = () => reject(request.error)
+    request.onupgradeneeded = () => {
+      if (!request.result.objectStoreNames.contains(PRODUCT_SETS_DRAFT_STORE)) {
+        request.result.createObjectStore(PRODUCT_SETS_DRAFT_STORE)
+      }
+    }
+    request.onsuccess = () => resolve(request.result)
+  })
+}
+
+async function readProductSetsDraft(): Promise<ProductImageSetsDraft | null> {
+  if (typeof window === 'undefined' || !window.indexedDB) return null
+  const database = await openProductSetsDraftDatabase()
+  try {
+    return await new Promise<ProductImageSetsDraft | null>((resolve, reject) => {
+      const request = database.transaction(PRODUCT_SETS_DRAFT_STORE, 'readonly').objectStore(PRODUCT_SETS_DRAFT_STORE).get(PRODUCT_SETS_DRAFT_KEY)
+      request.onerror = () => reject(request.error)
+      request.onsuccess = () => resolve((request.result as ProductImageSetsDraft | undefined) ?? null)
+    })
+  } finally {
+    database.close()
+  }
+}
+
+async function writeProductSetsDraft(draft: ProductImageSetsDraft): Promise<void> {
+  if (typeof window === 'undefined' || !window.indexedDB) return
+  const database = await openProductSetsDraftDatabase()
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const request = database.transaction(PRODUCT_SETS_DRAFT_STORE, 'readwrite').objectStore(PRODUCT_SETS_DRAFT_STORE).put(draft, PRODUCT_SETS_DRAFT_KEY)
+      request.onerror = () => reject(request.error)
+      request.onsuccess = () => resolve()
+    })
+  } finally {
+    database.close()
+  }
+}
+
+async function clearProductSetsDraft(): Promise<void> {
+  if (typeof window === 'undefined' || !window.indexedDB) return
+  const database = await openProductSetsDraftDatabase()
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const request = database.transaction(PRODUCT_SETS_DRAFT_STORE, 'readwrite').objectStore(PRODUCT_SETS_DRAFT_STORE).delete(PRODUCT_SETS_DRAFT_KEY)
+      request.onerror = () => reject(request.error)
+      request.onsuccess = () => resolve()
+    })
+  } finally {
+    database.close()
+  }
+}
+
 export function ProductImageSetsPage() {
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const currentUserId = useAuth((s) => s.user?.id ?? '')
 
   // 1. 商品原图 (<=6张)
   const [uploadedImages, setUploadedImages] = useState<UploadedImage[]>([])
+  const uploadInProgressRef = useRef(false)
 
   // 2. 选报告
   const [selectedReportId, setSelectedReportId] = useState('')
   const [selectedReport, setSelectedReport] = useState<SuiteProduct | null>(null)
 
   // 3. 四维参数设置
-  const [settings, setSettings] = useState({
+  const [settings, setSettings] = useState<GenerationSettings>({
     platform: '淘宝天猫1688',
     country: '中国',
     language: '中文',
@@ -154,9 +223,31 @@ export function ProductImageSetsPage() {
   const [selectedSlotIds, setSelectedSlotIds] = useState<string[]>([])
   // 更多操作悬浮面板目标（M11）
   const [moreMenuSlotId, setMoreMenuSlotId] = useState<string | null>(null)
+  useEffect(() => {
+    if (!moreMenuSlotId) return
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMoreMenuSlotId(null)
+    }
+    document.addEventListener('keydown', closeOnEscape)
+    return () => document.removeEventListener('keydown', closeOnEscape)
+  }, [moreMenuSlotId])
   // 智能改尺寸面板目标：null=关闭；'batch'=批量；slotId=单张（M14/M15）
   const [resizeTargets, setResizeTargets] = useState<string[] | null>(null)
   const [resizeRatio, setResizeRatio] = useState(settings.ratio)
+  const [batchResizeSlotIds, setBatchResizeSlotIds] = useState<string[]>([])
+  const [previewSlotId, setPreviewSlotId] = useState<string | null>(null)
+  const activeGenerationJobRef = useRef('')
+  const preserveGenerationTextFromDraftRef = useRef(false)
+
+  const previewSlot = previewSlotId ? slots.find((slot) => slot.id === previewSlotId && slot.imageUrl) : undefined
+  const generatedSlotIds = slots.filter((slot) => slot.imageUrl).map((slot) => slot.id)
+  const allGeneratedSelected = generatedSlotIds.length > 0 && generatedSlotIds.every((id) => selectedSlotIds.includes(id))
+  const partiallyGeneratedSelected = !allGeneratedSelected && generatedSlotIds.some((id) => selectedSlotIds.includes(id))
+  const editableTextLines = actionPanel?.mode === 'text' ? actionPanel.text.split('\n') : []
+
+  useEffect(() => {
+    if (previewSlotId && !previewSlot) setPreviewSlotId(null)
+  }, [previewSlot, previewSlotId])
 
   // 计算当前总张数
   const totalImageCount = useMemo(() => {
@@ -164,32 +255,80 @@ export function ProductImageSetsPage() {
     return Object.values(customCounts).reduce((sum, n) => sum + n, 0)
   }, [mode, customCounts])
 
+  const persistCurrentForm = async () => {
+    await writeProductSetsDraft({
+      uploadedImages,
+      selectedReportId,
+      settings,
+      generationText,
+      productName,
+      reportSellingPoints,
+      mode,
+      customCounts,
+      styleAnalysis,
+      listingCopy,
+    })
+  }
+
+  const clearGeneratedResults = () => {
+    activeGenerationJobRef.current = ''
+    setResultViewActive(false)
+    setSlots([])
+    setSelectedSlotIds([])
+    setGenerationJobId('')
+    setGenerating(false)
+    setError('')
+    setActionPanel(null)
+    setMoreMenuSlotId(null)
+    setResizeTargets(null)
+    setBatchResizeSlotIds([])
+    setPreviewSlotId(null)
+    localStorage.removeItem(PRODUCT_SETS_LATEST_JOB_KEY)
+    void clearProductSetsDraft()
+  }
+
   // 上传原图处理
-  const handleUploadFiles = (files: FileList | null) => {
+  const handleUploadFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return
+    if (uploadInProgressRef.current) {
+      Message.info('图片正在读取，请稍后再添加')
+      return
+    }
     const remaining = 6 - uploadedImages.length
+    const exceedsLimit = files.length > remaining
     if (remaining <= 0) {
-      Message.warning('最多只能上传 6 张商品原图')
+      Message.warning('同一产品最多上传 6 张图片，已保留前 6 张')
       return
     }
     const toAdd = Array.from(files).slice(0, remaining)
-    toAdd.forEach((file) => {
-      const reader = new FileReader()
-      reader.onload = () => {
-        const url = reader.result as string
-        setUploadedImages((prev) => [
-          ...prev,
-          {
-            id: `img-${nanoid(8)}`,
-            name: file.name,
-            url,
-            isMain: prev.length === 0,
-          },
-        ])
+    uploadInProgressRef.current = true
+    try {
+      // Promise.all 保留选择顺序，避免 FileReader 完成顺序改变前 6 张及首张原图。
+      const images = await Promise.all(toAdd.map((file) => new Promise<UploadedImage>((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve({
+          id: `img-${nanoid(8)}`,
+          name: file.name,
+          url: reader.result as string,
+        })
+        reader.onerror = () => reject(new Error('图片读取失败，请重新上传'))
+        reader.onabort = () => reject(new Error('图片读取已取消，请重新上传'))
+        reader.readAsDataURL(file)
+      })))
+      setUploadedImages((prev) => [
+        ...prev,
+        ...images.map((image, index) => ({ ...image, isMain: prev.length === 0 && index === 0 })),
+      ].slice(0, 6))
+      if (exceedsLimit) {
+        Message.warning('同一产品最多上传 6 张图片，已保留前 6 张')
+      } else {
+        Message.success(`已添加 ${images.length} 张原图`)
       }
-      reader.readAsDataURL(file)
-    })
-    Message.success(`已添加 ${toAdd.length} 张原图`)
+    } catch (error) {
+      Message.error(error instanceof Error ? error.message : '图片读取失败，请重新上传')
+    } finally {
+      uploadInProgressRef.current = false
+    }
   }
 
   const removeUploadedImage = (id: string) => {
@@ -200,16 +339,9 @@ export function ProductImageSetsPage() {
       }
       return next
     })
-  }
-
-  const setAsMainImage = (id: string) => {
-    setUploadedImages((prev) =>
-      prev.map((img) => ({
-        ...img,
-        isMain: img.id === id,
-      })),
-    )
-    Message.info('已设为主视角商品图')
+    if (resultViewActive || generationJobId || localStorage.getItem(PRODUCT_SETS_LATEST_JOB_KEY)) {
+      clearGeneratedResults()
+    }
   }
 
   // 选择 AI 报告后回读主图描述，自动填充生图卖点（对齐旧版报告联动）
@@ -218,6 +350,8 @@ export function ProductImageSetsPage() {
       setReportSellingPoints([])
       return
     }
+    const preserveGenerationText = preserveGenerationTextFromDraftRef.current
+    preserveGenerationTextFromDraftRef.current = false
     let cancelled = false
     setLoadingDescriptions(true)
     window.desktop?.capabilities
@@ -226,7 +360,7 @@ export function ProductImageSetsPage() {
         if (cancelled) return
         const result = data as { ok?: boolean; promptText?: string; sellingPoints?: string[] } | undefined
         setReportSellingPoints(result?.sellingPoints ?? [])
-        if (result?.promptText?.trim()) setGenerationText(result.promptText.trim())
+        if (!preserveGenerationText && result?.promptText?.trim()) setGenerationText(result.promptText.trim())
       })
       .catch(() => {
         if (!cancelled) setReportSellingPoints([])
@@ -267,24 +401,48 @@ export function ProductImageSetsPage() {
     }
   }, [])
 
-  // 刷新后按最近一次生成批次回显真实结果，不再依赖本地 state
+  // 刷新后按最近一次生成批次回显真实结果，同时恢复生成时的左侧表单快照。
   useEffect(() => {
-    const latestJobId = localStorage.getItem('eca.productImageSets.latestJobId')
+    const latestJobId = localStorage.getItem(PRODUCT_SETS_LATEST_JOB_KEY)
     if (!latestJobId) return
     let cancelled = false
-    window.desktop?.capabilities
-      .invoke('asset.list', { jobId: latestJobId })
-      .then(async (data) => {
-        if (cancelled) return
-        const rows = [...((data as { id: string; sourceUrl?: string | null; originalName?: string | null; category?: string | null; prompt?: string | null }[]) ?? []).map((item) => ({ id: item.id, sourceUrl: item.sourceUrl, originalName: item.originalName, category: item.category, prompt: item.prompt }))]
+    void (async () => {
+      try {
+        const draft = await readProductSetsDraft()
+        if (cancelled || localStorage.getItem(PRODUCT_SETS_LATEST_JOB_KEY) !== latestJobId || !draft?.uploadedImages.length) return
+
+        preserveGenerationTextFromDraftRef.current = Boolean(draft.selectedReportId)
+        setUploadedImages(draft.uploadedImages)
+        setSelectedReportId(draft.selectedReportId)
+        setSettings(draft.settings)
+        setGenerationText(draft.generationText)
+        setProductName(draft.productName)
+        setReportSellingPoints(draft.reportSellingPoints)
+        setMode(draft.mode)
+        setCustomCounts(draft.customCounts)
+        setStyleAnalysis(draft.styleAnalysis)
+        setListingCopy(draft.listingCopy)
+        setResizeRatio(draft.settings.ratio)
+
+        const data = await window.desktop?.capabilities.invoke('asset.list', { jobId: latestJobId })
+        if (cancelled || localStorage.getItem(PRODUCT_SETS_LATEST_JOB_KEY) !== latestJobId) return
+        const seenSlots = new Set<string>()
+        const rows = ((data as { id: string; sourceUrl?: string | null; originalName?: string | null; category?: string | null; prompt?: string | null }[]) ?? [])
+          .filter((item) => {
+            const key = item.originalName ? `${item.category ?? ''}\0${item.originalName}` : item.id
+            if (seenSlots.has(key)) return false
+            seenSlots.add(key)
+            return true
+          })
           .sort((a, b) =>
             String(a.originalName || '').localeCompare(String(b.originalName || ''), 'zh-Hans-CN', { numeric: true }),
           )
         if (!rows.length) return
+        activeGenerationJobRef.current = latestJobId
         setGenerationJobId(latestJobId)
         setResultViewActive(true)
         const withImg = await Promise.all(rows.map(async (row) => ({ row, img: await loadAssetImg(row.id) })))
-        if (cancelled) return
+        if (cancelled || localStorage.getItem(PRODUCT_SETS_LATEST_JOB_KEY) !== latestJobId) return
         setSlots(
           withImg.map(({ row, img }, index) => ({
             id: row.id,
@@ -297,12 +455,14 @@ export function ProductImageSetsPage() {
             status: 'done' as const,
           })),
         )
-      })
-      .catch(() => undefined)
+      } catch {
+        // 结果资产或表单快照读取失败时，保持新的作图状态。
+      }
+    })()
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [loadAssetImg])
 
   // 触发 AI 帮写 (流式 SSE)
   const handleAiHelp = async () => {
@@ -410,19 +570,28 @@ export function ProductImageSetsPage() {
     }
     setSlots(newSlots)
 
+    let jobId = ''
     try {
       const reportText = [
         selectedReport ? `已选择AI报告：${selectedReport.label || selectedReport.keyword || ''}` : '',
         reportSellingPoints.length ? `报告主图卖点：${reportSellingPoints.join('、')}` : '',
       ].filter(Boolean).join('\n')
-      const jobId = `product-sets-${nanoid(12)}`
+      jobId = `product-sets-${nanoid(12)}`
+      activeGenerationJobRef.current = jobId
       setGenerationJobId(jobId)
-      localStorage.setItem('eca.productImageSets.latestJobId', jobId)
+      localStorage.setItem(PRODUCT_SETS_LATEST_JOB_KEY, jobId)
+      try {
+        await persistCurrentForm()
+      } catch {
+        // 生成不依赖快照；快照失败时仍继续完成当前任务。
+      }
+      if (activeGenerationJobRef.current !== jobId) return
 
       // LangGraph 编排：planPrompts → 逐图 generateOne（worker 内 Send 扇出 + checkpoint 落本地 SQLite）。
       // 每张图位的进度经 IPC 流式节点事件回显；jobId 即 thread_id，崩溃后可同 jobId 续跑。
       const unsub = window.desktop?.capabilities.onStream((event) => {
         if (event.type === 'node' && event.data?.node === 'generateImage') {
+          if (activeGenerationJobRef.current !== jobId) return
           const d = event.data as { slotId?: string; status?: GenerationSlot['status']; imageUrl?: string; error?: string }
           if (!d.slotId) return
           setSlots((prev) =>
@@ -456,13 +625,16 @@ export function ProductImageSetsPage() {
       } finally {
         unsub?.()
       }
-      if (failedCount) setError(`${failedCount} 张图片生成失败，其余图片已保留在右侧。`)
+      if (activeGenerationJobRef.current === jobId && failedCount) {
+        setError(`${failedCount} 张图片生成失败，其余图片已保留在右侧。`)
+      }
     } catch (err) {
+      if (!jobId || activeGenerationJobRef.current !== jobId) return
       const message = err instanceof Error ? err.message : String(err)
       setError(message)
       setSlots((prev) => prev.map((slot) => ({ ...slot, status: 'failed', error: message })))
     } finally {
-      setGenerating(false)
+      if (activeGenerationJobRef.current === jobId) setGenerating(false)
     }
   }
 
@@ -545,6 +717,7 @@ export function ProductImageSetsPage() {
         images: resolvedRefs.slice(0, 4),
         ratio,
         productName: productName.trim() || undefined,
+        replaceExisting: true,
       }) as { images?: Array<{ url: string }> } | undefined
       const url = data?.images?.[0]?.url
       if (!url) throw new Error('当前未接入真实图像服务，未返回可展示图片')
@@ -578,6 +751,25 @@ export function ProductImageSetsPage() {
     }
   }
 
+  const updateTextLine = (index: number, value: string) => {
+    setActionPanel((prev) => {
+      if (!prev || prev.mode !== 'text') return prev
+      const lines = prev.text.split('\n')
+      if (!lines.length) lines.push('')
+      lines[index] = value
+      return { ...prev, text: lines.join('\n') }
+    })
+  }
+
+  const removeTextLine = (index: number) => {
+    setActionPanel((prev) => {
+      if (!prev || prev.mode !== 'text') return prev
+      const lines = prev.text.split('\n')
+      lines.splice(index, 1)
+      return { ...prev, text: lines.join('\n') }
+    })
+  }
+
   const runTextEditor = async () => {
     if (!actionPanel || !actionPanel.text.trim()) return
     const slot = slots.find((item) => item.id === actionPanel.slotId)
@@ -594,12 +786,12 @@ export function ProductImageSetsPage() {
   const PRODUCT_ERROR_KEYWORDS = ['变形', '颜色错', '外观错', '结构错', '不像', '错误', '出错', '错位', '比例错', '商品坏了', '瑕疵']
 
   const runRetouchEditor = async () => {
-    if (!actionPanel || !actionPanel.direction.trim()) return
+    if (!actionPanel || actionPanel.mode !== 'retouch') return
     const slot = slots.find((item) => item.id === actionPanel.slotId)
     if (!slot?.imageUrl) return
     setActionPanel((prev) => (prev ? { ...prev, loading: true } : prev))
     try {
-      const direction = actionPanel.direction.trim()
+      const direction = actionPanel.direction.trim() || '保持商品主体、构图和视觉风格，重新生成此图片。'
       const mentionsProductError = PRODUCT_ERROR_KEYWORDS.some((kw) => direction.includes(kw))
       // 参考图组合：商品出错 → [商品原图, 已生成图]（product_fix 语义）；未出错 → [已生成图]（retouch 语义）
       const rawRefs = mentionsProductError
@@ -636,7 +828,7 @@ export function ProductImageSetsPage() {
     await generateSlotWithPromptWithRatio(slot.id, `智能调整电商图片尺寸到${targetRatio}，保留商品主体、文字可读性和视觉层次，不裁切关键信息。`, [resolvedUrl], targetRatio)
   }
 
-  // 批量智能改尺寸：对已勾选图片逐张执行（M15，逻辑同单张）
+  // 批量改尺寸先占住所有目标图位，再逐张替换为生成结果。
   const runBatchResize = async () => {
     if (!resizeTargets?.length) {
       Message.warning('请先选择要改尺寸的图片')
@@ -648,10 +840,37 @@ export function ProductImageSetsPage() {
       setResizeTargets(null)
       return
     }
+    const targetIds = targets.map((slot) => slot.id)
+    const targetIdSet = new Set(targetIds)
+    const targetRatio = resizeRatio
     setResizeTargets(null)
-    for (const slot of targets) {
-      await runSmartResize(slot, resizeRatio)
+    setSelectedSlotIds([])
+    setBatchResizeSlotIds(targetIds)
+    setSlots((prev) => prev.map((slot) => (
+      targetIdSet.has(slot.id) ? { ...slot, status: 'generating', error: undefined } : slot
+    )))
+    try {
+      for (const slot of targets) {
+        await generateSlotWithPromptWithRatio(
+          slot.id,
+          `智能调整电商图片尺寸到${targetRatio}，保留商品主体、文字可读性和视觉层次，不裁切关键信息。`,
+          [slot.imageUrl!],
+          targetRatio,
+        )
+      }
+    } finally {
+      setBatchResizeSlotIds([])
     }
+  }
+
+  const confirmResize = () => {
+    if (!resizeTargets?.length) return
+    if (resizeTargets.length > 1) {
+      void runBatchResize()
+      return
+    }
+    const target = slots.find((slot) => slot.id === resizeTargets[0])
+    if (target) void runSmartResize(target, resizeRatio)
   }
 
   // 单张下载 jpg（M16）
@@ -693,12 +912,11 @@ export function ProductImageSetsPage() {
 
   // 全选/取消全选（M10：勾选全部已生成图片）
   const toggleSelectAll = () => {
-    const doneIds = slots.filter((s) => s.imageUrl).map((s) => s.id)
-    if (!doneIds.length) {
+    if (!generatedSlotIds.length) {
       Message.warning('暂无已生成的图片可供选择')
       return
     }
-    setSelectedSlotIds((prev) => (prev.length === doneIds.length ? [] : doneIds))
+    setSelectedSlotIds((prev) => (generatedSlotIds.every((id) => prev.includes(id)) ? [] : generatedSlotIds))
   }
 
   // 批量删除（M10：删除勾选图位及其落盘资产）
@@ -732,9 +950,10 @@ export function ProductImageSetsPage() {
   }
 
   return (
-    <div className="relative flex h-full bg-[#f4f7fb] overflow-hidden">
+    <div className="product-image-sets-page relative flex h-full bg-[#f4f7fb] overflow-hidden">
       {/* ===================== 左侧 360px 参数面板 ===================== */}
-      <div className="w-[360px] shrink-0 h-full overflow-y-auto border-r border-[#e5e8ef] bg-white px-5 pt-5 pb-4 select-none">
+      <div className="flex w-[360px] shrink-0 h-full flex-col overflow-hidden border-r border-[#e5e8ef] bg-white select-none">
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 pt-5 pb-4">
         {/* 1. 商品原图 */}
         <div className="mb-5">
           <h2 className="mb-3 flex items-center justify-between text-[14px] font-bold text-[#0A1B39]">
@@ -752,46 +971,28 @@ export function ProductImageSetsPage() {
             multiple
             className="hidden"
             onChange={(e) => {
-              handleUploadFiles(e.target.files)
+              void handleUploadFiles(e.target.files)
               e.currentTarget.value = ''
             }}
           />
 
           {uploadedImages.length > 0 ? (
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-3 gap-2">
               {uploadedImages.map((img) => (
                 <div
                   key={img.id}
-                  className={`relative h-[82px] rounded-lg overflow-hidden border ${
-                    img.isMain ? 'border-[#1683FF] ring-1 ring-[#1683FF]' : 'border-[#e5e8ef]'
-                  } group bg-[#f8fafc]`}
+                  className="group relative aspect-square overflow-hidden rounded-[8px] border border-[#e5e8ef] bg-white transition-shadow hover:shadow-md"
                 >
-                  <img src={img.url} alt={img.name} className="h-full w-full object-cover" />
-                  {img.isMain && (
-                    <span className="absolute top-1 left-1 rounded bg-[#1683FF] px-1 py-0.5 text-[9px] font-bold text-white leading-none">
-                      主视角
-                    </span>
-                  )}
-                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1.5">
-                    {!img.isMain && (
-                      <button
-                        type="button"
-                        onClick={() => setAsMainImage(img.id)}
-                        className="h-6 w-6 rounded-full bg-white/90 text-[#0A1B39] hover:bg-white flex items-center justify-center text-[10px]"
-                        title="设为主图"
-                      >
-                        主
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => removeUploadedImage(img.id)}
-                      className="h-6 w-6 rounded-full bg-white/90 text-[#c62828] hover:bg-white flex items-center justify-center"
-                      title="删除"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
+                  <img src={img.url} alt={img.name} className="h-full w-full object-contain" />
+                  <button
+                    type="button"
+                    onClick={() => removeUploadedImage(img.id)}
+                    className="absolute right-1.5 top-1.5 grid h-5 w-5 cursor-pointer place-items-center rounded-[4px] border-0 bg-black/50 text-white opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 hover:bg-black/65"
+                    title="删除"
+                    aria-label={`删除原图 ${img.name}`}
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </button>
                 </div>
               ))}
 
@@ -799,10 +1000,10 @@ export function ProductImageSetsPage() {
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
-                  className="h-[82px] rounded-lg border border-dashed border-[#d8e0ea] bg-[#fbfcfe] hover:border-[#1683FF] hover:bg-[#f0f7ff] transition-colors flex flex-col items-center justify-center gap-1 text-[#86909C]"
+                  className="grid aspect-square cursor-pointer place-items-center rounded-[8px] border-0 bg-[#f5f6f8] text-[#171A1D] transition-colors hover:bg-[#eef0f3]"
+                  aria-label="添加商品原图"
                 >
                   <Plus className="h-5 w-5" />
-                  <span className="text-[11px]">添加</span>
                 </button>
               )}
             </div>
@@ -915,7 +1116,6 @@ export function ProductImageSetsPage() {
           <div className="mb-2 flex items-center justify-between gap-2">
             <h2 className="flex min-w-0 items-center gap-1 text-[14px] font-semibold text-[#171A1D]">
               商品卖点&要求
-              <CircleHelp className="h-3.5 w-3.5 shrink-0 text-[#8B949E]" />
             </h2>
             <AiHelpPopover
               visible={aiHelpOpen}
@@ -1048,8 +1248,10 @@ export function ProductImageSetsPage() {
           </div>
         </div>
 
-        {/* 吸底生成条：sticky 于面板滚动容器内（对照旧版 fixed+侧栏联动的等价实现，折叠侧栏不错位） */}
-        <div className="sticky bottom-0 -mx-5 mt-1 border-t border-[#eef1f5] bg-white p-3.5">
+        </div>
+
+        {/* 独立底部生成条：表单单独滚动，白色背景始终覆盖到面板底边。 */}
+        <div className="shrink-0 border-t border-[#eef1f5] bg-white p-3.5">
           <button
             type="button"
             disabled={generating || uploadedImages.length === 0}
@@ -1132,47 +1334,58 @@ export function ProductImageSetsPage() {
           /* ===================== 成图工作台结果看板 ===================== */
           <div className="max-w-[1200px] mx-auto pb-12">
             {/* 顶栏操作（M10：全选 → 顶部批量改尺寸/批量下载/批量删除） */}
-            <div className="flex items-center justify-between mb-6 pb-4 border-b border-[#e5e8ef]">
-              <button
-                type="button"
-                onClick={() => setResultViewActive(false)}
-                className="flex h-9 cursor-pointer items-center gap-2 rounded-[8px] bg-white px-3 text-[13px] font-semibold text-[#171A1D] shadow-[0_1px_0_rgba(15,23,41,.06)] transition-colors hover:bg-[#F5F6F8]"
-              >
-                <span aria-hidden>←</span> 返回配置
-              </button>
+            <div className="mb-4 flex items-center justify-between">
               <h2 className="text-[18px] font-bold text-[#171A1D]">生成结果：</h2>
               <div className="flex items-center gap-3">
                 <button
                   type="button"
                   onClick={toggleSelectAll}
-                  className="flex h-9 cursor-pointer items-center gap-2 rounded-[8px] bg-white px-3 text-[13px] font-medium text-[#5F6B7A] shadow-[0_1px_0_rgba(15,23,41,.06)] transition-colors hover:bg-[#F5F6F8]"
+                  disabled={batchResizeSlotIds.length > 0}
+                  className="flex h-11 cursor-pointer items-center gap-2 rounded-[8px] px-2 text-[14px] font-semibold text-[#4E5969] transition-colors hover:bg-white disabled:cursor-not-allowed disabled:hover:bg-transparent"
                 >
                   <span
-                    className={`grid h-4 w-4 place-items-center rounded-[4px] border ${
-                      selectedSlotIds.length === slots.filter((s) => s.imageUrl).length && selectedSlotIds.length
+                    className={`grid h-5 w-5 place-items-center rounded-[5px] border ${
+                      allGeneratedSelected || partiallyGeneratedSelected
                         ? 'border-[#171A1D] bg-[#171A1D] text-white'
-                        : 'border-[#171A1D] bg-white text-transparent'
+                        : 'border-[#86909C] bg-white text-transparent'
                     }`}
                   >
-                    <Check className="h-3 w-3" />
+                    {allGeneratedSelected ? (
+                      <Check className="h-3.5 w-3.5" />
+                    ) : partiallyGeneratedSelected ? (
+                      <Minus className="h-3.5 w-3.5" />
+                    ) : (
+                      <Check className="h-3.5 w-3.5" />
+                    )}
                   </span>
                   全选
                 </button>
                 {selectedSlotIds.length > 0 && (
                   <>
-                    <Button
-                      type="primary"
-                      icon={<Maximize2 className="h-3.5 w-3.5" />}
+                    <button
+                      type="button"
                       onClick={() => setResizeTargets(selectedSlotIds)}
+                      className="flex h-11 cursor-pointer items-center gap-2 rounded-[12px] border-0 bg-white px-4 text-[14px] font-semibold text-[#171A1D] shadow-[0_1px_3px_rgba(15,23,41,.08)] transition-colors hover:bg-[#F5F6F8]"
                     >
+                      <Sparkles className="h-4 w-4" />
                       批量改尺寸
-                    </Button>
-                    <Button icon={<Download className="h-3.5 w-3.5" />} onClick={handleBatchDownload}>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleBatchDownload}
+                      className="flex h-11 cursor-pointer items-center gap-2 rounded-[12px] border-0 bg-white px-4 text-[14px] font-semibold text-[#171A1D] shadow-[0_1px_3px_rgba(15,23,41,.08)] transition-colors hover:bg-[#F5F6F8]"
+                    >
+                      <Download className="h-4 w-4" />
                       批量下载
-                    </Button>
-                    <Button type="outline" icon={<Trash2 className="h-3.5 w-3.5" />} status="danger" onClick={() => void handleBatchDelete()}>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleBatchDelete()}
+                      className="flex h-11 cursor-pointer items-center gap-2 rounded-[12px] border-0 bg-white px-4 text-[14px] font-semibold text-[#171A1D] shadow-[0_1px_3px_rgba(15,23,41,.08)] transition-colors hover:bg-[#F5F6F8]"
+                    >
+                      <Trash2 className="h-4 w-4" />
                       批量删除
-                    </Button>
+                    </button>
                   </>
                 )}
               </div>
@@ -1182,65 +1395,73 @@ export function ProductImageSetsPage() {
             <div className="grid grid-cols-3 gap-5">
               {/* 首位原图格：展示用户上传的商品图 */}
               {uploadedImages[0] && (
-                <Card
-                  className="rounded-xl border border-[#e5eaf2] bg-white shadow-sm overflow-hidden"
-                  bodyStyle={{ padding: 14 }}
-                >
-                  <div className="relative aspect-square rounded-lg overflow-hidden bg-[#f4f7fb] mb-3 flex items-center justify-center">
-                    <img src={uploadedImages[0].url} alt="商品原图" className="h-full w-full object-cover" />
-                    <span className="absolute bottom-2 left-2 rounded bg-black/60 px-2 py-0.5 text-[10px] font-bold text-white">
-                      原图
-                    </span>
-                  </div>
-                  <div className="space-y-2">
-                    <p className="text-[13px] font-bold text-[#0A1B39] truncate">商品原图</p>
-                  </div>
-                </Card>
+                <div className="relative aspect-square overflow-hidden rounded-[8px] bg-white">
+                  <img src={uploadedImages[0].url} alt="商品原图" className="h-full w-full object-contain" />
+                  <span className="absolute bottom-2 left-2 rounded bg-black/60 px-2 py-0.5 text-[10px] font-bold text-white">
+                    原图
+                  </span>
+                </div>
               )}
 
               {slots.map((slot) => (
-                <Card
+                <div
                   key={slot.id}
-                  className="rounded-xl border border-[#e5eaf2] bg-white shadow-sm overflow-hidden"
-                  bodyStyle={{ padding: 14 }}
+                  className={`group relative aspect-square overflow-hidden rounded-[8px] bg-white ${
+                    selectedSlotIds.includes(slot.id) || batchResizeSlotIds.includes(slot.id) ? 'ring-2 ring-[#171A1D]' : ''
+                  }`}
                 >
-                  <div className="relative aspect-square rounded-lg overflow-hidden bg-[#f4f7fb] mb-3 flex items-center justify-center group">
+                  <div className="flex h-full w-full items-center justify-center">
                     {slot.status === 'generating' ? (
                       <div className="flex flex-col items-center gap-2">
-                        <Spin />
+                        <div className="flex items-center gap-1.5" aria-hidden="true">
+                          {[0, 1, 2].map((index) => (
+                            <span key={index} className="h-2 w-2 rounded-full bg-[#C9CDD4]" />
+                          ))}
+                        </div>
                         <span className="text-[11px] text-[#86909C]">AI生成中...</span>
                       </div>
                     ) : slot.imageUrl ? (
-                      <img src={slot.imageUrl} alt={slot.name} className="h-full w-full object-cover" />
+                      <button
+                        type="button"
+                        onClick={() => setPreviewSlotId(slot.id)}
+                        className="h-full w-full cursor-zoom-in border-0 bg-transparent p-0"
+                        title={`预览${slot.name}`}
+                      >
+                        <img src={slot.imageUrl} alt={slot.name} className="h-full w-full object-contain" />
+                      </button>
                     ) : (
                       <ImageIcon className="h-8 w-8 text-[#c9d5e8]" />
                     )}
+                  </div>
 
-                    {/* 左下角类型标签（M8） */}
-                    <span className="absolute bottom-2 left-2 rounded bg-black/60 px-2 py-0.5 text-[10px] font-bold text-white">
-                      #{slot.slotIndex} {slot.type}
-                    </span>
+                  {/* 左下角唯一类型标签 */}
+                  <span className="absolute bottom-2 left-2 rounded bg-black/60 px-2 py-0.5 text-[10px] font-bold text-white">
+                    {slot.type}
+                  </span>
 
-                    {/* 悬浮操作层（M11：左上选择；右上下载+更多；底部 AI改图+编辑文字） */}
-                    {slot.imageUrl && (
-                      <div className="absolute inset-0 bg-black/35 opacity-0 transition-opacity group-hover:opacity-100">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setSelectedSlotIds((prev) =>
-                              prev.includes(slot.id) ? prev.filter((id) => id !== slot.id) : [...prev, slot.id],
-                            )
-                          }
-                          className={`absolute left-3 top-3 grid h-6 w-6 place-items-center rounded border ${
-                            selectedSlotIds.includes(slot.id)
-                              ? 'border-[#1683FF] bg-[#1683FF] text-white'
-                              : 'border-white bg-white/80 text-transparent'
-                          }`}
-                          title={selectedSlotIds.includes(slot.id) ? '取消选择' : '选择'}
-                        >
-                          <Check className="h-3.5 w-3.5" />
-                        </button>
-                        <div className="absolute right-3 top-3 flex gap-2">
+                  {slot.imageUrl && slot.status !== 'generating' && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setSelectedSlotIds((prev) =>
+                          prev.includes(slot.id) ? prev.filter((id) => id !== slot.id) : [...prev, slot.id],
+                        )
+                      }
+                      className={`absolute left-3 top-3 z-20 grid h-7 w-7 place-items-center rounded-[6px] border-0 transition-opacity ${
+                        selectedSlotIds.includes(slot.id)
+                          ? 'bg-[#171A1D] text-white opacity-100'
+                          : 'border border-[#86909C] bg-white/90 text-transparent opacity-0 group-hover:opacity-100'
+                      }`}
+                      title={selectedSlotIds.includes(slot.id) ? '取消选择' : '选择'}
+                    >
+                      <Check className="h-4 w-4" />
+                    </button>
+                  )}
+
+                  {/* 悬浮操作层（M11：左上选择；右上下载+更多；底部 AI改图+编辑文字） */}
+                  {slot.imageUrl && slot.status !== 'generating' && (
+                    <div className={`pointer-events-none absolute inset-0 rounded-[8px] bg-black/35 transition-opacity ${moreMenuSlotId === slot.id ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'}`}>
+                        <div className="pointer-events-auto absolute right-3 top-3 flex gap-2">
                           <button
                             type="button"
                             onClick={() => void downloadSingleJpg(slot)}
@@ -1249,16 +1470,61 @@ export function ProductImageSetsPage() {
                           >
                             <Download className="h-3.5 w-3.5" />
                           </button>
-                          <button
-                            type="button"
-                            onClick={() => setMoreMenuSlotId(moreMenuSlotId === slot.id ? null : slot.id)}
-                            className="grid h-7 w-7 place-items-center rounded bg-white text-[#171A1D] shadow-sm hover:bg-[#F5F6F8]"
-                            title="更多操作"
+                          <Trigger
+                            trigger={['hover', 'click']}
+                            position="br"
+                            popupVisible={moreMenuSlotId === slot.id}
+                            onVisibleChange={(visible) => setMoreMenuSlotId((current) => visible ? slot.id : current === slot.id ? null : current)}
+                            getPopupContainer={() => document.body}
+                            autoFitPosition
+                            popupHoverStay
+                            clickToClose={false}
+                            containerScrollToClose
+                            popupAlign={{ bottom: 8 }}
+                            style={{ zIndex: 70 }}
+                            popup={() => (
+                              <div role="menu" aria-label={`${slot.name} 更多操作`} className="w-[180px] overflow-hidden rounded-[8px] bg-white p-1.5 shadow-[0_8px_24px_rgba(15,23,41,.18)]">
+                                <button
+                                  type="button"
+                                  role="menuitem"
+                                  onClick={() => {
+                                    setMoreMenuSlotId(null)
+                                    setResizeTargets([slot.id])
+                                  }}
+                                  className="flex h-10 w-full cursor-pointer items-center gap-2.5 rounded-[6px] border-0 bg-transparent px-3 text-left text-[14px] font-semibold text-[#171A1D] hover:bg-[#F5F6F8]"
+                                >
+                                  <Sparkles className="h-4 w-4 shrink-0" />
+                                  智能改尺寸
+                                </button>
+                                <button
+                                  type="button"
+                                  role="menuitem"
+                                  onClick={() => void handleDeleteSingle(slot.id)}
+                                  className="flex h-10 w-full cursor-pointer items-center gap-2.5 rounded-[6px] border-0 bg-transparent px-3 text-left text-[14px] font-semibold text-[#F04438] hover:bg-[#FFF5F5]"
+                                >
+                                  <Trash2 className="h-4 w-4 shrink-0" />
+                                  删除
+                                </button>
+                              </div>
+                            )}
                           >
-                            <MoreHorizontal className="h-3.5 w-3.5" />
-                          </button>
+                            <button
+                              type="button"
+                              onFocus={() => setMoreMenuSlotId(slot.id)}
+                              aria-haspopup="menu"
+                              aria-expanded={moreMenuSlotId === slot.id}
+                              className={`grid h-7 w-7 place-items-center rounded-[6px] shadow-sm ${
+                                moreMenuSlotId === slot.id
+                                  ? 'bg-[#171A1D] text-white'
+                                  : 'bg-white text-[#171A1D] hover:bg-[#171A1D] hover:text-white'
+                              }`}
+                              title="更多操作"
+                            >
+                              <MoreHorizontal className="h-4 w-4" />
+                            </button>
+                          </Trigger>
                         </div>
-                        <div className="absolute bottom-3 left-3 right-3 flex gap-2">
+                        <div className="pointer-events-auto absolute bottom-3 left-3 right-3 flex gap-2">
                           <button
                             type="button"
                             onClick={() =>
@@ -1279,133 +1545,149 @@ export function ProductImageSetsPage() {
                           </button>
                         </div>
 
-                        {/* 更多操作面板（M11：智能改尺寸/删除） */}
-                        {moreMenuSlotId === slot.id && (
-                          <div className="absolute right-3 top-12 z-10 w-[132px] overflow-hidden rounded-lg bg-white shadow-[0_8px_24px_rgba(15,23,41,.18)]">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setMoreMenuSlotId(null)
-                                setResizeTargets([slot.id])
-                              }}
-                              className="flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-[12px] text-[#171A1D] hover:bg-[#F5F6F8]"
-                            >
-                              <Maximize2 className="h-3.5 w-3.5 text-[#86909C]" />
-                              智能改尺寸
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => void handleDeleteSingle(slot.id)}
-                              className="flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-[12px] text-[#C03535] hover:bg-[#FFF5F5]"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                              删除
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    )}
+                    </div>
+                  )}
 
-                    {slot.status === 'failed' && (
-                      <span className="absolute inset-x-2 bottom-2 rounded bg-[#ffEBEE]/95 px-2 py-1 text-[10px] font-bold text-[#c62828]">
-                        {slot.error || '生成失败'}
-                      </span>
-                    )}
+                  {slot.status === 'failed' && (
+                    <span className="absolute inset-x-2 bottom-2 rounded bg-[#ffEBEE]/95 px-2 py-1 text-[10px] font-bold text-[#c62828]">
+                      {slot.error || '生成失败'}
+                    </span>
+                  )}
 
-                    {/* 失败/生成中保留重新生成入口，避免能力丢失（走查成功态悬浮操作不含重试） */}
-                    {!slot.imageUrl && slot.status !== 'generating' && (
-                      <button
-                        type="button"
-                        onClick={() => void handleRegenerateSingle(slot.id)}
-                        className="absolute right-2 top-2 z-10 grid h-6 w-6 cursor-pointer place-items-center rounded-full border-0 bg-white text-[#171A1D] shadow-sm hover:bg-[#F5F6F8]"
-                        title="重新生成"
-                      >
-                        <RefreshCw className="h-3 w-3" />
-                      </button>
-                    )}
-                  </div>
-
-                  {/* 精简区：图名（M9 完成态只保留必要元素） */}
-                  <div className="space-y-2">
-                    <p className="text-[13px] font-bold text-[#0A1B39] truncate">{slot.name}</p>
-                  </div>
-                </Card>
+                  {/* 失败/生成中保留重新生成入口，避免能力丢失（走查成功态悬浮操作不含重试） */}
+                  {!slot.imageUrl && slot.status !== 'generating' && (
+                    <button
+                      type="button"
+                      onClick={() => void handleRegenerateSingle(slot.id)}
+                      className="absolute right-2 top-2 z-10 grid h-6 w-6 cursor-pointer place-items-center rounded-full border-0 bg-white text-[#171A1D] shadow-sm hover:bg-[#F5F6F8]"
+                      title="重新生成"
+                    >
+                      <RefreshCw className="h-3 w-3" />
+                    </button>
+                  )}
+                </div>
               ))}
             </div>
           </div>
         )}
       </div>
 
-      <Modal
-        title={actionPanel?.mode === 'text' ? `编辑文字 · ${actionPanel?.title ?? ''}` : `AI改图 · ${actionPanel?.title ?? ''}`}
+      {previewSlot?.imageUrl && (
+        <div className="fixed inset-0 z-[80] flex flex-col items-center bg-black/75 p-6" onClick={() => setPreviewSlotId(null)}>
+          <div className="flex w-full max-w-[920px] items-center justify-between pb-4 text-white" onClick={(event) => event.stopPropagation()}>
+            <h2 className="m-0 text-[16px] font-bold">{previewSlot.name}</h2>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => void downloadSingleJpg(previewSlot)}
+                className="flex h-11 items-center gap-2 rounded-full border-0 bg-white px-5 text-[13px] font-semibold text-[#0A1B39] hover:bg-[#F5F6F8]"
+              >
+                <Download className="h-4 w-4" />
+                保存到本地
+              </button>
+              <button
+                type="button"
+                onClick={() => setPreviewSlotId(null)}
+                className="grid h-11 w-11 place-items-center rounded-full border-0 bg-white/20 text-white hover:bg-white/30"
+                title="关闭预览"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+          </div>
+          <div className="flex min-h-0 w-full flex-1 items-center justify-center" onClick={(event) => event.stopPropagation()}>
+            <img src={previewSlot.imageUrl} alt={previewSlot.name} className="max-h-full max-w-[920px] rounded-[8px] object-contain" />
+          </div>
+        </div>
+      )}
+
+      <ResultActionDialog
         visible={Boolean(actionPanel)}
-        onCancel={() => setActionPanel(null)}
-        onOk={() => void (actionPanel?.mode === 'text' ? runTextEditor() : runRetouchEditor())}
-        confirmLoading={actionPanel?.loading}
-        okButtonProps={{ disabled: !actionPanel || (actionPanel.mode === 'text' ? !actionPanel.text.trim() : !actionPanel.direction.trim()) }}
+        title={actionPanel?.mode === 'text' ? '编辑文字' : '输入微调方向（选填）'}
+        onClose={() => setActionPanel(null)}
+        widthClassName="max-w-[420px]"
+        footer={
+          actionPanel?.mode === 'text' ? (
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setActionPanel(null)}
+                className="h-11 cursor-pointer rounded-[8px] border-0 bg-[#F2F3F5] text-[14px] font-semibold text-[#171A1D] transition-colors hover:bg-[#E5E6EB]"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={() => void runTextEditor()}
+                disabled={actionPanel.loading || !actionPanel.text.trim()}
+                className="flex h-11 items-center justify-center gap-2 rounded-[8px] border-0 bg-[#8AB6F6] text-[14px] font-semibold text-white transition-colors hover:bg-[#6EA4F4] disabled:cursor-not-allowed disabled:bg-[#C9CDD4]"
+              >
+                {actionPanel.loading && <Loader2 className="h-4 w-4 animate-spin" />}
+                确认改字 · 15
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => void runRetouchEditor()}
+              disabled={Boolean(actionPanel?.loading)}
+              className="flex h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-[8px] border-0 bg-[#171A1D] text-[14px] font-semibold text-white transition-colors hover:bg-[#2A2F36] disabled:cursor-not-allowed disabled:bg-[#86909C]"
+            >
+              {actionPanel?.loading && <Loader2 className="h-5 w-5 animate-spin" />}
+              {actionPanel?.loading ? '正在重新生成...' : '重新生成 · 15'}
+            </button>
+          )
+        }
       >
         {actionPanel?.mode === 'text' ? (
           actionPanel.loading ? (
-            <div className="flex flex-col items-center justify-center gap-2 py-6">
-              <Loader2 className="h-5 w-5 animate-spin text-[#1683FF]" />
-              <p className="m-0 text-[12px] text-[#86909C]">AI 正在识别图片文字...</p>
+            <div className="flex h-[190px] flex-col items-center justify-center gap-3 rounded-[8px] border border-[#E5E8EF] bg-white">
+              <Loader2 className="h-6 w-6 animate-spin text-[#98A1AF]" />
+              <p className="m-0 text-[14px] font-medium text-[#86909C]">正在识别图片文字...</p>
             </div>
           ) : (
-            <div className="space-y-2">
-              <p className="m-0 text-[12px] text-[#86909C]">AI 已识别当前图片文字，可直接修改后重新生成。</p>
-              <Input.TextArea
-                value={actionPanel.text}
-                onChange={(value) => setActionPanel((prev) => (prev ? { ...prev, text: value } : prev))}
-                rows={5}
-                placeholder="输入替换后的图片文字"
-              />
+            <div className="max-h-[300px] space-y-2 overflow-y-auto pr-1">
+              {(editableTextLines.length ? editableTextLines : ['']).map((line, index) => (
+                <div key={index} className="flex items-center gap-2 rounded-[8px] border border-[#E5E8EF] bg-[#F7F8FA] px-3">
+                  <input
+                    value={line}
+                    onChange={(event) => updateTextLine(index, event.target.value)}
+                    placeholder="输入图片文字"
+                    className="h-11 min-w-0 flex-1 border-0 bg-transparent text-[13px] text-[#171A1D] outline-none placeholder:text-[#AAB2BF]"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => removeTextLine(index)}
+                    className="grid h-8 w-8 shrink-0 cursor-pointer place-items-center rounded-[6px] border-0 bg-transparent text-[#98A1AF] transition-colors hover:bg-white hover:text-[#4E5969]"
+                    title="删除文字"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              ))}
             </div>
           )
-        ) : actionPanel?.mode === 'retouch' ? (
-          <div className="space-y-2">
-            <p className="m-0 text-[12px] text-[#86909C]">描述需要调整的画面、背景、文字或风格。</p>
-            <Input.TextArea
-              value={actionPanel.direction}
-              onChange={(value) => setActionPanel((prev) => (prev ? { ...prev, direction: value } : prev))}
-              rows={5}
-              placeholder="例如：把背景换成浅灰工作室，保留商品和文字"
+        ) : (
+          <div>
+            <textarea
+              value={actionPanel?.direction ?? ''}
+              onChange={(event) => setActionPanel((prev) => (prev ? { ...prev, direction: event.target.value } : prev))}
+              placeholder={'输入调整要求（选填，空着将默认重绘）。\n如：商品向左移动一点，换成浅灰色背景...'}
+              className="h-[175px] w-full resize-none rounded-[8px] border border-[#E5E8EF] bg-white p-3 text-[14px] leading-[22px] text-[#171A1D] outline-none placeholder:text-[#AAB2BF] focus:border-[#86909C]"
             />
+            <p className="mb-0 mt-3 text-[12px] text-[#86909C]">重新生成将消耗 15 点。</p>
           </div>
-        ) : null}
-      </Modal>
+        )}
+      </ResultActionDialog>
 
-      {/* 智能改尺寸选项面板（M14/M15：选尺寸 → AI生成中 → 完成） */}
-      <Modal
-        title="智能改尺寸"
+      <ImageResizeDialog
         visible={Boolean(resizeTargets)}
-        onCancel={() => setResizeTargets(null)}
-        onOk={() => void (resizeTargets && resizeTargets.length > 1 ? runBatchResize() : resizeTargets?.length === 1 ? runSmartResize(slots.find((s) => s.id === resizeTargets[0])!, resizeRatio) : undefined)}
-        okButtonProps={{ disabled: !resizeTargets?.length }}
-        okText={resizeTargets && resizeTargets.length > 1 ? '开始批量改尺寸' : '开始改尺寸'}
-      >
-        <div className="space-y-2">
-          <p className="m-0 text-[12px] text-[#86909C]">
-            选择目标尺寸，将已生成图片作为原图进行扩图或缩图，不改变原有样式和布局。
-            {resizeTargets && resizeTargets.length > 1 && `（已选 ${resizeTargets.length} 张）`}
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {RESIZE_OPTIONS.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                onClick={() => setResizeRatio(option.value)}
-                className={`h-8 cursor-pointer rounded-lg border px-3 text-[12px] font-medium transition-colors ${
-                  resizeRatio === option.value
-                    ? 'border-[#1683FF] bg-[#f0f7ff] text-[#1683FF]'
-                    : 'border-[#e5e8ef] bg-white text-[#4e5969] hover:bg-[#f8fafc]'
-                }`}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      </Modal>
+        batch={Boolean(resizeTargets && resizeTargets.length > 1)}
+        ratio={resizeRatio}
+        onRatioChange={setResizeRatio}
+        onClose={() => setResizeTargets(null)}
+        onConfirm={confirmResize}
+      />
     </div>
   )
 }

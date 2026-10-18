@@ -7,7 +7,10 @@ import { readLocalAiConfig } from './ai-config'
 import { generateImageCapability } from './image-capability'
 
 const dirs: string[] = []
-afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }) })
+afterEach(() => {
+  delete process.env.ECOMMERCE_DATA_ROOT
+  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true })
+})
 
 describe('local image capability', () => {
   it('missing local key fails honestly', () => {
@@ -29,5 +32,21 @@ describe('local image capability', () => {
     const result = await generateImageCapability({ userId: 'user-1', tenantId: 'tenant-1', prompt: '测试主图' }, { generate: async () => [`data:image/png;base64,${png.toString('base64')}`] }, join(root, 'ecommerce'))
     expect(result.count).toBe(1)
     expect(result.assetIds).toHaveLength(1)
+  })
+
+  it('stops instead of silently ignoring a product reference on unsupported providers', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ai-reference-'))
+    dirs.push(root)
+    process.env.ECOMMERCE_DATA_ROOT = root
+    const configDir = join(root, '.ecommerce', 'users', 'user-1', 'config')
+    mkdirSync(configDir, { recursive: true })
+    writeFileSync(join(configDir, 'ai-self.json'), JSON.stringify({ selfEnabled: true, providerType: 'openai-compatible', apiKey: 'real-key', baseUrl: 'https://example.invalid', model: 'test-image' }))
+
+    await expect(generateImageCapability({
+      userId: 'user-1',
+      tenantId: 'tenant-1',
+      prompt: '测试主图',
+      image: 'data:image/png;base64,AA==',
+    })).rejects.toThrow('不支持参考商品图')
   })
 })

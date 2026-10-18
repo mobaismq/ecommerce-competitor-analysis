@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { resolveEffectiveConfig, CapabilityNotConfiguredError } from './ai-config'
-import { getWorkerPrisma, putBytes } from './worker-db'
+import { getWorkerPrisma, putBytes, removeBytes, storageKeyToLocalPath, workerDataRoots } from './worker-db'
 
 export interface ImageProvider {
   generate(input: { prompt: string; count: number; size?: string; aspectRatio?: string; referenceImageUrls: string[] }): Promise<string[]>
@@ -60,6 +60,7 @@ export interface GenerateImageInput {
   productName?: string
   productId?: string
   createdBy?: string
+  replaceExisting?: boolean
   // 前端成套生成时会传入同一 jobId 以便按批次回查（asset.list）；缺省时 worker 自行生成。
   jobId?: string
 }
@@ -88,7 +89,10 @@ export function createRealImageProvider(userId: string): ImageProvider {
     async generate(input) {
       // 真实生图请求过并发闸（默认 5），排队等待而非无界并发，避免触发供应商限流
       return imageGenerateSemaphore.run(async () => {
-        // 统一走 images/generations；OpenRouter 类支持参考图（input_references），OpenAI 兼容类走 size
+        // 当前仅 OpenRouter 的 images/generations 适配了 input_references；其他协议不得静默丢弃商品原图。
+        if (input.referenceImageUrls.length && config.kind !== 'openrouter') {
+          throw new Error('当前生图供应商不支持参考商品图，已停止生成以避免生成错误商品。请在设置中选择支持参考图的 OpenRouter 图像模型后重试。')
+        }
         const endpoint = `${config.baseUrl.replace(/\/+$/, '')}/images/generations`
         const body: Record<string, unknown> = { model: config.imageModel, prompt: input.prompt, n: input.count }
         if (config.kind === 'openrouter') {
@@ -130,9 +134,30 @@ export async function generateImageCapability(input: GenerateImageInput, provide
     const ext = contentType === 'image/jpeg' ? 'jpg' : contentType === 'image/webp' ? 'webp' : 'png'
     const storageKey = `users/${input.userId}/product-sets/${jobId}/image-${index}-${randomUUID().slice(0, 8)}.${ext}`
     if (userRoot) putBytes(storageKey, buffer, { userRoot })
-    const asset = await db.generatedAsset.create({
-      data: { tenantId: input.tenantId, jobId, storageKey, mimeType: contentType, size: buffer.length, sourceUrl: image.startsWith('data:') ? null : image, originalName: input.name, category: input.slotType, prompt: input.prompt, ratio: input.ratio, productName: input.productName, productId: input.productId, createdBy: input.createdBy },
-    })
+    const data = { tenantId: input.tenantId, jobId, storageKey, mimeType: contentType, size: buffer.length, sourceUrl: image.startsWith('data:') ? null : image, originalName: input.name, category: input.slotType, prompt: input.prompt, ratio: input.ratio, productName: input.productName, productId: input.productId, createdBy: input.createdBy }
+    const previous = input.replaceExisting && index === 0 && input.jobId && input.name
+      ? await db.generatedAsset.findMany({
+        where: { jobId, originalName: input.name, category: input.slotType },
+        orderBy: [{ createdAt: 'desc' }, { storageKey: 'asc' }],
+      })
+      : []
+    const asset = previous.length
+      ? await db.generatedAsset.update({ where: { id: previous[0].id }, data })
+      : await db.generatedAsset.create({ data })
+    if (previous.length) {
+      try {
+        const stale = previous.slice(1)
+        if (stale.length) await db.generatedAsset.deleteMany({ where: { id: { in: stale.map((item) => item.id) } } })
+        if (userRoot) {
+          const roots = workerDataRoots()
+          for (const old of previous) {
+            removeBytes(storageKeyToLocalPath(old.storageKey, { ...roots, userRoot }))
+          }
+        }
+      } catch {
+        // 新图已经替换成功；旧文件清理失败不应把本次生成标为失败。
+      }
+    }
     assetIds.push(asset.id)
     const dataUrl = `data:${contentType};base64,${buffer.toString('base64')}`
     resultImages.push({ id: asset.id, url: dataUrl, dataUrl, mimeType: contentType })

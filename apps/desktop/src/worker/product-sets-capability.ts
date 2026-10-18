@@ -17,21 +17,81 @@ export interface ProductSetsInput {
   baseText?: string
   reportText?: string
   information?: string
+  /** 商品原图，供视觉识别和后续生图共同使用。 */
+  image?: string
+  /** 商品原图集合，第一张通常为主图。 */
+  images?: string[]
   promptSlots?: unknown[]
   selectedSlots?: unknown[]
+}
+
+function referenceImages(input: Pick<ProductSetsInput, 'image' | 'images'>): string[] {
+  const raw = Array.isArray(input.images) && input.images.length ? input.images : input.image ? [input.image] : []
+  return [...new Set(raw.map((image) => String(image || '').trim()).filter(Boolean))].slice(0, 4)
+}
+
+function normalizeVisualFactList(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((item) => String(item ?? '').replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .slice(0, 12)
+}
+
+/** 将视觉模型输出压缩为后续文本模型可稳定遵守的商品锁定事实。 */
+function normalizeProductVisualFacts(value: Record<string, unknown> | null, fallbackText: string): string {
+  const product = String(value?.product ?? value?.productName ?? '').replace(/\s+/g, ' ').trim()
+  const lockedFeatures = normalizeVisualFactList(value?.lockedFeatures ?? value?.features)
+  const uncertainFeatures = normalizeVisualFactList(value?.uncertainFeatures)
+  const facts = [
+    product ? `商品主体：${product}` : '',
+    lockedFeatures.length ? `必须保持：${lockedFeatures.join('；')}` : '',
+    uncertainFeatures.length ? `不可臆测：${uncertainFeatures.join('；')}` : '',
+  ].filter(Boolean)
+  if (facts.length) return facts.join('\n')
+  return String(fallbackText || '').replace(/\s+/g, ' ').trim().slice(0, 1200)
+}
+
+/**
+ * 先从商品原图提取颜色、品类、结构、袖型、材质纹理等可见事实。
+ * 这些事实会作为后续帮写和生图提示词规划的最高优先级约束。
+ */
+async function analyzeProductVisualFacts(input: ProductSetsInput, provider: ReturnType<typeof createRealAiProvider>): Promise<string> {
+  const images = referenceImages(input)
+  if (!images.length) return ''
+  const result = await provider.analyzeImage({
+    images,
+    system: '你是严谨的电商商品视觉识别助手。只根据图片可见内容回答，不推测不可见信息。',
+    maxTokens: 1200,
+    prompt: `识别用户上传的商品原图，并只输出 JSON：
+{
+  "product": "商品的完整可见定义",
+  "lockedFeatures": ["颜色", "品类和袖型/领型", "轮廓版型", "材质或纹理", "可见关键细节"],
+  "uncertainFeatures": ["无法从原图确认、后续不得编造的信息"]
+}
+
+要求：
+1. 只描述商品本体，不把模特、背景、姿势或搭配物当作商品特征。
+2. 颜色、品类、袖型、领型、轮廓、纹理、图案和关键结构必须准确；看不清则放入 uncertainFeatures。
+3. 不得把原图商品替换为更常见的品类，也不得输出品牌、价格、材质成分等原图不可见的信息。`,
+  })
+  return normalizeProductVisualFacts(parseJsonFromText(result.text), result.text)
 }
 
 /** 主图提示词生成（text）。对齐后端 product-sets.generatePrompts。 */
 export async function generatePrompts(input: ProductSetsInput) {
   const selected = normalizeSelectedSlots(input.selectedSlots ?? [])
   const slots = selected.length ? selected : normalizeRequestedPromptSlots(input.promptSlots ?? [])
+  const provider = createRealAiProvider(input.userId)
+  const visualFacts = await analyzeProductVisualFacts(input, provider)
   const prompt = buildImagePromptGenerationPrompt({
     settings: input.settings,
     information: input.information,
     designPlan: input.reportText,
+    visualFacts,
     promptSlots: slots,
   })
-  const ai = await createRealAiProvider(input.userId).generateText({ prompt, system: '只输出 JSON，不要输出多余文字。', maxTokens: 4000 })
+  const ai = await provider.generateText({ prompt, system: '只输出 JSON，不要输出多余文字。', maxTokens: 4000 })
   const parsed = ai.text ? parseJsonFromText(ai.text) : null
   const prompts = normalizeGeneratedImagePrompts(parsed ?? {}, slots)
   return { ok: true, prompts, model: ai.model }
@@ -39,12 +99,15 @@ export async function generatePrompts(input: ProductSetsInput) {
 
 /** AI 帮写（走查 M6/D1）：输出商品信息 5 段结构。对齐后端 expandPrompts；经 IPC 事件流逐块下发。 */
 export async function expandPrompts(input: ProductSetsInput, emit: (event: StreamEvent) => void) {
+  const images = referenceImages(input)
+  if (!images.length) throw new Error('请先上传商品原图，再使用 AI 帮写')
+  const provider = createRealAiProvider(input.userId)
   const prompt = buildAiHelpWritePrompt({
     settings: input.settings,
     information: input.information,
   })
-  const provider = createRealAiProvider(input.userId)
-  const ai = await provider.streamText({ prompt, system: '你是电商资深运营，只输出商品信息 5 段结构，不要输出任何解释。', maxTokens: 2000 }, emit)
+  // 帮写必须在同一个视觉流式请求中同时携带商品图和用户文字，不能先识图再让纯文本模型续写。
+  const ai = await provider.streamVisionText({ images, prompt, system: '你是电商资深运营，只输出商品信息 5 段结构，不要输出任何解释。', maxTokens: 2000 }, emit)
   emit({ type: 'done', text: ai.text, data: { content: ai.text, model: ai.model } })
   return { text: ai.text, model: ai.model }
 }
@@ -123,6 +186,26 @@ function normalizeDetailPromptSlots(promptSlots: unknown[]): DetailPromptSlot[] 
   )
 }
 
+/** 详情图工作流第3步：生成独立的详情页设计规划。 */
+function buildDetailDesignPlanPrompt(options: { settings?: PromptSettings; information?: string; promptSlots: DetailPromptSlot[] }): string {
+  const slotList = options.promptSlots.map((slot, index) => `${index + 1}. ${slot.type}`).join('\n')
+  return `你正在执行商品详情图生成工作流第3步：详情页设计规划。
+
+【商品信息】
+${String(options.information ?? '').trim()}
+
+【页面设置】
+目标平台：${options.settings?.platform || '电商平台'}
+销售地区：${options.settings?.country || '中国'}
+画面语种：${options.settings?.language || '中文'}
+输出比例：${options.settings?.ratio || '1:1'}
+
+【本次勾选模块】
+${slotList}
+
+请先给出详情页总规划（平台、语种、品类、全局视觉系统及叙事顺序），再按以上顺序逐一规划模块。每个模块包含主标题、副标题、画面策略、人物/道具建议、图位文案和协同要求。只规划已勾选模块，不得删除、合并、改名或调整顺序。不得编造商品参数、认证、促销信息。直接输出设计规划正文，不要 JSON 或 Markdown 代码块。`
+}
+
 /** 详情图工作流第4步：生成各模块完整生图提示词（对齐后端 buildDetailImagePromptGenerationPrompt）。 */
 function buildDetailImagePromptGenerationPrompt(options: { settings?: PromptSettings; information?: string; designPlan?: string; promptSlots: DetailPromptSlot[] }): string {
   const schema = options.promptSlots.map((slot) => ({
@@ -173,19 +256,48 @@ ${typeRules}
 }`
 }
 
-/** 详情图（APlus）工作流：按模块顺序生成提示词。对齐后端 generateDetailWorkflow。 */
-export async function generateDetailWorkflow(input: { userId: string; settings?: PromptSettings; baseText?: string; reportText?: string; promptSlots?: unknown[] }) {
+/** 详情图（APlus）工作流：先生成只读规划，再基于规划生成各模块提示词。 */
+export async function generateDetailWorkflow(input: ProductSetsInput) {
   const slots = normalizeDetailPromptSlots(input.promptSlots ?? [])
+  if (!slots.length) throw new Error('请至少选择一个详情图模块。')
+  const provider = createRealAiProvider(input.userId)
+  const visualFacts = await analyzeProductVisualFacts(input, provider)
+  const information = [
+    visualFacts ? `【商品原图视觉事实】\n${visualFacts}` : '',
+    input.baseText ? `【用户填写的商品信息】\n${input.baseText}` : '',
+    input.reportText ? `【页面与报告设置】\n${input.reportText}` : '',
+  ].filter(Boolean).join('\n\n')
+  const planningPrompt = buildDetailDesignPlanPrompt({ settings: input.settings, information, promptSlots: slots })
+  let designPlan = ''
+  let lastFinishReason = ''
+  for (let attempt = 0; attempt < 2 && !designPlan; attempt += 1) {
+    const plan = await provider.generateText({
+      prompt: attempt === 0
+        ? planningPrompt
+        : `${planningPrompt}\n\n上次请求未返回规划正文。请直接输出精简但完整的规划；每个模块先用一至两句覆盖所需字段。`,
+      system: '你是资深电商详情页策划师，只输出规划正文。',
+      // 部分兼容模型会先消耗输出额度进行推理，额度过小时正文可能为空。
+      maxTokens: attempt === 0 ? 6000 : 8000,
+    })
+    designPlan = String(plan.text ?? '').trim()
+    lastFinishReason = plan.finishReason ?? ''
+  }
+  if (!designPlan) {
+    throw new Error(lastFinishReason === 'length' || lastFinishReason === 'max_tokens'
+      ? '详情页规划未生成正文：模型输出长度已耗尽，请稍后重试或调整文本模型。'
+      : '详情页规划连续两次未返回正文，请稍后重试或调整文本模型。')
+  }
   const prompt = buildDetailImagePromptGenerationPrompt({
     settings: input.settings,
-    information: input.baseText,
-    designPlan: input.reportText,
+    information,
+    designPlan,
     promptSlots: slots,
   })
-  const ai = await createRealAiProvider(input.userId).generateText({ prompt, system: '只输出 JSON，不要输出多余文字。', maxTokens: 4000 })
+  const ai = await provider.generateText({ prompt, system: '只输出 JSON，不要输出多余文字。', maxTokens: Math.min(12000, Math.max(4000, slots.length * 1100)) })
   const parsed = ai.text ? parseJsonFromText(ai.text) : null
   const detailWorkflowPrompt = normalizeGeneratedImagePrompts(parsed ?? {}, slots)
-  return { ok: true, data: detailWorkflowPrompt, detailStrategyPlan: parsed, model: ai.model }
+  if (detailWorkflowPrompt.length < slots.length) throw new Error('详情图提示词返回不完整，请重试。')
+  return { ok: true, data: detailWorkflowPrompt, designPlan, model: ai.model }
 }
 
 const IMAGE_TEXT_UI_BLACKLIST = [

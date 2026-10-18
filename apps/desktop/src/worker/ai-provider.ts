@@ -18,9 +18,10 @@ export interface StreamEvent {
 
 export interface RealAiProvider {
   type: string
-  generateText(request: TextRequest): Promise<{ text: string; model: string }>
+  generateText(request: TextRequest): Promise<{ text: string; model: string; finishReason?: string }>
   analyzeImage(request: VisionRequest): Promise<{ text: string; model: string }>
   streamText(request: TextRequest, emit: (event: StreamEvent) => void): Promise<{ text: string; model: string }>
+  streamVisionText(request: VisionRequest, emit: (event: StreamEvent) => void): Promise<{ text: string; model: string }>
 }
 
 export function createRealAiProvider(userId: string): RealAiProvider {
@@ -48,6 +49,43 @@ export function createRealAiProvider(userId: string): RealAiProvider {
         return ''
       }
     }
+    const stream = async (request: TextRequest, content: unknown, model: string, emit: (event: StreamEvent) => void) => {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          model,
+          max_tokens: request.maxTokens ?? 1024,
+          stream: true,
+          ...(request.system ? { system: request.system } : {}),
+          messages: [{ role: 'user', content }],
+        }),
+        signal: AbortSignal.timeout(timeout + 30_000),
+      })
+      if (!response.ok || !response.body) throw new Error(`AI 流式请求失败: HTTP ${response.status}`)
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let full = ''
+      for (;;) {
+        const { value, done } = await reader.read()
+        buffer += decoder.decode(value || new Uint8Array(), { stream: !done })
+        const lines = buffer.split(/\r?\n/)
+        buffer = lines.pop() || ''
+        for (const line of lines) {
+          if (!line.trim().startsWith('data:')) continue
+          const delta = readSseText(line)
+          if (delta) {
+            full += delta
+            emit({ type: 'content', text: delta })
+          }
+        }
+        if (done) break
+      }
+      if (!full.trim()) throw new Error('AI 流式未返回可用内容')
+      return { text: full, model }
+    }
+    const visionModel = config.visionModel || config.textModel
     return {
       type: 'anthropic',
       generateText: async (request) => {
@@ -64,7 +102,11 @@ export function createRealAiProvider(userId: string): RealAiProvider {
         })
         const payload = await response.json().catch(() => ({}))
         if (!response.ok) throw new Error(`AI 请求失败: HTTP ${response.status}`)
-        return { text: textOf(payload), model: config.textModel }
+        return {
+          text: textOf(payload),
+          model: config.textModel,
+          finishReason: String((payload as { stop_reason?: string })?.stop_reason ?? ''),
+        }
       },
       analyzeImage: async (request) => {
         const content: unknown[] = [{ type: 'text', text: request.prompt }]
@@ -84,42 +126,13 @@ export function createRealAiProvider(userId: string): RealAiProvider {
         if (!response.ok) throw new Error(`AI 请求失败: HTTP ${response.status}`)
         return { text: textOf(payload), model: config.textModel }
       },
-      streamText: async (request, emit) => {
-        const response = await fetch(endpoint, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({
-            model: config.textModel,
-            max_tokens: request.maxTokens ?? 1024,
-            stream: true,
-            ...(request.system ? { system: request.system } : {}),
-            messages: [{ role: 'user', content: request.prompt }],
-          }),
-          signal: AbortSignal.timeout(timeout + 30_000),
-        })
-        if (!response.ok || !response.body) throw new Error(`AI 流式请求失败: HTTP ${response.status}`)
-        const reader = response.body.getReader()
-        const decoder = new TextDecoder()
-        let buffer = ''
-        let full = ''
-        for (;;) {
-          const { value, done } = await reader.read()
-          buffer += decoder.decode(value || new Uint8Array(), { stream: !done })
-          const lines = buffer.split(/\r?\n/)
-          buffer = lines.pop() || ''
-          for (const line of lines) {
-            if (!line.trim().startsWith('data:')) continue
-            const delta = readSseText(line)
-            if (delta) {
-              full += delta
-              emit({ type: 'content', text: full })
-            }
-          }
-          if (done) break
-        }
-        if (!full.trim()) throw new Error('AI 流式未返回可用内容')
-        return { text: full, model: config.textModel }
-      },
+      streamText: (request, emit) => stream(request, request.prompt, config.textModel, emit),
+      streamVisionText: (request, emit) => stream(
+        request,
+        [{ type: 'text', text: request.prompt }, ...request.images.map((url) => ({ type: 'image', source: { type: 'url', url } }))],
+        visionModel,
+        emit,
+      ),
     }
   }
 
@@ -136,6 +149,48 @@ export function createRealAiProvider(userId: string): RealAiProvider {
 
   const model = config.textModel
   const visionModel = config.visionModel || config.textModel
+  const stream = async (request: TextRequest, completionMessages: unknown[], streamModel: string, emit: (event: StreamEvent) => void) => {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ model: streamModel, messages: completionMessages, stream: true, ...(request.maxTokens ? { max_tokens: request.maxTokens } : {}) }),
+      signal: AbortSignal.timeout(timeout + 30_000),
+    })
+    if (!response.ok || !response.body) {
+      const payload = await response.json().catch(() => ({})) as { error?: { message?: string } }
+      const errMessage = payload?.error?.message
+      throw new Error(errMessage ? `AI 流式请求失败: ${errMessage}` : `AI 流式请求失败: HTTP ${response.status}`)
+    }
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    let full = ''
+    for (;;) {
+      const { value, done } = await reader.read()
+      buffer += decoder.decode(value || new Uint8Array(), { stream: !done })
+      const lines = buffer.split(/\r?\n/)
+      buffer = lines.pop() || ''
+      for (const line of lines) {
+        const trimmed = line.trim()
+        if (!trimmed || !trimmed.startsWith('data:')) continue
+        const data = trimmed.slice(5).trim()
+        if (data === '[DONE]') continue
+        try {
+          const parsed = JSON.parse(data) as { choices?: Array<{ delta?: { content?: string } }> }
+          const delta = parsed.choices?.[0]?.delta?.content
+          if (delta) {
+            full += delta
+            emit({ type: 'content', text: delta })
+          }
+        } catch {
+          /* 忽略无法解析的 SSE 行 */
+        }
+      }
+      if (done) break
+    }
+    if (!full.trim()) throw new Error('AI 流式未返回可用内容')
+    return { text: full, model: streamModel }
+  }
   return {
     type: config.kind,
     generateText: async (request) => {
@@ -154,8 +209,9 @@ export function createRealAiProvider(userId: string): RealAiProvider {
         const errMessage = (payload as { error?: { message?: string } })?.error?.message
         throw new Error(errMessage ? `AI 请求失败: ${errMessage}` : `AI 请求失败: HTTP ${response.status}`)
       }
-      const text = (payload as { choices?: Array<{ message?: { content?: string } }> }).choices?.[0]?.message?.content
-      return { text: typeof text === 'string' ? text : JSON.stringify(payload), model }
+      const choice = (payload as { choices?: Array<{ finish_reason?: string; message?: { content?: string } }> }).choices?.[0]
+      const text = choice?.message?.content
+      return { text: typeof text === 'string' ? text : JSON.stringify(payload), model, finishReason: choice?.finish_reason }
     },
     analyzeImage: async (request) => {
       const response = await fetch(endpoint, {
@@ -179,48 +235,16 @@ export function createRealAiProvider(userId: string): RealAiProvider {
       const text = (payload as { choices?: Array<{ message?: { content?: string } }> }).choices?.[0]?.message?.content
       return { text: typeof text === 'string' ? text : JSON.stringify(payload), model: visionModel }
     },
-    streamText: async (request, emit) => {
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ model, messages: messages(request), stream: true, ...(request.maxTokens ? { max_tokens: request.maxTokens } : {}) }),
-        signal: AbortSignal.timeout(timeout + 30_000),
-      })
-      if (!response.ok || !response.body) {
-        const payload = await response.json().catch(() => ({})) as { error?: { message?: string } }
-        const errMessage = payload?.error?.message
-        throw new Error(errMessage ? `AI 流式请求失败: ${errMessage}` : `AI 流式请求失败: HTTP ${response.status}`)
-      }
-      const reader = response.body.getReader()
-      const decoder = new TextDecoder()
-      let buffer = ''
-      let full = ''
-      for (;;) {
-        const { value, done } = await reader.read()
-        buffer += decoder.decode(value || new Uint8Array(), { stream: !done })
-        const lines = buffer.split(/\r?\n/)
-        buffer = lines.pop() || ''
-        for (const line of lines) {
-          const trimmed = line.trim()
-          if (!trimmed || !trimmed.startsWith('data:')) continue
-          const data = trimmed.slice(5).trim()
-          if (data === '[DONE]') continue
-          try {
-            const parsed = JSON.parse(data) as { choices?: Array<{ delta?: { content?: string } }> }
-            const delta = parsed.choices?.[0]?.delta?.content
-            if (delta) {
-              full += delta
-              emit({ type: 'content', text: full })
-            }
-          } catch {
-            /* 忽略无法解析的 SSE 行 */
-          }
-        }
-        if (done) break
-      }
-      if (!full.trim()) throw new Error('AI 流式未返回可用内容')
-      return { text: full, model }
-    },
+    streamText: (request, emit) => stream(request, messages(request), model, emit),
+    streamVisionText: (request, emit) => stream(
+      request,
+      [
+        ...(request.system ? [{ role: 'system', content: request.system }] : []),
+        { role: 'user', content: [{ type: 'text', text: request.prompt }, ...request.images.map((url) => ({ type: 'image_url', image_url: { url } }))] },
+      ],
+      visionModel,
+      emit,
+    ),
   }
 }
 
