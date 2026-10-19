@@ -1,0 +1,49 @@
+name: Deploy Backend to Tencent Cloud
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    steps:
+      - name: Remote SSH Deployment
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: ${{ secrets.SERVER_PORT || 22 }}
+          script_stop: true
+          script: |
+            echo "🚀 [1/6] 准备进入部署目录..."
+            cd /var/www/ecommerce-app
+
+            echo "📦 [2/6] 拉取 main 分支最新代码..."
+            git pull origin main
+
+            echo "📥 [3/6] 安装与同步依赖..."
+            pnpm install
+
+            echo "🔨 [4/6] 编译 NestJS 后端..."
+            pnpm --filter backend build
+
+            echo "🗄️ [5/6] 执行数据库迁移..."
+            pnpm --filter backend exec prisma migrate deploy
+
+            echo "🔄 [6/6] PM2 服务无缝平滑重载..."
+            pm2 reload backend || pm2 start apps/backend/dist/src/main.js --name backend
+            pm2 save
+
+            echo "🩺 [验证] 后端接口健康检查..."
+            sleep 2
+            curl -f -s -o /dev/null http://127.0.0.1:8787/api/health/ready || {
+              echo "❌ 健康检查失败，请登录服务器检查 pm2 logs backend"
+              exit 1
+            }
+
+            echo "🎉 部署完成，生产环境运行正常！"
