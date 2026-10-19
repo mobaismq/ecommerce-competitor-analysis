@@ -81,6 +81,7 @@ export function ReportProductsPage() {
   const currentUserId = useAuth((state) => state.user?.id ?? '')
   // id 兼容：主路由 products?id=（旧版查询串契约）与别名 analysis/reports/:id/products
   const id = searchParams.get('id') || params.id
+  const isRawCollection = Boolean(id?.startsWith('raw-'))
   const keywordParam = searchParams.get('keyword') || ''
 
   const [collection, setCollection] = useState<CollectionInfo | null>(null)
@@ -106,7 +107,9 @@ export function ReportProductsPage() {
     setLoading(true)
     setLoadError('')
     try {
-      const data = await window.desktop?.capabilities.invoke('report.products', { tenantId: 'local', runId: id, page: 1, pageSize: 100 }) as Record<string, any> | undefined
+      if (!window.desktop?.capabilities) throw new Error('桌面数据服务未就绪')
+      const data = await window.desktop.capabilities.invoke('report.products', { tenantId: 'local', runId: id, page: 1, pageSize: 100 }) as Record<string, any> | undefined
+      if (!data) throw new Error('数据服务未返回商品数据')
       if (data) {
         setCollection(data.collection || null)
         setSource(data.source || '')
@@ -130,8 +133,8 @@ export function ReportProductsPage() {
         }))
         setProducts(rawProducts)
       }
-    } catch {
-      setLoadError('加载报告商品数据遇到异常')
+    } catch (error) {
+      setLoadError(`加载商品数据失败：${error instanceof Error ? error.message : String(error)}`)
     } finally {
       setLoading(false)
     }
@@ -361,7 +364,8 @@ export function ReportProductsPage() {
             <button
               type="button"
               onClick={handleBatchAnalyze}
-              disabled={batchRunning || Boolean(analyzingProductId)}
+              disabled={isRawCollection || batchRunning || Boolean(analyzingProductId)}
+              title={isRawCollection ? '请先生成整体报告后再进行主图分析' : undefined}
               className="inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-lg border-0 bg-[#3388ff] px-4 text-[13px] font-bold text-white shadow-[0_4px_12px_rgba(51,136,255,.2)] hover:bg-[#1a6fe8] disabled:cursor-not-allowed disabled:bg-[#b8d7ff]"
             >
               {batchRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <BrainCircuit className="h-4 w-4" />}
@@ -471,7 +475,8 @@ export function ReportProductsPage() {
                     <button
                       type="button"
                       onClick={() => (product.mainImageAnalysisId ? handleOpenReportModal(product) : handleAnalyzeSingle(product))}
-                      disabled={Boolean(analyzingProductId) || (!product.imageUrl && !product.mainImageAnalysisId)}
+                      disabled={isRawCollection || Boolean(analyzingProductId) || (!product.imageUrl && !product.mainImageAnalysisId)}
+                      title={isRawCollection ? '请先生成整体报告后再进行主图分析' : undefined}
                       className={`inline-flex h-8 w-full cursor-pointer items-center justify-center gap-1 rounded-lg border-0 px-2 text-[12px] font-semibold transition-colors ${
                         product.mainImageAnalysisId
                           ? 'bg-[#e8f5e9] text-[#2e7d32] hover:bg-[#ddf1df]'

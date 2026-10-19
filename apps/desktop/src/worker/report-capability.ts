@@ -17,6 +17,7 @@ export interface GenerateReportInput {
   tenantId: string
   keyword: string
   limit?: number
+  collectionJobId?: string
 }
 
 interface RichSku {
@@ -257,10 +258,17 @@ export async function generateReport(input: GenerateReportInput, provider?: Repo
   if (!keyword) throw new Error('keyword 不能为空')
   const db = getWorkerPrisma()
   const collection = await db.collectionJob.findFirst({
-    where: { tenantId: input.tenantId, ...(keyword ? { keyword: { contains: keyword } } : {}) },
+    where: { tenantId: input.tenantId, status: 'success', ...(input.collectionJobId ? { id: input.collectionJobId } : { keyword: { contains: keyword } }) },
     orderBy: { createdAt: 'desc' },
   })
   if (!collection) throw new Error('未找到本机采集数据，请先完成采集')
+
+  const existing = await db.analysisRun.findUnique({ where: { jobId: collection.jobId } })
+  if (existing && ['success', 'completed'].includes(existing.status)) {
+    return { ok: true, reused: true, jobId: existing.jobId, reportId: existing.id,
+      reportNo: existing.reportNo ?? undefined, reportHash: existing.reportHash ?? undefined,
+      competitorCount: existing.competitorCount ?? undefined, status: existing.status }
+  }
 
   const products = await loadProducts(collection.id)
   if (!products.length) throw new Error('本机采集数据为空，无法生成报告')
@@ -287,19 +295,6 @@ export async function generateReport(input: GenerateReportInput, provider?: Repo
   const reportHash = createHash('sha256').update(JSON.stringify(reportJson)).digest('hex')
   const reportNo = buildReportNo()
 
-  const existing = await db.analysisRun.findUnique({ where: { jobId: collection.jobId } })
-  if (existing?.status === 'success') {
-    return {
-      ok: true,
-      reused: true,
-      jobId: existing.jobId,
-      reportId: existing.id,
-      reportNo: existing.reportNo ?? undefined,
-      reportHash: existing.reportHash ?? undefined,
-      competitorCount: existing.competitorCount ?? undefined,
-      status: existing.status,
-    }
-  }
   const run = await db.analysisRun.create({
     data: {
       tenantId: input.tenantId,
@@ -367,15 +362,66 @@ export async function listReportJobs(input: { tenantId: string; status?: string;
   }
 }
 
-export async function listReports(input: { tenantId: string; keyword?: string; status?: string; page?: number; pageSize?: number }) {
+export interface ReportListInput {
+  tenantId: string
+  keyword?: string
+  status?: string
+  page?: number
+  pageSize?: number
+  includeCollections?: boolean
+  startTime?: string
+  endTime?: string
+}
+
+export async function listReports(input: ReportListInput) {
   const db = getWorkerPrisma()
+  const normalizedStatus = input.status?.trim()
+  const status = ['success', 'completed'].includes(normalizedStatus ?? '') ? { in: ['success', 'completed'] }
+    : ['failure', 'failed'].includes(normalizedStatus ?? '') ? { in: ['failure', 'failed'] } : normalizedStatus
+  const date = (value?: string) => {
+    if (!value) return undefined
+    const parsed = new Date(value)
+    if (!Number.isFinite(parsed.getTime())) throw new Error('更新时间格式无效')
+    return parsed
+  }
+  const start = date(input.startTime)
+  const end = date(input.endTime)
+  if (start && end && start > end) throw new Error('开始时间不能晚于结束时间')
+  const updatedAt = start || end ? { ...(start ? { gte: start } : {}), ...(end ? { lte: end } : {}) } : undefined
   const where = {
     tenantId: input.tenantId,
-    ...(input.status?.trim() ? { status: input.status.trim() } : {}),
+    ...(status ? { status } : {}),
     ...(input.keyword?.trim() ? { keyword: { contains: input.keyword.trim() } } : {}),
+    ...(updatedAt ? { updatedAt } : {}),
   }
   const pageSize = input.pageSize && input.pageSize > 0 ? Math.min(input.pageSize, 100) : 100
   const page = input.page && input.page > 0 ? input.page : 1
+  if (input.includeCollections) {
+    const [runs, collections, reportedJobs] = await Promise.all([
+      db.analysisRun.findMany({ where, orderBy: { updatedAt: 'desc' } }),
+      db.collectionJob.findMany({ where: { tenantId: input.tenantId, status: 'success',
+        ...(input.keyword?.trim() ? { keyword: { contains: input.keyword.trim() } } : {}),
+        ...(updatedAt ? { updatedAt } : {}) } }),
+      db.analysisRun.findMany({ where: { tenantId: input.tenantId }, select: { jobId: true } }),
+    ])
+    const reported = new Set(reportedJobs.map((run) => run.jobId))
+    const pending = collections.filter((collection) => !reported.has(collection.jobId))
+    const aggregates = pending.length ? await db.productSnapshot.groupBy({ by: ['collectionJobId'],
+      where: { tenantId: input.tenantId, collectionJobId: { in: pending.map((collection) => collection.id) } },
+      _count: { _all: true }, _min: { price: true }, _max: { price: true } }) : []
+    const byCollection = new Map(aggregates.map((row) => [row.collectionJobId, row]))
+    const rawRows = !normalizedStatus || normalizedStatus === 'not_generated' ? pending.flatMap((collection) => {
+      const stats = byCollection.get(collection.id)
+      if (!stats?._count._all) return []
+      return [{ id: `raw-${collection.jobId}`, jobId: collection.jobId, collectionJobId: collection.id,
+        keyword: collection.keyword, reportNo: null, status: 'not_generated', competitorCount: stats._count._all,
+        priceMin: stats._min.price, priceMax: stats._max.price, createdAt: collection.createdAt, updatedAt: collection.updatedAt,
+        reportJson: null, source: 'collection' as const }]
+    }) : []
+    const rows = [...runs.map((run) => ({ ...run, collectionJobId: null, source: 'report' as const })), ...rawRows]
+      .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime() || a.id.localeCompare(b.id))
+    return { rows: rows.slice((page - 1) * pageSize, page * pageSize), total: rows.length, page, pageSize }
+  }
   const [rows, total] = await Promise.all([
     db.analysisRun.findMany({ where, orderBy: { updatedAt: 'desc' }, skip: (page - 1) * pageSize, take: pageSize }),
     db.analysisRun.count({ where }),
@@ -469,8 +515,10 @@ export async function exportReport(input: { userId: string; tenantId: string; ru
 
 export async function reportProducts(input: { tenantId: string; runId: string; keyword?: string; productId?: string; shopName?: string; skuKeyword?: string; page?: number; pageSize?: number }) {
   const db = getWorkerPrisma()
-  const run = await resolveRun(input.runId, input.tenantId)
-  const collection = await db.collectionJob.findUnique({ where: { jobId: run.jobId } })
+  const rawJobId = input.runId.startsWith('raw-') ? input.runId.slice(4) : null
+  const run = rawJobId ? null : await resolveRun(input.runId, input.tenantId)
+  const collection = await db.collectionJob.findFirst({ where: { jobId: rawJobId ?? run!.jobId, tenantId: input.tenantId } })
+  if (rawJobId && !collection) throw new Error('采集数据不存在')
   if (!collection) return { ok: true, source: 'run', collection: null, products: [], total: 0 }
   const where = {
     collectionJobId: collection.id,
@@ -480,14 +528,15 @@ export async function reportProducts(input: { tenantId: string; runId: string; k
   }
   const page = input.page && input.page > 0 ? input.page : 1
   const pageSize = input.pageSize && input.pageSize > 0 ? Math.min(input.pageSize, 100) : 20
-  const [rows, total] = await Promise.all([
+  const [rows, total, prices] = await Promise.all([
     db.productSnapshot.findMany({ where, orderBy: { createdAt: 'desc' }, skip: (page - 1) * pageSize, take: pageSize }),
     db.productSnapshot.count({ where }),
+    db.productSnapshot.aggregate({ where: { collectionJobId: collection.id }, _min: { price: true }, _max: { price: true } }),
   ])
   const ids = rows.map((row) => row.id)
   const [skus, analyses] = await Promise.all([
     ids.length ? db.productSkuSnapshot.findMany({ where: { productSnapshotId: { in: ids } } }) : Promise.resolve([]),
-    db.mainImageAnalysis.findMany({ where: { analysisRunId: run.id, productId: { in: rows.map((row) => row.externalProductId) } } }),
+    run ? db.mainImageAnalysis.findMany({ where: { analysisRunId: run.id, productId: { in: rows.map((row) => row.externalProductId) } } }) : Promise.resolve([]),
   ])
   const analysisByProduct = new Map(analyses.filter((item) => item.productId).map((item) => [item.productId as string, item]))
   const products = rows.map((row) => {
@@ -508,7 +557,8 @@ export async function reportProducts(input: { tenantId: string; runId: string; k
       mainImageAnalyzedAt: analysis?.createdAt ?? null,
     }
   })
-  return { ok: true, source: 'collection', collection: { id: collection.id, keyword: collection.keyword, productCount: total }, products, total, page, pageSize }
+  return { ok: true, source: 'collection', collection: { id: collection.id, keyword: collection.keyword, productCount: total,
+    priceRange: agentPriceRangeText(prices._min.price, prices._max.price), collectTime: collection.updatedAt.toISOString() }, products, total, page, pageSize }
 }
 
 export async function runMainImageAnalysis(input: { userId: string; tenantId: string; runId: string; productId?: string; imageUrl?: string }, provider?: ReportAiProvider) {

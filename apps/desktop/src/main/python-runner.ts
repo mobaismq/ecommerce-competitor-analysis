@@ -4,6 +4,8 @@ import { join } from 'node:path'
 export interface PythonRunOptions {
   cwd?: string
   env?: NodeJS.ProcessEnv
+  onStdout?: (text: string) => void
+  onStderr?: (text: string) => void
 }
 
 export interface PythonRunResult {
@@ -20,7 +22,8 @@ export function killPythonProcesses(key: string): boolean {
   if (!child) return false
   activeChildren.delete(key)
   try {
-    child.kill('SIGTERM')
+    if (process.platform !== 'win32' && child.pid) process.kill(-child.pid, 'SIGTERM')
+    else child.kill('SIGTERM')
   } catch {
     /* 子进程可能已退出 */
   }
@@ -44,6 +47,7 @@ export function runPythonTracked(scriptPath: string, args: string[], options: Py
     const child = spawn(pythonPath, [scriptPath, ...args], {
       cwd: options.cwd,
       shell: false,
+      detached: process.platform !== 'win32',
       stdio: ['ignore', 'pipe', 'pipe'],
       env: {
         ...process.env,
@@ -55,8 +59,10 @@ export function runPythonTracked(scriptPath: string, args: string[], options: Py
     if (key) activeChildren.set(key, child)
     let stdout = ''
     let stderr = ''
-    child.stdout?.on('data', (chunk: Buffer) => (stdout += chunk.toString()))
-    child.stderr?.on('data', (chunk: Buffer) => (stderr += chunk.toString()))
+    child.stdout?.setEncoding('utf8')
+    child.stderr?.setEncoding('utf8')
+    child.stdout?.on('data', (chunk: string) => { stdout += chunk; options.onStdout?.(chunk) })
+    child.stderr?.on('data', (chunk: string) => { stderr += chunk; options.onStderr?.(chunk) })
     child.on('error', (error) => {
       if (key) activeChildren.delete(key)
       reject(error)

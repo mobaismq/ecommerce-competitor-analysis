@@ -13,12 +13,7 @@ from pathlib import Path
 from typing import Any
 
 
-_WORKSPACE_MYSQL_IMPORT_RUNNER = Path(__file__).resolve().parents[2] / "mysql-import" / "bin" / "run_mysql_import.py"
-MYSQL_IMPORT_RUNNER = (
-    _WORKSPACE_MYSQL_IMPORT_RUNNER
-    if _WORKSPACE_MYSQL_IMPORT_RUNNER.exists()
-    else Path("/Users/shuishoukeke/.codex/skills/mysql-import/bin/run_mysql_import.py")
-)
+MYSQL_IMPORT_RUNNER = Path(__file__).resolve().parents[2] / "mysql-import" / "bin" / "run_mysql_import.py"
 
 
 def parse_args() -> argparse.Namespace:

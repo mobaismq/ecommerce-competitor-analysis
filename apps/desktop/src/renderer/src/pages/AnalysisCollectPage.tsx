@@ -51,7 +51,6 @@ export function AnalysisCollectPage() {
   const [status, setStatus] = useState<CollectionStatus>('idle')
   const [loading, setLoading] = useState(false)
   const [jobId, setJobId] = useState<string>('')
-  const [pid, setPid] = useState<number | null>(null)
   const [logs, setLogs] = useState<string>('')
   const [autoScroll, setAutoScroll] = useState(true)
   const [errorMessage, setErrorMessage] = useState<string>('')
@@ -70,8 +69,9 @@ export function AnalysisCollectPage() {
   }, [logs, activeParams?.competitorCount])
 
   const total = activeParams?.competitorCount || 0
-  const collected = parsedProgress.current ?? (status === 'completed' ? total : 0)
-  const percent = parsedProgress.percent ?? (total > 0 ? Math.min(100, Math.round((collected / total) * 100)) : 0)
+  const [importedCount, setImportedCount] = useState<number | null>(null)
+  const collected = importedCount ?? parsedProgress.current ?? 0
+  const percent = status === 'completed' ? 100 : parsedProgress.percent ?? (total > 0 ? Math.min(100, Math.round((collected / total) * 100)) : 0)
   const isRunning = status === 'running'
 
   useEffect(() => {
@@ -90,6 +90,8 @@ export function AnalysisCollectPage() {
         if (!s) return
         if (s.logTail) setLogs(s.logTail)
         if (s.status === 'success') {
+          const result = s.resultJson as { counts?: { productCount?: number } } | null
+          setImportedCount(result?.counts?.productCount ?? null)
           setStatus('completed')
           setLogs((prev) => prev + `\n[${new Date().toLocaleTimeString()}] ✅ 采集任务已成功完成并入库！`)
         } else if (s.status === 'failure' || s.status === 'failed') {
@@ -124,7 +126,7 @@ export function AnalysisCollectPage() {
       setErrorMessage('请输入采集竞品关键词')
       return
     }
-    if (!competitorCount.trim() || Number.isNaN(count) || count < 1 || count > 100) {
+    if (!competitorCount.trim() || !Number.isInteger(count) || count < 1 || count > 100) {
       setErrorMessage('竞品数量需为 1-100 之间的整数')
       return
     }
@@ -139,6 +141,20 @@ export function AnalysisCollectPage() {
       maxPrice: maxPrice.trim() === '' ? undefined : Number(maxPrice),
       competitorCount: count,
     }
+    if ([newParams.minPrice, newParams.maxPrice].some((value) => value !== undefined && (!Number.isFinite(value) || value < 0))) {
+      setErrorMessage('价格必须是大于等于 0 的数字')
+      return
+    }
+    if (newParams.minPrice !== undefined && newParams.maxPrice !== undefined && newParams.minPrice > newParams.maxPrice) {
+      setErrorMessage('最低价不能高于最高价')
+      return
+    }
+    const pages = Number(searchPages)
+    if (!Number.isInteger(pages) || pages < 1 || pages > 100) {
+      setErrorMessage('翻页深度需为 1-100 之间的整数')
+      return
+    }
+    setImportedCount(null)
     setActiveParams(newParams)
     setLoading(true)
 
@@ -155,7 +171,7 @@ export function AnalysisCollectPage() {
         minPrice: newParams.minPrice,
         maxPrice: newParams.maxPrice,
         topN: count,
-        searchPages: Number(searchPages) || 8,
+        searchPages: pages,
         speedProfile: 'fast',
         mode: 'download-and-import',
         importMysql: false,
@@ -163,8 +179,7 @@ export function AnalysisCollectPage() {
       })
       if (!res?.jobId) throw new Error('未能启动采集任务')
       setJobId(res.jobId)
-      setPid(res.pid ?? null)
-      setLogs((prev) => prev + `[${new Date().toLocaleTimeString()}] 已启动店透视真实采集（PID: ${res.pid ?? '-'}），日志将实时刷新。\n`)
+      setLogs((prev) => prev + `[${new Date().toLocaleTimeString()}] 店透视采集任务已启动，日志将实时刷新。\n`)
       Message.success('真实采集任务已启动（店透视浏览器）')
       const s = await window.desktop.collection.status(res.jobId).catch(() => null)
       if (s?.logTail) setLogs(s.logTail)
@@ -182,17 +197,15 @@ export function AnalysisCollectPage() {
     if (jobId) {
       try {
         const res = await window.desktop?.collection.cancel()
-        setStatus('stopped')
         if (res?.cancelled) {
+          setStatus('stopped')
           setLogs((prev) => prev + `\n[${new Date().toLocaleTimeString()}] ⚠️ 采集任务已停止。`)
         } else {
           setLogs((prev) => prev + `\n[${new Date().toLocaleTimeString()}] ⚠️ ${res?.reason || '取消请求未生效，任务可能仍在运行。'}`)
         }
         Message.warning(res?.cancelled ? '采集任务已停止' : '取消请求未生效')
       } catch {
-        setStatus('stopped')
-        setLogs((prev) => prev + `\n[${new Date().toLocaleTimeString()}] ⚠️ 用户手动停止了当前采集任务。`)
-        Message.warning('采集任务已停止（本地）')
+        Message.error('停止请求失败，任务状态将继续刷新')
       }
       return
     }
@@ -212,7 +225,7 @@ export function AnalysisCollectPage() {
     setActiveParams(null)
     setErrorMessage('')
     setJobId('')
-    setPid(null)
+    setImportedCount(null)
   }
 
   const displayParams = activeParams || {
@@ -234,6 +247,7 @@ export function AnalysisCollectPage() {
             <button
               type="button"
               onClick={handleReset}
+              disabled={isRunning}
               className="cursor-pointer border-0 bg-transparent p-0 text-[12px] font-bold text-[#3388ff] hover:text-[#1a6fe8]"
             >
               重置
@@ -241,6 +255,9 @@ export function AnalysisCollectPage() {
           </div>
 
           <div className="space-y-5">
+            <p className="text-[12px] leading-5 text-[#86909C]">
+              使用 Mac 店透视采集器。请先在 Chrome 登录淘宝及店透视，并完成自动化授权；采集期间请勿操作浏览器。商品、SKU、问大家和评价会自动写入本机报告数据库，图片保存在本机。
+            </p>
             {/* 桌面端业务保留：快捷热门行业关键词 */}
             <div>
               <label className={FIELD_LABEL_CLASS}>快捷热门行业关键词</label>
@@ -248,6 +265,7 @@ export function AnalysisCollectPage() {
                 {PRESETS.map((preset) => (
                   <button
                     key={preset.label}
+                    disabled={isRunning}
                     type="button"
                     onClick={() => applyPreset(preset)}
                     className="cursor-pointer rounded border border-[#e5e8ef] bg-[#f8fafc] px-2.5 py-1 text-[12px] font-semibold text-[#4e5969] transition-colors hover:border-[#b8d7ff] hover:text-[#3388ff]"
@@ -348,10 +366,10 @@ export function AnalysisCollectPage() {
                   {displayParams.competitorCount ? `${displayParams.competitorCount} 个` : '未设置'}
                 </span>
               </div>
-              {(pid || jobId) && (
+              {jobId && (
                 <div className="flex items-center gap-2">
-                  <span className="text-[12px] font-bold text-[#86909C]">{pid ? 'PID' : '任务ID'}</span>
-                  <span className="truncate text-[13px] font-bold text-[#0A1B39]">{pid ?? jobId.slice(0, 16)}</span>
+                  <span className="text-[12px] font-bold text-[#86909C]">任务ID</span>
+                  <span className="truncate text-[13px] font-bold text-[#0A1B39]">{jobId.slice(0, 32)}</span>
                 </div>
               )}
             </div>

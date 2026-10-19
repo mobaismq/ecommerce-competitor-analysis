@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { existsSync, statSync } from 'node:fs'
+import { appendFileSync, existsSync, statSync } from 'node:fs'
 import { basename, extname, join } from 'node:path'
 import type { PrismaClient } from '../generated/prisma'
 import { assertCollectionMode, buildCollectionPlan, type CollectionMode, type CollectionStage } from './collection-modes'
@@ -70,19 +70,48 @@ function mimeForFile(filePath: string): string {
   return 'application/octet-stream'
 }
 
-async function defaultDownloader(context: CollectionRunContext): Promise<CollectionDownloadResult> {
+export function buildDownloadArgs(context: CollectionRunContext): string[] {
+  const params = context.input.params ?? {}
+  const args = ['--product-name', context.input.productName ?? '', '--run-dir', context.workDir]
+  if (context.input.productUrl) args.push('--product-url', context.input.productUrl)
+  for (const [name, flag] of Object.entries({ topN: '--top-n', searchPages: '--search-pages', minPrice: '--min-price', maxPrice: '--max-price', speedProfile: '--speed-profile' })) {
+    const value = params[name]
+    if (value !== undefined && value !== null && value !== '') args.push(flag, String(value))
+  }
+  return args
+}
+
+export async function defaultDownloader(context: CollectionRunContext): Promise<CollectionDownloadResult> {
   const script = context.input.downloadScript
   if (!script) throw new Error('download mode requires input.downloadScript or a runDownload injector')
-  // 店透视采集脚本(run_diantoushi_rpa_cdp.py)使用 --product-name/--product-url 命名参数。
-  const args: string[] = []
-  if (context.input.productName) args.push('--product-name', context.input.productName)
-  if (context.input.productUrl) args.push('--product-url', context.input.productUrl)
-  const result = await runPythonTracked(script, args, { cwd: context.workDir }, context.jobId)
+  const logFile = join(context.workDir, 'run.log')
+  // The bridge's last line is a potentially large JSON payload; do not put it in the progress log.
+  let pending = ''
+  const flushLine = (line: string) => {
+    try {
+      const payload = JSON.parse(line)
+      if (payload?.ok === true && Array.isArray(payload.files) && Array.isArray(payload.products)) return
+    } catch { /* Scraper progress is usually plain text or multiline JSON. */ }
+    appendFileSync(logFile, `${line}\n`)
+  }
+  const result = await runPythonTracked(script, buildDownloadArgs(context), {
+    cwd: context.workDir,
+    env: { PYTHONUNBUFFERED: '1' },
+    onStdout: (chunk) => {
+      pending += chunk
+      const lines = pending.split('\n')
+      pending = lines.pop() ?? ''
+      for (const line of lines) flushLine(line)
+    },
+    onStderr: (chunk) => appendFileSync(logFile, chunk),
+  }, context.jobId)
+  if (pending) flushLine(pending)
   if (result.exitCode !== 0) {
-    throw new Error(`download script failed (${result.exitCode}): ${result.stderr.trim()}`)
+    throw new Error(`采集脚本退出 (${result.exitCode}): ${result.stderr.trim() || result.stdout.slice(-1000)}`)
   }
   const lastLine = result.stdout.trim().split(/\r?\n/).pop()
   const parsed = lastLine ? JSON.parse(lastLine) : {}
+  if (parsed.ok === false) throw new Error(String(parsed.error || '采集脚本返回失败'))
   const files = Array.isArray(parsed.files) ? parsed.files.map(String) : []
   if (files.length === 0) throw new Error('download script did not report any files')
   const products = Array.isArray(parsed.products) ? (parsed.products as CollectedProduct[]) : undefined
@@ -166,25 +195,22 @@ export async function runLocalCollection(options: RunCollectionOptions): Promise
     counts: {},
     resultJson: {},
   }
+  let downloadedProducts: CollectedProduct[] = []
+
+  const checkCancelled = async () => {
+    const job = await prisma.localJob.findUnique({ where: { jobId: localJobId }, select: { status: true } })
+    if (job?.status === 'cancelled') throw new Error('用户已停止采集任务')
+  }
 
   try {
     for (const stage of plan.stages) {
+      await checkCancelled()
       await markStage(prisma, localJobId, stage, 'running')
       if (stage.name === 'download') {
         const downloader = options.runDownload ?? defaultDownloader
         const downloaded = await downloader({ jobId: localJobId, mode, workDir: options.workDir, input: options.input })
         result.files = downloaded.files
-        // 下载器按契约产出结构化商品清单时，落库到报告快照表，供 report.generate 读取（真实采集数据）。
-        if (downloaded.products?.length) {
-          await importCollectedProducts(prisma, {
-            tenantId: options.input.tenantId || 'local',
-            keyword: options.input.keyword ?? options.input.productName,
-            jobId: localJobId,
-            type: 'collection',
-            dataSnapshotDate: new Date().toISOString().slice(0, 10),
-            products: downloaded.products,
-          })
-        }
+        downloadedProducts = downloaded.products ?? []
       } else if (stage.name === 'collect-files') {
         const source = mode === 'import-only' ? (options.input.existingFiles ?? []) : result.files
         const validFiles = source.filter((filePath) => existsSync(filePath))
@@ -208,16 +234,26 @@ export async function runLocalCollection(options: RunCollectionOptions): Promise
           })
         }
       } else if (stage.name === 'import') {
-        const importer = options.runImport ?? defaultImporter
-        const imported = await importer({ jobId: localJobId, mode, workDir: options.workDir, input: options.input }, result.files)
-        result.counts = imported.counts
-        result.resultJson.summary = imported.summary
+        if (downloadedProducts.length && !options.runImport && !options.input.importScript) {
+          appendFileSync(join(options.workDir, 'run.log'), '\n=== local import\n[INFO] 正在写入分析报告使用的本地数据库\n')
+          const imported = await importCollectedProducts(prisma, {
+            tenantId: options.input.tenantId || 'local', keyword: options.input.keyword ?? options.input.productName,
+            jobId: localJobId, dataSnapshotDate: new Date().toISOString().slice(0, 10), products: downloadedProducts,
+          })
+          result.counts = imported.counts
+          appendFileSync(join(options.workDir, 'run.log'), `[INFO] 本地入库完成：${JSON.stringify(imported.counts)}\n`)
+        } else {
+          const importer = options.runImport ?? defaultImporter
+          const imported = await importer({ jobId: localJobId, mode, workDir: options.workDir, input: options.input }, result.files)
+          result.counts = imported.counts
+          result.resultJson.summary = imported.summary
+        }
       } else if (stage.name === 'sync') {
         const payload = {
           mode,
           dataSnapshotDate: new Date().toISOString().slice(0, 10),
           files: toFilePayload(result.files),
-          products: [],
+          products: downloadedProducts,
           counts: result.counts,
         }
         result.resultJson = payload
@@ -234,6 +270,7 @@ export async function runLocalCollection(options: RunCollectionOptions): Promise
       await markStage(prisma, localJobId, stage, 'done')
     }
 
+    await checkCancelled()
     const resultFile = saveLocalResult(join(options.workDir, 'results'), localJobId, result.resultJson)
     await prisma.localJob.update({
       where: { jobId: localJobId },
@@ -260,8 +297,8 @@ export async function runLocalCollection(options: RunCollectionOptions): Promise
   } catch (error) {
     result.status = 'failure'
     const message = error instanceof Error ? error.message : String(error)
-    await prisma.localJob.update({
-      where: { jobId: localJobId },
+    await prisma.localJob.updateMany({
+      where: { jobId: localJobId, status: { not: 'cancelled' } },
       data: { status: 'failure', errorCode: 'collection_failed', errorMessage: message, finishedAt: new Date() },
     })
     throw error

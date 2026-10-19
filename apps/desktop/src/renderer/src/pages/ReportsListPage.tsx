@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { DatePicker, Empty, Table } from '@arco-design/web-react'
+import { Alert, DatePicker, Empty, Message, Table } from '@arco-design/web-react'
 import dayjs from 'dayjs'
 import { formatDateTime } from '../utils/format'
 import { PageHeader } from '../components/PageHeader'
 import { XSearchInput } from '../components/XInput'
+import { useAuth } from '../store/auth'
 
 interface AnalysisRun {
   id: string
@@ -15,6 +16,10 @@ interface AnalysisRun {
   competitorCount: number | null
   keyword?: string | null
   updatedAt: string
+  source?: 'collection' | 'report'
+  collectionJobId?: string | null
+  priceMin?: number | null
+  priceMax?: number | null
   reportJson?: {
     priceBands?: Array<{ priceMin: number; priceMax: number }>
   } | null
@@ -22,6 +27,7 @@ interface AnalysisRun {
 
 // 价格区间来自报告生成时写入的 reportJson.priceBands（AnalysisRun 无 priceMin/priceMax 标量字段）
 function priceRange(row: AnalysisRun): string {
+  if (row.priceMin != null && row.priceMax != null) return `¥${row.priceMin} ~ ¥${row.priceMax}`
   const bands = row.reportJson?.priceBands || []
   if (!bands.length) return '—'
   const min = Math.min(...bands.map((b) => b.priceMin))
@@ -35,7 +41,7 @@ type StatusView = { text: string; className: string }
 function statusView(status: string): StatusView {
   if (status === 'completed' || status === 'success') return { text: '已生成', className: 'bg-[#e8f5e9] text-[#2e7d32]' }
   if (status === 'running') return { text: '生成中', className: 'bg-[#fff3e0] text-[#f57c00]' }
-  if (status === 'failed') return { text: '生成失败', className: 'bg-[#ffEBEE] text-[#c62828]' }
+  if (status === 'failed' || status === 'failure') return { text: '生成失败', className: 'bg-[#ffEBEE] text-[#c62828]' }
   return { text: '未生成', className: 'bg-[#f2f4f7] text-[#86909C]' }
 }
 
@@ -43,6 +49,8 @@ const PAGE_SIZE = 10
 
 export function ReportsListPage() {
   const navigate = useNavigate()
+  const userId = useAuth((state) => state.user?.id ?? '')
+  const [generatingId, setGeneratingId] = useState<string | null>(null)
 
   // 查询条件（对照旧版：输入态 + 查询后应用态）
   const [searchKeyword, setSearchKeyword] = useState('')
@@ -55,25 +63,23 @@ export function ReportsListPage() {
   const [appliedStatus, setAppliedStatus] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
 
-  // 数据流：IPC report.list 查询本地 SQLite + 分页（兼容旧版 status=not_generated 等状态）
-  const { data, isLoading } = useQuery<{ rows: AnalysisRun[]; total: number }>({
-    queryKey: ['analysis-runs', appliedKeyword, appliedStartTime, appliedEndTime, appliedStatus, currentPage],
+  // Include collected batches before an AI report exists, without creating placeholder reports.
+  const { data, isLoading, isError, error, refetch } = useQuery<{ rows: AnalysisRun[]; total: number }>({
+    queryKey: ['analysis-report-catalog', appliedKeyword, appliedStartTime, appliedEndTime, appliedStatus, currentPage],
     queryFn: async () => {
-      const params = new URLSearchParams()
-      if (appliedKeyword.trim()) params.set('keyword', appliedKeyword.trim())
-      if (appliedStatus) params.set('status', appliedStatus)
-      if (appliedStartTime) params.set('startTime', appliedStartTime)
-      if (appliedEndTime) params.set('endTime', appliedEndTime)
-      params.set('page', String(currentPage))
-      params.set('pageSize', String(PAGE_SIZE))
-      const res = await window.desktop?.capabilities.invoke('report.list', {
+      if (!window.desktop?.capabilities) throw new Error('桌面数据服务未就绪，请重启客户端后重试')
+      const res = await window.desktop.capabilities.invoke('report.list', {
         tenantId: 'local',
+        includeCollections: true,
         keyword: appliedKeyword.trim() || undefined,
         status: appliedStatus || undefined,
+        startTime: appliedStartTime ? dayjs(appliedStartTime).startOf('day').toISOString() : undefined,
+        endTime: appliedEndTime ? dayjs(appliedEndTime).endOf('day').toISOString() : undefined,
         page: currentPage,
         pageSize: PAGE_SIZE,
       }) as { rows?: AnalysisRun[]; total?: number } | undefined
-      const rows = Array.isArray(res?.rows) ? res.rows : []
+      if (!res || !Array.isArray(res.rows)) throw new Error('数据服务返回异常，未能读取报告列表')
+      const rows = res.rows
       return { rows, total: res?.total ?? rows.length }
     },
   })
@@ -88,6 +94,7 @@ export function ReportsListPage() {
   }, [appliedKeyword, appliedStartTime, appliedEndTime, appliedStatus])
 
   const applySearch = () => {
+    if (searchKeyword === appliedKeyword && startTime === appliedStartTime && endTime === appliedEndTime && reportStatus === appliedStatus) void refetch()
     setAppliedKeyword(searchKeyword)
     setAppliedStartTime(startTime)
     setAppliedEndTime(endTime)
@@ -104,6 +111,21 @@ export function ReportsListPage() {
     setAppliedEndTime('')
     setAppliedStatus('')
     setCurrentPage(1)
+  }
+
+  const generate = async (row: AnalysisRun) => {
+    if (!userId || !row.collectionJobId) { Message.error('请重新登录后生成报告'); return }
+    setGeneratingId(row.id)
+    try {
+      const result = await window.desktop?.capabilities.invoke('report.generate', {
+        userId, tenantId: 'local', keyword: row.keyword ?? '', collectionJobId: row.collectionJobId,
+      }) as { reportId?: string } | undefined
+      if (!result?.reportId) throw new Error('报告生成未返回有效结果')
+      Message.success('报告已生成')
+      await refetch()
+    } catch (error) {
+      Message.error(`生成失败：${error instanceof Error ? error.message : String(error)}`)
+    } finally { setGeneratingId(null) }
   }
 
   const columns = [
@@ -155,11 +177,11 @@ export function ReportsListPage() {
             </button>
             <button
               type="button"
-              onClick={() => navigate(`/market/competitive/report/view?id=${encodeURIComponent(row.id)}`)}
-              disabled={!canView}
+              onClick={() => row.source === 'collection' ? void generate(row) : navigate(`/market/competitive/report/view?id=${encodeURIComponent(row.id)}`)}
+              disabled={row.source === 'collection' ? generatingId !== null : !canView}
               className="flex cursor-pointer items-center border-0 bg-transparent p-0 text-[13px] text-[#3388ff] hover:text-[#1a6fe8] disabled:cursor-not-allowed disabled:text-[#b0b7c3]"
             >
-              查看报告
+              {generatingId === row.id ? '生成中…' : row.source === 'collection' ? '生成报告' : '查看报告'}
             </button>
             <button
               type="button"
@@ -218,6 +240,7 @@ export function ReportsListPage() {
               }}
             >
               <option value="">请选择</option>
+              <option value="not_generated">未生成</option>
               <option value="completed">已生成</option>
               <option value="running">生成中</option>
               <option value="failed">生成失败</option>
@@ -245,6 +268,11 @@ export function ReportsListPage() {
 
       {/* 数据表格卡（Arco Table：服务端分页 / loading / 空状态内建） */}
       <div className="rounded-2xl bg-white p-5 shadow-[0_8px_32px_rgba(29,38,52,.06)]">
+        {isError && <Alert type="error" className="mb-4" title="报告数据加载失败" content={
+          <div>{error instanceof Error ? error.message : '无法连接本地数据服务'}
+            <button type="button" onClick={() => void refetch()} className="ml-3 cursor-pointer border-0 bg-transparent text-[#3388ff]">重新连接</button>
+          </div>
+        } />}
         <Table
           columns={columns}
           data={rows}
@@ -255,8 +283,8 @@ export function ReportsListPage() {
             <Empty
               description={
                 <div>
-                  <p className="m-0 text-[15px] text-[#86909C]">暂无数据</p>
-                  <p className="m-0 mt-1 text-[13px] text-[#98A2B3]">前往「AI数据采集」页面采集竞品数据后查看报告</p>
+                  <p className="m-0 text-[15px] text-[#86909C]">{isError ? '数据加载失败' : '暂无符合条件的数据'}</p>
+                  {!isError && <p className="m-0 mt-1 text-[13px] text-[#98A2B3]">已采集的数据会显示为「未生成」，可查看数据或手动生成报告；请检查筛选条件或前往「AI数据采集」。</p>}
                 </div>
               }
             />

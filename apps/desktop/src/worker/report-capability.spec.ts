@@ -70,6 +70,46 @@ describe('report capabilities', () => {
     expect(computePriceBands([])).toEqual([])
   })
 
+  it('lists collected data before report generation, filters dates/status, and resolves the selected batch', async () => {
+    const db = getWorkerPrisma()
+    const keyword = '数据库联通测试'
+    const makeCollection = async (id: string, tenantId: string, prices: number[], updatedAt: string) => {
+      await db.collectionJob.create({ data: { id, jobId: `job-${id}`, tenantId, keyword, type: 'collection', status: 'success', updatedAt: new Date(updatedAt) } })
+      for (const [index, price] of prices.entries()) {
+        await db.productSnapshot.create({ data: { id: `${id}-p${index}`, collectionJobId: id, tenantId,
+          externalProductId: `${id}-ext${index}`, price, title: `${id}商品`, snapshotTime: new Date(), dataSnapshotDate: '2026-01-01' } })
+      }
+    }
+    await makeCollection('catalog-old', 'local', [99], '2026-01-01T04:00:00Z')
+    await makeCollection('catalog-new', 'local', [199, 299], '2026-01-03T04:00:00Z')
+    await makeCollection('catalog-empty', 'local', [], '2026-01-04T04:00:00Z')
+    await makeCollection('catalog-other-tenant', 'other', [999], '2026-01-05T04:00:00Z')
+    const query = { tenantId: 'local', keyword, includeCollections: true }
+    const list = await listReports({ ...query, pageSize: 1 })
+    expect(list.total).toBe(2)
+    expect(list.rows[0]).toMatchObject({ id: 'raw-job-catalog-new', source: 'collection', status: 'not_generated', competitorCount: 2, priceMin: 199, priceMax: 299 })
+    expect((await listReports({ ...query, pageSize: 1, page: 2 })).rows[0].id).toBe('raw-job-catalog-old')
+    expect((await listReports({ ...query, startTime: '2026-01-03T00:00:00Z', endTime: '2026-01-03T23:59:59Z' })).total).toBe(1)
+    expect((await listReports({ ...query, status: 'completed' })).total).toBe(0)
+    const rawProducts = await reportProducts({ tenantId: 'local', runId: 'raw-job-catalog-old' })
+    expect(rawProducts.products).toHaveLength(1)
+    expect(rawProducts.products[0].price).toBe(99)
+    await expect(reportProducts({ tenantId: 'other', runId: 'raw-job-catalog-old' })).rejects.toThrow('采集数据不存在')
+
+    // Exact collection ID wins over a newer batch with the same keyword.
+    const generated = await generateReport({ userId: 'u1', tenantId: 'local', keyword, collectionJobId: 'catalog-old' }, provider)
+    expect(generated.competitorCount).toBe(1)
+    expect((await listReports({ ...query, status: 'completed' })).total).toBe(1)
+    expect((await listReports({ ...query, status: 'not_generated' })).rows[0].id).toBe('raw-job-catalog-new')
+    expect((await listReports(query)).total).toBe(2)
+    // Other callers keep the report-only history contract.
+    expect((await listReports({ tenantId: 'local', keyword })).total).toBe(1)
+    const reused = await generateReport({ userId: 'u1', tenantId: 'local', keyword, collectionJobId: 'catalog-old' }, {
+      generateText: async () => { throw new Error('Must not call AI for an existing report') }, analyzeImage: provider.analyzeImage,
+    })
+    expect(reused.reused).toBe(true)
+  })
+
   it('missing key fails honestly without network', async () => {
     await seedCollection()
     // 确保“完全无默认供应商”的确定性：临时清空默认供应商 env，避免主机/环境带 Key 而触发真实网络调用

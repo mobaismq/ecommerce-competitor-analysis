@@ -25,11 +25,13 @@ export function parseRpaProgress(logTail?: string, topN?: number | null): RpaPro
     text.lastIndexOf('market analysis'),
     text.lastIndexOf('competitor_analysis'),
   )
-  const importIndex = text.lastIndexOf('=== mysql import')
+  const importIndex = Math.max(text.lastIndexOf('=== mysql import'), text.lastIndexOf('=== local import'))
   const cooldownIndex = text.lastIndexOf('"reason": "cooldown')
 
   let label = '等待开始'
-  if (summaryIndex >= 0 && summaryIndex > lastItemIndex) {
+  if (importIndex > Math.max(summaryIndex, lastItemIndex, analysisIndex)) {
+    label = '清洗入库'
+  } else if (summaryIndex >= 0 && summaryIndex > lastItemIndex) {
     label = analysisIndex > summaryIndex ? '分析报告' : '下载完成'
     if (total != null) current = total
   } else if (analysisIndex >= 0 && analysisIndex > lastItemIndex) {

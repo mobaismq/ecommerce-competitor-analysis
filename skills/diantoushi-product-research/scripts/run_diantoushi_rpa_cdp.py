@@ -211,26 +211,6 @@ def eval_json(page, js: str) -> Any:
     return value
 
 
-def click_at(page, target: dict[str, Any], label: str) -> dict[str, Any]:
-    """Perform a trusted click through the CDP Input domain at the viewport center a JS locate pass returned.
-
-    The JS locate passes only locate an element (scroll into view, return center x/y + diagnostics);
-    the actual click goes via Playwright's page.mouse, so the browser receives isTrusted=true input
-    instead of synthetic dispatchEvent(MouseEvent). Taobao's guard logic is more likely to accept the
-    trusted event path.
-    """
-    x, y = target.get("x"), target.get("y")
-    if target.get("error") or not isinstance(x, (int, float)) or not isinstance(y, (int, float)):
-        target["click_skipped"] = label
-        return target
-    try:
-        page.mouse.click(int(x), int(y))
-    except Exception as exc:
-        target["click_error"] = str(exc)
-    target["click_method"] = "cdp-input"
-    return target
-
-
 def page_title_url(page) -> dict[str, str]:
     return {
         "title": page.title(),
@@ -270,12 +250,6 @@ def guard_check(page, logger: Logger, label: str) -> dict[str, Any]:
     data["ok"] = not data["guard_detected"]
     logger.log(json.dumps(data, ensure_ascii=False, indent=2))
     if data["guard_detected"]:
-        shot = logger.path.parent / f"guard-{int(time.time())}.png"
-        try:
-            page.screenshot(path=str(shot))
-            logger.log(f"guard_screenshot={shot}")
-        except Exception:
-            logger.log("guard_screenshot_failed")
         raise RuntimeError(f"Taobao guard detected: {data['matched_guard_terms']} at {data['href']}")
     return data
 
@@ -364,19 +338,17 @@ def click_toolbar_control(page, label: str) -> dict[str, Any]:
   );
   const e = nodes[nodes.length - 1];
   if (!e) return {error:'NOT_FOUND', label};
-  e.scrollIntoView({block:'center', inline:'center'});
   const r = e.getBoundingClientRect();
-  return {
-    found: true,
-    clicked: e.innerText.trim(),
-    count: nodes.length,
-    x: Math.round(r.x + r.width / 2),
-    y: Math.round(r.y + r.height / 2),
-    rect: [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)]
-  };
+  const cx = Math.round(r.x + r.width / 2);
+  const cy = Math.round(r.y + r.height / 2);
+  e.dispatchEvent(new MouseEvent('mouseover', {bubbles:true,clientX:cx,clientY:cy}));
+  e.dispatchEvent(new MouseEvent('mousedown', {bubbles:true,clientX:cx,clientY:cy}));
+  e.dispatchEvent(new MouseEvent('mouseup', {bubbles:true,clientX:cx,clientY:cy}));
+  e.click();
+  return {clicked:e.innerText.trim(), count:nodes.length, rect:[Math.round(r.x),Math.round(r.y),Math.round(r.width),Math.round(r.height)]};
 }
 """
-    return click_at(page, page.evaluate(js, label), f"toolbar:{label}")
+    return page.evaluate(js, label)
 
 
 def export_product_data(page, logger: Logger, download_dir: Path, item_id: str) -> Path:
@@ -425,20 +397,17 @@ def open_sku_dialog(page, logger: Logger) -> None:
 
 def click_sku_export_prefer_image_links(page, logger: Logger) -> str:
     logger.section("click sku export xlsx image links")
-    click_at(page, page.evaluate(
+    page.evaluate(
         """
 () => {
   const dialog=[...document.querySelectorAll('.el-dialog')].find(d=>(d.innerText||'').includes('SKU预览')&&d.getBoundingClientRect().width>100);
-  if(!dialog) return {error:'NO_SKU_DIALOG'};
+  if(!dialog) return;
   const mode=[...dialog.querySelectorAll('label,.el-radio-button,button,span')]
     .find(e => (e.innerText||'').trim()==='导出表格' && e.getBoundingClientRect().width>0 && e.getBoundingClientRect().height>0);
-  if(!mode) return {error:'NO_EXPORT_MODE'};
-  mode.scrollIntoView({block:'center'});
-  const r=mode.getBoundingClientRect();
-  return {found:true, x:Math.round(r.x+r.width/2), y:Math.round(r.y+r.height/2)};
+  if(mode) mode.click();
 }
 """
-    ), "sku export mode")
+    )
     time.sleep(1)
     dropdown_result = page.evaluate(
         """
@@ -452,13 +421,18 @@ def click_sku_export_prefer_image_links(page, logger: Logger) -> str:
   const caret=buttons.find(x=>x.cls.includes('el-dropdown__caret-button') && exportBtn && Math.abs(x.rect.y-exportBtn.rect.y)<12 && x.rect.x>exportBtn.rect.x);
   const pick=caret || exportBtn;
   if(!pick) return {error:'NO_EXPORT_BUTTON', buttons:buttons.map(x=>({text:x.text,cls:x.cls}))};
-  pick.e.scrollIntoView({block:'center'});
-  const r=pick.e.getBoundingClientRect();
-  return {found:true, openedDropdown:!!caret, x:Math.round(r.x+r.width/2), y:Math.round(r.y+r.height/2)};
+  const r=pick.rect;
+  const cx=Math.round(r.x+r.width/2);
+  const cy=Math.round(r.y+r.height/2);
+  pick.e.dispatchEvent(new MouseEvent('mouseover',{bubbles:true,clientX:cx,clientY:cy}));
+  pick.e.dispatchEvent(new MouseEvent('mousedown',{bubbles:true,clientX:cx,clientY:cy}));
+  pick.e.dispatchEvent(new MouseEvent('mouseup',{bubbles:true,clientX:cx,clientY:cy}));
+  pick.e.click();
+  return {openedDropdown:!!caret, rect:[Math.round(r.x),Math.round(r.y),Math.round(r.width),Math.round(r.height)]};
 }
 """
     )
-    logger.log(json.dumps(click_at(page, dropdown_result, "sku export dropdown"), ensure_ascii=False))
+    logger.log(json.dumps(dropdown_result, ensure_ascii=False))
     time.sleep(1.2)
 
     menu_result = page.evaluate(
@@ -486,22 +460,29 @@ def click_sku_export_prefer_image_links(page, logger: Logger) -> str:
   const normal=byNeedle(['导出表格xlsx','xlsx']);
   const pick=preferred || withImg || normal;
   if(!pick) return {error:'NO_MENU_ITEM', candidates:all.slice(0,40).map(x=>({text:x.text,cls:x.cls,tag:x.tag,area:Math.round(x.area)}))};
-  pick.e.scrollIntoView({block:'center'});
-  const r=pick.e.getBoundingClientRect();
+  const r=pick.rect;
+  const cx=Math.round(r.x+r.width/2);
+  const cy=Math.round(r.y+r.height/2);
+  const hit=document.elementFromPoint(cx, cy);
+  const target=(hit && hit.closest('li,[role="menuitem"],button,span,div')) || pick.e;
+  target.dispatchEvent(new MouseEvent('mouseover',{bubbles:true,clientX:cx,clientY:cy}));
+  target.dispatchEvent(new MouseEvent('mousedown',{bubbles:true,clientX:cx,clientY:cy}));
+  target.dispatchEvent(new MouseEvent('mouseup',{bubbles:true,clientX:cx,clientY:cy}));
+  target.click();
   return {
-    found:true, clickedMenu: pick.text, clickedNormalized: pick.normalized,
-    clickedTag: pick.tag, variant: preferred ? 'xlsx+图片链接' : (withImg ? 'xlsx+图片' : 'xlsx'),
-    x:Math.round(r.x+r.width/2), y:Math.round(r.y+r.height/2),
+    clickedMenu: pick.text,
+    clickedNormalized: pick.normalized,
+    clickedTag: target.tagName,
+    variant: preferred ? 'xlsx+图片链接' : (withImg ? 'xlsx+图片' : 'xlsx'),
     rect: [Math.round(r.x),Math.round(r.y),Math.round(r.width),Math.round(r.height)],
     candidates: candidates.slice(0,30).map(x=>x.text)
   };
 }
 """
     )
-    clicked = click_at(page, menu_result, "sku export menu")
-    logger.log(json.dumps(clicked, ensure_ascii=False, indent=2))
-    if clicked.get("variant"):
-        return clicked["variant"]
+    logger.log(json.dumps(menu_result, ensure_ascii=False, indent=2))
+    if menu_result.get("variant"):
+        return menu_result["variant"]
 
     fallback = page.evaluate(
         """
@@ -513,13 +494,11 @@ def click_sku_export_prefer_image_links(page, logger: Logger) -> str:
     .filter(x=>x.rect.width>0&&x.rect.height>0&&!x.disabled);
   const pick=buttons.filter(x=>x.text==='导出表格').pop() || buttons.filter(x=>x.text.includes('导出')).pop();
   if(!pick) return {error:'NO_EXPORT_BUTTON'};
-  pick.e.scrollIntoView({block:'center'});
-  const r=pick.e.getBoundingClientRect();
-  return {found:true, clickedFallback:pick.text, x:Math.round(r.x+r.width/2), y:Math.round(r.y+r.height/2)};
+  pick.e.click();
+  return {clickedFallback:pick.text};
 }
 """
     )
-    click_at(page, fallback, "sku export fallback")
     logger.log(json.dumps(fallback, ensure_ascii=False))
     return "fallback"
 
@@ -549,22 +528,20 @@ def export_sku(page, logger: Logger, download_dir: Path, item_id: str) -> tuple[
     return sku_path, variant, has_links
 
 
-def close_dialog(page, title_text: str) -> dict[str, Any]:
-    located = page.evaluate(
+def close_dialog(page, title_text: str) -> None:
+    page.evaluate(
         """
 (titleText) => {
   const d=[...document.querySelectorAll('.el-dialog')].find(e=>(e.innerText||'').includes(titleText)&&e.getBoundingClientRect().width>100);
-  if(!d) return {error:'NO_DIALOG'};
+  if(!d) return 'NO_DIALOG';
   const btn=d.querySelector('.el-dialog__headerbtn');
-  if(!btn) return {error:'NO_CLOSE_BTN'};
-  btn.scrollIntoView({block:'center'});
-  const r=btn.getBoundingClientRect();
-  return {found:true, x:Math.round(r.x+r.width/2), y:Math.round(r.y+r.height/2)};
+  if(!btn) return 'NO_CLOSE_BTN';
+  btn.click();
+  return 'CLOSED';
 }
 """,
         title_text,
     )
-    return click_at(page, located, f"close-dialog:{title_text}")
 
 
 def export_ask(page, logger: Logger, download_dir: Path, item_id: str) -> Path:
@@ -586,13 +563,16 @@ def export_ask(page, logger: Logger, download_dir: Path, item_id: str) -> Path:
     .filter(x=>x.rect.width>0&&x.rect.height>0&&!x.disabled);
   const pick=buttons.filter(x=>x.text==='导出表格').pop();
   if(!pick) return {error:'NO_EXPORT_BUTTON', buttons:buttons.map(x=>x.text)};
-  pick.e.scrollIntoView({block:'center'});
-  const r=pick.e.getBoundingClientRect();
-  return {clicked:pick.text,index:pick.i,x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2),rect:[Math.round(r.x),Math.round(r.y),Math.round(r.width),Math.round(r.height)]};
+  const r=pick.rect;
+  pick.e.dispatchEvent(new MouseEvent('mouseover',{bubbles:true}));
+  pick.e.dispatchEvent(new MouseEvent('mousedown',{bubbles:true}));
+  pick.e.dispatchEvent(new MouseEvent('mouseup',{bubbles:true}));
+  pick.e.click();
+  return {clicked:pick.text,index:pick.i,rect:[Math.round(r.x),Math.round(r.y),Math.round(r.width),Math.round(r.height)]};
 }
 """
     )
-    logger.log(json.dumps(click_at(page, result, "ask export"), ensure_ascii=False))
+    logger.log(json.dumps(result, ensure_ascii=False))
     start = time.time()
     return wait_normalize_xlsx(
         logger,
@@ -680,12 +660,6 @@ def run_pipeline(args: argparse.Namespace, logger: Logger) -> dict[str, Any]:
         logger.section("summary")
         logger.log(json.dumps(summary, ensure_ascii=False, indent=2))
         return summary
-    except Exception:
-        try:
-            page.screenshot(path=str(logger.path.parent / f"failed-{int(time.time())}.png"))
-        except Exception:
-            pass
-        raise
     finally:
         try:
             browser.close()

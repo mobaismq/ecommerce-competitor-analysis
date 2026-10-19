@@ -39,7 +39,8 @@ function workDirFor(jobId: string): string {
 /** 解析默认店透视采集脚本路径。 */
 function defaultDownloadScript(): string {
   const desktopRoot = resolve(__dirname, '..', '..')
-  const script = resolve(desktopRoot, '..', '..', 'skills/diantoushi-product-research/scripts/run_diantoushi_rpa_cdp.py')
+  const skillsRoot = app.isPackaged ? join(process.resourcesPath, 'skills') : resolve(desktopRoot, '..', '..', 'skills')
+  const script = join(skillsRoot, 'diantoushi-product-research/scripts/run_desktop_collection.py')
   return existsSync(script) ? script : ''
 }
 
@@ -50,21 +51,28 @@ export function registerCollectionHandlers(prisma: PrismaClient) {
   ipcMain.handle('collection:start', async (_event, input: CollectionStartInput = {}) => {
     if (running) throw new Error('已有采集任务正在运行，请等待完成或停止当前任务')
     const mode = assertCollectionMode(input.mode ?? 'download-and-import')
+    const topN = Number(input.topN ?? input.limit ?? 1)
+    const searchPages = Number(input.searchPages ?? 8)
+    const minPrice = input.minPrice === '' || input.minPrice == null ? null : Number(input.minPrice)
+    const maxPrice = input.maxPrice === '' || input.maxPrice == null ? null : Number(input.maxPrice)
+    if (!input.productName?.trim()) throw new Error('请输入采集关键词')
+    if (!Number.isInteger(topN) || topN < 1 || topN > 100) throw new Error('竞品数量需为 1-100 之间的整数')
+    if (!Number.isInteger(searchPages) || searchPages < 1 || searchPages > 100) throw new Error('翻页深度需为 1-100 之间的整数')
+    if ([minPrice, maxPrice].some((price) => price !== null && (!Number.isFinite(price) || price < 0))) throw new Error('价格必须是大于等于 0 的数字')
+    if (minPrice !== null && maxPrice !== null && minPrice > maxPrice) throw new Error('最低价不能高于最高价')
+    const script = input.downloadScript ?? defaultDownloadScript()
+    if (!input.fake && !script) throw new Error('未找到店透视采集脚本')
     const jobId = `local-collection-${Date.now()}-${randomUUID().slice(0, 8)}`
     const workDir = workDirFor(jobId)
     const logFile = join(workDir, 'run.log')
     running = true
     currentJobId = jobId
 
-    const topN = Number(input.topN || 100)
-    const limit = input.limit === '' || input.limit == null ? undefined : Number(input.limit)
-    const searchPages = Number(input.searchPages || 8)
-    const minPrice = input.minPrice === '' || input.minPrice == null ? null : Number(input.minPrice)
-    const maxPrice = input.maxPrice === '' || input.maxPrice == null ? null : Number(input.maxPrice)
     const speedProfile = ['conservative', 'balanced', 'fast'].includes(String(input.speedProfile || ''))
       ? String(input.speedProfile)
       : 'fast'
-    const importMysql = input.importMysql !== false
+    // Desktop reports read SQLite; the optional standalone MySQL pipeline is not used here.
+    const importLocal = mode === 'download-and-import' || mode === 'import-only'
 
     const initialLog = [
       `[${new Date().toISOString()}] [INFO] 启动店透视 RPA 采集任务...`,
@@ -73,6 +81,7 @@ export function registerCollectionHandlers(prisma: PrismaClient) {
       `[INFO] 价格区间: ${minPrice != null ? minPrice : '不限'} ~ ${maxPrice != null ? maxPrice : '不限'} 元`,
       `[INFO] 采集参数: Top ${topN} | 搜索页数: ${searchPages} | 模式: ${mode} | 速率: ${speedProfile}`,
       `[INFO] 工作目录: ${workDir}`,
+      `[INFO] 采集器: 店透视 Mac 完整版；数据保存至本机${importLocal ? '并写入报告数据库' : ''}`,
     ].join('\n') + '\n'
     writeFileSync(logFile, initialLog, 'utf8')
 
@@ -87,7 +96,6 @@ export function registerCollectionHandlers(prisma: PrismaClient) {
           data: { pid: currentPid },
         })
 
-        const script = input.downloadScript ?? defaultDownloadScript()
         await runLocalCollection({
           db: prisma,
           jobId,
@@ -100,12 +108,10 @@ export function registerCollectionHandlers(prisma: PrismaClient) {
             downloadScript: script,
             params: {
               topN,
-              ...(limit !== undefined ? { limit } : {}),
               searchPages,
               minPrice,
               maxPrice,
               speedProfile,
-              importMysql,
             },
           },
           workDir,
@@ -127,7 +133,7 @@ export function registerCollectionHandlers(prisma: PrismaClient) {
                   `[INFO] 全部 ${topN} 个商品抓取完成`,
                   `=== batch summary`,
                   `[INFO] 生成导出清单与明细表格: product.xlsx`,
-                  importMysql ? `=== mysql import\n[INFO] 本地商品快照清洗入库完毕` : `[INFO] 跳过自动入库`,
+                  `[INFO] 离线演示不写入商品快照`,
                   `[INFO] 采集流程全部成功完成！`,
                 ].join('\n') + '\n'
 
@@ -137,14 +143,15 @@ export function registerCollectionHandlers(prisma: PrismaClient) {
             : undefined,
         })
       } catch (error) {
+        const job = await prisma.localJob.findUnique({ where: { jobId }, select: { status: true } })
+        if (job?.status === 'cancelled') return
         logger.error('collection failed', error)
         try {
           const errLog = `\n[${new Date().toISOString()}] [ERROR] 任务异常失败: ${error instanceof Error ? error.message : String(error)}\n`
           writeFileSync(logFile, errLog, { flag: 'a' })
         } catch {}
       } finally {
-        running = false
-        if (currentJobId === jobId) currentJobId = null
+        if (currentJobId === jobId) { currentJobId = null; running = false }
       }
     })()
 
@@ -156,11 +163,8 @@ export function registerCollectionHandlers(prisma: PrismaClient) {
       return { cancelled: false, reason: '当前无正在运行的采集任务' }
     }
     const targetJobId = currentJobId
-    running = false
-    currentJobId = null
     try {
       // 真正终止 Python 子进程，避免后台继续写入结果
-      killPythonProcesses(targetJobId)
       await prisma.localJob.updateMany({
         where: { jobId: targetJobId },
         data: {
@@ -169,6 +173,7 @@ export function registerCollectionHandlers(prisma: PrismaClient) {
           finishedAt: new Date(),
         },
       })
+      killPythonProcesses(targetJobId)
       const workDir = workDirFor(targetJobId)
       const logFile = join(workDir, 'run.log')
       if (existsSync(logFile)) {

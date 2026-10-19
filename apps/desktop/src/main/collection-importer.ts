@@ -39,6 +39,8 @@ export interface CollectedProduct {
   skus?: CollectedSku[]
   qas?: CollectedQa[]
   reviews?: CollectedReview[]
+  /** 原始商品字段、图片侧写与导出目录，供追溯和后续图片分析使用。 */
+  sourceData?: Prisma.InputJsonValue
 }
 
 export interface ImportCollectedInput {
@@ -67,6 +69,7 @@ function rawJsonFor(product: CollectedProduct): Prisma.InputJsonValue | (typeof 
   if (product.salesAmount != null) raw.salesAmount = product.salesAmount
   if (product.imageUrl) raw.imageUrl = product.imageUrl
   if (product.productUrl) raw.productUrl = product.productUrl
+  if (product.sourceData) raw.sourceData = product.sourceData
   return Object.keys(raw).length ? (raw as Prisma.InputJsonValue) : Prisma.JsonNull
 }
 

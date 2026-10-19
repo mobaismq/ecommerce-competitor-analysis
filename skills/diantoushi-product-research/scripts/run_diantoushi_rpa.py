@@ -20,10 +20,11 @@ from urllib.request import Request, urlopen
 SKILL_DIR = Path(__file__).resolve().parents[1]
 CHECK_GUARD = SKILL_DIR / "scripts" / "check_taobao_guard.py"
 COLLECT_EXPORTS = SKILL_DIR / "scripts" / "collect_exports.py"
-# 优先使用 workspace 内的 mysql-import skill，保持单一可信来源
-_WORKSPACE_MYSQL_IMPORT = SKILL_DIR.parent / "mysql-import" / "bin" / "run_mysql_import.py"
-MYSQL_IMPORT = _WORKSPACE_MYSQL_IMPORT if _WORKSPACE_MYSQL_IMPORT.exists() else Path("/Users/shuishoukeke/.codex/skills/mysql-import/bin/run_mysql_import.py")
-COMPETITOR_ANALYSIS = Path("/Users/shuishoukeke/.codex/skills/competitor-analysis/bin/run_competitor_analysis.py")
+MYSQL_IMPORT = SKILL_DIR.parent / "mysql-import" / "bin" / "run_mysql_import.py"
+COMPETITOR_ANALYSIS = Path(os.environ.get(
+    "DTS_COMPETITOR_ANALYSIS_SCRIPT",
+    str(SKILL_DIR.parent / "competitor-analysis" / "bin" / "run_competitor_analysis.py"),
+)).expanduser()
 CHROME_WINDOW_ID: Optional[int] = None
 
 SPEED_PROFILES: dict[str, dict[str, float]] = {
@@ -939,7 +940,7 @@ def click_visible_diantoushi_entry(label: str) -> dict[str, Any]:
     span 上，真正响应 hover/click 的是外层菜单行。这里优先选择菜单行，
     否则会出现点到 `商品图` 文案但二级菜单没有展开的问题。
     """
-    js = f"""
+    js = rf"""
 (() => {{
   const label = {json.dumps(label, ensure_ascii=False)};
   const visible = (e) => {{
@@ -1010,7 +1011,7 @@ def click_visible_diantoushi_entry(label: str) -> dict[str, Any]:
 
 
 def locate_visible_diantoushi_entry(label: str) -> dict[str, Any]:
-    js = f"""
+    js = rf"""
 (() => {{
   const label = {json.dumps(label, ensure_ascii=False)};
   const visible = (e) => {{
@@ -5129,10 +5130,14 @@ def write_xlsx(path: Path, sheet_name: str, headers: list[str], rows: list[list[
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>'
     )
-    for row in sheet_rows:
-        sheet_xml += "<row>"
-        for cell in row:
-            sheet_xml += f'<c t="inlineStr"><is><t xml:space="preserve">{_xml_escape(cell)}</t></is></c>'
+    for row_index, row in enumerate(sheet_rows, start=1):
+        sheet_xml += f'<row r="{row_index}">'
+        for column_index, cell in enumerate(row, start=1):
+            column_name = ""
+            while column_index:
+                column_index, remainder = divmod(column_index - 1, 26)
+                column_name = chr(65 + remainder) + column_name
+            sheet_xml += f'<c r="{column_name}{row_index}" t="inlineStr"><is><t xml:space="preserve">{_xml_escape(cell)}</t></is></c>'
         sheet_xml += "</row>"
     sheet_xml += "</sheetData></worksheet>"
     content_types = (
@@ -6023,8 +6028,7 @@ def spawn_background(args: argparse.Namespace) -> dict[str, Any]:
         command += ["--top-n", str(args.top_n)]
     if args.master_dir:
         command += ["--master-dir", args.master_dir]
-    if args.speed_profile != "balanced":
-        command += ["--speed-profile", args.speed_profile]
+    command += ["--speed-profile", args.speed_profile, "--scrape-mode", args.scrape_mode]
     if args.batch_delay is not None:
         command += ["--batch-delay", str(args.batch_delay)]
     if args.export_cooldown is not None:
@@ -6076,7 +6080,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--analysis-ad-fee-rate", type=float, default=0.0, help="Ad/traffic fee rate for post-import profit simulation.")
     parser.add_argument("--analysis-target-margin", type=float, default=0.30, help="Target gross margin for post-import profit simulation.")
     parser.add_argument("--top-n", type=int, default=1, help="Export the top N search results by visible sales/payment count. Use 100 for Top100 batch mode.")
-    parser.add_argument("--master-dir", help="Batch output root directory. Defaults to Desktop/店透视批量导出-<product>-TopN-<timestamp>.")
+    parser.add_argument("--master-dir", help="Batch output root directory. Defaults to package/rpa_runs/店透视批量导出-<product>-TopN-<timestamp>.")
     parser.add_argument("--speed-profile", choices=sorted(SPEED_PROFILES), default="fast", help="Download pacing profile. Default fast shortens 店透视 export cooldowns/waits only; Taobao page pacing (batch_delay/search_scroll_wait) stays at balanced levels. Use conservative/balanced for >=20s export cooldowns.")
     parser.add_argument("--batch-delay", type=float, default=None, help="Seconds to wait between products in batch mode. Defaults by --speed-profile; MySQL import time counts toward this cooldown.")
     parser.add_argument("--export-cooldown", type=float, default=None, help="Minimum seconds between heavy 店透视 export actions. fast allows >=8s; conservative/balanced raise values below 20 to 20.")

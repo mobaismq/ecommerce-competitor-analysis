@@ -46,6 +46,10 @@ describe('parseRpaProgress', () => {
     expect(result.label).toBe('清洗入库')
   })
 
+  it('汇总后写入本地数据库时显示清洗入库', () => {
+    expect(parseRpaProgress('=== batch item 1/1\n=== batch summary\n=== local import\n', 1).label).toBe('清洗入库')
+  })
+
   it('能识别批次汇总与报告阶段', () => {
     const log = `
 === batch item 50/50

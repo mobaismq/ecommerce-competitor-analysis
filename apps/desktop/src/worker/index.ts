@@ -262,7 +262,7 @@ export function createBuiltinHandlers(): Record<string, CapabilityHandler> {
     },
     'report.generate': async (payload) => generateReport(payload as GenerateReportInput),
     'report.jobs': async (payload) => listReportJobs(payload as { tenantId: string; status?: string; page?: number; pageSize?: number }),
-    'report.list': async (payload) => listReports(payload as { tenantId: string; keyword?: string; status?: string; page?: number; pageSize?: number }),
+    'report.list': async (payload) => listReports(payload as Parameters<typeof listReports>[0]),
     'report.latest': async (payload) => latestReport(payload as { tenantId: string; keyword?: string }),
     'report.detail': async (payload) => getReport(payload as { tenantId: string; runId: string }),
     'report.export': async (payload) => exportReport(payload as { userId: string; tenantId: string; runId: string; format: ReportExportFormat }),

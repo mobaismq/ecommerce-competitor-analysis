@@ -16,9 +16,9 @@ NS = {
 }
 
 BASE_DIR = Path(__file__).resolve().parent
-DEFAULT_PRODUCT_FILE = BASE_DIR / "商品数据ID_808636994094_2026-07-01 (1).xlsx"
-DEFAULT_SKU_FILE = BASE_DIR / "店透-SKU预览-表格-808636994094-2026-07-01 (4).xlsx"
-DEFAULT_QA_FILE = BASE_DIR / "店透视-问大家分析-808636994094-2026-07-01 (1).xlsx"
+DEFAULT_PRODUCT_FILE = BASE_DIR / "product.xlsx"
+DEFAULT_SKU_FILE = BASE_DIR / "sku.xlsx"
+DEFAULT_QA_FILE = BASE_DIR / "qa.xlsx"
 DEFAULT_OUTPUT_DIR = BASE_DIR / "cleaned_output"
 
 CANONICAL_HEADERS = {
