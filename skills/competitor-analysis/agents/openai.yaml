@@ -1,0 +1,4 @@
+interface:
+  display_name: "竞品推荐报告"
+  short_description: "Query MySQL snapshots and generate competitor recommendations"
+  default_prompt: "Use $competitor-analysis to query stored product snapshot data from MySQL and generate a competitor recommendation report."

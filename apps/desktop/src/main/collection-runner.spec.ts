@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { getWorkerPrisma } from '../worker/worker-db'
+import { creativeFixture } from '../worker/test-fixtures/creative'
+import { REPORT_SECTION_TITLES } from '../shared/report-skill'
 import { generateReport, priceBandsPreview } from '../worker/report-capability'
 import { buildDownloadArgs, defaultDownloader, runLocalCollection } from './collection-runner'
 import { runPythonTracked } from './python-runner'
@@ -56,7 +58,7 @@ describe('desktop collection pipeline', () => {
     const preview = await priceBandsPreview({ tenantId: 'local', keyword: '测试耳机' })
     expect(preview.priceBands[0]).toMatchObject({ productCount: 1, soldTotal: 100 })
     const report = await generateReport({ userId: 'test-user', tenantId: 'local', keyword: '测试耳机' }, {
-      generateText: async () => ({ text: '{"summary":"离线测试结果"}', model: 'offline-test' }),
+      generateText: async () => ({ text: JSON.stringify({ ...creativeFixture(), summary: '离线测试结果', markdown: REPORT_SECTION_TITLES.map((title) => `## ${title}\n信息不足`).join('\n\n'), reviewAnalysis: [{ reviewId: 'review-0', sentiment: 'positive', quote: '性价比', point: '价格' }] }), model: 'offline-test' }),
       analyzeImage: async () => { throw new Error('No image request expected') },
     })
     expect(report.competitorCount).toBe(1)

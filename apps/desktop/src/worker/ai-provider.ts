@@ -24,6 +24,12 @@ export interface RealAiProvider {
   streamVisionText(request: VisionRequest, emit: (event: StreamEvent) => void): Promise<{ text: string; model: string }>
 }
 
+
+export function anthropicImage(url: string) {
+  const match = /^data:(image\/(?:jpeg|png|gif|webp));base64,([A-Za-z0-9+/=\s]+)$/.exec(url)
+  return { type: 'image', source: match ? { type: 'base64', media_type: match[1], data: match[2].replace(/\s/g, '') } : { type: 'url', url } }
+}
+
 export function createRealAiProvider(userId: string): RealAiProvider {
   const config = resolveEffectiveConfig(userId)
   if (!config) throw new CapabilityNotConfiguredError()
@@ -110,12 +116,12 @@ export function createRealAiProvider(userId: string): RealAiProvider {
       },
       analyzeImage: async (request) => {
         const content: unknown[] = [{ type: 'text', text: request.prompt }]
-        for (const url of request.images) content.push({ type: 'image', source: { type: 'url', url } })
+        for (const url of request.images) content.push(anthropicImage(url))
         const response = await fetch(endpoint, {
           method: 'POST',
           headers,
           body: JSON.stringify({
-            model: config.textModel,
+            model: visionModel,
             max_tokens: request.maxTokens ?? 1024,
             ...(request.system ? { system: request.system } : {}),
             messages: [{ role: 'user', content }],
@@ -124,12 +130,12 @@ export function createRealAiProvider(userId: string): RealAiProvider {
         })
         const payload = await response.json().catch(() => ({}))
         if (!response.ok) throw new Error(`AI 请求失败: HTTP ${response.status}`)
-        return { text: textOf(payload), model: config.textModel }
+        return { text: textOf(payload), model: visionModel }
       },
       streamText: (request, emit) => stream(request, request.prompt, config.textModel, emit),
       streamVisionText: (request, emit) => stream(
         request,
-        [{ type: 'text', text: request.prompt }, ...request.images.map((url) => ({ type: 'image', source: { type: 'url', url } }))],
+        [{ type: 'text', text: request.prompt }, ...request.images.map(anthropicImage)],
         visionModel,
         emit,
       ),

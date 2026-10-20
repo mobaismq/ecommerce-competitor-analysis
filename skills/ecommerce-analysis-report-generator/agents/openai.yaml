@@ -1,0 +1,5 @@
+interface:
+  display_name: "电商分析报告生成"
+  short_description: "整合主图、评价、问大家生成竞品报告"
+  brand_color: "#3B82F6"
+  default_prompt: "Use $ecommerce-analysis-report-generator to generate a Chinese ecommerce competitor analysis report from product title, main image analysis, reviews, Q&A, and SKU data."

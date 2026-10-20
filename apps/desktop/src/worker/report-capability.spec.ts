@@ -20,6 +20,8 @@ import {
   type ReportAiProvider,
 } from './report-capability'
 import { getWorkerPrisma, workerDataRoots } from './worker-db'
+import { creativeFixture } from './test-fixtures/creative'
+import { REPORT_SECTION_TITLES } from '../shared/report-skill'
 
 const root = mkdtempSync(join(tmpdir(), 'report-cap-'))
 beforeAll(() => {
@@ -31,9 +33,10 @@ afterAll(() => {
   rmSync(root, { recursive: true, force: true })
 })
 
+const skillResult = JSON.stringify({ summary: '高性价比需求明确', markdown: REPORT_SECTION_TITLES.map((title) => `## ${title}\n实际数据分析`).join('\n\n'), sellingPoints: ['性价比'], painPoints: ['偏贵'], userDemands: ['希望续航更久'], opportunities: ['学生群体'], evidence: [{ claim: '标题提及商品', sourceIds: ['title'], quote: '商品标题' }], reviewAnalysis: [{ reviewId: 'review-0', sentiment: 'positive', quote: '质量不错', point: '质量' }], imageObservations: [{ imageId: 'main_image-0', observation: '主体清晰', ocr: ['无线耳机'] }] })
 const provider: ReportAiProvider = {
-  generateText: async () => ({ text: JSON.stringify({ summary: '高性价比需求明确', sellingPoints: [{ term: '性价比', count: 3 }], painPoints: ['偏贵'], userDemands: ['希望续航更久'], opportunities: ['学生群体'] }), model: 'mock-text' }),
-  analyzeImage: async () => ({ text: JSON.stringify({ summary: '主体清晰', ocr: ['无线耳机'] }), model: 'mock-vision' }),
+  generateText: async (request) => ({ text: request.system?.includes('[stage:creative-report]') ? JSON.stringify(creativeFixture()) : request.system?.includes('[stage:skill-report]') ? skillResult : JSON.stringify({ summary: '高性价比需求明确', sellingPoints: [{ term: '性价比', count: 3 }], painPoints: ['偏贵'], userDemands: ['希望续航更久'], opportunities: ['学生群体'] }), model: 'mock-text' }),
+  analyzeImage: async (request) => ({ text: request.system?.includes('[stage:skill-report]') ? skillResult : JSON.stringify({ summary: '主体清晰', ocr: ['无线耳机'] }), model: 'mock-vision' }),
 }
 
 async function seedCollection() {
@@ -108,6 +111,7 @@ describe('report capabilities', () => {
       generateText: async () => { throw new Error('Must not call AI for an existing report') }, analyzeImage: provider.analyzeImage,
     })
     expect(reused.reused).toBe(true)
+
   })
 
   it('missing key fails honestly without network', async () => {
@@ -147,14 +151,16 @@ describe('report capabilities', () => {
     expect(insights.length).toBeGreaterThan(1)
 
     const detail = await getReport({ tenantId: 'local', runId: generated.reportId })
-    expect(detail.reportJson).toMatchObject({ summary: '高性价比需求明确' })
+    expect(detail.reportJson).toMatchObject({ reportVersion: 'ecommerce-report-20261020-v1', productReports: [{ summary: '高性价比需求明确' }], sellingPoints: [{ term: '性价比', count: 1 }] })
     expect(detail.priceBands[0]).toMatchObject({ bandName: '199元', productCount: 1 })
 
     const exported = await exportReport({ userId: 'u1', tenantId: 'local', runId: generated.reportId, format: 'markdown' })
     const absolute = join(workerDataRoots().userRoot, exported.storageKey)
     expect(existsSync(absolute)).toBe(true)
     expect(exported.size).toBeGreaterThan(0)
-    expect(exported.content).toContain('# 竞品分析报告')
+    for (const title of REPORT_SECTION_TITLES) expect(exported.content).toContain(title)
+    expect(exported.content).toContain('主图内容脚本')
+    expect(exported.content).toContain('详情页内容脚本')
     const asset = await db.generatedAsset.findUnique({ where: { storageKey: exported.storageKey } })
     expect(asset?.analysisRunId).toBe(generated.reportId)
 
@@ -166,6 +172,16 @@ describe('report capabilities', () => {
     expect(list.total).toBe(1)
     const reused = await generateReport({ userId: 'u1', tenantId: 'local', keyword: '耳机' }, provider)
     expect(reused.reused).toBe(true)
+    const originalHash = run!.reportHash
+    await expect(generateReport({ userId: 'u1', tenantId: 'local', keyword: '耳机', jobId: run!.jobId, regenerate: true }, {
+      generateText: async () => { throw new Error('offline failure') }, analyzeImage: async () => { throw new Error('offline failure') },
+    })).rejects.toThrow('offline failure')
+    expect((await db.analysisRun.findUnique({ where: { id: run!.id } }))!.reportHash).toBe(originalHash)
+    const updated = await generateReport({ userId: 'u1', tenantId: 'local', keyword: '耳机', jobId: run!.jobId, regenerate: true }, provider)
+    expect(updated.reused).toBe(false)
+    expect(updated.reportId).toBe(run!.id)
+    expect(updated.reportNo).not.toBe(run!.reportNo)
+    expect(await db.analysisPriceBand.count({ where: { analysisRunId: run!.id } })).toBe(1)
   })
 
   it('serves price preview, reruns a band, runs vision analysis, and data agent chat offline', async () => {

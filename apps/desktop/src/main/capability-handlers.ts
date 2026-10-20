@@ -40,7 +40,7 @@ export function registerCapabilityHandlers(existing?: WorkerManager) {
       onStream: (streamEvent) => {
         if (!sender.isDestroyed()) sender.send('capability:stream', streamEvent)
       },
-      timeoutMs: LONG_RUNNING_CAPABILITIES.has(capability) ? LONG_RUNNING_TIMEOUT_MS : undefined,
+      timeoutMs: capability === 'report.generate' ? 2 * 60 * 60_000 : LONG_RUNNING_CAPABILITIES.has(capability) ? LONG_RUNNING_TIMEOUT_MS : undefined,
     })
   })
 }

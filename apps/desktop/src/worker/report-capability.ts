@@ -1,6 +1,9 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { Prisma } from '../generated/prisma'
 import { createRealAiProvider, type RealAiProvider } from './ai-provider'
+import { createSkillReports, prepareProductEvidence, type ReportProgress } from './report-skill-pipeline'
+import { createCreativePlan } from './creative-report'
+import { creativePlanMarkdown, type CreativePlan } from '../shared/creative-report'
 import { getWorkerPrisma, putBytes, readBytesByKey, workerDataRoots } from './worker-db'
 
 export type ReportAiProvider = Pick<RealAiProvider, 'generateText' | 'analyzeImage'>
@@ -18,11 +21,14 @@ export interface GenerateReportInput {
   keyword: string
   limit?: number
   collectionJobId?: string
+  jobId?: string
+  regenerate?: boolean
 }
 
 interface RichSku {
   name: string | null
   price: number | null
+  imageUrl?: string | null
 }
 
 interface LoadedProduct {
@@ -38,6 +44,7 @@ interface LoadedProduct {
   rawJson: Record<string, unknown> | null
   skus: RichSku[]
   reviews: string[]
+  reviewItems: Array<{ content: string; rating: number | null }>
   qas: string[]
 }
 
@@ -59,9 +66,6 @@ interface RichPriceBand extends PriceBand {
   }>
 }
 
-const POSITIVE_TERMS = ['性价比', '质量', '耐用', '好用', '满意', '实惠', '清晰', '精准', '便携', '防水', '美观', '方便']
-const NEGATIVE_TERMS = ['差', '不行', '失望', '容易坏', '坏了', '退货', '难用', '偏贵', '太小', '漏', '慢', '脏']
-const NEED_TERMS = ['希望', '需要', '建议', '能不能', '多久', '怎么', '是否', '支持']
 export const REPORT_EXPORT_FORMATS = ['json', 'markdown', 'html'] as const
 export type ReportExportFormat = (typeof REPORT_EXPORT_FORMATS)[number]
 
@@ -135,16 +139,6 @@ function buildReportNo() {
   return `R${date}${randomUUID().slice(0, 8).toUpperCase()}`
 }
 
-function termCounts(texts: string[], terms: string[]) {
-  const rows: Array<{ term: string; count: number }> = []
-  for (const term of terms) {
-    let count = 0
-    for (const text of texts) if (text.includes(term)) count += 1
-    if (count > 0) rows.push({ term, count })
-  }
-  return rows.sort((a, b) => b.count - a.count).slice(0, 8)
-}
-
 async function loadProducts(collectionJobId: string) {
   const db = getWorkerPrisma()
   const rows = await db.productSnapshot.findMany({ where: { collectionJobId }, orderBy: { price: 'asc' } })
@@ -158,14 +152,14 @@ async function loadProducts(collectionJobId: string) {
   const skuByProduct = new Map<string, RichSku[]>()
   for (const sku of skus) {
     const list = skuByProduct.get(sku.productSnapshotId) ?? []
-    list.push({ name: sku.name, price: sku.price })
+    list.push({ name: sku.name, price: sku.price, imageUrl: sku.imageUrl })
     skuByProduct.set(sku.productSnapshotId, list)
   }
   const qaByProduct = new Map<string, string[]>()
   for (const qa of qas) {
     if (!qa.question) continue
     const list = qaByProduct.get(qa.productSnapshotId) ?? []
-    list.push(qa.question)
+    list.push(`问题：${qa.question}${qa.answer ? `；回答：${qa.answer}` : ''}`)
     qaByProduct.set(qa.productSnapshotId, list)
   }
   const reviewByProduct = new Map<string, string[]>()
@@ -190,6 +184,7 @@ async function loadProducts(collectionJobId: string) {
       rawJson,
       skus: skuByProduct.get(row.id) ?? [],
       reviews: reviewByProduct.get(row.id) ?? [],
+      reviewItems: reviews.filter((review) => review.productSnapshotId === row.id && review.content).map((review) => ({ content: review.content!, rating: review.rating })),
       qas: qaByProduct.get(row.id) ?? [],
     }
   })
@@ -224,24 +219,6 @@ function buildRichPriceBands(products: LoadedProduct[], baseBands: PriceBand[]):
   })
 }
 
-function buildAiPrompt(opts: { keyword: string; competitorCount: number; priceBands: RichPriceBand[]; reviewTexts: string[]; qaTexts: string[] }) {
-  const bandLines = opts.priceBands.map((band) => {
-    const reps = band.representativeProducts.map((product) => `${product.title ?? '无标题'}(${product.shopName ?? '未知店铺'} ¥${product.price ?? '-'})`).join(' | ')
-    return `- ${band.bandName}：${band.productCount}款，均价¥${band.avgPrice ?? '-'}${reps ? `；代表：${reps}` : ''}`
-  }).join('\n')
-  const reviewSample = opts.reviewTexts.slice(0, 60).join('\n').slice(0, 2000)
-  const qaSample = opts.qaTexts.slice(0, 60).join('\n').slice(0, 1200)
-  return [
-    '基于已采集竞品数据生成竞品分析报告。',
-    `关键词：${opts.keyword}`,
-    `竞品样本数：${opts.competitorCount}`,
-    `价格带概况：\n${bandLines}`,
-    reviewSample ? `评价样本：\n${reviewSample}` : '（无评价样本）',
-    qaSample ? `问大家样本：\n${qaSample}` : '（无问大家样本）',
-    '请输出 JSON：{"summary":"整体结论","sellingPoints":[{"term":"卖点词","count":次数}],"painPoints":["痛点"],"userDemands":["用户需求"],"opportunities":["机会点"]}。数据不足的字段省略，不要编造数字。',
-  ].join('\n')
-}
-
 function buildInsights(opts: { summary: string; sellingPoints: Array<{ term: string; count: number }>; painPoints: string[]; userDemands: string[]; opportunities: string[] }) {
   const rows: Array<{ type: string; title: string; content: string }> = [
     { type: 'summary', title: 'AI 总结', content: opts.summary.slice(0, 500) || '未生成总结' },
@@ -253,89 +230,81 @@ function buildInsights(opts: { summary: string; sellingPoints: Array<{ term: str
   return rows
 }
 
-export async function generateReport(input: GenerateReportInput, provider?: ReportAiProvider) {
+// A batch may be submitted again while another window still shows its old state.
+const generatingJobs = new Set<string>()
+export async function generateReport(input: GenerateReportInput, provider?: ReportAiProvider, progress?: (event: ReportProgress) => void) {
   const keyword = String(input.keyword ?? '').trim()
   if (!keyword) throw new Error('keyword 不能为空')
   const db = getWorkerPrisma()
   const collection = await db.collectionJob.findFirst({
-    where: { tenantId: input.tenantId, status: 'success', ...(input.collectionJobId ? { id: input.collectionJobId } : { keyword: { contains: keyword } }) },
+    where: { tenantId: input.tenantId, status: 'success', ...(input.collectionJobId ? { id: input.collectionJobId } : input.jobId ? { jobId: input.jobId } : { keyword: { contains: keyword } }) },
     orderBy: { createdAt: 'desc' },
   })
   if (!collection) throw new Error('未找到本机采集数据，请先完成采集')
-
   const existing = await db.analysisRun.findUnique({ where: { jobId: collection.jobId } })
-  if (existing && ['success', 'completed'].includes(existing.status)) {
+  if (existing && ['success', 'completed'].includes(existing.status) && !input.regenerate && rawRecord(existing.reportJson)?.creativePlan) {
     return { ok: true, reused: true, jobId: existing.jobId, reportId: existing.id,
       reportNo: existing.reportNo ?? undefined, reportHash: existing.reportHash ?? undefined,
       competitorCount: existing.competitorCount ?? undefined, status: existing.status }
   }
-
-  const products = await loadProducts(collection.id)
-  if (!products.length) throw new Error('本机采集数据为空，无法生成报告')
-
-  const baseBands = computePriceBands(products.map((product) => product.price).filter((price): price is number => price != null))
-  const richPriceBands = buildRichPriceBands(products, baseBands)
-  const reviewTexts = products.flatMap((product) => product.reviews)
-  const qaTexts = products.flatMap((product) => product.qas)
-  const selected = provider ?? createRealAiProvider(input.userId)
-  const ai = await selected.generateText({
-    prompt: buildAiPrompt({ keyword: collection.keyword ?? keyword, competitorCount: products.length, priceBands: richPriceBands, reviewTexts, qaTexts }),
-    system: '你是电商竞品分析报告助手。请仅输出一个合法 JSON 对象，不要输出任何多余文字、Markdown 或代码块。',
-    maxTokens: 10000,
-  })
-
-  const parsed = extractJson(ai.text)
-  const sellingPoints = Array.isArray(parsed?.sellingPoints) && parsed.sellingPoints.length ? parsed.sellingPoints : termCounts(reviewTexts, POSITIVE_TERMS)
-  const painPoints = Array.isArray(parsed?.painPoints) && parsed.painPoints.length ? parsed.painPoints.map((item: unknown) => String(item)) : termCounts(reviewTexts, NEGATIVE_TERMS).map((item) => item.term)
-  const userDemands = Array.isArray(parsed?.userDemands) && parsed.userDemands.length ? parsed.userDemands.map((item: unknown) => String(item)) : termCounts(qaTexts, NEED_TERMS).map((item) => item.term)
-  const opportunities = Array.isArray(parsed?.opportunities) ? parsed.opportunities.map((item: unknown) => String(item)) : []
-  const summary = typeof parsed?.summary === 'string' && parsed.summary.trim() ? parsed.summary : (ai.text ?? '')
-  const insights = buildInsights({ summary, sellingPoints, painPoints, userDemands, opportunities })
-  const reportJson = { summary, priceBands: richPriceBands, sellingPoints, painPoints, userDemands, opportunities, insights }
-  const reportHash = createHash('sha256').update(JSON.stringify(reportJson)).digest('hex')
-  const reportNo = buildReportNo()
-
-  const run = await db.analysisRun.create({
-    data: {
-      tenantId: input.tenantId,
-      jobId: collection.jobId,
-      analysisType: 'market',
-      status: 'success',
-      keyword: collection.keyword ?? keyword,
-      reportNo,
-      reportHash,
-      competitorCount: products.length,
-      costModelJson: { model: ai.model },
-      reportJson: reportJson as unknown as Prisma.InputJsonValue,
-    },
-  })
-  for (const [index, band] of baseBands.entries()) {
-    const savedBand = await db.analysisPriceBand.create({
-      data: {
-        analysisRunId: run.id,
-        bandName: band.bandName,
-        priceMin: band.priceMin,
-        priceMax: band.priceMax,
-        productCount: band.productCount,
-      },
-    })
-    const rich = richPriceBands[index]
-    if (rich) {
-      await db.analysisBandProduct.createMany({
-        data: rich.representativeProducts.map((product) => ({
-          priceBandId: savedBand.id,
-          productSnapshotId: product.productSnapshotId,
-          externalProductId: product.externalProductId,
-          title: product.title,
-          price: product.price,
-          imageUrl: product.imageUrl,
-        })),
-      })
-    }
-  }
-  await db.analysisInsight.createMany({ data: insights.map((insight) => ({ analysisRunId: run.id, type: insight.type, title: insight.title.slice(0, 191), content: insight.content.slice(0, 191) })) })
-
-  return { ok: true, reused: false, jobId: run.jobId, reportId: run.id, reportNo, reportHash, competitorCount: products.length, status: 'success', model: ai.model }
+  if (generatingJobs.has(collection.jobId)) throw new Error('该批次正在生成报告，请等待完成')
+  generatingJobs.add(collection.jobId)
+  try {
+    const allProducts = await loadProducts(collection.id)
+    if (!allProducts.length) throw new Error('本机采集数据为空，无法生成报告')
+    if (input.limit != null && (!Number.isInteger(input.limit) || input.limit < 1)) throw new Error('商品数量必须是正整数')
+    const products = input.limit ? allProducts.slice(0, input.limit) : allProducts
+    const baseBands = computePriceBands(products.map((product) => product.price).filter((price): price is number => price != null))
+    const richPriceBands = buildRichPriceBands(products, baseBands)
+    const selected = provider ?? createRealAiProvider(input.userId)
+    const generated = await createSkillReports(products, selected, progress)
+    const productReports = generated.reports
+    progress?.({ done: products.length, total: products.length, stage: '正在整理主图与详情页内容脚本' })
+    const creativePlan = await createCreativePlan(collection.keyword ?? keyword, products, productReports, selected)
+    const summary = productReports.map((report) => `${report.title}：${report.summary}`).join('\n\n')
+    const unique = (field: 'painPoints' | 'userDemands' | 'opportunities') => [...new Set(productReports.flatMap((report) => report[field]))]
+    const counts = new Map<string, number>()
+    for (const report of productReports) for (const term of new Set(report.sellingPoints)) counts.set(term, (counts.get(term) ?? 0) + 1)
+    const sellingPoints = [...counts].map(([term, count]) => ({ term, count })).sort((a, b) => b.count - a.count)
+    const painPoints = unique('painPoints'), userDemands = unique('userDemands'), opportunities = unique('opportunities')
+    const insights = buildInsights({ summary, sellingPoints, painPoints, userDemands, opportunities })
+    const markdown = [`# ${collection.keyword ?? keyword} 竞品单品分析报告`,
+      `本批共 ${allProducts.length} 件商品，本次分析 ${products.length} 件。卖点计数为覆盖商品数。`,
+      ...productReports.map((report) => [
+        `# ${report.title}（${report.productId}）`, report.markdown,
+        '### 本次实际使用的数据',
+        `评价 ${report.sampleCounts.reviewsUsed}/${report.sampleCounts.reviewsTotal} 条；问答 ${report.sampleCounts.qaUsed}/${report.sampleCounts.qaTotal} 条；图片 ${report.sampleCounts.imagesUsed}/${report.sampleCounts.imagesAvailable} 张。`,
+        ...report.limitations.map((item) => `- ${item}`),
+        '### 证据索引', ...report.evidence.map((item) => `- ${item.claim}【${item.confidence}】（${item.sourceIds.join('、')}）：${item.quote}`),
+      ].join('\n\n')),
+    ].join('\n\n')
+    const reportJson = { summary, priceBands: richPriceBands, sellingPoints, sellingPointCountUnit: 'products', painPoints, userDemands, opportunities, insights,
+      reportVersion: generated.version, templateHash: generated.templateHash, productReports, creativePlan, markdown, collectionProductCount: allProducts.length }
+    const reportHash = createHash('sha256').update(JSON.stringify(reportJson)).digest('hex')
+    const reportNo = buildReportNo()
+    // Keep an existing report readable until every new product report has passed validation.
+    const run = await db.$transaction(async (tx) => {
+      const data = { tenantId: input.tenantId, jobId: collection.jobId, analysisType: 'market', status: 'success',
+        keyword: collection.keyword ?? keyword, reportNo, reportHash, competitorCount: products.length,
+        costModelJson: { models: [...new Set(productReports.flatMap((report) => [report.model, ...(report.visionModel ? [report.visionModel] : [])]))] }, reportJson: reportJson as unknown as Prisma.InputJsonValue }
+      const saved = await tx.analysisRun.upsert({ where: { jobId: collection.jobId }, create: data, update: data })
+      const oldBands = await tx.analysisPriceBand.findMany({ where: { analysisRunId: saved.id }, select: { id: true } })
+      await tx.analysisBandProduct.deleteMany({ where: { priceBandId: { in: oldBands.map((band) => band.id) } } })
+      await tx.analysisPriceBand.deleteMany({ where: { analysisRunId: saved.id } })
+      await tx.analysisInsight.deleteMany({ where: { analysisRunId: saved.id } })
+      for (const [index, band] of baseBands.entries()) {
+        const savedBand = await tx.analysisPriceBand.create({ data: { analysisRunId: saved.id, ...band } })
+        const representatives = richPriceBands[index]?.representativeProducts ?? []
+        if (representatives.length) await tx.analysisBandProduct.createMany({ data: representatives.map((product) => ({
+          priceBandId: savedBand.id, productSnapshotId: product.productSnapshotId, externalProductId: product.externalProductId,
+          title: product.title, price: product.price, imageUrl: product.imageUrl,
+        })) })
+      }
+      await tx.analysisInsight.createMany({ data: insights.map((insight) => ({ analysisRunId: saved.id, type: insight.type, title: insight.title.slice(0, 191), content: insight.content.slice(0, 191) })) })
+      return saved
+    }, { timeout: 30_000 })
+    return { ok: true, reused: false, jobId: run.jobId, reportId: run.id, reportNo, reportHash, competitorCount: products.length, status: 'success', model: productReports[0]?.model }
+  } finally { generatingJobs.delete(collection.jobId) }
 }
 
 export async function listReportJobs(input: { tenantId: string; status?: string; page?: number; pageSize?: number }) {
@@ -479,10 +448,15 @@ function renderReport(run: { reportNo: string | null; reportJson: unknown }, for
     const record = rawRecord(insight) ?? {}
     return `- ${String(record.title ?? record.type ?? '')}：${String(record.content ?? '')}`
   }).join('\n')
+  const creative = rawRecord(report.creativePlan)
+  const fullMarkdown = [creative ? creativePlanMarkdown(creative as unknown as CreativePlan) : '', typeof report.markdown === 'string' ? report.markdown : ''].filter(Boolean).join('\n\n---\n\n')
+  if (format === 'markdown' && fullMarkdown) return fullMarkdown
+  const escape = (value: string) => value.replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]!)
+  if (format === 'html' && fullMarkdown) return `<!doctype html><html lang="zh"><head><meta charset="utf-8"><title>竞品分析报告 ${escape(run.reportNo ?? '')}</title><style>body{max-width:1100px;margin:40px auto;padding:24px;font:16px/1.8 system-ui}pre{white-space:pre-wrap;overflow-wrap:anywhere}</style></head><body><pre>${escape(fullMarkdown)}</pre></body></html>`
   if (format === 'markdown') {
     return [`# 竞品分析报告 ${run.reportNo ?? ''}`, '', '## 总结', summary, '', '## 价格带', bandLines || '- 无', '', '## 洞察', insightLines || '- 无', ''].join('\n')
   }
-  return `<!doctype html><html lang="zh"><head><meta charset="utf-8"><title>竞品分析报告 ${run.reportNo ?? ''}</title></head><body><h1>竞品分析报告 ${run.reportNo ?? ''}</h1><h2>总结</h2><p>${summary}</p><h2>价格带</h2><pre>${bandLines}</pre><h2>洞察</h2><pre>${insightLines}</pre></body></html>`
+  return `<!doctype html><html lang="zh"><head><meta charset="utf-8"><title>竞品分析报告 ${run.reportNo ?? ''}</title></head><body><h1>竞品分析报告 ${run.reportNo ?? ''}</h1><h2>总结</h2><p>${escape(summary)}</p><h2>价格带</h2><pre>${escape(bandLines)}</pre><h2>洞察</h2><pre>${escape(insightLines)}</pre></body></html>`
 }
 
 export async function exportReport(input: { userId: string; tenantId: string; runId: string; format: ReportExportFormat }) {
@@ -490,7 +464,7 @@ export async function exportReport(input: { userId: string; tenantId: string; ru
   const db = getWorkerPrisma()
   const run = await resolveRun(input.runId, input.tenantId)
   const extension = input.format === 'markdown' ? 'md' : input.format
-  const storageKey = `users/${input.userId}/reports/${run.reportNo ?? run.id}/report.${extension}`
+  const storageKey = `users/${input.userId}/reports/${run.reportNo ?? run.id}-${run.reportHash?.slice(0, 10) ?? 'legacy'}/report.${extension}`
   const existing = await db.generatedAsset.findUnique({ where: { storageKey } })
   if (existing) {
     const bytes = readBytesByKey(storageKey, workerDataRoots())
@@ -559,6 +533,16 @@ export async function reportProducts(input: { tenantId: string; runId: string; k
   })
   return { ok: true, source: 'collection', collection: { id: collection.id, keyword: collection.keyword, productCount: total,
     priceRange: agentPriceRangeText(prices._min.price, prices._max.price), collectTime: collection.updatedAt.toISOString() }, products, total, page, pageSize }
+}
+
+/** Read preview bytes only for products belonging to this tenant's selected report. */
+export async function reportReferenceImages(input: { tenantId: string; runId: string }) {
+  const db = getWorkerPrisma(), run = await resolveRun(input.runId, input.tenantId)
+  const collection = await db.collectionJob.findFirst({ where: { tenantId: input.tenantId, jobId: run.jobId } })
+  if (!collection) return { images: [] }
+  const products = await loadProducts(collection.id)
+  return { images: products.slice(0, 6).flatMap((product) => prepareProductEvidence(product).images.filter((image) => image.kind === 'main_image').slice(0, 2)
+    .map((image) => ({ productId: product.externalProductId, title: product.title, id: `${product.externalProductId}:${image.id}`, dataUrl: image.image }))) }
 }
 
 export async function runMainImageAnalysis(input: { userId: string; tenantId: string; runId: string; productId?: string; imageUrl?: string }, provider?: ReportAiProvider) {
@@ -745,6 +729,7 @@ function agentReportContext(run: { keyword: string | null; reportNo: string | nu
     painPoints: agentTextList(report.painPoints, 8),
     userDemands: agentTextList(report.userDemands, 8),
     opportunities: agentTextList(report.opportunities, 8),
+    creativePlan: report.creativePlan ? { direction: rawRecord(report.creativePlan)?.direction, mainImages: rawRecord(report.creativePlan)?.mainImages, detailImages: rawRecord(report.creativePlan)?.detailImages, missingMaterials: rawRecord(report.creativePlan)?.missingMaterials } : undefined,
     priceBands: bandRecords.slice(0, 12).map((band) => ({
       name: band.bandName,
       competitorCount: band.productCount,

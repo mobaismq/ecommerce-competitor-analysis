@@ -36,6 +36,7 @@ import {
   priceBandsPreview,
   rerunBandAnalysis,
   reportProducts,
+  reportReferenceImages,
   runMainImageAnalysis,
   type GenerateReportInput,
   type ReportExportFormat,
@@ -260,12 +261,13 @@ export function createBuiltinHandlers(): Record<string, CapabilityHandler> {
       }
       return runDetailGraph(deps, { modules }, { threadId: p.jobId, emit: (event) => ctx?.emit(event) })
     },
-    'report.generate': async (payload) => generateReport(payload as GenerateReportInput),
+    'report.generate': async (payload, ctx) => generateReport(payload as GenerateReportInput, undefined, (progress) => ctx?.emit({ type: 'report-progress', data: { ...progress, collectionJobId: (payload as GenerateReportInput).collectionJobId, jobId: (payload as GenerateReportInput).jobId } })),
     'report.jobs': async (payload) => listReportJobs(payload as { tenantId: string; status?: string; page?: number; pageSize?: number }),
     'report.list': async (payload) => listReports(payload as Parameters<typeof listReports>[0]),
     'report.latest': async (payload) => latestReport(payload as { tenantId: string; keyword?: string }),
     'report.detail': async (payload) => getReport(payload as { tenantId: string; runId: string }),
     'report.export': async (payload) => exportReport(payload as { userId: string; tenantId: string; runId: string; format: ReportExportFormat }),
+    'report.references': async (payload) => reportReferenceImages(payload as { tenantId: string; runId: string }),
     'report.products': async (payload) => reportProducts(payload as { tenantId: string; runId: string; keyword?: string; productId?: string; shopName?: string; skuKeyword?: string; page?: number; pageSize?: number }),
     'report.mainImageAnalysis.run': async (payload) => runMainImageAnalysis(payload as { userId: string; tenantId: string; runId: string; productId?: string; imageUrl?: string }),
     'report.mainImageAnalysis.get': async (payload) => getMainImageAnalysis(payload as { tenantId: string; runId: string; productId: string }),

@@ -5,6 +5,10 @@ import { ArrowLeft, ArrowUpRight, Download, Loader2, RefreshCw, X } from 'lucide
 import { Message, Table } from '@arco-design/web-react'
 import { PageHeader } from '../components/PageHeader'
 import { useAuth } from '../store/auth'
+import { CreativeReportView } from '../components/CreativeReportView'
+import type { CreativePlan } from '../../../shared/creative-report'
+import { SkillProductReports } from '../components/SkillProductReports'
+import type { ProductSkillReport } from '../../../shared/report-skill'
 
 // 富报告契约对齐后端报告生成 report.service reportJson：除 summary 外含富价格带（代表商品）、卖点/痛点/需求/机会。
 interface RichSku {
@@ -30,6 +34,9 @@ interface RichPriceBand {
   }>
 }
 interface RichReportJson {
+  creativePlan?: CreativePlan
+  productReports?: ProductSkillReport[]
+  reportVersion?: string
   summary?: string
   priceBands?: RichPriceBand[]
   sellingPoints?: Array<{ term: string; count: number }>
@@ -333,6 +340,7 @@ export function AnalysisReportViewPage() {
   }
 
   const rj = report.reportJson || {}
+  if (rj.creativePlan) return <CreativeReportView plan={rj.creativePlan} reportId={report.id} reportNo={report.reportNo} keyword={report.keyword || keyword} userId={currentUserId} updatedAt={report.updatedAt} productReports={rj.productReports} />
   const summaryText = rj.summary?.trim() || ''
   // 富价格带优先，回退列表接口 analysisPriceBand 表（仅计数）
   const richBands = (rj.priceBands as RichPriceBand[] | undefined) || []
@@ -581,7 +589,7 @@ export function AnalysisReportViewPage() {
         />
       </SectionCard>
 
-      {!hasRichStory ? (
+      {rj.productReports?.length ? <SkillProductReports reports={rj.productReports} /> : !hasRichStory ? (
         // 无富结构（老报告）时仅展示 AI 策略总结
         <SectionCard badge="S" badgeColor="bg-[#7a5af8]" title="AI 策略总结" subtitle="AI 提炼的核心结论与策略建议">
           <div className="rounded-xl border border-[#eef1f5] bg-[#f8fafc] p-4 text-[14px] leading-7 text-[#344054]">

@@ -1,301 +1,77 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Alert, DatePicker, Empty, Message, Table } from '@arco-design/web-react'
+import { Alert, DatePicker, Dropdown, Empty, Menu, Message, Table } from '@arco-design/web-react'
+import { ArrowUpRight, ClipboardList, Image as ImageIcon, Layers3, MoreHorizontal, RefreshCw, Search, Sparkles } from 'lucide-react'
 import dayjs from 'dayjs'
+import type { CreativePlan } from '../../../shared/creative-report'
 import { formatDateTime } from '../utils/format'
 import { PageHeader } from '../components/PageHeader'
-import { XSearchInput } from '../components/XInput'
 import { useAuth } from '../store/auth'
+import '../styles/creative-report.css'
 
 interface AnalysisRun {
-  id: string
-  jobId: string
-  reportNo: string | null
-  status: string
-  competitorCount: number | null
-  keyword?: string | null
-  updatedAt: string
-  source?: 'collection' | 'report'
-  collectionJobId?: string | null
-  priceMin?: number | null
-  priceMax?: number | null
-  reportJson?: {
-    priceBands?: Array<{ priceMin: number; priceMax: number }>
-  } | null
+  id: string; jobId: string; reportNo: string | null; status: string; competitorCount: number | null; keyword?: string | null; updatedAt: string
+  source?: 'collection' | 'report'; collectionJobId?: string | null; priceMin?: number | null; priceMax?: number | null
+  reportJson?: { priceBands?: Array<{ priceMin: number; priceMax: number }>; creativePlan?: CreativePlan; productReports?: Array<{ sampleCounts: { reviewsTotal: number; imagesAvailable: number } }> } | null
 }
-
-// 价格区间来自报告生成时写入的 reportJson.priceBands（AnalysisRun 无 priceMin/priceMax 标量字段）
-function priceRange(row: AnalysisRun): string {
-  if (row.priceMin != null && row.priceMax != null) return `¥${row.priceMin} ~ ¥${row.priceMax}`
-  const bands = row.reportJson?.priceBands || []
-  if (!bands.length) return '—'
-  const min = Math.min(...bands.map((b) => b.priceMin))
-  const max = Math.max(...bands.map((b) => b.priceMax))
-  return `¥${min} ~ ¥${max}`
+function priceRange(row: AnalysisRun) {
+  const bands = row.reportJson?.priceBands ?? []
+  const min = row.priceMin ?? (bands.length ? Math.min(...bands.map((item) => item.priceMin)) : null)
+  const max = row.priceMax ?? (bands.length ? Math.max(...bands.map((item) => item.priceMax)) : null)
+  return min == null || max == null ? '未取得价格' : min === max ? `¥${min}` : `¥${min} – ¥${max}`
 }
-
-type StatusView = { text: string; className: string }
-
-// 状态徽章配色对照旧版 AnalysisReport.tsx STATUS_CONFIG
-function statusView(status: string): StatusView {
-  if (status === 'completed' || status === 'success') return { text: '已生成', className: 'bg-[#e8f5e9] text-[#2e7d32]' }
-  if (status === 'running') return { text: '生成中', className: 'bg-[#fff3e0] text-[#f57c00]' }
-  if (status === 'failed' || status === 'failure') return { text: '生成失败', className: 'bg-[#ffEBEE] text-[#c62828]' }
-  return { text: '未生成', className: 'bg-[#f2f4f7] text-[#86909C]' }
-}
-
 const PAGE_SIZE = 10
-
 export function ReportsListPage() {
-  const navigate = useNavigate()
-  const userId = useAuth((state) => state.user?.id ?? '')
-  const [generatingId, setGeneratingId] = useState<string | null>(null)
-
-  // 查询条件（对照旧版：输入态 + 查询后应用态）
-  const [searchKeyword, setSearchKeyword] = useState('')
-  const [startTime, setStartTime] = useState('')
-  const [endTime, setEndTime] = useState('')
-  const [reportStatus, setReportStatus] = useState('')
-  const [appliedKeyword, setAppliedKeyword] = useState('')
-  const [appliedStartTime, setAppliedStartTime] = useState('')
-  const [appliedEndTime, setAppliedEndTime] = useState('')
-  const [appliedStatus, setAppliedStatus] = useState('')
-  const [currentPage, setCurrentPage] = useState(1)
-
-  // Include collected batches before an AI report exists, without creating placeholder reports.
+  const navigate = useNavigate(), userId = useAuth((state) => state.user?.id ?? '')
+  const [searchKeyword, setSearchKeyword] = useState(''), [startTime, setStartTime] = useState(''), [endTime, setEndTime] = useState(''), [reportStatus, setReportStatus] = useState('')
+  const [filters, setFilters] = useState({ keyword: '', startTime: '', endTime: '', status: '' }), [currentPage, setCurrentPage] = useState(1)
+  const [generatingId, setGeneratingId] = useState<string | null>(null), [progress, setProgress] = useState('')
+  const inFlight = useRef(false)
   const { data, isLoading, isError, error, refetch } = useQuery<{ rows: AnalysisRun[]; total: number }>({
-    queryKey: ['analysis-report-catalog', appliedKeyword, appliedStartTime, appliedEndTime, appliedStatus, currentPage],
+    queryKey: ['analysis-report-catalog', filters, currentPage],
     queryFn: async () => {
       if (!window.desktop?.capabilities) throw new Error('桌面数据服务未就绪，请重启客户端后重试')
-      const res = await window.desktop.capabilities.invoke('report.list', {
-        tenantId: 'local',
-        includeCollections: true,
-        keyword: appliedKeyword.trim() || undefined,
-        status: appliedStatus || undefined,
-        startTime: appliedStartTime ? dayjs(appliedStartTime).startOf('day').toISOString() : undefined,
-        endTime: appliedEndTime ? dayjs(appliedEndTime).endOf('day').toISOString() : undefined,
-        page: currentPage,
-        pageSize: PAGE_SIZE,
-      }) as { rows?: AnalysisRun[]; total?: number } | undefined
-      if (!res || !Array.isArray(res.rows)) throw new Error('数据服务返回异常，未能读取报告列表')
-      const rows = res.rows
-      return { rows, total: res?.total ?? rows.length }
+      const result = await window.desktop?.capabilities.invoke('report.list', { tenantId: 'local', includeCollections: true, keyword: filters.keyword.trim() || undefined,
+        status: filters.status || undefined, startTime: filters.startTime ? dayjs(filters.startTime).startOf('day').toISOString() : undefined,
+        endTime: filters.endTime ? dayjs(filters.endTime).endOf('day').toISOString() : undefined, page: currentPage, pageSize: PAGE_SIZE }) as { rows?: AnalysisRun[]; total?: number }
+      if (!result || !Array.isArray(result.rows)) throw new Error('数据服务返回异常，未能读取报告列表')
+      return { rows: result.rows, total: result.total ?? result.rows.length }
     },
   })
-
-  const rows = data?.rows || []
-  const total = data?.total ?? rows.length
-  const totalPages = Math.ceil(total / PAGE_SIZE) || 1
-  const safePage = Math.min(currentPage, totalPages)
-
-  useEffect(() => {
-    setCurrentPage(1)
-  }, [appliedKeyword, appliedStartTime, appliedEndTime, appliedStatus])
-
-  const applySearch = () => {
-    if (searchKeyword === appliedKeyword && startTime === appliedStartTime && endTime === appliedEndTime && reportStatus === appliedStatus) void refetch()
-    setAppliedKeyword(searchKeyword)
-    setAppliedStartTime(startTime)
-    setAppliedEndTime(endTime)
-    setAppliedStatus(reportStatus)
-  }
-
-  const resetSearch = () => {
-    setSearchKeyword('')
-    setStartTime('')
-    setEndTime('')
-    setReportStatus('')
-    setAppliedKeyword('')
-    setAppliedStartTime('')
-    setAppliedEndTime('')
-    setAppliedStatus('')
-    setCurrentPage(1)
-  }
-
+  useEffect(() => { setCurrentPage(1) }, [filters])
+  const rows = data?.rows ?? [], plans = rows.flatMap((row) => row.reportJson?.creativePlan ? [row.reportJson.creativePlan] : [])
+  const apply = () => { const next = { keyword: searchKeyword, startTime, endTime, status: reportStatus }; if (JSON.stringify(next) === JSON.stringify(filters) && currentPage === 1) void refetch(); else { setFilters(next); setCurrentPage(1) } }
+  const reset = () => { setSearchKeyword(''); setStartTime(''); setEndTime(''); setReportStatus(''); setFilters({ keyword: '', startTime: '', endTime: '', status: '' }); setCurrentPage(1) }
   const generate = async (row: AnalysisRun) => {
-    if (!userId || !row.collectionJobId) { Message.error('请重新登录后生成报告'); return }
-    setGeneratingId(row.id)
+    if (!userId) { Message.error('请重新登录后生成报告'); return }
+    if (inFlight.current) return
+    inFlight.current = true; setGeneratingId(row.id); setProgress('正在读取商品、图片和评价…')
+    const unsubscribe = window.desktop?.capabilities.onStream((event) => {
+      const item = event.data
+      if (event.type === 'report-progress' && item && (row.collectionJobId ? item.collectionJobId === row.collectionJobId : item.jobId === row.jobId)) setProgress(`${item.stage}（${item.done}/${item.total} 件）`)
+    })
     try {
-      const result = await window.desktop?.capabilities.invoke('report.generate', {
-        userId, tenantId: 'local', keyword: row.keyword ?? '', collectionJobId: row.collectionJobId,
-      }) as { reportId?: string } | undefined
+      const result = await window.desktop?.capabilities.invoke('report.generate', { userId, tenantId: 'local', keyword: row.keyword ?? '', collectionJobId: row.collectionJobId ?? undefined, jobId: row.jobId, regenerate: row.source !== 'collection' }) as { reportId?: string }
       if (!result?.reportId) throw new Error('报告生成未返回有效结果')
-      Message.success('报告已生成')
-      await refetch()
-    } catch (error) {
-      Message.error(`生成失败：${error instanceof Error ? error.message : String(error)}`)
-    } finally { setGeneratingId(null) }
+      Message.success('出图内容策划已生成'); await refetch(); navigate(`/market/competitive/report/view?id=${encodeURIComponent(result.reportId)}`)
+    } catch (error) { Message.error(`生成失败：${error instanceof Error ? error.message : String(error)}`) }
+    finally { unsubscribe?.(); inFlight.current = false; setGeneratingId(null); setProgress('') }
   }
-
   const columns = [
-    {
-      title: '关键词',
-      dataIndex: 'keyword',
-      render: (keyword: string | null | undefined, row: AnalysisRun) => (
-        <span className="whitespace-nowrap text-[14px] text-[#0A1B39]">
-          {keyword || row.reportNo || `REP-${row.id.slice(0, 10).toUpperCase()}`}
-        </span>
-      ),
-    },
-    {
-      title: '价格区间',
-      dataIndex: 'reportJson',
-      render: (_: unknown, row: AnalysisRun) => <span className="whitespace-nowrap text-[14px] text-[#344054]">{priceRange(row)}</span>,
-    },
-    {
-      title: '竞品数量',
-      dataIndex: 'competitorCount',
-      render: (v: number | null) => <span className="whitespace-nowrap text-[14px] text-[#344054]">{v ?? '—'}</span>,
-    },
-    {
-      title: '更新时间',
-      dataIndex: 'updatedAt',
-      render: (v: string) => <span className="whitespace-nowrap text-[14px] text-[#86909C]">{formatDateTime(v)}</span>,
-    },
-    {
-      title: '报告状态',
-      dataIndex: 'status',
-      render: (status: string) => {
-        const view = statusView(status)
-        return <span className={`whitespace-nowrap rounded-full px-2.5 py-1 text-[12px] ${view.className}`}>{view.text}</span>
-      },
-    },
-    {
-      title: '操作',
-      dataIndex: 'op',
-      render: (_: unknown, row: AnalysisRun) => {
-        const canView = row.status === 'completed' || row.status === 'success'
-        return (
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => navigate(`/market/competitive/report/products?id=${encodeURIComponent(row.id)}`)}
-              className="flex cursor-pointer items-center border-0 bg-transparent p-0 text-[13px] text-[#3388ff] hover:text-[#1a6fe8]"
-            >
-              查看采集数据
-            </button>
-            <button
-              type="button"
-              onClick={() => row.source === 'collection' ? void generate(row) : navigate(`/market/competitive/report/view?id=${encodeURIComponent(row.id)}`)}
-              disabled={row.source === 'collection' ? generatingId !== null : !canView}
-              className="flex cursor-pointer items-center border-0 bg-transparent p-0 text-[13px] text-[#3388ff] hover:text-[#1a6fe8] disabled:cursor-not-allowed disabled:text-[#b0b7c3]"
-            >
-              {generatingId === row.id ? '生成中…' : row.source === 'collection' ? '生成报告' : '查看报告'}
-            </button>
-            <button
-              type="button"
-              onClick={() => navigate(`/market/competitive/agent?reportId=${row.id}`)}
-              className="flex cursor-pointer items-center border-0 bg-transparent p-0 text-[13px] text-[#3388ff] hover:text-[#1a6fe8]"
-            >
-              智能问答
-            </button>
-          </div>
-        )
-      },
-    },
+    { title: '分析主题', dataIndex: 'keyword', width: 220, render: (_: unknown, row: AnalysisRun) => <div className="cr-row-topic"><span className="cr-stat-icon"><ImageIcon size={18} /></span><div><h3>{row.keyword || '竞品分析'}</h3><p>{row.reportNo || '已采集 · 待生成策划'}</p></div></div> },
+    { title: '数据基础', dataIndex: 'competitorCount', width: 150, render: (_: unknown, row: AnalysisRun) => { const counts = row.reportJson?.creativePlan?.dataCounts; return <div><div style={{ color: '#526b87', fontWeight: 550 }}>{row.competitorCount ?? 0} 件竞品 · {priceRange(row)}</div><p className="cr-meta" style={{ marginTop: 6 }}>{counts ? `${counts.reviews} 条评价 · ${counts.images} 条图片记录` : '点击查看采集数据'}</p></div> } },
+    { title: '内容交付', dataIndex: 'reportJson', width: 145, render: (_: unknown, row: AnalysisRun) => { const plan = row.reportJson?.creativePlan; return plan ? <div><div className="cr-script-counts"><span className="cr-tag">主图 {plan.mainImages.length} 张</span><span className="cr-tag">详情 {plan.detailImages.length} 屏</span></div><span className="cr-meta">含文案、画面与证据</span></div> : <span className="cr-meta">生成后查看图片脚本</span> } },
+    { title: '更新时间', dataIndex: 'updatedAt', width: 155, render: (value: string) => <span style={{ fontSize: 11, whiteSpace: 'nowrap' }}>{formatDateTime(value)}</span> },
+    { title: '报告状态', dataIndex: 'status', width: 105, render: (_: unknown, row: AnalysisRun) => <span className={`cr-status ${row.reportJson?.creativePlan ? '' : 'pending'}`}><span className="cr-dot" style={{ width: 4, height: 4, background: 'currentColor' }} />{generatingId === row.id ? '正在生成' : row.reportJson?.creativePlan ? '策划已就绪' : row.source === 'collection' ? '待生成' : ['failure', 'failed'].includes(row.status) ? '生成失败' : '分析已生成'}</span> },
+    { title: '操作', dataIndex: 'op', width: 170, render: (_: unknown, row: AnalysisRun) => <div className="cr-row-actions"><button className="cr-button cr-primary" disabled={!row.reportJson?.creativePlan && generatingId !== null} onClick={() => row.reportJson?.creativePlan ? navigate(`/market/competitive/report/view?id=${encodeURIComponent(row.id)}`) : void generate(row)}>{generatingId === row.id ? '生成中…' : row.reportJson?.creativePlan ? '查看出图方案' : '生成出图方案'}{generatingId !== row.id && <ArrowUpRight size={13} />}</button><Dropdown trigger="click" position="br" droplist={<Menu><Menu.Item key="data" onClick={() => navigate(`/market/competitive/report/products?id=${encodeURIComponent(row.id)}`)}>查看采集数据</Menu.Item>{row.source !== 'collection' && <Menu.Item key="analysis" onClick={() => navigate(`/market/competitive/report/view?id=${encodeURIComponent(row.id)}`)}>查看分析报告</Menu.Item>}{row.source !== 'collection' && <Menu.Item key="regenerate" disabled={generatingId !== null} onClick={() => void generate(row)}>重新生成报告</Menu.Item>}<Menu.Item key="chat" onClick={() => navigate(`/market/competitive/agent?reportId=${encodeURIComponent(row.id)}`)}>智能问答</Menu.Item></Menu>}><button className="cr-text-button" aria-label={`${row.keyword}的更多操作`}><MoreHorizontal size={18} /></button></Dropdown></div> },
   ]
-
-  return (
-    <div className="h-full overflow-y-auto bg-[#f4f7fb] p-6 custom-scrollbar">
-      <PageHeader breadcrumbs={[{ label: '市场' }, { label: '竞品分析' }, { label: '分析报告' }]} />
-
-      {/* 查询条件卡 */}
-      <div className="mb-4 rounded-xl bg-white p-4">
-        <div className="grid grid-cols-4 gap-3">
-          <div className="flex items-center gap-2">
-            <label className="shrink-0 text-[12px] text-[#86909C]">关键词</label>
-            <XSearchInput
-              value={searchKeyword}
-              onChange={setSearchKeyword}
-              onEnter={applySearch}
-              placeholder="请输入"
-            />
-          </div>
-
-          <div className="flex items-center gap-2">
-            <label className="shrink-0 text-[12px] text-[#86909C]">更新时间</label>
-            <DatePicker.RangePicker
-              className="min-w-0 flex-1"
-              value={startTime && endTime ? [dayjs(startTime), dayjs(endTime)] : []}
-              onChange={(dateString) => {
-                setStartTime(dateString?.[0] ?? '')
-                setEndTime(dateString?.[1] ?? '')
-              }}
-              allowClear
-            />
-          </div>
-
-          <div className="flex items-center gap-2">
-            <label className="shrink-0 text-[12px] text-[#86909C]">报告状态</label>
-            <select
-              value={reportStatus}
-              onChange={(e) => setReportStatus(e.target.value)}
-              className={`h-8 w-full appearance-none rounded-lg border border-[#e6e9ef] bg-white px-2.5 text-[13px] outline-none focus:border-[#409eff] ${reportStatus === '' ? 'text-[#98A2B3]' : 'text-[#0A1B39]'}`}
-              style={{
-                backgroundImage:
-                  "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23c0c4cc' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E\")",
-                backgroundRepeat: 'no-repeat',
-                backgroundPosition: 'right 10px center',
-              }}
-            >
-              <option value="">请选择</option>
-              <option value="not_generated">未生成</option>
-              <option value="completed">已生成</option>
-              <option value="running">生成中</option>
-              <option value="failed">生成失败</option>
-            </select>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={applySearch}
-              className="h-8 shrink-0 cursor-pointer rounded-lg border-0 bg-[#409eff] px-5 text-[13px] font-bold text-white hover:bg-[#66b1ff]"
-            >
-              查询
-            </button>
-            <button
-              type="button"
-              onClick={resetSearch}
-              className="h-8 shrink-0 cursor-pointer rounded-lg border border-[#e6e9ef] bg-white px-4 text-[13px] text-[#0A1B39] hover:bg-[#f5f6f8]"
-            >
-              重置
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* 数据表格卡（Arco Table：服务端分页 / loading / 空状态内建） */}
-      <div className="rounded-2xl bg-white p-5 shadow-[0_8px_32px_rgba(29,38,52,.06)]">
-        {isError && <Alert type="error" className="mb-4" title="报告数据加载失败" content={
-          <div>{error instanceof Error ? error.message : '无法连接本地数据服务'}
-            <button type="button" onClick={() => void refetch()} className="ml-3 cursor-pointer border-0 bg-transparent text-[#3388ff]">重新连接</button>
-          </div>
-        } />}
-        <Table
-          columns={columns}
-          data={rows}
-          rowKey="id"
-          loading={isLoading}
-          border={false}
-          noDataElement={
-            <Empty
-              description={
-                <div>
-                  <p className="m-0 text-[15px] text-[#86909C]">{isError ? '数据加载失败' : '暂无符合条件的数据'}</p>
-                  {!isError && <p className="m-0 mt-1 text-[13px] text-[#98A2B3]">已采集的数据会显示为「未生成」，可查看数据或手动生成报告；请检查筛选条件或前往「AI数据采集」。</p>}
-                </div>
-              }
-            />
-          }
-          pagination={
-            total > 0
-              ? { pageSize: PAGE_SIZE, current: safePage, total, showTotal: true, onChange: (page) => setCurrentPage(page) }
-              : false
-          }
-        />
-      </div>
-    </div>
-  )
+  return <div className="cr-page cr-catalog custom-scrollbar"><PageHeader breadcrumbs={[{ label: '市场' }, { label: '竞品分析' }, { label: '分析报告' }]} />
+    <header className="cr-title-row"><div><div className="cr-eyebrow"><Sparkles size={14} />把竞品资料转成图片内容</div><h1>竞品内容策划</h1><p className="cr-meta">从图片、评价和问答提炼方向，生成可交给美工的主图与详情页脚本。</p></div><button className="cr-button" onClick={() => void refetch()}><RefreshCw size={14} />刷新列表</button></header>
+    <div className="cr-stat-grid"><div className="cr-stat"><span className="cr-stat-icon"><ClipboardList size={19} /></span><div><b>{data?.total ?? 0}<small> 个报告批次</small></b><span>按当前筛选条件统计</span></div></div><div className="cr-stat"><span className="cr-stat-icon violet"><ImageIcon size={19} /></span><div><b>{plans.reduce((sum, plan) => sum + plan.mainImages.length, 0)}<small> 张主图脚本</small></b><span>当前页可用的内容任务</span></div></div><div className="cr-stat"><span className="cr-stat-icon teal"><Layers3 size={19} /></span><div><b>{plans.reduce((sum, plan) => sum + plan.detailImages.length, 0)}<small> 屏详情脚本</small></b><span>含文案、画面安排与依据</span></div></div></div>
+    <div className="cr-filter"><div><label htmlFor="report-keyword">关键词</label><input id="report-keyword" value={searchKeyword} onChange={(event) => setSearchKeyword(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') apply() }} placeholder="搜索分析主题" /></div><div><label>更新时间</label><DatePicker.RangePicker value={startTime && endTime ? [dayjs(startTime), dayjs(endTime)] : []} onChange={(value) => { setStartTime(value?.[0] ?? ''); setEndTime(value?.[1] ?? '') }} allowClear /></div><div><label htmlFor="report-status">报告状态</label><select id="report-status" value={reportStatus} onChange={(event) => setReportStatus(event.target.value)}><option value="">全部状态</option><option value="success">已生成</option><option value="not_generated">未生成</option><option value="failed">生成失败</option></select></div><div className="cr-actions"><button className="cr-button cr-primary" onClick={apply}><Search size={13} />查询</button><button className="cr-button" onClick={reset}>重置</button></div></div>
+    {generatingId && <Alert className="cr-catalog-progress" type="info" content={`${progress}，请保持页面打开。完整方案生成成功后会自动进入报告。`} />}
+    {isError && <Alert className="cr-catalog-progress" type="error" title="报告加载失败" content={<span>{error instanceof Error ? error.message : '无法连接本地数据服务'} <button className="cr-text-button" onClick={() => void refetch()}>重新连接</button></span>} />}
+    <section className="cr-catalog-table"><div className="cr-catalog-caption"><div><h2>分析与策划报告</h2><p>已生成的分析可更新为出图方案，采集资料和分析依据均可保留查看。</p></div><span className="cr-tag">主图 + 详情页</span></div><Table columns={columns} data={rows} rowKey="id" border={false} loading={isLoading} noDataElement={<Empty description={isError ? '数据加载失败' : '暂无匹配数据，完成采集后可在这里生成策划报告'} />} pagination={(data?.total ?? 0) > 0 ? { pageSize: PAGE_SIZE, current: currentPage, total: data?.total ?? 0, showTotal: true, onChange: setCurrentPage } : false} /></section>
+  </div>
 }
