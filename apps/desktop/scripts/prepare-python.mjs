@@ -13,7 +13,7 @@ const pythonDir = join(root, 'resources/python')
 const manifestPath = join(pythonDir, 'platforms.json')
 let version = '3.12.14'
 let tag = '20260901'
-let assets: Record<string, Record<string, string>> = {
+let assets = {
   darwin: {
     arm64: `cpython-${version}+${tag}-aarch64-apple-darwin-install_only_stripped.tar.gz`,
     x64: `cpython-${version}+${tag}-x86_64-apple-darwin-install_only_stripped.tar.gz`,

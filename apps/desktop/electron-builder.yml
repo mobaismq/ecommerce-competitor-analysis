@@ -24,6 +24,7 @@ extraResources:
 mac:
   target:
     - dmg
+    - dir
   category: public.app-category.business
 win:
   target:
