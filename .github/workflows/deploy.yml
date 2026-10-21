@@ -20,7 +20,8 @@ jobs:
           port: ${{ secrets.SERVER_PORT || 22 }}
           script_stop: true
           script: |
-            echo "🚀 [1/6] 准备进入部署目录..."
+            echo "🚀 [1/6] 准备进入部署目录并设置构建环境..."
+            export ELECTRON_SKIP_BINARY_DOWNLOAD=1
             cd /var/www/ecommerce-app
 
             echo "📦 [2/6] 拉取 main 分支最新代码..."
@@ -29,14 +30,16 @@ jobs:
             echo "📥 [3/6] 安装与同步依赖..."
             pnpm install
 
-            echo "🔨 [4/6] 编译 NestJS 后端..."
-            pnpm --filter backend build
+            echo "🔨 [4/6] 生成 Prisma 客户端并编译 NestJS 后端..."
+            cd /var/www/ecommerce-app/apps/backend
+            pnpm exec prisma generate
+            pnpm run build
 
             echo "🗄️ [5/6] 执行数据库迁移..."
-            pnpm --filter backend exec prisma migrate deploy
+            pnpm exec prisma migrate deploy
 
             echo "🔄 [6/6] PM2 服务无缝平滑重载..."
-            pm2 reload backend || pm2 start apps/backend/dist/src/main.js --name backend
+            pm2 reload backend || pm2 start dist/src/main.js --name backend
             pm2 save
 
             echo "🩺 [验证] 后端接口健康检查..."
