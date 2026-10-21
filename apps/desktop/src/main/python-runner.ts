@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process'
-import { join } from 'node:path'
+import { existsSync } from 'node:fs'
+import { join, resolve } from 'node:path'
 
 export interface PythonRunOptions {
   cwd?: string
@@ -31,9 +32,32 @@ export function killPythonProcesses(key: string): boolean {
 }
 
 export function resolveEmbeddedPython(): string {
+  if (process.env.PYTHON_PATH) return process.env.PYTHON_PATH
+
   const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath
-  const base = process.env.PYTHON_PATH || (resourcesPath ? join(resourcesPath, 'python') : join(process.cwd(), 'resources', 'python'))
-  return process.platform === 'win32' ? join(base, 'python.exe') : join(base, 'bin', 'python3')
+  const getExe = (base: string) => process.platform === 'win32' ? join(base, 'python.exe') : join(base, 'bin', 'python3')
+
+  // 1. 打包生产模式：优先检查 resourcesPath/python
+  if (resourcesPath) {
+    const packagedExe = getExe(join(resourcesPath, 'python'))
+    if (existsSync(packagedExe)) return packagedExe
+  }
+
+  // 2. 本地开发模式：遍历源码工程下的候选路径
+  const devCandidates = [
+    join(process.cwd(), 'apps', 'desktop', 'resources', 'python'),
+    join(process.cwd(), 'resources', 'python'),
+    resolve(__dirname, '..', '..', 'resources', 'python'),
+    resolve(__dirname, '..', 'resources', 'python'),
+  ]
+
+  for (const candidate of devCandidates) {
+    const exe = getExe(candidate)
+    if (existsSync(exe)) return exe
+  }
+
+  // 3. 兜底回退：系统全局 Python
+  return process.platform === 'win32' ? 'python' : 'python3'
 }
 
 export function runPython(scriptPath: string, args: string[], options: PythonRunOptions = {}): Promise<PythonRunResult> {

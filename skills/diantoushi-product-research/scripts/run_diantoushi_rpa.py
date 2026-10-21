@@ -270,7 +270,57 @@ return (wid as text)
     return CHROME_WINDOW_ID
 
 
+_CDP_PAGE = None
+_USE_CDP = os.environ.get("DTS_USE_CDP") == "1" or bool(os.environ.get("CHROME_CDP_PORT"))
+
+
+def get_cdp_page():
+    global _CDP_PAGE
+    if _CDP_PAGE is not None:
+        try:
+            if not _CDP_PAGE.is_closed():
+                return _CDP_PAGE
+        except Exception:
+            _CDP_PAGE = None
+
+    port = os.environ.get("CHROME_CDP_PORT") or os.environ.get("DTS_CDP_PORT") or "9222"
+    cdp_url = f"http://127.0.0.1:{port}"
+    try:
+        from urllib.request import urlopen
+        with urlopen(f"{cdp_url}/json/version", timeout=1) as resp:
+            if resp.status != 200:
+                return None
+    except Exception:
+        return None
+
+    try:
+        from playwright.sync_api import sync_playwright
+        pw = sync_playwright().start()
+        browser = pw.chromium.connect_over_cdp(cdp_url)
+        context = browser.contexts[0] if browser.contexts else browser.new_context()
+        pages = [p for p in context.pages if not p.is_closed()]
+        page = pages[0] if pages else context.new_page()
+        _CDP_PAGE = page
+        return _CDP_PAGE
+    except Exception:
+        return None
+
+
 def chrome_js(js: str) -> str:
+    global _USE_CDP
+    # 优先尝试 CDP 驱动（无需任何 macOS AppleScript 或 JavaScript 菜单勾选权限）
+    if _USE_CDP or get_cdp_page() is not None:
+        page = get_cdp_page()
+        if page is not None:
+            try:
+                res = page.evaluate(js)
+                if isinstance(res, (dict, list)):
+                    return json.dumps(res, ensure_ascii=False)
+                return str(res) if res is not None else ""
+            except Exception as cdp_err:
+                if _USE_CDP:
+                    raise RuntimeError(f"Chrome CDP 执行 JavaScript 失败: {cdp_err}")
+
     last_error: Optional[Exception] = None
     for _ in range(2):
         window_id = ensure_chrome_target()
@@ -292,11 +342,36 @@ return jsResult
             if is_stale_chrome_window_error(exc):
                 reset_chrome_target()
                 continue
+            err_str = str(exc)
+            if "通过 AppleScript 执行 JavaScript 的功能已关闭" in err_str or "268:1427" in err_str:
+                # 尝试无缝降级切换为 CDP 模式
+                page = get_cdp_page()
+                if page is not None:
+                    _USE_CDP = True
+                    res = page.evaluate(js)
+                    if isinstance(res, (dict, list)):
+                        return json.dumps(res, ensure_ascii=False)
+                    return str(res) if res is not None else ""
+                raise RuntimeError(
+                    f"{err_str}\n"
+                    "💡 【免勾选解决方案】：您也可以启动 Chrome 时携带参数 --remote-debugging-port=9222，脚本将全自动切换为 Chrome CDP 模式，无需任何系统权限授权！"
+                )
             raise
     raise RuntimeError(str(last_error) if last_error else "Chrome JavaScript execution failed")
 
 
 def chrome_set_url(url: str) -> None:
+    global _USE_CDP
+    if _USE_CDP or get_cdp_page() is not None:
+        page = get_cdp_page()
+        if page is not None:
+            try:
+                page.goto(url, wait_until="domcontentloaded", timeout=60000)
+                return
+            except Exception as cdp_err:
+                if _USE_CDP:
+                    raise RuntimeError(f"Chrome CDP 页面跳转失败: {cdp_err}")
+
     last_error: Optional[Exception] = None
     for _ in range(2):
         window_id = ensure_chrome_target()
