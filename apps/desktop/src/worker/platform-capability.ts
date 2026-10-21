@@ -326,6 +326,8 @@ export interface PublishListingInput {
   title: string
   storeId?: string
   categoryId?: string
+  /** 完整类目 id 链（Cascader 路径），供草稿回填精确定位。 */
+  categoryIds?: string[]
   price?: number | string
   skus?: Array<Record<string, unknown>>
   contentJson?: Record<string, unknown>
@@ -344,12 +346,27 @@ export interface PublishListingInput {
   warranty?: string
   shippingTime?: string
   serviceGuarantees?: string
+  /** 拼多多专有字段（迁移自旧版 ManualListing 的拼多多分支）。 */
+  longImage?: string
+  packageImages?: string[]
+  presaleType?: string
+  isSecondHand?: string
+  groupCount?: number | string
+  bundleDiscount?: string
+  referencePrice?: number | string
+  sizeTemplate?: string
 }
 
+/**
+ * 表单入参 → 落库 contentJson。
+ * 表单采集的字段必须全部落库，否则「编辑草稿」回填会丢字段（副标题/品牌/物流承诺等）。
+ */
 function contentJsonFromInput(dto: PublishListingInput): Record<string, unknown> {
   return {
+    platform: dto.platformCode,
     storeId: dto.storeId,
     categoryId: dto.categoryId,
+    categoryIds: dto.categoryIds,
     categoryPath: dto.categoryPath,
     price: dto.price !== undefined && dto.price !== '' ? Number(dto.price) : undefined,
     skus: dto.skus ?? [],
@@ -358,6 +375,23 @@ function contentJsonFromInput(dto: PublishListingInput): Record<string, unknown>
     whiteImage: dto.whiteImage,
     detailImages: dto.detailImages ?? [],
     productAttrs: dto.productAttrs ?? {},
+    subTitle: dto.subTitle,
+    brand: dto.brand,
+    origin: dto.origin,
+    freightTemplate: dto.freightTemplate,
+    detailContent: dto.detailContent,
+    originPlace: dto.originPlace,
+    warranty: dto.warranty,
+    shippingTime: dto.shippingTime,
+    serviceGuarantees: dto.serviceGuarantees,
+    longImage: dto.longImage,
+    packageImages: dto.packageImages ?? [],
+    presaleType: dto.presaleType,
+    isSecondHand: dto.isSecondHand,
+    groupCount: dto.groupCount !== undefined && dto.groupCount !== '' ? Number(dto.groupCount) : undefined,
+    bundleDiscount: dto.bundleDiscount,
+    referencePrice: dto.referencePrice !== undefined && dto.referencePrice !== '' ? Number(dto.referencePrice) : undefined,
+    sizeTemplate: dto.sizeTemplate,
     ...(dto.contentJson ?? {}),
   }
 }
@@ -397,11 +431,24 @@ export async function uploadListingMedia(input: {
   return { storageKey, size: input.buffer.byteLength, mimeType: contentType, kind }
 }
 
+/** 扩展名 → MIME：按真实后缀返回，避免把 jpg/svg/webm 一律当 png 导致预览破图。 */
+const MIME_BY_EXT: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
+  '.svg': 'image/svg+xml',
+  '.mp4': 'video/mp4',
+  '.mov': 'video/quicktime',
+  '.webm': 'video/webm',
+}
+
 export async function rawListingMedia(storageKey: string): Promise<{ dataUrl: string; mimeType: string; size: number } | null> {
   if (!storageKey || !storageKey.startsWith(LISTINGS_MEDIA_PREFIX)) return null
   const bytes = readBytesByKey(storageKey, workerDataRoots())
   if (!bytes) return null
-  const mimeType = extname(storageKey) === '.mp4' ? 'video/mp4' : 'image/png'
+  const mimeType = MIME_BY_EXT[extname(storageKey).toLowerCase()] ?? 'application/octet-stream'
   return { dataUrl: `data:${mimeType};base64,${bytes.toString('base64')}`, mimeType, size: bytes.length }
 }
 
@@ -420,10 +467,36 @@ export async function removeListingMedia(keys: string[]): Promise<{ removed: num
   return { removed }
 }
 
-/** 保存草稿：写入本地 ListingDraft。 */
-export async function saveListingDraft(input: { tenantId: string; platformCode: string } & PublishListingInput) {
+/**
+ * 保存草稿：写入本地 ListingDraft。
+ * 传 draftId 时更新既有草稿（「编辑商品详情」回存），否则新建。
+ */
+export async function saveListingDraft(input: { tenantId: string; platformCode: string; draftId?: string } & PublishListingInput) {
   const db = getWorkerPrisma()
   const contentJson = contentJsonFromInput(input)
+
+  if (input.draftId) {
+    const existing = await db.listingDraft.findFirst({ where: { id: input.draftId, tenantId: input.tenantId } })
+    if (!existing) throw new PlatformAdapterError('草稿不存在', 'DRAFT_NOT_FOUND')
+    const updated = await db.listingDraft.update({
+      where: { id: existing.id },
+      data: {
+        title: input.title,
+        platformId: input.platformCode,
+        contentJson: contentJson as unknown as Record<string, never>,
+        status: 'draft',
+      },
+    })
+    return {
+      ok: true,
+      draftId: updated.id,
+      platform: resolveAdapterCode(input.platformCode, listAdapterCodes()),
+      title: updated.title,
+      status: updated.status,
+      updated: true,
+    }
+  }
+
   const draft = await db.listingDraft.create({
     data: {
       tenantId: input.tenantId,
@@ -434,27 +507,46 @@ export async function saveListingDraft(input: { tenantId: string; platformCode: 
       status: 'draft',
     },
   })
-  return { ok: true, draftId: draft.id, platform: resolveAdapterCode(input.platformCode, listAdapterCodes()), title: draft.title, status: draft.status }
+  return { ok: true, draftId: draft.id, platform: resolveAdapterCode(input.platformCode, listAdapterCodes()), title: draft.title, status: draft.status, updated: false }
 }
 
-/** 发布：无真实凭证诚实报错，绝不建假单。 */
-export async function publishListing(input: { tenantId: string; platformCode: string } & PublishListingInput) {
+/**
+ * 发布：无真实凭证诚实报错，绝不建假单。
+ * 传 draftId 时在同一草稿上发布（避免「编辑后再发布」产生重复草稿）；
+ * 失败时更新状态并把本次落盘的 listings/ 富媒体清掉，避免孤儿文件（对齐后端行为）。
+ */
+export async function publishListing(input: { tenantId: string; platformCode: string; draftId?: string } & PublishListingInput) {
   assertRequiredFields(input.platformCode, input as unknown as Record<string, unknown>)
   const registry = new PlatformRegistry()
   const adapter = registry.create(resolveAdapterCode(input.platformCode, registry.listCodes()))
-  const jobId = `manual-listing-${randomUUID().slice(0, 8)}`
   const contentJson = contentJsonFromInput(input)
   const db = getWorkerPrisma()
-  const draft = await db.listingDraft.create({
-    data: {
-      tenantId: input.tenantId,
-      jobId,
-      title: input.title,
-      platformId: input.platformCode,
-      contentJson: contentJson as unknown as Record<string, never>,
-      status: 'submitting',
-    },
-  })
+
+  let draftId = input.draftId
+  if (draftId) {
+    const existing = await db.listingDraft.findFirst({ where: { id: draftId, tenantId: input.tenantId } })
+    if (!existing) throw new PlatformAdapterError('草稿不存在', 'DRAFT_NOT_FOUND')
+    await db.listingDraft.update({
+      where: { id: existing.id },
+      data: { title: input.title, platformId: input.platformCode, contentJson: contentJson as unknown as Record<string, never>, status: 'submitting' },
+    })
+  } else {
+    const created = await db.listingDraft.create({
+      data: {
+        tenantId: input.tenantId,
+        jobId: `manual-listing-${randomUUID().slice(0, 8)}`,
+        title: input.title,
+        platformId: input.platformCode,
+        contentJson: contentJson as unknown as Record<string, never>,
+        status: 'submitting',
+      },
+    })
+    draftId = created.id
+  }
+
+  const draft = await db.listingDraft.findFirstOrThrow({ where: { id: draftId } })
+  const jobId = draft.jobId
+
   try {
     const result = adapter.submitListing
       ? await adapter.submitListing({ jobId, draftId: draft.id, title: input.title, contentJson: draft.contentJson })
@@ -464,6 +556,17 @@ export async function publishListing(input: { tenantId: string; platformCode: st
     return { draftId: draft.id, jobId, status: finalStatus, platform: input.platformCode, title: input.title, rawPayload: result.rawPayload }
   } catch (error) {
     await db.listingDraft.update({ where: { id: draft.id }, data: { status: 'failed' } })
+    // 发布失败：清理该草稿已落盘的富媒体对象，避免孤儿文件
+    const content = rawRecord(draft.contentJson) ?? {}
+    const mediaKeys = [
+      String(content.video || ''),
+      String(content.whiteImage || ''),
+      ...(Array.isArray(content.mainImages) ? (content.mainImages as unknown[]) : []),
+      ...(Array.isArray(content.detailImages) ? (content.detailImages as unknown[]) : []),
+    ]
+      .map((key) => String(key))
+      .filter(Boolean)
+    await removeListingMedia(mediaKeys).catch(() => ({ removed: 0 }))
     throw error
   }
 }
@@ -474,77 +577,245 @@ function rawRecord(value: unknown): Record<string, unknown> | null {
 
 export interface ListProductsInput {
   tenantId?: string
+  /** 平台编码（taobao/tmall/jd/pdd/douyin/xhs）；不传=全部平台。 */
   platform?: string
+  storeId?: string
+  /** 商品标题包含。 */
   keyword?: string
+  /** 商品编码，支持英文逗号分隔多值（任一命中即可），对齐旧版商品编码查询。 */
+  productCode?: string
+  /** 商品ID，支持英文逗号分隔多值（任一命中即可），对齐旧版商品ID查询。 */
+  externalId?: string
+  /** 发布状态：可传码（draft/submitted/...）或展示文案（草稿/已发布/...）。 */
   status?: string
+  updateTimeFrom?: string
+  updateTimeTo?: string
   page?: number
   pageSize?: number
 }
 
-export interface PlatformProductView {
-  id: string
-  title: string
-  platform: string
-  outerId?: string
+export interface PlatformSkuView {
+  skuName: string
+  skuCode: string
+  skuId: string
   price: number
   stock: number
+  skuImage: string | null
+}
+
+export interface PlatformProductView {
+  id: string
+  source: 'draft' | 'snapshot'
+  /** 平台商品ID：草稿用 jobId，采集快照用 externalProductId。 */
+  productId: string
+  productName: string
+  productCode: string
+  category: string
+  platform: string
+  storeId: string | null
+  storeName: string | null
+  price: number
+  minPrice: number
+  maxPrice: number
+  /** 发布状态展示文案（由 PUBLISH_STATUS_LABEL 派生，渲染层不再自己映射）。 */
+  publishStatus: string
+  publishStatusCode: string
+  listingStatus: string
+  /** 主图引用：本地上传返回 storageKey（listings/...），采集快照可能为 http URL。 */
+  productImage: string | null
+  updateTime: string
+  createTime: string
+  skus: PlatformSkuView[]
+}
+
+/** 发布状态码 → 展示文案的唯一映射（能力层权威定义）。 */
+export const PUBLISH_STATUS_LABEL: Record<string, string> = {
+  draft: '草稿',
+  submitting: '审核中',
+  submitted: '已发布',
+  failed: '发布失败',
+}
+
+function splitTerms(value?: string): string[] {
+  return (value ?? '')
+    .split(',')
+    .map((term) => term.trim())
+    .filter(Boolean)
+}
+
+/** 发布状态归一化：接受状态码或旧版展示文案，非法值返回 undefined（视为不过滤）。 */
+function normalizePublishStatus(value?: string): string | undefined {
+  const raw = (value ?? '').trim()
+  if (!raw) return undefined
+  if (PUBLISH_STATUS_LABEL[raw]) return raw
+  const matched = Object.entries(PUBLISH_STATUS_LABEL).find(([, label]) => label === raw)
+  return matched?.[0]
+}
+
+function toIso(value: Date | string | null | undefined): string {
+  if (!value) return ''
+  const date = value instanceof Date ? value : new Date(value)
+  return Number.isNaN(date.getTime()) ? '' : date.toISOString()
+}
+
+function stringOrNull(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value : null
+}
+
+/** 草稿 contentJson → 列表视图（字段口径对齐旧版 ProductManagement 表格）。 */
+function draftToView(draft: {
+  id: string
+  jobId: string
+  title: string | null
+  platformId: string | null
   status: string
-  updatedAt: string
+  contentJson: unknown
+  createdAt: Date
+  updatedAt: Date
+}): PlatformProductView {
+  const content = rawRecord(draft.contentJson) ?? {}
+  const rawSkus = Array.isArray(content.skus) ? (content.skus as Array<Record<string, unknown>>) : []
+  const skus: PlatformSkuView[] = rawSkus.map((sku, index) => ({
+    skuName: String(sku.specName ?? sku.skuName ?? ''),
+    skuCode: String(sku.skuCode ?? ''),
+    skuId: String(sku.id ?? sku.skuId ?? sku.skuCode ?? `${draft.id}-sku-${index}`),
+    price: Number(sku.price ?? 0),
+    stock: Number(sku.stock ?? sku.quantity ?? 0),
+    skuImage: stringOrNull(sku.specImage) ?? stringOrNull(sku.skuImage),
+  }))
+  const prices = skus.map((sku) => sku.price).filter((price) => Number.isFinite(price) && price > 0)
+  const contentPrice = content.price !== undefined && content.price !== null && content.price !== '' ? Number(content.price) : undefined
+  const price = contentPrice ?? prices[0] ?? 0
+  const mainImages = Array.isArray(content.mainImages) ? content.mainImages.filter((v): v is string => typeof v === 'string' && Boolean(v)) : []
+  const categoryPath = content.categoryPath
+
+  return {
+    id: draft.id,
+    source: 'draft',
+    productId: draft.jobId,
+    productName: draft.title ?? '未命名商品',
+    productCode: stringOrNull(content.productCode) ?? draft.jobId,
+    category: Array.isArray(categoryPath) ? categoryPath.map(String).join('/') : String(categoryPath ?? ''),
+    platform: draft.platformId ?? 'taobao',
+    storeId: stringOrNull(content.storeId),
+    storeName: stringOrNull(content.storeName),
+    price,
+    minPrice: prices.length ? Math.min(...prices) : price,
+    maxPrice: prices.length ? Math.max(...prices) : price,
+    publishStatus: PUBLISH_STATUS_LABEL[draft.status] ?? draft.status,
+    publishStatusCode: draft.status,
+    listingStatus: '上架',
+    productImage: mainImages[0] ?? null,
+    updateTime: toIso(draft.updatedAt),
+    createTime: toIso(draft.createdAt),
+    skus,
+  }
+}
+
+/** 采集快照 → 列表视图（店透视采集自淘宝，故平台固定 taobao，不改写成未知平台）。 */
+function snapshotToView(snapshot: {
+  id: string
+  externalProductId: string
+  title: string | null
+  price: number | null
+  shopId: string | null
+  shopName: string | null
+  rawJson: unknown
+  createdAt: Date
+  updatedAt: Date
+}): PlatformProductView {
+  const raw = rawRecord(snapshot.rawJson) ?? {}
+  const image = stringOrNull(raw.mainImage) ?? stringOrNull(raw.imageUrl) ?? stringOrNull(raw.picUrl)
+  const price = snapshot.price ? Number(snapshot.price) : 0
+  return {
+    id: snapshot.id,
+    source: 'snapshot',
+    productId: snapshot.externalProductId,
+    productName: snapshot.title ?? '商品快照',
+    productCode: snapshot.externalProductId,
+    category: '',
+    platform: 'taobao',
+    storeId: snapshot.shopId,
+    storeName: snapshot.shopName,
+    price,
+    minPrice: price,
+    maxPrice: price,
+    publishStatus: '已发布',
+    publishStatusCode: 'submitted',
+    listingStatus: '上架',
+    productImage: image,
+    updateTime: toIso(snapshot.updatedAt),
+    createTime: toIso(snapshot.createdAt),
+    skus: [],
+  }
 }
 
 /**
- * 平台商品列表：查询本地 ListingDraft（上架草稿/已发布）与 ProductSnapshot（竞品快照）。
- * 筛选参数语义对齐后端 platform.service.listProducts：platform→platformId、status、keyword→title 包含。
+ * 平台商品列表：合并本地 ListingDraft（上架草稿/已发布）与 ProductSnapshot（采集快照）。
+ * 迁移自后端 platform.service.listProducts，并补上旧版页面用到的字段与筛选（店铺/商品编码/商品ID/更新时间）。
+ * 说明：两来源需合并后统一排序分页，故过滤与分页在内存完成（本地数据量级有限）。
  */
-export async function listProducts(input: ListProductsInput = {}): Promise<{ items: PlatformProductView[]; total: number; page: number; pageSize: number }> {
+export async function listProducts(
+  input: ListProductsInput = {},
+): Promise<{ items: PlatformProductView[]; total: number; page: number; pageSize: number }> {
   const db = getWorkerPrisma()
   const tenantId = input.tenantId || 'local'
-  const page = Math.max(1, Number(input.page ?? 1))
-  const pageSize = Math.min(100, Math.max(1, Number(input.pageSize ?? 20)))
-  const skip = (page - 1) * pageSize
+  const page = Math.max(1, Math.trunc(Number(input.page ?? 1)))
+  const pageSize = Math.min(100, Math.max(1, Math.trunc(Number(input.pageSize ?? 20))))
 
-  const draftWhere = {
-    tenantId,
-    ...(input.platform ? { platformId: input.platform } : {}),
-    ...(input.status ? { status: input.status } : {}),
-    ...(input.keyword?.trim() ? { title: { contains: input.keyword.trim() } } : {}),
-  }
-  const drafts = await db.listingDraft.findMany({ where: draftWhere, orderBy: { updatedAt: 'desc' }, take: pageSize, skip })
+  const platform = (input.platform ?? '').trim().toLowerCase()
+  const statusCode = normalizePublishStatus(input.status)
+  const keyword = (input.keyword ?? '').trim()
+  const storeId = (input.storeId ?? '').trim()
+  const codes = splitTerms(input.productCode).map((v) => v.toLowerCase())
+  const ids = splitTerms(input.externalId).map((v) => v.toLowerCase())
+  // 纯日期补齐时分秒后再解析（否则 new Date('YYYY-MM-DD') 按 UTC 解析，本地 00:00-08:00 会漏数据）
+  const from = input.updateTimeFrom
+    ? new Date(/^\d{4}-\d{2}-\d{2}$/.test(String(input.updateTimeFrom)) ? `${input.updateTimeFrom}T00:00:00.000` : input.updateTimeFrom)
+    : null
+  const to = input.updateTimeTo
+    ? new Date(/^\d{4}-\d{2}-\d{2}$/.test(String(input.updateTimeTo)) ? `${input.updateTimeTo}T23:59:59.999` : input.updateTimeTo)
+    : null
 
-  const snapshotWhere = {
-    tenantId,
-    ...(input.keyword?.trim() ? { title: { contains: input.keyword.trim() } } : {}),
-  }
-  const snapshots = await db.productSnapshot.findMany({ where: snapshotWhere, orderBy: { createdAt: 'desc' }, take: pageSize })
+  const [drafts, snapshots] = await Promise.all([
+    db.listingDraft.findMany({ where: { tenantId }, orderBy: { updatedAt: 'desc' }, take: 500 }),
+    db.productSnapshot.findMany({ where: { tenantId }, orderBy: { createdAt: 'desc' }, take: 500 }),
+  ])
 
-  const draftItems: PlatformProductView[] = drafts.map((d) => {
-    const content = rawRecord(d.contentJson) ?? {}
-    const priceValue = content.price
-    const skus = Array.isArray(content.skus) ? (content.skus as Array<Record<string, unknown>>) : []
-    const stock = skus.reduce((acc, s) => acc + Number(s.stock ?? s.quantity ?? 0), 0)
-    return {
-      id: d.id,
-      title: d.title ?? '未命名商品',
-      platform: d.platformId ?? 'taobao',
-      outerId: d.jobId,
-      price: priceValue !== undefined && priceValue !== null && priceValue !== '' ? Number(priceValue) : 0,
-      stock,
-      status: d.status,
-      updatedAt: d.updatedAt.toISOString(),
-    }
+  const merged = [...drafts.map(draftToView), ...snapshots.map(snapshotToView)]
+
+  const filtered = merged.filter((item) => {
+    if (platform && platform !== 'all' && item.platform.toLowerCase() !== platform) return false
+    if (storeId && item.storeId !== storeId) return false
+    if (statusCode && item.publishStatusCode !== statusCode) return false
+    if (keyword && !item.productName.toLowerCase().includes(keyword.toLowerCase())) return false
+    if (codes.length && !codes.some((code) => item.productCode.toLowerCase().includes(code))) return false
+    if (ids.length && !ids.some((id) => item.productId.toLowerCase().includes(id))) return false
+    const updated = item.updateTime ? new Date(item.updateTime).getTime() : 0
+    if (from && !Number.isNaN(from.getTime()) && updated < from.getTime()) return false
+    if (to && !Number.isNaN(to.getTime()) && updated > to.getTime()) return false
+    return true
   })
 
-  const snapshotItems: PlatformProductView[] = snapshots.map((s) => ({
-    id: s.id,
-    title: s.title ?? '商品快照',
-    platform: 'taobao',
-    outerId: s.externalProductId,
-    price: s.price ? Number(s.price) : 0,
-    stock: 0,
-    status: 'online',
-    updatedAt: s.updatedAt.toISOString(),
-  }))
+  filtered.sort((a, b) => (a.updateTime < b.updateTime ? 1 : a.updateTime > b.updateTime ? -1 : 0))
 
-  const items = [...draftItems, ...snapshotItems].slice(0, pageSize)
-  return { items, total: items.length, page, pageSize }
+  const start = (page - 1) * pageSize
+  return { items: filtered.slice(start, start + pageSize), total: filtered.length, page, pageSize }
+}
+
+/** 读取单个草稿（供「编辑商品详情」回填）。 */
+export async function getListingDraft(id: string, tenantId = 'local') {
+  if (!id) throw new PlatformAdapterError('缺少草稿 ID', 'DRAFT_INVALID')
+  const db = getWorkerPrisma()
+  const draft = await db.listingDraft.findFirst({ where: { id, tenantId } })
+  if (!draft) throw new PlatformAdapterError('草稿不存在', 'DRAFT_NOT_FOUND')
+  return {
+    id: draft.id,
+    title: draft.title,
+    platformCode: draft.platformId ?? 'taobao',
+    status: draft.status,
+    contentJson: rawRecord(draft.contentJson) ?? {},
+    createdAt: toIso(draft.createdAt),
+    updatedAt: toIso(draft.updatedAt),
+  }
 }

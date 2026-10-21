@@ -17,7 +17,10 @@ export class UserController {
   list(
     @Req() request: { user: { tenantId: string; sub: string; dataScope?: string; departmentId?: string | null } },
     @Query('keyword') keyword?: string,
+    @Query('username') username?: string,
+    @Query('phone') phone?: string,
     @Query('isActive') isActive?: string,
+    @Query('departmentId') departmentId?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
@@ -25,6 +28,9 @@ export class UserController {
       { ...request.user, userId: request.user.sub },
       {
         keyword,
+        ...(username ? { username } : {}),
+        ...(phone ? { phone } : {}),
+        ...(departmentId ? { departmentId } : {}),
         ...(isActive === 'true' || isActive === 'false' ? { isActive: isActive === 'true' } : {}),
         ...(page !== undefined ? { page: Number(page) || 1 } : {}),
         ...(pageSize !== undefined ? { pageSize: Number(pageSize) || 20 } : {}),

@@ -55,6 +55,20 @@ async function main() {
     { code: 'image:regenerate', name: '重新生成图片', type: 'button' },
     { code: 'listing:submit', name: '提交发布', type: 'button' },
     { code: 'review:decide', name: '审核决策', type: 'button' },
+    // 商品域菜单/按钮字典（迁移自旧版 apps/legacy/src/server/menuManagement.js 的 sys_menu/sys_button：
+    // 菜单 1009 商品主档 + 按钮 2001~2005；此处以 code 为唯一键，按钮用 parentCode 挂到所属菜单）。
+    { code: 'product:master', name: '商品主档', type: 'menu' },
+    { code: 'product:management', name: '平台商品', type: 'menu' },
+    { code: 'product:create', name: '新增商品', type: 'button', parentCode: 'product:master' },
+    { code: 'product:import', name: '导入商品', type: 'button', parentCode: 'product:master' },
+    { code: 'product:update', name: '编辑商品', type: 'button', parentCode: 'product:master' },
+    { code: 'product:toggle-status', name: '停用/启用', type: 'button', parentCode: 'product:master' },
+    { code: 'product:delete', name: '删除商品', type: 'button', parentCode: 'product:master' },
+    // 平台商品（旧版 menuManagement.js 菜单 1010 + 按钮 2006~2009）
+    { code: 'product:listing:create', name: '发布商品', type: 'button', parentCode: 'product:management' },
+    { code: 'product:listing:edit', name: '编辑平台商品', type: 'button', parentCode: 'product:management' },
+    { code: 'product:listing:publish', name: '发布', type: 'button', parentCode: 'product:management' },
+    { code: 'product:listing:toggle', name: '上架/下架', type: 'button', parentCode: 'product:management' },
   ]
 
   for (const permission of permissionSeeds) {

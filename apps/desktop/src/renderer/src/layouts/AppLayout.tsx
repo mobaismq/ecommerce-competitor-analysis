@@ -4,6 +4,7 @@ import { Menu, Popover } from '@arco-design/web-react'
 import { ReportJobBanner } from '../components/ReportJobBanner'
 import {
   Bot,
+  Building,
   Copy,
   Cpu,
   Database,
@@ -88,10 +89,13 @@ const nav: NavItem[] = [
     label: '设置',
     icon: Settings,
     children: [
-      { to: '/settings/account', label: '账号管理', superOnly: true, icon: UserCog },
-      { to: '/settings/role', label: '角色管理', superOnly: true, icon: Users },
-      { to: '/settings/store', label: '店铺管理', icon: Store },
+      // 旧版设置页全量迁移：账号/角色/店铺（部门管理已内联在「账号管理」左侧树，不单列菜单）
+      { to: '/settings/account', label: '账号管理', perm: 'user:manage', icon: UserCog },
+      { to: '/settings/role', label: '角色管理', perm: 'role:manage', icon: Users },
+      { to: '/settings/store', label: '店铺管理', perm: 'store:manage', icon: Store },
       { to: '/settings/ai-config', label: 'AI 配置', icon: Sparkles },
+      { to: '/settings/tenants', label: '租户管理', superOnly: true, icon: Building },
+      { to: '/settings/providers', label: 'AI 供应商', superOnly: true, icon: Sparkles },
     ],
   },
 ]

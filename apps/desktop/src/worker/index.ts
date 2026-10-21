@@ -6,6 +6,7 @@ import { listAssets, rawAsset, deleteAsset } from './asset-capability'
 import { deleteMedia, listMedia, mediaRaw, replicateVideo } from './media-capability'
 import {
   getCategories as getPlatformCategories,
+  getListingDraft,
   getStatus as getPlatformStatus,
   listAdapterCodes as listPlatformAdapterCodes,
   listProducts as listPlatformProducts,
@@ -22,7 +23,7 @@ import { runProductSetGraph, type GenerationSlotGraph } from './product-sets-gra
 import { runDetailGraph, type DetailModuleGraph } from './detail-graph'
 import { getSelfConfig, saveSelfConfig, setServerDefault, type SaveSelfConfigInput } from './ai-config'
 import { cancelAnalysisJob, createAnalysisJob, getAnalysisJob, type CreateAnalysisJobInput } from './analysis-capability'
-import { createProduct, deleteProduct, listProducts, updateProduct, type SaveProductInput } from './product-capability'
+import { createProduct, deleteProduct, listProducts, updateProduct, type ListProductsOptions, type SaveProductInput } from './product-capability'
 import {
   dataAgentChat,
   dataAgentDatasets,
@@ -100,7 +101,13 @@ export function createBuiltinHandlers(): Record<string, CapabilityHandler> {
       const roots = workerDataRoots()
       return generateImageCapability(payload as GenerateImageInput, undefined, roots.userRoot)
     },
-    'asset.list': async (payload) => listAssets(undefined, String((payload as { jobId?: string })?.jobId ?? undefined)),
+    // 注意：不能写 String(payload?.jobId ?? undefined) —— 未传 jobId 时会变成字符串 "undefined"，
+    // 查询就变成 where jobId = 'undefined'，图库/资产库会永远为空。
+    'asset.list': async (payload) => {
+      const rawJobId = (payload as { jobId?: unknown } | undefined)?.jobId
+      const jobId = typeof rawJobId === 'string' && rawJobId.trim() ? rawJobId.trim() : undefined
+      return listAssets(undefined, jobId)
+    },
     'asset.raw': async (payload) => rawAsset(String((payload as { id?: string })?.id ?? '')),
     'asset.delete': async (payload) => deleteAsset(String((payload as { id?: string })?.id ?? '')),
     'media.list': async (payload) => listMedia({ tenantId: String((payload as { tenantId?: string })?.tenantId ?? '') }),
@@ -114,6 +121,8 @@ export function createBuiltinHandlers(): Record<string, CapabilityHandler> {
     'platform.mediaRaw': async (payload) => getPlatformMediaRaw(String((payload as { storageKey?: string })?.storageKey ?? '')),
     'platform.mediaDelete': async (payload) => removeListingMedia((payload as { keys?: string[] })?.keys ?? []),
     'platform.draft': async (payload) => saveListingDraft(payload as Parameters<typeof saveListingDraft>[0]),
+    // 读取单个草稿：供平台商品列表「编辑」回填上架表单
+    'platform.draft.get': async (payload) => getListingDraft(String((payload as { id?: string })?.id ?? ''), String((payload as { tenantId?: string })?.tenantId ?? 'local')),
     'platform.publish': async (payload) => publishListing(payload as Parameters<typeof publishListing>[0]),
     'platform.listProducts': async (payload) => listPlatformProducts(payload as ListProductsInput),
     'productSets.generatePrompts': async (payload) => generatePrompts(payload as ProductSetsInput),
@@ -281,7 +290,11 @@ export function createBuiltinHandlers(): Record<string, CapabilityHandler> {
     'analysis.jobs.create': async (payload) => createAnalysisJob(payload as CreateAnalysisJobInput & { tenantId?: string; userId?: string }),
     'analysis.jobs.get': async (payload) => getAnalysisJob(String((payload as { id?: string })?.id ?? ''), String((payload as { tenantId?: string })?.tenantId ?? 'local')),
     'analysis.jobs.cancel': async (payload) => cancelAnalysisJob(String((payload as { id?: string })?.id ?? ''), String((payload as { tenantId?: string })?.tenantId ?? 'local')),
-    'product.list': async (payload) => listProducts(String((payload as { tenantId?: string })?.tenantId ?? 'local'), (payload as { keyword?: string; status?: string })),
+    // 商品主档列表：筛选/分页口径由 capability 权威实现，这里只做 tenantId 剥离与选项透传。
+    'product.list': async (payload) => {
+      const { tenantId, ...options } = (payload ?? {}) as { tenantId?: string } & ListProductsOptions
+      return listProducts(String(tenantId ?? 'local'), options)
+    },
     'product.create': async (payload) => createProduct(String((payload as { tenantId?: string })?.tenantId ?? 'local'), payload as SaveProductInput),
     'product.update': async (payload) => updateProduct(String((payload as { tenantId?: string })?.tenantId ?? 'local'), String((payload as { id?: string })?.id ?? ''), payload as SaveProductInput),
     'product.delete': async (payload) => deleteProduct(String((payload as { tenantId?: string })?.tenantId ?? 'local'), String((payload as { id?: string })?.id ?? '')),

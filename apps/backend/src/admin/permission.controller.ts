@@ -31,12 +31,24 @@ export class PermissionController {
     ])
     const groups = new Map<
       string,
-      { code: string; name: string; type: string; children: Array<{ id: string; code: string; name: string; type: string }> }
+      {
+        code: string
+        name: string
+        type: string
+        children: Array<{ id: string; code: string; name: string; type: string; parentCode: string | null }>
+      }
     >()
     for (const permission of permissions) {
       const seg = (permission.code.split(':')[0] || 'other').toLowerCase()
       const group = groups.get(seg) ?? { code: seg, name: seg, type: 'menu', children: [] }
-      group.children.push({ id: permission.id, code: permission.code, name: permission.name, type: permission.type ?? 'menu' })
+      // parentCode 供角色页「取消菜单时跟随取消其按钮」的联动使用（旧版菜单/按钮父子关系）
+      group.children.push({
+        id: permission.id,
+        code: permission.code,
+        name: permission.name,
+        type: permission.type ?? 'menu',
+        parentCode: permission.parentCode ?? null,
+      })
       groups.set(seg, group)
     }
     return { groups: Array.from(groups.values()), stores }

@@ -7,7 +7,11 @@ import { AnalysisCollectPage } from './pages/AnalysisCollectPage'
 import { ReportsListPage } from './pages/ReportsListPage'
 import { AssetsPage } from './pages/AssetsPage'
 import { ImageGalleryPage } from './pages/ImageGalleryPage'
-import { AdminDepartmentsPage, AdminProviderProfilesPage, AdminRolesPage, AdminStoresPage, AdminTenantsPage, AdminUsersPage } from './pages/AdminListsPage'
+import { AdminProviderProfilesPage, AdminTenantsPage } from './pages/AdminListsPage'
+import { AccountsPage } from './pages/settings/AccountsPage'
+import { RolesPage } from './pages/settings/RolesPage'
+import { StoresPage } from './pages/settings/StoresPage'
+import { DepartmentsPage } from './pages/settings/DepartmentsPage'
 import { VideoGalleryPage } from './pages/VideoGalleryPage'
 import { ViralVideoReplicationPage } from './pages/ViralVideoReplicationPage'
 import { DataAnalyticsPage } from './pages/DataAnalyticsPage'
@@ -47,6 +51,19 @@ function SuperProtected({ children }: { children: React.ReactNode }) {
   return isSuper ? <>{children}</> : <Navigate to="/analysis/reports" replace />
 }
 
+/** 按权限码守卫设置页（对齐旧版菜单/按钮权限：无权限不可进入，服务端另有 403 兜底）。
+ *  旧版宽松兜底：账号未配置任何权限时视为全可见，这里保持一致，避免误锁死。 */
+function PermProtected({ code, children }: { code: string; children: React.ReactNode }) {
+  const isSuper = useAuth((state) => state.isSuper)
+  const menuCodes = useAuth((state) => state.menuCodes)
+  const buttonCodes = useAuth((state) => state.buttonCodes)
+  if (isSuper) return <>{children}</>
+  const configured = menuCodes.length + buttonCodes.length > 0
+  if (!configured) return <>{children}</>
+  const allowed = [...menuCodes, ...buttonCodes].includes(code)
+  return allowed ? <>{children}</> : <Navigate to="/market/competitive/ai-collect" replace />
+}
+
 createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
@@ -79,14 +96,14 @@ createRoot(document.getElementById('root')!).render(
             <Route path="product/management" element={<ProductManagementPage />} />
             <Route path="product/management/manual" element={<ManualListingPage />} />
 
-            {/* 系统设置板块 */}
-            <Route path="settings/account" element={<AdminUsersPage />} />
-            <Route path="settings/role" element={<AdminRolesPage />} />
-            <Route path="settings/store" element={<AdminStoresPage />} />
-            <Route path="settings/accounts" element={<AdminUsersPage />} />
-            <Route path="settings/roles" element={<AdminRolesPage />} />
-            <Route path="settings/stores" element={<AdminStoresPage />} />
-            <Route path="settings/departments" element={<SuperProtected><AdminDepartmentsPage /></SuperProtected>} />
+            {/* 系统设置板块（旧版设置页全量迁移：账号/角色/店铺/部门） */}
+            <Route path="settings/account" element={<PermProtected code="user:manage"><AccountsPage /></PermProtected>} />
+            <Route path="settings/role" element={<PermProtected code="role:manage"><RolesPage /></PermProtected>} />
+            <Route path="settings/store" element={<PermProtected code="store:manage"><StoresPage /></PermProtected>} />
+            <Route path="settings/accounts" element={<PermProtected code="user:manage"><AccountsPage /></PermProtected>} />
+            <Route path="settings/roles" element={<PermProtected code="role:manage"><RolesPage /></PermProtected>} />
+            <Route path="settings/stores" element={<PermProtected code="store:manage"><StoresPage /></PermProtected>} />
+            <Route path="settings/departments" element={<PermProtected code="system:manage"><DepartmentsPage /></PermProtected>} />
             <Route path="settings/tenants" element={<SuperProtected><AdminTenantsPage /></SuperProtected>} />
             <Route path="settings/providers" element={<SuperProtected><AdminProviderProfilesPage /></SuperProtected>} />
             <Route path="settings/account-info" element={<AccountInfoPage />} />
@@ -114,6 +131,9 @@ createRoot(document.getElementById('root')!).render(
             <Route path="products/master-data" element={<ProductMasterDataPage />} />
             <Route path="products/management" element={<ProductManagementPage />} />
             <Route path="products/management/manual" element={<ManualListingPage />} />
+            {/* 旧版兼容跳转（旧路由 /listing、/listing/manual，对齐 legacy routes.tsx） */}
+            <Route path="listing" element={<Navigate to="/product/management" replace />} />
+            <Route path="listing/manual" element={<Navigate to="/product/management/manual" replace />} />
             <Route path="assets" element={<AssetsPage />} />
             <Route path="assets/images" element={<ImageGalleryPage />} />
             <Route path="assets/videos" element={<VideoGalleryPage />} />

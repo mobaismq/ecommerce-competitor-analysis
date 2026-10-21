@@ -12,13 +12,18 @@ export class UserService {
 
   async list(
     scope: { tenantId: string; userId: string; dataScope?: string; departmentId?: string | null },
-    options: { keyword?: string; isActive?: boolean; page?: number; pageSize?: number } = {},
+    options: { keyword?: string; username?: string; phone?: string; isActive?: boolean; departmentId?: string; page?: number; pageSize?: number } = {},
   ) {
     const where: Prisma.UserWhereInput = {
       deletedAt: null,
       tenantId: scope.tenantId,
       ...(normalizeDataScope(scope.dataScope) === 'self' ? { id: scope.userId } : {}),
       ...(normalizeDataScope(scope.dataScope) === 'department' && scope.departmentId ? { departmentId: scope.departmentId } : {}),
+      // 部门筛选（旧版账号管理左树选中部门后按其过滤）：与上面的数据范围叠加，取交集
+      ...(options.departmentId ? { departmentId: options.departmentId } : {}),
+      // 分离字段筛选（旧版查询条件：账号名称、手机号 各自独立，AND 关系）
+      ...(options.username ? { username: { contains: options.username } } : {}),
+      ...(options.phone ? { phone: { contains: options.phone } } : {}),
       ...(options.isActive !== undefined ? { isActive: options.isActive } : {}),
     }
     if (options.keyword) {
@@ -39,6 +44,7 @@ export class UserService {
         email: true,
         avatarUrl: true,
         departmentId: true,
+        dataScope: true,
         isActive: true,
         createdAt: true,
         updatedAt: true,
