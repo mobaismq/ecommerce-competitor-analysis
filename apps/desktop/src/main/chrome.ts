@@ -15,7 +15,7 @@ export interface LaunchChromeOptions {
 }
 
 export interface LaunchedChrome {
-  child: ChildProcess
+  child?: ChildProcess
   port: number
   profileDir: string
   debugUrl: string
@@ -124,33 +124,57 @@ export function getDefaultDtsProfileDir(): string {
   }
 }
 
-function waitForDevToolsPort(profileDir: string, timeoutMs = 20000): Promise<number> {
+async function isDevToolsPortAlive(port: number): Promise<boolean> {
+  try {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 1000)
+    const resp = await fetch(`http://127.0.0.1:${port}/json/version`, { signal: controller.signal })
+    clearTimeout(timer)
+    return resp.ok
+  } catch {
+    return false
+  }
+}
+
+function waitForDevToolsPort(profileDir: string, child: ReturnType<typeof spawn>, timeoutMs = 15000): Promise<number> {
   const file = join(profileDir, 'DevToolsActivePort')
   const started = Date.now()
   return new Promise((resolvePort, reject) => {
+    let resolved = false
+
+    const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
+      if (!resolved) {
+        resolved = true
+        reject(new Error(`Chromium 进程异常退出 (code: ${code}, signal: ${signal})`))
+      }
+    }
+    child.once('exit', onExit)
+
     const poll = async () => {
+      if (resolved) return
       try {
         if (existsSync(file)) {
           const content = readFileSync(file, 'utf8')
           const firstLine = content.split(/\r?\n/)[0]
           const port = Number(firstLine)
           if (Number.isInteger(port) && port > 0) {
-            // 验证真实 HTTP 连通性，防止读到未清理的旧端口
-            try {
-              const resp = await fetch(`http://127.0.0.1:${port}/json/version`)
-              if (resp.ok) {
-                resolvePort(port)
-                return
-              }
-            } catch {}
+            const alive = await isDevToolsPortAlive(port)
+            if (alive) {
+              resolved = true
+              child.removeListener('exit', onExit)
+              resolvePort(port)
+              return
+            }
           }
         }
       } catch {}
       if (Date.now() - started > timeoutMs) {
+        resolved = true
+        child.removeListener('exit', onExit)
         reject(new Error(`等待 Chromium DevToolsActivePort 超时 (${profileDir})`))
         return
       }
-      setTimeout(poll, 150)
+      setTimeout(poll, 120)
     }
     void poll()
   })
@@ -163,9 +187,35 @@ export async function launchChromeForRpa(options: LaunchChromeOptions = {}): Pro
   const profileDir = options.profileDir ?? (isPersistent ? getDefaultDtsProfileDir() : join(tmpdir(), `eca-rpa-profile-${Date.now()}`))
   mkdirSync(profileDir, { recursive: true })
 
-  // 启动前先清理旧残留端口文件，彻底避免读到上一次进程的历史旧端口
+  // 1. 如果当前 profile 已有活着的 DevTools 端口且不需要切换 url/模式，尝试复用
+  const activePortFile = join(profileDir, 'DevToolsActivePort')
+  if (existsSync(activePortFile)) {
+    try {
+      const port = Number(readFileSync(activePortFile, 'utf8').split(/\r?\n/)[0])
+      if (Number.isInteger(port) && port > 0 && await isDevToolsPortAlive(port)) {
+        // 如果当前实例活着且外部未指定要单独打开 URL，可直接复用已有实例
+        if (!options.url || options.url === 'about:blank') {
+          if (options.downloadPath) {
+            try { await setDownloadBehavior(port, options.downloadPath) } catch {}
+          }
+          return {
+            port,
+            profileDir,
+            debugUrl: `http://127.0.0.1:${port}`,
+            isBuiltin,
+            executablePath: chromeExe,
+          }
+        }
+      }
+    } catch {}
+  }
+
+  // 2. 启动新实例前，清理可能导致启动冲突的旧锁与残留端口文件
   try {
-    rmSync(join(profileDir, 'DevToolsActivePort'), { force: true })
+    rmSync(activePortFile, { force: true })
+    rmSync(join(profileDir, 'SingletonLock'), { force: true })
+    rmSync(join(profileDir, 'SingletonSocket'), { force: true })
+    rmSync(join(profileDir, 'SingletonCookie'), { force: true })
   } catch {}
 
   // 跨平台规范化路径，避免 Windows 反斜杠转义
@@ -210,7 +260,7 @@ export async function launchChromeForRpa(options: LaunchChromeOptions = {}): Pro
   })
 
   try {
-    const port = await waitForDevToolsPort(profileDir)
+    const port = await waitForDevToolsPort(profileDir, child)
     const launched: LaunchedChrome = {
       child,
       port,

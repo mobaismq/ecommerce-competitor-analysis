@@ -3,7 +3,7 @@ import { app, ipcMain } from 'electron'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import type { PrismaClient } from '../generated/prisma'
-import { launchChromeForRpa, setDownloadBehavior, type LaunchedChrome } from './chrome'
+import { closeChrome, launchChromeForRpa, setDownloadBehavior, type LaunchedChrome } from './chrome'
 import { assertCollectionMode, type CollectionMode } from './collection-modes'
 import { runLocalCollection } from './collection-runner'
 import { resolveDataRoots } from './data-root'
@@ -316,11 +316,18 @@ export function registerCollectionHandlers(prisma: PrismaClient) {
 
   // 方案 A：供前端侧边抽屉一键唤起独立登录扫码窗口
   ipcMain.handle('collection:openLoginWindow', async () => {
+    if (activeChrome) {
+      try {
+        closeChrome(activeChrome)
+      } catch {}
+      activeChrome = null
+    }
     const loginWin = await launchChromeForRpa({
       headless: false,
       persistent: true,
       url: 'https://login.taobao.com',
     })
+    activeChrome = loginWin
     return { ok: true, port: loginWin.port }
   })
 }
