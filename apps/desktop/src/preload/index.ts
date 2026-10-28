@@ -47,5 +47,6 @@ contextBridge.exposeInMainWorld('desktop', {
     status: (jobId?: string) => ipcRenderer.invoke('collection:status', jobId),
     list: (limit?: number) => ipcRenderer.invoke('collection:list', limit),
     probe: () => ipcRenderer.invoke('collection:probe'),
+    openLoginWindow: () => ipcRenderer.invoke('collection:openLoginWindow'),
   },
 })

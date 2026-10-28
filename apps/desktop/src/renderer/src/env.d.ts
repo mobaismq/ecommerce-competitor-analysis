@@ -93,6 +93,7 @@ declare global {
           hasDownloadScript: boolean
           downloadScript: string
         }>
+        openLoginWindow: () => Promise<{ ok: boolean; port?: number }>
       }
     }
   }

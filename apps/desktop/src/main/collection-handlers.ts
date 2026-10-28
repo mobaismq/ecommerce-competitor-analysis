@@ -313,4 +313,14 @@ export function registerCollectionHandlers(prisma: PrismaClient) {
       downloadScript: script,
     }
   })
+
+  // 方案 A：供前端侧边抽屉一键唤起独立登录扫码窗口
+  ipcMain.handle('collection:openLoginWindow', async () => {
+    const loginWin = await launchChromeForRpa({
+      headless: false,
+      persistent: true,
+      url: 'https://login.taobao.com',
+    })
+    return { ok: true, port: loginWin.port }
+  })
 }

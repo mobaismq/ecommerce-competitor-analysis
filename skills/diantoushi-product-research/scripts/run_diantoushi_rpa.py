@@ -312,6 +312,13 @@ def get_cdp_page():
         context = browser.contexts[0] if browser.contexts else browser.new_context()
         pages = [p for p in context.pages if not p.is_closed()]
         page = pages[0] if pages else context.new_page()
+        # 自动关闭多余的空白 Tab，保持单一活跃工作页面
+        for extra in pages[1:]:
+            try:
+                if extra.url in ("about:blank", ""):
+                    extra.close()
+            except Exception:
+                pass
         _CDP_PAGE = page
         return _CDP_PAGE
     except Exception:

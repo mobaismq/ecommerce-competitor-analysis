@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Message, Switch, Tooltip } from '@arco-design/web-react'
-import { AlertCircle, Loader2, Play, Square, Terminal } from 'lucide-react'
+import { Button, Drawer, Message, Switch, Tooltip } from '@arco-design/web-react'
+import { AlertCircle, CheckCircle2, ExternalLink, Loader2, Play, QrCode, ShieldCheck, Square, Terminal } from 'lucide-react'
 import { parseRpaProgress } from '../utils/rpaProgress'
 import { PageHeader } from '../components/PageHeader'
 import { XInput } from '../components/XInput'
@@ -54,6 +54,7 @@ export function AnalysisCollectPage() {
   const [logs, setLogs] = useState<string>('')
   const [autoScroll, setAutoScroll] = useState(true)
   const [errorMessage, setErrorMessage] = useState<string>('')
+  const [authDrawerVisible, setAuthDrawerVisible] = useState(false)
 
   const [activeParams, setActiveParams] = useState<{
     keyword: string
@@ -244,19 +245,29 @@ export function AnalysisCollectPage() {
         <section className="rounded-2xl bg-white p-6 shadow-[0_8px_32px_rgba(29,38,52,.06)]">
           <div className="mb-5 flex items-center justify-between gap-3">
             <h2 className="text-[17px] font-extrabold text-[#0A1B39]">采集条件</h2>
-            <button
-              type="button"
-              onClick={handleReset}
-              disabled={isRunning}
-              className="cursor-pointer border-0 bg-transparent p-0 text-[12px] font-bold text-[#3388ff] hover:text-[#1a6fe8]"
-            >
-              重置
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setAuthDrawerVisible(true)}
+                className="flex items-center gap-1.5 rounded-lg border border-[#d0e2ff] bg-[#f0f5ff] px-2.5 py-1 text-[12px] font-bold text-[#3388ff] hover:bg-[#e0edff] transition-colors cursor-pointer"
+              >
+                <QrCode className="h-3.5 w-3.5" />
+                账号登录助手
+              </button>
+              <button
+                type="button"
+                onClick={handleReset}
+                disabled={isRunning}
+                className="cursor-pointer border-0 bg-transparent p-0 text-[12px] font-bold text-[#86909C] hover:text-[#344054]"
+              >
+                重置
+              </button>
+            </div>
           </div>
 
           <div className="space-y-5">
             <p className="text-[12px] leading-5 text-[#86909C]">
-              使用 Mac 店透视采集器。请先在 Chrome 登录淘宝及店透视，并完成自动化授权；采集期间请勿操作浏览器。商品、SKU、问大家和评价会自动写入本机报告数据库，图片保存在本机。
+              已内置专属绿色 Chromium 容器与官方店透视插件。全流程<strong>后台无感静默采集</strong>，绝不弹出外部浏览器；如需更新登录态可点击上方「账号登录助手」完成扫码，会话终身持久化。
             </p>
             {/* 桌面端业务保留：快捷热门行业关键词 */}
             <div>
@@ -453,6 +464,76 @@ export function AnalysisCollectPage() {
           )}
         </section>
       </div>
+
+      {/* ─── 方案 A 专属：右侧滑出登录授权助手抽屉 ─── */}
+      <Drawer
+        width={480}
+        title={
+          <div className="flex items-center gap-2">
+            <ShieldCheck className="h-5 w-5 text-[#3388ff]" />
+            <span className="font-extrabold text-[16px] text-[#0A1B39]">店透视 & 淘宝登录授权</span>
+          </div>
+        }
+        visible={authDrawerVisible}
+        onOk={() => setAuthDrawerVisible(false)}
+        onCancel={() => setAuthDrawerVisible(false)}
+        footer={
+          <div className="flex justify-between items-center w-full">
+            <span className="text-[12px] text-[#86909C]">扫码成功后关闭窗口即可</span>
+            <Button type="primary" onClick={() => setAuthDrawerVisible(false)}>
+              完成并关闭
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-5 text-[#344054]">
+          <div className="rounded-xl border border-[#e5e8ef] bg-[#f8fafc] p-4">
+            <h4 className="m-0 mb-1.5 text-[14px] font-extrabold text-[#0A1B39] flex items-center gap-2">
+              <span className="h-2 w-2 rounded-full bg-[#10b981]" />
+              全静默无感后台采集
+            </h4>
+            <p className="m-0 text-[13px] text-[#64748b] leading-relaxed">
+              本桌面端内置专属绿色便携 Chromium 容器与店透视插件。在完成首次账号扫码后，后续所有采集任务均在后台<strong>完全静默运行</strong>，绝不弹出外部浏览器窗口，Dock 栏无冗余图标。
+            </p>
+          </div>
+
+          <div className="rounded-xl border border-[#dbeafe] bg-[#eff6ff] p-4">
+            <div className="flex items-start gap-3">
+              <QrCode className="h-6 w-6 text-[#2563eb] shrink-0 mt-0.5" />
+              <div>
+                <h5 className="m-0 text-[14px] font-bold text-[#1e40af]">首次运行扫码登录</h5>
+                <p className="m-0 mt-1 text-[12px] text-[#3b82f6] leading-relaxed">
+                  点击下方按钮，桌面端将打开扫码窗口。请使用手机淘宝 App 扫码登录，完成后关闭窗口即可。登录态将<strong>永久保存在本地专属 Profile</strong> 中，免除重复扫码。
+                </p>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      Message.info('正在打开扫码窗口...')
+                      await window.desktop?.collection.openLoginWindow?.()
+                    } catch (err) {
+                      Message.error('唤起扫码窗口失败: ' + String(err))
+                    }
+                  }}
+                  className="mt-3 inline-flex items-center gap-2 rounded-lg bg-[#2563eb] px-4 py-2 text-[13px] font-bold text-white hover:bg-[#1d4ed8] transition-colors cursor-pointer border-0"
+                >
+                  <ExternalLink className="h-4 w-4" />
+                  立即打开扫码窗口
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <h5 className="m-0 text-[13px] font-bold text-[#0A1B39]">状态与保障说明</h5>
+            <ul className="m-0 space-y-2 pl-4 text-[12px] text-[#64748b]">
+              <li>✅ <strong>数据安全性</strong>：Cookie 与会话凭证仅保存在您本地 <code>dts-profile</code>，杜绝任何云端外泄。</li>
+              <li>✅ <strong>抗封号策略</strong>：自动化具备反反爬检测与退避延迟机制，保障店铺账号安全。</li>
+              <li>✅ <strong>滑块风控协同</strong>：如遇淘宝安全验证，后台自动暂停并提醒您手动滑动解锁。</li>
+            </ul>
+          </div>
+        </div>
+      </Drawer>
     </div>
   )
 }

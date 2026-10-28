@@ -195,7 +195,9 @@ export async function launchChromeForRpa(options: LaunchChromeOptions = {}): Pro
     args.push(`--disable-extensions-except=${normalizedExt}`)
   }
 
-  if (options.headless) {
+  // 方案 A 核心：默认全面开启全新无头模式（headless: new），后台静默运行，杜绝弹窗与 Dock 图标
+  const isHeadless = options.headless !== false
+  if (isHeadless) {
     args.unshift('--headless=new')
   }
 
