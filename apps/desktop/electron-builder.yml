@@ -21,6 +21,14 @@ extraResources:
       - '**/*'
       - '!**/__pycache__/**'
       - '!**/*.pyc'
+  - from: resources/extensions
+    to: extensions
+    filter:
+      - '**/*'
+  - from: resources/chromium
+    to: chromium
+    filter:
+      - '**/*'
 mac:
   target:
     - dmg

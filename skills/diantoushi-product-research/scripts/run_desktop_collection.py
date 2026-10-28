@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -114,13 +115,15 @@ def collect_products(root: Path, items: list[dict] | None = None) -> dict[str, A
 
 
 def run_scraper(args) -> tuple[Path, list[dict]]:
-    if sys.platform != "darwin":
-        raise RuntimeError("此完整采集器需要 macOS；Windows/CDP 旧版脚本保留在源码中，尚未接入批量采集")
     runner = load_module("desktop_mac_scraper", SCRIPTS / "run_diantoushi_rpa.py")
     native_args = ["--product-name", args.product_name, "--top-n", str(args.top_n),
                    "--search-pages", str(args.search_pages), "--speed-profile", args.speed_profile,
                    "--run-dir", str(args.run_dir / "rpa"), "--master-dir", str(args.exports_dir),
                    "--stop-on-error"]
+    if getattr(args, "cdp_url", None):
+        native_args.extend(["--cdp-url", args.cdp_url])
+        os.environ["CHROME_CDP_URL"] = args.cdp_url
+        os.environ["DTS_USE_CDP"] = "1"
     for flag, value in [("--min-price", args.min_price), ("--max-price", args.max_price)]:
         if value is not None:
             native_args.extend([flag, str(value)])
@@ -153,6 +156,7 @@ def main() -> int:
     parser.add_argument("--speed-profile", choices=["fast", "balanced", "conservative"], default="fast")
     parser.add_argument("--run-dir", type=Path, required=True)
     parser.add_argument("--exports-dir", type=Path)
+    parser.add_argument("--cdp-url", help="Chrome DevTools Protocol endpoint (e.g. http://127.0.0.1:9222)")
     parser.add_argument("--clean-only", action="store_true", help="Convert existing exports; never open a browser")
     args = parser.parse_args()
     if not 1 <= args.top_n <= 100 or not 1 <= args.search_pages <= 100:

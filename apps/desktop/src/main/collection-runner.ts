@@ -74,6 +74,7 @@ export function buildDownloadArgs(context: CollectionRunContext): string[] {
   const params = context.input.params ?? {}
   const args = ['--product-name', context.input.productName ?? '', '--run-dir', context.workDir]
   if (context.input.productUrl) args.push('--product-url', context.input.productUrl)
+  if (params.cdpUrl) args.push('--cdp-url', String(params.cdpUrl))
   for (const [name, flag] of Object.entries({ topN: '--top-n', searchPages: '--search-pages', minPrice: '--min-price', maxPrice: '--max-price', speedProfile: '--speed-profile' })) {
     const value = params[name]
     if (value !== undefined && value !== null && value !== '') args.push(flag, String(value))
@@ -94,9 +95,14 @@ export async function defaultDownloader(context: CollectionRunContext): Promise<
     } catch { /* Scraper progress is usually plain text or multiline JSON. */ }
     appendFileSync(logFile, `${line}\n`)
   }
+  const env: Record<string, string> = { PYTHONUNBUFFERED: '1' }
+  if (context.input.params?.cdpUrl) {
+    env.CHROME_CDP_URL = String(context.input.params.cdpUrl)
+    env.DTS_USE_CDP = '1'
+  }
   const result = await runPythonTracked(script, buildDownloadArgs(context), {
     cwd: context.workDir,
-    env: { PYTHONUNBUFFERED: '1' },
+    env,
     onStdout: (chunk) => {
       pending += chunk
       const lines = pending.split('\n')

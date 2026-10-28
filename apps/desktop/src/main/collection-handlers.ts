@@ -1,13 +1,38 @@
 import { randomUUID } from 'node:crypto'
 import { app, ipcMain } from 'electron'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import type { PrismaClient } from '../generated/prisma'
+import { launchChromeForRpa, setDownloadBehavior, type LaunchedChrome } from './chrome'
 import { assertCollectionMode, type CollectionMode } from './collection-modes'
 import { runLocalCollection } from './collection-runner'
 import { resolveDataRoots } from './data-root'
 import { logger } from './logger'
 import { resolveEmbeddedPython, killPythonProcesses } from './python-runner'
+
+let activeChrome: LaunchedChrome | null = null
+
+export async function ensureChromiumContainer(downloadPath?: string): Promise<LaunchedChrome> {
+  if (activeChrome) {
+    try {
+      const resp = await fetch(`http://127.0.0.1:${activeChrome.port}/json/version`)
+      if (resp.ok) {
+        if (downloadPath) {
+          try {
+            await setDownloadBehavior(activeChrome.port, downloadPath)
+          } catch {}
+        }
+        return activeChrome
+      }
+    } catch {}
+  }
+
+  activeChrome = await launchChromeForRpa({
+    persistent: true,
+    downloadPath,
+  })
+  return activeChrome
+}
 
 export interface CollectionStartInput {
   productName?: string
@@ -96,6 +121,19 @@ export function registerCollectionHandlers(prisma: PrismaClient) {
           data: { pid: currentPid },
         })
 
+        let cdpUrl: string | undefined
+        if (!input.fake) {
+          try {
+            const container = await ensureChromiumContainer(workDir)
+            cdpUrl = container.debugUrl
+            const containerLog = `[INFO] 内置独立绿色 Chromium 容器已就绪 (CDP: ${cdpUrl}, isBuiltin: ${container.isBuiltin})\n[INFO] 请扫码登录淘宝与店透视账号（若尚未登录，自动化将自动等待就绪）\n`
+            appendFileSync(logFile, containerLog)
+          } catch (containerErr) {
+            logger.warn('启动内置 Chromium 容器异常:', containerErr)
+            appendFileSync(logFile, `[WARN] 启动内置 Chromium 容器警告: ${containerErr instanceof Error ? containerErr.message : String(containerErr)}\n`)
+          }
+        }
+
         await runLocalCollection({
           db: prisma,
           jobId,
@@ -112,6 +150,7 @@ export function registerCollectionHandlers(prisma: PrismaClient) {
               minPrice,
               maxPrice,
               speedProfile,
+              cdpUrl,
             },
           },
           workDir,

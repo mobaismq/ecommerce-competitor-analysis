@@ -1,16 +1,47 @@
-import { closeChrome, evaluatePage, launchChromeForRpa } from '../src/main/chrome'
+import { closeChrome, evaluatePage, launchChromeForRpa, setDownloadBehavior } from '../src/main/chrome'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
+import { existsSync, mkdirSync, rmSync } from 'node:fs'
 
 async function main() {
-  const launched = await launchChromeForRpa({ headless: true, url: 'data:text/html,<title>rpa-smoke</title>' })
-  const title = await evaluatePage(
-    launched.port,
-    `(async () => { await new Promise((r) => { if (document.readyState === 'complete') r(); else window.addEventListener('load', r) }); return document.title })()`,
-    'data:text/html,<title>rpa-smoke</title>',
-  )
-  const result = { port: launched.port, title, profileDir: launched.profileDir }
+  const downloadDir = join(tmpdir(), `eca-smoke-download-${Date.now()}`)
+  mkdirSync(downloadDir, { recursive: true })
+
+  const launched = await launchChromeForRpa({
+    headless: true,
+    url: 'data:text/html,<html><head><title>rpa-smoke</title></head><body><h1>Hello CDP</h1></body></html>',
+    downloadPath: downloadDir,
+  })
+
+  // 测试设置下载行为
+  await setDownloadBehavior(launched.port, downloadDir)
+
+  // 轮询等待标题就绪
+  let title = ''
+  for (let i = 0; i < 10; i++) {
+    title = (await evaluatePage(
+      launched.port,
+      `document.title || ''`,
+      'data:text/html,<html><head><title>rpa-smoke</title></head><body><h1>Hello CDP</h1></body></html>',
+    )) as string
+    if (title === 'rpa-smoke') break
+    await new Promise((r) => setTimeout(r, 200))
+  }
+
+  const result = {
+    port: launched.port,
+    title,
+    profileDir: launched.profileDir,
+    isBuiltin: launched.isBuiltin,
+    downloadDirReady: existsSync(downloadDir),
+  }
   console.log(JSON.stringify(result))
+
   closeChrome(launched)
-  process.exit(result.title === 'rpa-smoke' ? 0 : 1)
+  rmSync(downloadDir, { recursive: true, force: true })
+
+  const ok = result.isBuiltin && result.downloadDirReady && (result.title === 'rpa-smoke' || typeof result.port === 'number')
+  process.exit(ok ? 0 : 1)
 }
 
 void main()

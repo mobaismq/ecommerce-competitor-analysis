@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import json
+import os
 import re
 import subprocess
 import sys
@@ -60,7 +61,24 @@ CHECK_JS = r"""
 """
 
 
-def run_chrome_js(js: str, window_id: Optional[int] = None) -> str:
+def run_chrome_js(js: str, window_id: Optional[int] = None, cdp_url: Optional[str] = None) -> str:
+    url = cdp_url or os.environ.get("CHROME_CDP_URL")
+    if not url and os.environ.get("CHROME_CDP_PORT"):
+        url = f"http://127.0.0.1:{os.environ.get('CHROME_CDP_PORT')}"
+    if url or os.environ.get("DTS_USE_CDP") == "1":
+        try:
+            from playwright.sync_api import sync_playwright
+            target_url = url or "http://127.0.0.1:9222"
+            pw = sync_playwright().start()
+            browser = pw.chromium.connect_over_cdp(target_url)
+            context = browser.contexts[0] if browser.contexts else browser.new_context()
+            page = context.pages[0] if context.pages else context.new_page()
+            res = page.evaluate(js)
+            return json.dumps(res, ensure_ascii=False) if isinstance(res, (dict, list)) else str(res)
+        except Exception as cdp_err:
+            if url:
+                raise RuntimeError(f"CDP execute failed: {cdp_err}")
+
     if window_id is None:
         target = "set targetWindow to front window"
     else:
@@ -88,9 +106,10 @@ return jsResult
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--window-id", type=int, default=None)
+    parser.add_argument("--cdp-url", default=None, help="CDP endpoint URL")
     args = parser.parse_args()
     try:
-        raw = run_chrome_js(CHECK_JS, args.window_id)
+        raw = run_chrome_js(CHECK_JS, args.window_id, args.cdp_url)
         data = json.loads(raw)
     except Exception as exc:
         print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False, indent=2))

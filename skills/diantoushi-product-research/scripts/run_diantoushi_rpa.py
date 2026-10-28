@@ -253,7 +253,9 @@ def reset_chrome_target() -> None:
 
 
 def ensure_chrome_target() -> int:
-    global CHROME_WINDOW_ID
+    global CHROME_WINDOW_ID, _USE_CDP
+    if _USE_CDP or get_cdp_page() is not None:
+        return 1
     if CHROME_WINDOW_ID is not None:
         return CHROME_WINDOW_ID
     script = '''
@@ -271,11 +273,12 @@ return (wid as text)
 
 
 _CDP_PAGE = None
-_USE_CDP = os.environ.get("DTS_USE_CDP") == "1" or bool(os.environ.get("CHROME_CDP_PORT"))
+_CDP_URL = os.environ.get("CHROME_CDP_URL")
+_USE_CDP = os.environ.get("DTS_USE_CDP") == "1" or bool(os.environ.get("CHROME_CDP_PORT")) or bool(_CDP_URL) or sys.platform != "darwin"
 
 
 def get_cdp_page():
-    global _CDP_PAGE
+    global _CDP_PAGE, _CDP_URL
     if _CDP_PAGE is not None:
         try:
             if not _CDP_PAGE.is_closed():
@@ -283,14 +286,23 @@ def get_cdp_page():
         except Exception:
             _CDP_PAGE = None
 
-    port = os.environ.get("CHROME_CDP_PORT") or os.environ.get("DTS_CDP_PORT") or "9222"
-    cdp_url = f"http://127.0.0.1:{port}"
-    try:
-        from urllib.request import urlopen
-        with urlopen(f"{cdp_url}/json/version", timeout=1) as resp:
-            if resp.status != 200:
-                return None
-    except Exception:
+    cdp_url = _CDP_URL or os.environ.get("CHROME_CDP_URL")
+    if not cdp_url:
+        port = os.environ.get("CHROME_CDP_PORT") or os.environ.get("DTS_CDP_PORT") or "9222"
+        cdp_url = f"http://127.0.0.1:{port}"
+
+    from urllib.request import urlopen
+    connected = False
+    for attempt in range(3):
+        try:
+            with urlopen(f"{cdp_url}/json/version", timeout=1.5) as resp:
+                if resp.status == 200:
+                    connected = True
+                    break
+        except Exception:
+            time.sleep(0.3 * (2 ** attempt))
+
+    if not connected:
         return None
 
     try:
@@ -318,8 +330,9 @@ def chrome_js(js: str) -> str:
                     return json.dumps(res, ensure_ascii=False)
                 return str(res) if res is not None else ""
             except Exception as cdp_err:
-                if _USE_CDP:
-                    raise RuntimeError(f"Chrome CDP 执行 JavaScript 失败: {cdp_err}")
+                raise RuntimeError(f"Chrome CDP 执行 JavaScript 失败: {cdp_err}")
+        if _USE_CDP:
+            raise RuntimeError(f"无法连接至 Chromium CDP 端口 (CDP_URL: {_CDP_URL})")
 
     last_error: Optional[Exception] = None
     for _ in range(2):
@@ -344,7 +357,6 @@ return jsResult
                 continue
             err_str = str(exc)
             if "通过 AppleScript 执行 JavaScript 的功能已关闭" in err_str or "268:1427" in err_str:
-                # 尝试无缝降级切换为 CDP 模式
                 page = get_cdp_page()
                 if page is not None:
                     _USE_CDP = True
@@ -369,8 +381,9 @@ def chrome_set_url(url: str) -> None:
                 page.goto(url, wait_until="domcontentloaded", timeout=60000)
                 return
             except Exception as cdp_err:
-                if _USE_CDP:
-                    raise RuntimeError(f"Chrome CDP 页面跳转失败: {cdp_err}")
+                raise RuntimeError(f"Chrome CDP 页面跳转失败: {cdp_err}")
+        if _USE_CDP:
+            raise RuntimeError(f"无法连接至 Chromium CDP 端口 (CDP_URL: {_CDP_URL})")
 
     last_error: Optional[Exception] = None
     for _ in range(2):
@@ -404,10 +417,20 @@ def chrome_navigate_js(url: str) -> None:
 
 
 def chrome_open_url_external(url: str, logger: Optional[Logger] = None) -> None:
-    """Open a URL through macOS Launch Services, then bind automation to Chrome's front window."""
-    global CHROME_WINDOW_ID
-    # `open` receives non-ASCII URLs correctly through the user's shell on this
-    # macOS/Chrome combination; Python argv form double-encodes Chinese query text.
+    """Open a URL through Chrome CDP or macOS Launch Services."""
+    global CHROME_WINDOW_ID, _USE_CDP
+    if _USE_CDP or get_cdp_page() is not None:
+        page = get_cdp_page()
+        if page is not None:
+            if logger is not None:
+                logger.log(json.dumps({"cdp_open_url": url}, ensure_ascii=False))
+            try:
+                page.bring_to_front()
+            except Exception:
+                pass
+            page.goto(url, wait_until="domcontentloaded", timeout=60000)
+            return
+
     command = f"open -a {shlex.quote('Google Chrome')} {shlex.quote(url)}"
     if logger is not None:
         logger.log(json.dumps({"open_command": command}, ensure_ascii=False))
@@ -463,6 +486,9 @@ def chrome_page_probe() -> dict[str, Any]:
 
 
 def mac_open_url_address_bar(url: str) -> None:
+    if _USE_CDP or get_cdp_page() is not None:
+        chrome_set_url(url)
+        return
     script = f'''
 tell application "Google Chrome" to activate
 delay 0.1
@@ -634,6 +660,12 @@ def open_taobao_search_by_input(logger: Logger, product_name: str) -> dict[str, 
 
 
 def mac_click_screen(x: float, y: float) -> None:
+    if _USE_CDP or get_cdp_page() is not None:
+        page = get_cdp_page()
+        if page is not None:
+            page.mouse.click(float(x), float(y))
+            return
+
     last_error: Optional[Exception] = None
     for _ in range(2):
         window_id = ensure_chrome_target()
@@ -671,6 +703,14 @@ CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: poi
 
 
 def mac_move_screen(x: float, y: float, dwell_ms: int = 450) -> None:
+    if _USE_CDP or get_cdp_page() is not None:
+        page = get_cdp_page()
+        if page is not None:
+            page.mouse.move(float(x), float(y))
+            if dwell_ms > 0:
+                time.sleep(dwell_ms / 1000.0)
+            return
+
     last_error: Optional[Exception] = None
     for _ in range(2):
         window_id = ensure_chrome_target()
@@ -1868,16 +1908,33 @@ def run_guard(logger: Logger, label: str) -> dict[str, Any]:
         window_id = ensure_chrome_target()
     except Exception as exc:
         logger.log(f"guard target activation failed: {exc}")
-    result = run_process(
-        [sys.executable, str(CHECK_GUARD), "--window-id", str(window_id)],
-        logger,
-        check=False,
-    )
+    
+    guard_cmd = [sys.executable, str(CHECK_GUARD)]
+    if _USE_CDP or _CDP_URL:
+        cdp_url = _CDP_URL or os.environ.get("CHROME_CDP_URL") or "http://127.0.0.1:9222"
+        guard_cmd.extend(["--cdp-url", cdp_url])
+    else:
+        guard_cmd.extend(["--window-id", str(window_id)])
+
+    result = run_process(guard_cmd, logger, check=False)
     try:
         data = json.loads(result.stdout)
     except Exception as exc:
         raise RuntimeError(f"Could not parse guard result: {exc}")
+    
     if data.get("guard_detected"):
+        logger.log(f"[WARN] 触发淘宝安全验证/滑块拦截: {data.get('matched_guard_terms')}，请在 Chromium 窗口中手动滑动解锁...")
+        # 等待人工滑块解锁协同（轮询最多 60 秒）
+        for _ in range(60):
+            time.sleep(1.0)
+            retry_res = run_process(guard_cmd, logger, check=False)
+            try:
+                retry_data = json.loads(retry_res.stdout)
+                if not retry_data.get("guard_detected"):
+                    logger.log("[INFO] 滑块验证已成功解除，自动化继续运行！")
+                    return retry_data
+            except Exception:
+                pass
         raise RuntimeError(f"Taobao guard detected: {data.get('matched_guard_terms')} at {data.get('href')}")
     # The next RPA click must stay on the same product window even when Chrome has
     # other Taobao/search windows open.
@@ -6171,7 +6228,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--min-price", type=float, default=None, help="Only download products whose parsed search-card price is >= this value.")
     parser.add_argument("--max-price", type=float, default=None, help="Only download products whose parsed search-card price is <= this value.")
     parser.add_argument("--stop-on-error", action="store_true", help="Stop batch mode after the first product failure.")
-    return parser.parse_args()
+    parser.add_argument("--cdp-url", default=None, help="Chrome DevTools Protocol endpoint (e.g. http://127.0.0.1:9222).")
+    args = parser.parse_args()
+    if args.cdp_url:
+        global _CDP_URL, _USE_CDP
+        _CDP_URL = args.cdp_url
+        _USE_CDP = True
+        os.environ["CHROME_CDP_URL"] = args.cdp_url
+        os.environ["DTS_USE_CDP"] = "1"
+    return args
 
 
 def main() -> int:
