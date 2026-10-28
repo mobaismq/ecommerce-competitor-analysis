@@ -12,6 +12,7 @@ export interface LaunchChromeOptions {
   url?: string
   downloadPath?: string
   extensionPath?: string | null
+  extraArgs?: string[]
 }
 
 export interface LaunchedChrome {
@@ -251,7 +252,14 @@ export async function launchChromeForRpa(options: LaunchChromeOptions = {}): Pro
     args.unshift('--headless=new')
   }
 
-  args.push(options.url ?? 'about:blank')
+  if (options.extraArgs?.length) {
+    args.push(...options.extraArgs)
+  }
+
+  const hasAppArg = options.extraArgs?.some((a) => a.startsWith('--app='))
+  if (!hasAppArg) {
+    args.push(options.url ?? 'about:blank')
+  }
 
   const child = spawn(chromeExe, args, {
     stdio: 'ignore',

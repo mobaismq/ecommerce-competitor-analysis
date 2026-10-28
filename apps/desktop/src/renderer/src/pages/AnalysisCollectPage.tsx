@@ -55,6 +55,7 @@ export function AnalysisCollectPage() {
   const [autoScroll, setAutoScroll] = useState(true)
   const [errorMessage, setErrorMessage] = useState<string>('')
   const [authDrawerVisible, setAuthDrawerVisible] = useState(false)
+  const [isFakeMode, setIsFakeMode] = useState(false)
 
   const [activeParams, setActiveParams] = useState<{
     keyword: string
@@ -160,7 +161,8 @@ export function AnalysisCollectPage() {
     setLoading(true)
 
     const nowStr = new Date().toLocaleTimeString()
-    const initLog = `[${nowStr}] 🚀 正在启动店透视真实采集任务...\n[${nowStr}] 目标关键词: ${newParams.keyword} | 计划采集数: ${count} | 价格区间: ${newParams.minPrice ?? '不限'} ~ ${newParams.maxPrice ?? '不限'}\n`
+    const modeLabel = isFakeMode ? '离线仿真' : '真实店透视'
+    const initLog = `[${nowStr}] 🚀 正在启动${modeLabel}采集任务...\n[${nowStr}] 目标关键词: ${newParams.keyword} | 计划采集数: ${count} | 价格区间: ${newParams.minPrice ?? '不限'} ~ ${newParams.maxPrice ?? '不限'}\n`
     setLogs(initLog)
     setStatus('running')
 
@@ -176,12 +178,12 @@ export function AnalysisCollectPage() {
         speedProfile: 'fast',
         mode: 'download-and-import',
         importMysql: false,
-        fake: false,
+        fake: isFakeMode,
       })
       if (!res?.jobId) throw new Error('未能启动采集任务')
       setJobId(res.jobId)
-      setLogs((prev) => prev + `[${new Date().toLocaleTimeString()}] 店透视采集任务已启动，日志将实时刷新。\n`)
-      Message.success('真实采集任务已启动（店透视浏览器）')
+      setLogs((prev) => prev + `[${new Date().toLocaleTimeString()}] ${modeLabel}任务已启动，日志将实时刷新。\n`)
+      Message.success(`${modeLabel}任务已启动`)
       const s = await window.desktop.collection.status(res.jobId).catch(() => null)
       if (s?.logTail) setLogs(s.logTail)
     } catch (err: unknown) {
@@ -245,7 +247,13 @@ export function AnalysisCollectPage() {
         <section className="rounded-2xl bg-white p-6 shadow-[0_8px_32px_rgba(29,38,52,.06)]">
           <div className="mb-5 flex items-center justify-between gap-3">
             <h2 className="text-[17px] font-extrabold text-[#0A1B39]">采集条件</h2>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
+              <Tooltip content={isFakeMode ? '离线仿真：免扫码登录，使用离线真实样本秒级跑通' : '真实采集：使用内置 Chromium 容器进行实时网络抓取'}>
+                <label className="flex items-center gap-1.5 cursor-pointer text-[12px] font-semibold text-[#475467]">
+                  <span>离线仿真</span>
+                  <Switch size="small" checked={isFakeMode} onChange={setIsFakeMode} />
+                </label>
+              </Tooltip>
               <button
                 type="button"
                 onClick={() => setAuthDrawerVisible(true)}
@@ -315,11 +323,56 @@ export function AnalysisCollectPage() {
           </div>
 
           {errorMessage && (
-              <div className="flex gap-2 rounded-lg border border-[#ffd7d7] bg-[#fff5f5] p-3 text-[13px] font-semibold text-[#c03535]">
-                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                <span>{errorMessage}</span>
+            <div className="flex flex-col gap-2.5 rounded-xl border border-[#fecaca] bg-[#fef2f2] p-4 text-[13px] text-[#991b1b]">
+              <div className="flex items-start gap-2.5">
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-[#dc2626]" />
+                <div className="flex-1">
+                  {errorMessage.includes('Search page did not become ready') ? (
+                    <div>
+                      <p className="m-0 font-extrabold text-[13px] text-[#991b1b]">
+                        ⚠️ 采集受阻：淘宝账号尚未登录或需扫码验证
+                      </p>
+                      <p className="m-0 mt-1 text-[12px] text-[#b91c1c] leading-relaxed">
+                        淘宝对未登录访问限制了搜索结果展示（返回空白拦截页）。请点击下方按钮唤起右侧扫码助手，使用手机淘宝扫码登录一次即可永久生效；也可以直接切换为免扫码的离线仿真模式快速体验。
+                      </p>
+                    </div>
+                  ) : (
+                    <span className="font-semibold">{errorMessage}</span>
+                  )}
+                </div>
               </div>
-            )}
+              {errorMessage.includes('Search page did not become ready') && (
+                <div className="flex items-center gap-2 pl-6 pt-1">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        Message.info('正在唤起右侧扫码登录窗口...')
+                        await window.desktop?.collection.openLoginWindow?.()
+                      } catch (err) {
+                        Message.error('唤起扫码窗口失败: ' + String(err))
+                      }
+                    }}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-[#2563eb] px-3.5 py-1.5 text-[12px] font-bold text-white hover:bg-[#1d4ed8] transition-colors border-0 cursor-pointer shadow-sm"
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" />
+                    立即在右侧打开扫码窗口
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsFakeMode(true)
+                      setErrorMessage('')
+                      Message.success('已切换为离线仿真模式，点击「开始采集」即可免登录秒级跑通！')
+                    }}
+                    className="inline-flex items-center gap-1 rounded-lg border border-[#fca5a5] bg-white px-3 py-1.5 text-[12px] font-bold text-[#b91c1c] hover:bg-[#fff1f2] transition-colors cursor-pointer"
+                  >
+                    切换为离线仿真模式
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
 
             <div className="flex gap-3">
               <button

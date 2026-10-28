@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { app, ipcMain } from 'electron'
+import { app, BrowserWindow, ipcMain } from 'electron'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import type { PrismaClient } from '../generated/prisma'
@@ -322,10 +322,26 @@ export function registerCollectionHandlers(prisma: PrismaClient) {
       } catch {}
       activeChrome = null
     }
+
+    // 获取当前主窗口几何坐标，让扫码窗口紧贴主窗口右侧
+    const allWindows = BrowserWindow.getAllWindows()
+    const mainWin = allWindows.find((w) => !w.isDestroyed())
+    const bounds = mainWin?.getBounds() ?? { x: 200, y: 150, width: 1100, height: 750 }
+
+    const popupX = Math.round(bounds.x + bounds.width + 10)
+    const popupY = Math.round(bounds.y)
+    const popupW = 460
+    const popupH = Math.round(bounds.height)
+
     const loginWin = await launchChromeForRpa({
       headless: false,
       persistent: true,
       url: 'https://login.taobao.com',
+      extraArgs: [
+        `--app=https://login.taobao.com`,
+        `--window-position=${popupX},${popupY}`,
+        `--window-size=${popupW},${popupH}`,
+      ],
     })
     activeChrome = loginWin
     return { ok: true, port: loginWin.port }
