@@ -3,7 +3,7 @@ import { app, ipcMain, type IpcMainInvokeEvent } from 'electron'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import type { PrismaClient } from '../generated/prisma'
-import { closeChrome, launchChromeForRpa, setDownloadBehavior, type LaunchedChrome } from './chrome'
+import { closeChrome, getCookiesFromChrome, launchChromeForRpa, setDownloadBehavior, type LaunchedChrome } from './chrome'
 import { assertCollectionMode, type CollectionMode } from './collection-modes'
 import { runLocalCollection } from './collection-runner'
 import { resolveDataRoots } from './data-root'
@@ -422,5 +422,31 @@ export function registerCollectionHandlers(prisma: PrismaClient) {
     if (typeof text !== 'string') throw new Error('无效的文本输入')
     activeLoginScreencast.insertText(text)
     return { ok: true }
+  })
+  ipcMain.handle('collection:checkLoginStatus', async () => {
+    try {
+      const container = await ensureChromiumContainer()
+      const cookies = await getCookiesFromChrome(container.port)
+      const unbCookie = cookies.find((c) => (c.domain.includes('taobao.com') || c.domain.includes('tmall.com')) && c.name === 'unb' && c.value.trim().length > 0)
+      const nickCookie = cookies.find((c) => (c.domain.includes('taobao.com') || c.domain.includes('tmall.com')) && (c.name === 'tracknick' || c.name === '_nk_') && c.value.trim().length > 0)
+
+      let nick = ''
+      if (nickCookie) {
+        try {
+          nick = decodeURIComponent(nickCookie.value)
+        } catch {
+          nick = nickCookie.value
+        }
+      }
+
+      return {
+        isLoggedIn: Boolean(unbCookie),
+        taobaoUid: unbCookie?.value || '',
+        taobaoNick: nick,
+      }
+    } catch (err) {
+      logger.warn('checkLoginStatus failed', err)
+      return { isLoggedIn: false, taobaoUid: '', taobaoNick: '' }
+    }
   })
 }

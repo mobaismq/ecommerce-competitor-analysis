@@ -91,6 +91,44 @@ export function AnalysisCollectPage() {
   const isResizingRef = useRef(false)
   const lastNormalWidthRef = useRef<number>(DEFAULT_DRAWER_WIDTH)
 
+  // 淘宝登录态感知与守门
+  const [loginStatus, setLoginStatus] = useState<{
+    checking: boolean
+    isLoggedIn: boolean
+    taobaoNick?: string
+    taobaoUid?: string
+  }>({
+    checking: true,
+    isLoggedIn: false,
+  })
+
+  const maskNick = (nick?: string) => {
+    if (!nick) return ''
+    if (nick.length <= 2) return nick[0] + '*'
+    return nick[0] + '***' + nick[nick.length - 1]
+  }
+
+  const refreshLoginStatus = async () => {
+    try {
+      setLoginStatus((prev) => ({ ...prev, checking: true }))
+      const res = await window.desktop?.collection?.checkLoginStatus?.()
+      if (res) {
+        setLoginStatus({
+          checking: false,
+          isLoggedIn: Boolean(res.isLoggedIn),
+          taobaoNick: res.taobaoNick,
+          taobaoUid: res.taobaoUid,
+        })
+      }
+    } catch {
+      setLoginStatus((prev) => ({ ...prev, checking: false }))
+    }
+  }
+
+  useEffect(() => {
+    void refreshLoginStatus()
+  }, [])
+
   const [activeParams, setActiveParams] = useState<{
     keyword: string
     minPrice?: number
@@ -198,6 +236,16 @@ export function AnalysisCollectPage() {
 
   const handleStart = async () => {
     setErrorMessage('')
+
+    // 登录态前置守门拦截：未登录时温馨提示并自动滑出右侧登录授权画面
+    if (!loginStatus.isLoggedIn) {
+      Message.warning({
+        content: '检测到当前尚未登录淘宝账号，已为您在右侧展开登录画面，请先完成授权',
+        duration: 4000,
+      })
+      void handleOpenLoginView()
+      return
+    }
 
     const cleanKeyword = keyword.trim()
     const count = Number(competitorCount)
@@ -329,6 +377,7 @@ export function AnalysisCollectPage() {
     setScreencastConnected(false)
     setAuthDrawerVisible(false)
     setIsDrawerFullscreen(false)
+    void refreshLoginStatus()
   }
 
   // 计算画布内点击坐标 → CDP 视口坐标（canvas 显示尺寸 ↔ viewport 比例换算）
@@ -488,15 +537,42 @@ export function AnalysisCollectPage() {
         <section className="rounded-2xl bg-white p-6 shadow-[0_8px_32px_rgba(29,38,52,.06)]">
           <div className="mb-5 flex items-center justify-between gap-3">
             <h2 className="text-[17px] font-extrabold text-[#0A1B39]">采集条件</h2>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => { void handleOpenLoginView() }}
-                className="flex items-center gap-1.5 rounded-lg border border-[#d0e2ff] bg-[#f0f5ff] px-2.5 py-1 text-[12px] font-bold text-[#3388ff] hover:bg-[#e0edff] transition-colors cursor-pointer"
-              >
-                <QrCode className="h-3.5 w-3.5" />
-                账号登录助手
-              </button>
+            <div className="flex items-center gap-2.5">
+              {loginStatus.checking ? (
+                <div className="flex items-center gap-1.5 rounded-full border border-[#e5e8ef] bg-[#f8fafc] px-2.5 py-1 text-[12px] text-[#86909C]">
+                  <Loader2 className="h-3 w-3 animate-spin text-[#3388ff]" />
+                  <span>探测登录态...</span>
+                </div>
+              ) : loginStatus.isLoggedIn ? (
+                <div className="flex items-center gap-2 rounded-full border border-[#bbf7d0] bg-[#f0fdf4] px-3 py-1 text-[12px] font-semibold text-[#16a34a] shadow-xs">
+                  <span className="relative flex h-2 w-2">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#22c55e] opacity-75"></span>
+                    <span className="relative inline-flex h-2 w-2 rounded-full bg-[#16a34a]"></span>
+                  </span>
+                  <span>淘宝已授权{loginStatus.taobaoNick ? ` (${maskNick(loginStatus.taobaoNick)})` : ''}</span>
+                  <button
+                    type="button"
+                    onClick={() => { void handleOpenLoginView() }}
+                    className="ml-1 border-0 bg-transparent p-0 text-[11px] font-normal text-[#15803d] underline hover:text-[#0A1B39] cursor-pointer"
+                    title="点击重新登录或切换账号"
+                  >
+                    切换/续期
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => { void handleOpenLoginView() }}
+                  className="group relative flex items-center gap-1.5 rounded-lg border border-[#f59e0b] bg-[#fffbeb] px-3.5 py-1.5 text-[12px] font-bold text-[#b45309] hover:bg-[#fef3c7] hover:shadow-md transition-all cursor-pointer active:scale-95"
+                >
+                  <span className="relative flex h-2 w-2">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#f59e0b] opacity-75"></span>
+                    <span className="relative inline-flex h-2 w-2 rounded-full bg-[#d97706]"></span>
+                  </span>
+                  <QrCode className="h-3.5 w-3.5 text-[#d97706]" />
+                  <span>淘宝未登录 · 立即授权</span>
+                </button>
+              )}
               <button
                 type="button"
                 onClick={handleReset}
@@ -509,6 +585,21 @@ export function AnalysisCollectPage() {
           </div>
 
           <div className="space-y-5">
+            {!loginStatus.checking && !loginStatus.isLoggedIn && (
+              <div className="flex items-center justify-between rounded-xl border border-[#fed7aa] bg-[#fff7ed] p-3 shadow-xs">
+                <div className="flex items-center gap-2 text-[12px] font-semibold text-[#c2410c]">
+                  <AlertCircle className="h-4 w-4 text-[#ea580c] shrink-0" />
+                  <span>当前尚未登录淘宝账号，采集前请先完成账号授权，避免被平台拦截。</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => { void handleOpenLoginView() }}
+                  className="flex shrink-0 items-center gap-1 rounded-md bg-[#ea580c] px-3 py-1 text-[12px] font-bold text-white hover:bg-[#c2410c] transition-colors cursor-pointer shadow-xs active:scale-95"
+                >
+                  立即在右侧登录
+                </button>
+              </div>
+            )}
             <p className="text-[12px] leading-5 text-[#86909C]">
               已内置专属绿色 Chromium 容器与官方店透视插件。全流程<strong>后台无感静默采集</strong>，绝不弹出外部浏览器；如需更新登录态可点击上方「账号登录助手」完成扫码，会话终身持久化。
             </p>

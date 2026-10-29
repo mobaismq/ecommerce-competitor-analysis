@@ -363,6 +363,60 @@ export async function evaluatePage(port: number, expression: string, url = 'abou
   })
 }
 
+export interface ChromeCookieItem {
+  name: string
+  value: string
+  domain: string
+  path?: string
+  expires?: number
+}
+
+/** 通过 CDP 浏览器级连接获取容器中已持久化的全量 Cookies，用于零破坏探测淘宝与店透视登录态。 */
+export async function getCookiesFromChrome(port: number): Promise<ChromeCookieItem[]> {
+  try {
+    const versionResp = await fetch(`http://127.0.0.1:${port}/json/version`).then((r) => r.json()).catch(() => null) as { webSocketDebuggerUrl?: string } | null
+    const wsUrl = versionResp?.webSocketDebuggerUrl
+    if (!wsUrl) return []
+
+    const WebSocketCtor = (globalThis as unknown as { WebSocket?: new (url: string) => WebSocket }).WebSocket
+    if (!WebSocketCtor) return []
+
+    return await new Promise<ChromeCookieItem[]>((resolveCookies) => {
+      const socket = new WebSocketCtor(wsUrl)
+      const timer = setTimeout(() => {
+        try { socket.close() } catch {}
+        resolveCookies([])
+      }, 4000)
+
+      socket.onopen = () => {
+        socket.send(JSON.stringify({ id: 101, method: 'Storage.getCookies' }))
+      }
+
+      socket.onmessage = (event: MessageEvent) => {
+        try {
+          const message = JSON.parse(String(event.data)) as { id?: number; result?: { cookies?: ChromeCookieItem[] } }
+          if (message.id === 101) {
+            clearTimeout(timer)
+            try { socket.close() } catch {}
+            resolveCookies(message.result?.cookies || [])
+          }
+        } catch {
+          clearTimeout(timer)
+          try { socket.close() } catch {}
+          resolveCookies([])
+        }
+      }
+
+      socket.onerror = () => {
+        clearTimeout(timer)
+        resolveCookies([])
+      }
+    })
+  } catch {
+    return []
+  }
+}
+
 /** 安全关闭 Chromium 容器进程（杜绝删除持久化 profile） */
 export function closeChrome(launched: LaunchedChrome, cleanTemporary = false) {
   if (!launched?.child) return

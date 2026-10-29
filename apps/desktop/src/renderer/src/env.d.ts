@@ -107,6 +107,11 @@ declare global {
           viewport?: { width: number; height: number }
         }>
         stopLoginView: () => Promise<{ ok: boolean }>
+        checkLoginStatus: () => Promise<{
+          isLoggedIn: boolean
+          taobaoUid?: string
+          taobaoNick?: string
+        }>
         sendLoginInput: (input: {
           type: 'mousePressed' | 'mouseReleased' | 'mouseMoved'
           x: number

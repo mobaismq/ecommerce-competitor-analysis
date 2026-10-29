@@ -51,6 +51,7 @@ contextBridge.exposeInMainWorld('desktop', {
     /** 兼容别名：行为与 openLoginView 相同（不再打开外部窗口）。 */
     openLoginWindow: () => ipcRenderer.invoke('collection:openLoginView'),
     stopLoginView: () => ipcRenderer.invoke('collection:stopLoginView'),
+    checkLoginStatus: () => ipcRenderer.invoke('collection:checkLoginStatus'),
     sendLoginInput: (input: {
       type: 'mousePressed' | 'mouseReleased' | 'mouseMoved'
       x: number
