@@ -1,7 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Button, Drawer, Message, Switch, Tooltip } from '@arco-design/web-react'
-import { AlertCircle, CheckCircle2, ExternalLink, Loader2, Play, QrCode, ShieldCheck, Square, Terminal, X } from 'lucide-react'
+import {
+  AlertCircle,
+  CheckCircle2,
+  ExternalLink,
+  Loader2,
+  Maximize2,
+  Minimize2,
+  Play,
+  QrCode,
+  ShieldCheck,
+  Square,
+  Terminal,
+  X,
+} from 'lucide-react'
 import { parseRpaProgress } from '../utils/rpaProgress'
 import { PageHeader } from '../components/PageHeader'
 import { XInput } from '../components/XInput'
@@ -61,11 +74,18 @@ export function AnalysisCollectPage() {
   const [screencastError, setScreencastError] = useState('')
   const [frameVisible, setFrameVisible] = useState(false)
   const [dragActive, setDragActive] = useState(false)
-  const [quickInputText, setQuickInputText] = useState('')
   const viewportRef = useRef<{ width: number; height: number }>({ width: 1280, height: 800 })
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const frameImgRef = useRef<HTMLImageElement | null>(null)
   const dragSeqRef = useRef(0)
+
+  // 抽屉宽度拖拽与全屏控制
+  const MIN_DRAWER_WIDTH = 540
+  const DEFAULT_DRAWER_WIDTH = 720
+  const [drawerWidth, setDrawerWidth] = useState<number>(DEFAULT_DRAWER_WIDTH)
+  const [isDrawerFullscreen, setIsDrawerFullscreen] = useState(false)
+  const isResizingRef = useRef(false)
+  const lastNormalWidthRef = useRef<number>(DEFAULT_DRAWER_WIDTH)
 
   const [activeParams, setActiveParams] = useState<{
     keyword: string
@@ -392,29 +412,44 @@ export function AnalysisCollectPage() {
     })
   }
 
-  const handleInsertQuickText = async () => {
-    if (!quickInputText) return
-    try {
-      await window.desktop?.collection.sendLoginInsertText?.(quickInputText)
-      Message.success('已填入当前光标处')
-      setQuickInputText('')
-    } catch (err) {
-      Message.error('填入失败: ' + String(err))
+  const handleToggleDrawerFullscreen = () => {
+    if (!isDrawerFullscreen) {
+      lastNormalWidthRef.current = drawerWidth
+      setDrawerWidth(window.innerWidth)
+      setIsDrawerFullscreen(true)
+    } else {
+      setDrawerWidth(Math.max(MIN_DRAWER_WIDTH, Math.min(lastNormalWidthRef.current, window.innerWidth - 60)))
+      setIsDrawerFullscreen(false)
     }
   }
 
-  const handlePasteClipboard = async () => {
-    try {
-      const text = await navigator.clipboard.readText()
-      if (!text) {
-        Message.warning('剪贴板为空')
-        return
+  const handleResizeMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    isResizingRef.current = true
+    const startX = e.clientX
+    const startW = drawerWidth
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      if (!isResizingRef.current) return
+      const deltaX = startX - moveEvent.clientX
+      const nextW = Math.max(MIN_DRAWER_WIDTH, Math.min(startW + deltaX, window.innerWidth))
+      setDrawerWidth(nextW)
+      if (nextW >= window.innerWidth - 20) {
+        setIsDrawerFullscreen(true)
+      } else {
+        setIsDrawerFullscreen(false)
+        lastNormalWidthRef.current = nextW
       }
-      await window.desktop?.collection.sendLoginInsertText?.(text)
-      Message.success('已将剪贴板文字填入当前输入框')
-    } catch (err) {
-      Message.error('粘贴失败: ' + String(err))
     }
+
+    const onMouseUp = () => {
+      isResizingRef.current = false
+      window.removeEventListener('mousemove', onMouseMove)
+      window.removeEventListener('mouseup', onMouseUp)
+    }
+
+    window.addEventListener('mousemove', onMouseMove)
+    window.addEventListener('mouseup', onMouseUp)
   }
 
   const displayParams = activeParams || {
@@ -682,11 +717,24 @@ export function AnalysisCollectPage() {
 
       {/* ─── 方案 B：无头 Chromium 画面投射登录抽屉 ─── */}
       <Drawer
-        width={640}
+        width={isDrawerFullscreen ? '100%' : drawerWidth}
         title={
-          <div className="flex items-center gap-2">
-            <ShieldCheck className="h-5 w-5 text-[#3388ff]" />
-            <span className="font-extrabold text-[16px] text-[#0A1B39]">店透视 & 淘宝登录授权</span>
+          <div className="flex w-full items-center justify-between pr-3">
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="h-5 w-5 text-[#3388ff]" />
+              <span className="font-extrabold text-[16px] text-[#0A1B39]">店透视 & 淘宝登录授权</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <Tooltip content={isDrawerFullscreen ? '还原窗口宽度' : '全屏展开窗口'}>
+                <button
+                  type="button"
+                  onClick={handleToggleDrawerFullscreen}
+                  className="flex h-7 w-7 items-center justify-center rounded-md border border-[#e5e8ef] bg-white text-[#475467] hover:bg-[#f3f4f6] hover:text-[#0A1B39] transition-colors cursor-pointer"
+                >
+                  {isDrawerFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+                </button>
+              </Tooltip>
+            </div>
           </div>
         }
         visible={authDrawerVisible}
@@ -694,13 +742,22 @@ export function AnalysisCollectPage() {
         onCancel={() => { void handleStopLoginView() }}
         footer={
           <div className="flex w-full items-center justify-between">
-            <span className="text-[12px] text-[#86909C]">扫码成功后可关闭此画面，登录态会保存在本地 Profile</span>
+            <span className="text-[12px] text-[#86909C]">扫码或输入密码登录成功后，关闭此画面即可</span>
             <Button type="primary" onClick={() => { void handleStopLoginView() }}>
               完成并关闭
             </Button>
           </div>
         }
       >
+        {/* 左边缘拖拽调整宽度把手（支持左右拉伸，设有限定最小宽度） */}
+        <div
+          onMouseDown={handleResizeMouseDown}
+          className="absolute left-0 top-0 bottom-0 w-2.5 cursor-ew-resize hover:bg-[#3388ff]/30 active:bg-[#3388ff]/60 transition-colors z-50 group flex items-center justify-center select-none"
+          title="左右拖拽调整宽度"
+        >
+          <div className="h-12 w-1 rounded-full bg-[#cbd5e1] group-hover:bg-[#3388ff] transition-colors" />
+        </div>
+
         <div className="space-y-4 text-[#344054]">
           <div className="flex items-center justify-between rounded-lg border border-[#e5e8ef] bg-[#f8fafc] px-3 py-2">
             <div className="flex items-center gap-2 text-[12px] font-semibold">
@@ -743,43 +800,11 @@ export function AnalysisCollectPage() {
             )}
           </div>
 
-          {/* 文字填入助手：方便用户直接粘贴或输入账号/密码一键注入当前输入框 */}
-          {frameVisible && (
-            <div className="flex items-center gap-2 rounded-lg border border-[#e5e8ef] bg-[#f8fafc] p-2.5">
-              <span className="text-[12px] font-semibold text-[#475467] shrink-0">文字填入助手:</span>
-              <input
-                type="text"
-                placeholder="先点击上方输入框，在此输入文字后填入..."
-                value={quickInputText}
-                onChange={(e) => setQuickInputText(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') void handleInsertQuickText()
-                }}
-                className="flex-1 rounded-md border border-[#d0d5dd] bg-white px-2.5 py-1 text-[12px] text-[#1d2939] outline-none focus:border-[#3388ff]"
-              />
-              <button
-                type="button"
-                onClick={() => { void handleInsertQuickText() }}
-                disabled={!quickInputText}
-                className="rounded-md bg-[#2563eb] px-3 py-1 text-[12px] font-bold text-white hover:bg-[#1d4ed8] disabled:bg-[#93c5fd] cursor-pointer border-0 transition-colors"
-              >
-                填入光标处
-              </button>
-              <button
-                type="button"
-                onClick={() => { void handlePasteClipboard() }}
-                className="rounded-md border border-[#d0d5dd] bg-white px-2.5 py-1 text-[12px] font-semibold text-[#344054] hover:bg-[#f3f4f6] cursor-pointer transition-colors"
-              >
-                粘贴剪贴板
-              </button>
-            </div>
-          )}
-
           <div className="rounded-lg border border-[#dbeafe] bg-[#eff6ff] p-3 text-[12px] leading-5 text-[#3b82f6]">
-            <p className="m-0 font-bold">登录方式提示</p>
+            <p className="m-0 font-bold">登录方式指引</p>
             <p className="m-0 mt-1">
-              • <strong>推荐方式</strong>：使用手机淘宝 App 扫描画面左侧二维码，一键完成授权，终身免登。<br />
-              • <strong>账号密码</strong>：先点击画面右侧的输入框使其聚焦，即可直接在键盘敲击输入，或使用上方「文字填入助手」直接填入。
+              • <strong>手机扫码</strong>：使用手机淘宝 App 扫描画面左侧二维码，一键完成授权，终身免登。<br />
+              • <strong>账号密码</strong>：直接用鼠标点击画面输入框，即可在物理键盘敲击打字输入（支持退格与粘贴）。
             </p>
           </div>
           {screencastError && (
