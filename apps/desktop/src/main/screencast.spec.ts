@@ -23,7 +23,11 @@ class FakeWebSocket {
     const msg = JSON.parse(data) as { id?: number; method?: string }
     if (typeof msg.id !== 'number') return
     // 模拟 CDP 命令响应：attach 需要返回 sessionId
-    const result = msg.method === 'Target.attachToTarget' ? { sessionId: 'session-1' } : {}
+    const result = msg.method === 'Target.attachToTarget'
+      ? { sessionId: 'session-1' }
+      : msg.method === 'Runtime.evaluate'
+        ? { result: { value: 'text' } }
+        : {}
     setTimeout(() => {
       this.onmessage?.({ data: JSON.stringify({ id: msg.id, result }) })
     }, 0)
@@ -93,14 +97,14 @@ describe('screencast 帧中继与输入注入 (方案 B, 浏览器级 attach)', 
     await expect(createLoginTarget(1)).rejects.toThrow(/浏览器级 webSocketDebuggerUrl/)
   })
 
-  it('连接建立后自动 attach → activateTarget → Page.enable → Page.startScreencast，ready 在成功后 resolve', async () => {
+  it('连接建立后自动 attach → activateTarget → 设备2x覆盖 → Page.enable → PNG startScreencast，ready 在成功后 resolve', async () => {
     const onFrame = vi.fn()
     const session = connectScreencast(fakeTarget, { onFrame })
     expect(FakeWebSocket.instances).toHaveLength(1)
     const ws = FakeWebSocket.instances[0]
     expect(ws.closed).toBe(false)
 
-    // ready 在 attach+activate+enable+startScreencast 全部成功后 resolve
+    // ready 在 attach+activate+emulate+enable+startScreencast 全部成功后 resolve
     let readyResolved = false
     void session.ready.then(() => {
       readyResolved = true
@@ -112,18 +116,34 @@ describe('screencast 帧中继与输入注入 (方案 B, 浏览器级 attach)', 
     await session.ready
     expect(readyResolved).toBe(true)
 
-    // 前 4 条命令顺序：attach → activate → enable → startScreencast
-    const commands = ws.sent.slice(0, 4).map((s) => JSON.parse(s) as { method: string; params?: Record<string, unknown>; sessionId?: string })
+    // 前 5 条命令顺序：attach → activate → emulate → enable → startScreencast
+    const commands = ws.sent.slice(0, 5).map((s) => JSON.parse(s) as { method: string; params?: Record<string, unknown>; sessionId?: string })
     expect(commands[0].method).toBe('Target.attachToTarget')
     expect(commands[0].params).toEqual({ targetId: 'target-1', flatten: true })
     expect(commands[1].method).toBe('Target.activateTarget')
     expect(commands[1].params).toEqual({ targetId: 'target-1' })
-    expect(commands[2].method).toBe('Page.enable')
+    expect(commands[2].method).toBe('Emulation.setDeviceMetricsOverride')
+    expect(commands[2].params).toMatchObject({ width: 1280, height: 800, deviceScaleFactor: 2, mobile: false })
     expect(commands[2].sessionId).toBe('session-1')
-    expect(commands[3].method).toBe('Page.startScreencast')
-    expect(commands[3].params).toMatchObject({ format: 'jpeg', quality: 70, maxWidth: 1280, maxHeight: 800, everyNthFrame: 1 })
+    expect(commands[3].method).toBe('Page.enable')
     expect(commands[3].sessionId).toBe('session-1')
+    expect(commands[4].method).toBe('Page.startScreencast')
+    expect(commands[4].params).toMatchObject({ format: 'png', maxWidth: 2560, maxHeight: 1600, everyNthFrame: 1 })
+    expect(commands[4].sessionId).toBe('session-1')
     expect(session.alive).toBe(true)
+
+    await session.stop()
+  })
+
+  it('format=jpeg 时 quality 启用并传 95', async () => {
+    const session = connectScreencast(fakeTarget, { onFrame: vi.fn(), format: 'jpeg', quality: 95 })
+    const ws = FakeWebSocket.instances[0]
+    ws.onopen?.()
+    await session.ready
+    const start = ws.sent
+      .map((s) => JSON.parse(s) as { method: string; params?: Record<string, unknown> })
+      .find((m) => m.method === 'Page.startScreencast')
+    expect(start?.params).toMatchObject({ format: 'jpeg', quality: 95, maxWidth: 2560, maxHeight: 1600 })
 
     await session.stop()
   })
@@ -156,7 +176,7 @@ describe('screencast 帧中继与输入注入 (方案 B, 浏览器级 attach)', 
       sessionId: 'session-1',
       params: {
         data: 'aGVsbG8=', // base64("hello")
-        metadata: { width: 1920, height: 1080 },
+        metadata: { deviceWidth: 2560, deviceHeight: 1600 },
         sessionId: 'frame-session-1',
       },
     })
@@ -164,8 +184,8 @@ describe('screencast 帧中继与输入注入 (方案 B, 浏览器级 attach)', 
     expect(onFrame).toHaveBeenCalledTimes(1)
     const frame = onFrame.mock.calls[0][0] as { data: string; width: number; height: number }
     expect(frame.data).toBe('aGVsbG8=')
-    expect(frame.width).toBe(1920)
-    expect(frame.height).toBe(1080)
+    expect(frame.width).toBe(2560)
+    expect(frame.height).toBe(1600)
 
     // ack 已发送，且带 sessionId 路由
     const ack = ws.sent.find((s) => s.includes('screencastFrameAck'))
@@ -188,6 +208,23 @@ describe('screencast 帧中继与输入注入 (方案 B, 浏览器级 attach)', 
     ws.emit({ method: 'Page.screencastFrame', sessionId: 'session-1', params: { sessionId: 'x' } }) // 无 data
     ws.emit({ method: 'Network.requestWillBeSent', sessionId: 'session-1', params: {} })
     expect(onFrame).not.toHaveBeenCalled()
+
+    await session.stop()
+  })
+
+  it('queryCursor 通过 Runtime.evaluate 查询页面 computed cursor', async () => {
+    const session = connectScreencast(fakeTarget, { onFrame: vi.fn() })
+    const ws = FakeWebSocket.instances[0]
+    ws.onopen?.()
+    await session.ready
+
+    await expect(session.queryCursor(120, 80)).resolves.toBe('text')
+    const evaluate = ws.sent
+      .map((s) => JSON.parse(s) as { method: string; params?: Record<string, unknown>; sessionId?: string })
+      .find((m) => m.method === 'Runtime.evaluate')
+    expect(evaluate?.sessionId).toBe('session-1')
+    expect(String(evaluate?.params?.expression)).toContain('elementFromPoint(120, 80)')
+    expect(evaluate?.params?.returnByValue).toBe(true)
 
     await session.stop()
   })

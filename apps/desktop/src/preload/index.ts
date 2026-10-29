@@ -58,6 +58,7 @@ contextBridge.exposeInMainWorld('desktop', {
       button?: 'left' | 'right' | 'middle' | 'none'
       clickCount?: number
     }) => ipcRenderer.invoke('collection:loginInput', input),
+    sendLoginCursor: (input: { x: number; y: number }) => ipcRenderer.invoke('collection:loginCursor', input),
     sendLoginKey: (input: {
       type: 'keyDown' | 'keyUp' | 'rawKeyDown' | 'char'
       key?: string

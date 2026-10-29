@@ -114,6 +114,8 @@ declare global {
           button?: 'left' | 'right' | 'middle' | 'none'
           clickCount?: number
         }) => Promise<{ ok: boolean }>
+        /** 查询页面指定 CSS 坐标处的 computed cursor（如 'text'/'pointer'），返回空串表示不可用。 */
+        sendLoginCursor: (input: { x: number; y: number }) => Promise<string>
         sendLoginKey: (input: {
           type: 'keyDown' | 'keyUp' | 'rawKeyDown' | 'char'
           key?: string

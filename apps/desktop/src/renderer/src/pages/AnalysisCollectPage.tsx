@@ -74,10 +74,13 @@ export function AnalysisCollectPage() {
   const [screencastError, setScreencastError] = useState('')
   const [frameVisible, setFrameVisible] = useState(false)
   const [dragActive, setDragActive] = useState(false)
+  const [hoverCursor, setHoverCursor] = useState('')
+  // CDP Input 坐标是 CSS viewport；不能用 Retina 帧的物理像素尺寸覆盖它。
   const viewportRef = useRef<{ width: number; height: number }>({ width: 1280, height: 800 })
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const frameImgRef = useRef<HTMLImageElement | null>(null)
   const dragSeqRef = useRef(0)
+  const cursorQueryAtRef = useRef(0)
 
   // 抽屉宽度拖拽与全屏控制
   const MIN_DRAWER_WIDTH = 540
@@ -118,7 +121,8 @@ export function AnalysisCollectPage() {
     if (!window.desktop?.collection) return
     const offFrame = window.desktop.collection.onScreencastFrame((frame) => {
       if (!canvasRef.current) return
-      viewportRef.current = { width: frame.width, height: frame.height }
+      // frame 尺寸为 Retina 物理像素（2560×1600），仅作为 canvas backing store；
+      // CSS viewport（1280×800）由 openLoginView 返回，坐标映射必须用它，不能被物理像素覆盖。
       setFrameVisible(true)
       const img = frameImgRef.current ?? new Image()
       frameImgRef.current = img
@@ -127,9 +131,12 @@ export function AnalysisCollectPage() {
         if (!canvas) return
         canvas.width = frame.width
         canvas.height = frame.height
-        canvas.getContext('2d')?.drawImage(img, 0, 0)
+        const ctx = canvas.getContext('2d')
+        if (ctx) ctx.drawImage(img, 0, 0)
       }
-      img.src = `data:image/jpeg;base64,${frame.data}`
+      // PNG（Retina 高清）或 JPEG 前缀自适应
+      const prefix = frame.data.startsWith('/9j/') ? 'data:image/jpeg;base64,' : 'data:image/png;base64,'
+      img.src = `${prefix}${frame.data}`
     })
     const offStatus = window.desktop.collection.onScreencastStatus((status) => {
       if (status.status === 'connected') {
@@ -346,10 +353,20 @@ export function AnalysisCollectPage() {
   }
 
   const handleLoginPointerMove = async (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!dragActive || !screencastConnected) return
+    if (!screencastConnected) return
+    if (dragActive) {
+      const p = canvasPoint(e.clientX, e.clientY)
+      dragSeqRef.current += 1
+      await window.desktop?.collection.sendLoginInput?.({ type: 'mouseMoved', x: p.x, y: p.y })
+      return
+    }
+    // 悬停而非拖拽：节流查询页面真实 cursor（text/pointer/…），降低 IPC 频率
+    const now = Date.now()
+    if (now - cursorQueryAtRef.current < 100) return
+    cursorQueryAtRef.current = now
     const p = canvasPoint(e.clientX, e.clientY)
-    dragSeqRef.current += 1
-    await window.desktop?.collection.sendLoginInput?.({ type: 'mouseMoved', x: p.x, y: p.y })
+    const cursor = await window.desktop?.collection.sendLoginCursor?.({ x: p.x, y: p.y })
+    if (typeof cursor === 'string') setHoverCursor(cursor)
   }
 
   const handleLoginPointerUp = async (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -817,7 +834,8 @@ export function AnalysisCollectPage() {
             <canvas
               ref={canvasRef}
               tabIndex={0}
-              className={`block select-none outline-none focus:ring-2 focus:ring-[#3388ff] ${frameVisible ? '' : 'hidden'} ${dragActive ? 'cursor-grabbing' : 'cursor-crosshair'} ${isDrawerFullscreen ? 'max-h-[82vh] w-auto max-w-full' : 'h-auto w-full'}`}
+              className={`block select-none outline-none focus:ring-2 focus:ring-[#3388ff] ${frameVisible ? '' : 'hidden'} ${dragActive ? 'cursor-grabbing' : ''} ${isDrawerFullscreen ? 'max-h-[82vh] w-auto max-w-full' : 'h-auto w-full'}`}
+              style={{ cursor: dragActive ? 'grabbing' : (hoverCursor || 'default') }}
               onMouseDown={(event) => { void handleLoginPointerDown(event) }}
               onMouseMove={(event) => { void handleLoginPointerMove(event) }}
               onMouseUp={(event) => { void handleLoginPointerUp(event) }}

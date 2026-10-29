@@ -400,6 +400,11 @@ export function registerCollectionHandlers(prisma: PrismaClient) {
     })
     return { ok: true }
   })
+  ipcMain.handle('collection:loginCursor', async (_event, input: { x: number; y: number }) => {
+    if (!activeLoginScreencast?.alive) return ''
+    if (!Number.isFinite(input.x) || !Number.isFinite(input.y)) return ''
+    return activeLoginScreencast.queryCursor(input.x, input.y)
+  })
   ipcMain.handle('collection:loginKey', async (_event, input: {
     type: CdpKeyType
     key?: string

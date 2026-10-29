@@ -57,12 +57,16 @@ export interface KeyInput {
 }
 
 export interface ConnectScreencastOptions {
-  /** JPEG 质量，默认 70 */
+  /** JPEG 压缩质量（format='jpeg' 时生效），默认 95 */
   quality?: number
-  /** 帧宽度上限，默认 1280 */
+  /** 帧编码格式：png 对文字/二维码无 DCT 伪影，默认 'png' */
+  format?: 'jpeg' | 'png'
+  /** 帧宽度上限（device px），默认 CSS 视口宽 × deviceScaleFactor（1280×2=2560） */
   maxWidth?: number
-  /** 帧高度上限，默认 800 */
+  /** 帧高度上限（device px），默认 CSS 视口高 × deviceScaleFactor（800×2=1600） */
   maxHeight?: number
+  /** 设备像素比（Retina 高清采样），默认 2 */
+  deviceScaleFactor?: number
   /** 每收到一帧就回调（页面画面变化即触发） */
   onFrame: (frame: ScreencastFrame) => void
   /** 连接异常或被动关闭时回调；stop() 主动关闭不触发 */
@@ -72,16 +76,18 @@ export interface ConnectScreencastOptions {
 export interface ScreencastSession {
   /** 长连接是否仍可用 */
   readonly alive: boolean
-  /** CDP WebSocket 就绪（onopen）即 resolve；供调用方在连接建立后再开始等帧，避免竞态。 */
+  /** CDP WebSocket 就绪（onopen 后 attach/激活/编码全部成功）即 resolve；供调用方在连接建立后再开始等帧，避免竞态。 */
   readonly ready: Promise<void>
   /** 停止推流并关闭连接（幂等；不销毁 Chromium 进程） */
   stop: () => Promise<void>
-  /** 注入一次鼠标事件（坐标系为 CDP 视口） */
+  /** 注入一次鼠标事件（坐标系为 CDP CSS 视口坐标） */
   dispatchMouse: (input: MouseInput) => void
   /** 注入一次键盘事件（供输入账号密码与控制键） */
   dispatchKey: (input: KeyInput) => void
   /** 在当前焦点元素直接插入纯文本（支持中文与快捷粘贴） */
   insertText: (text: string) => void
+  /** 查询页面指定 CSS 坐标处的 computed cursor（如 'text'/'pointer'），失败返回空串。 */
+  queryCursor: (x: number, y: number) => Promise<string>
 }
 
 export const DEFAULT_LOGIN_VIEWPORT = { width: 1280, height: 800 } as const
@@ -202,16 +208,28 @@ export function connectScreencast(target: LoginTarget, options: ConnectScreencas
       options.onClose?.(new Error(activate.error.message ?? 'CDP 激活登录页失败'))
       return
     }
+    const deviceScaleFactor = options.deviceScaleFactor ?? 2
+    const metrics = await send('Emulation.setDeviceMetricsOverride', {
+      width: target.viewport.width,
+      height: target.viewport.height,
+      deviceScaleFactor,
+      mobile: false,
+    }, sessionId)
+    if (metrics.error) {
+      options.onClose?.(new Error(metrics.error.message ?? 'CDP 设备像素比设置失败'))
+      return
+    }
     const enable = await send('Page.enable', undefined, sessionId)
     if (enable.error) {
       options.onClose?.(new Error(enable.error.message ?? 'CDP Page.enable 失败'))
       return
     }
+    const format = options.format ?? 'png'
     const started = await send('Page.startScreencast', {
-      format: 'jpeg',
-      quality: options.quality ?? 70,
-      maxWidth: options.maxWidth ?? 1280,
-      maxHeight: options.maxHeight ?? 800,
+      format,
+      ...(format === 'jpeg' ? { quality: options.quality ?? 95 } : {}),
+      maxWidth: options.maxWidth ?? Math.round(target.viewport.width * deviceScaleFactor),
+      maxHeight: options.maxHeight ?? Math.round(target.viewport.height * deviceScaleFactor),
       everyNthFrame: 1,
     }, sessionId)
     if (started.error) {
@@ -226,7 +244,16 @@ export function connectScreencast(target: LoginTarget, options: ConnectScreencas
       id?: number
       method?: string
       sessionId?: string
-      params?: { data?: string; sessionId?: string; metadata?: { width?: number; height?: number } }
+      params?: {
+        data?: string
+        sessionId?: string
+        metadata?: {
+          width?: number
+          height?: number
+          deviceWidth?: number
+          deviceHeight?: number
+        }
+      }
       result?: unknown
       error?: { message?: string }
     } | null = null
@@ -243,10 +270,12 @@ export function connectScreencast(target: LoginTarget, options: ConnectScreencas
     if (parsed?.method !== 'Page.screencastFrame' || parsed.sessionId !== sessionId) return
     const p = parsed.params ?? {}
     if (!p.data) return
+    // Retina 高清：CDP metadata 用 deviceWidth/deviceHeight 承载物理像素（width/height 为 CSS 像素兜底）
+    const deviceScaleFactor = options.deviceScaleFactor ?? 2
     options.onFrame({
       data: p.data,
-      width: p.metadata?.width ?? target.viewport.width,
-      height: p.metadata?.height ?? target.viewport.height,
+      width: p.metadata?.deviceWidth ?? p.metadata?.width ?? Math.round(target.viewport.width * deviceScaleFactor),
+      height: p.metadata?.deviceHeight ?? p.metadata?.height ?? Math.round(target.viewport.height * deviceScaleFactor),
       timestamp: Date.now(),
     })
     if (p.sessionId) {
@@ -305,6 +334,17 @@ export function connectScreencast(target: LoginTarget, options: ConnectScreencas
     },
     insertText: (text: string) => {
       void send('Input.insertText', { text }, sessionId)
+    },
+    queryCursor: async (x: number, y: number) => {
+      if (!sessionId) return ''
+      const result = await send('Runtime.evaluate', {
+        expression: `(() => { const el = document.elementFromPoint(${Math.round(x)}, ${Math.round(y)}); return el ? getComputedStyle(el).cursor : '' })()`,
+        returnByValue: true,
+      }, sessionId)
+      if (result.error) return ''
+      return typeof result.result === 'object' && result.result !== null
+        ? String((result.result as { result?: { value?: unknown } }).result?.value ?? '')
+        : ''
     },
   }
 }

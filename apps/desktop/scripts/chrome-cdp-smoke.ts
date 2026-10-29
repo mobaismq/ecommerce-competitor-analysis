@@ -28,17 +28,24 @@ async function main() {
 
   await setDownloadBehavior(launched.port, downloadDir)
 
-  // ─── 方案 B：无头容器 + CDP Screencast 画面投射验证 ───
+  // ─── 方案 B：无头容器 + CDP Screencast 画面投射验证（Retina 2x PNG 高清）───
   let frames = 0
-  let ackCount = 0
+  let pngCount = 0
+  let maxFrameWidth = 0
+  let maxFrameHeight = 0
   let screenClosed = false
   const target = await createLoginTarget(launched.port, PAGE_HTML)
   const session = connectScreencast(target, {
     onFrame: (frame) => {
       frames += 1
+      maxFrameWidth = Math.max(maxFrameWidth, frame.width)
+      maxFrameHeight = Math.max(maxFrameHeight, frame.height)
       const canvas = new Uint8Array(Buffer.from(frame.data, 'base64'))
-      // JPEG 魔头 FF D8
-      if (canvas.length >= 2 && canvas[0] === 0xff && canvas[1] === 0xd8) ackCount += 1
+      // PNG 魔头 89 50 4E 47 0D 0A 1A 0A（Retina 高清帧应为 PNG）
+      if (canvas.length >= 8 && canvas[0] === 0x89 && canvas[1] === 0x50 && canvas[2] === 0x4e && canvas[3] === 0x47
+          && canvas[4] === 0x0d && canvas[5] === 0x0a && canvas[6] === 0x1a && canvas[7] === 0x0a) {
+        pngCount += 1
+      }
     },
     onClose: () => {
       screenClosed = true
@@ -63,8 +70,11 @@ async function main() {
     profileDir: launched.profileDir,
     isBuiltin: launched.isBuiltin,
     downloadDirReady: existsSync(downloadDir),
+    viewportCss: target.viewport,
     screencastFrames: frames,
-    jpegFrames: ackCount,
+    pngFrames: pngCount,
+    maxFrameWidth,
+    maxFrameHeight,
     screencastStopped: !session.alive,
     closed: screenClosed,
   }
@@ -73,12 +83,15 @@ async function main() {
   closeChrome(launched)
   rmSync(downloadDir, { recursive: true, force: true })
 
+  // PNG 帧应至少 1 帧且帧尺寸与视口匹配（device 帧像素 ≤ CSS ×2 即可满足当前实现）
   const ok =
     result.isBuiltin &&
     result.downloadDirReady &&
     typeof result.port === 'number' &&
     result.screencastFrames >= 1 &&
-    result.jpegFrames >= 1 &&
+    result.pngFrames >= 1 &&
+    result.maxFrameWidth >= target.viewport.width &&
+    result.maxFrameHeight >= target.viewport.height &&
     result.screencastStopped
   process.exit(ok ? 0 : 1)
 }
