@@ -320,7 +320,7 @@ export function AnalysisCollectPage() {
     await window.desktop?.collection.stopLoginView?.()
     setScreencastConnected(false)
     setAuthDrawerVisible(false)
-    Message.info('登录画面已关闭（浏览器容器仍在后台运行）')
+    setIsDrawerFullscreen(false)
   }
 
   // 计算画布内点击坐标 → CDP 视口坐标（canvas 显示尺寸 ↔ viewport 比例换算）
@@ -718,6 +718,7 @@ export function AnalysisCollectPage() {
       {/* ─── 方案 B：无头 Chromium 画面投射登录抽屉 ─── */}
       <Drawer
         width={isDrawerFullscreen ? '100%' : drawerWidth}
+        unmountOnExit
         title={
           <div className="flex w-full items-center justify-between pr-3">
             <div className="flex items-center gap-2">
@@ -725,15 +726,14 @@ export function AnalysisCollectPage() {
               <span className="font-extrabold text-[16px] text-[#0A1B39]">店透视 & 淘宝登录授权</span>
             </div>
             <div className="flex items-center gap-1.5">
-              <Tooltip content={isDrawerFullscreen ? '还原窗口宽度' : '全屏展开窗口'}>
-                <button
-                  type="button"
-                  onClick={handleToggleDrawerFullscreen}
-                  className="flex h-7 w-7 items-center justify-center rounded-md border border-[#e5e8ef] bg-white text-[#475467] hover:bg-[#f3f4f6] hover:text-[#0A1B39] transition-colors cursor-pointer"
-                >
-                  {isDrawerFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
-                </button>
-              </Tooltip>
+              <button
+                type="button"
+                onClick={handleToggleDrawerFullscreen}
+                title={isDrawerFullscreen ? '还原窗口宽度' : '全屏展开窗口'}
+                className="flex h-7 w-7 items-center justify-center rounded-md border border-[#e5e8ef] bg-white text-[#475467] hover:bg-[#f3f4f6] hover:text-[#0A1B39] transition-colors cursor-pointer"
+              >
+                {isDrawerFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+              </button>
             </div>
           </div>
         }
