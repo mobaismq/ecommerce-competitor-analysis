@@ -223,6 +223,35 @@ describe('screencast 帧中继与输入注入 (方案 B, 浏览器级 attach)', 
     await session.stop()
   })
 
+  it('dispatchKey 与 insertText 发送对应 CDP 命令且参数正确', async () => {
+    const session = connectScreencast(fakeTarget, { onFrame: vi.fn() })
+    const ws = FakeWebSocket.instances[0]
+    ws.onopen?.()
+    await session.ready
+    ws.sent.length = 0
+
+    session.dispatchKey({ type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 })
+    session.insertText('test_username_123')
+
+    await new Promise((r) => setTimeout(r, 10))
+    const keyCmd = ws.sent
+      .map((s) => JSON.parse(s) as { method: string; params: Record<string, unknown>; sessionId: string })
+      .find((m) => m.method === 'Input.dispatchKeyEvent')
+    expect(keyCmd).toBeDefined()
+    expect(keyCmd?.params.key).toBe('Enter')
+    expect(keyCmd?.params.windowsVirtualKeyCode).toBe(13)
+    expect(keyCmd?.sessionId).toBe('session-1')
+
+    const textCmd = ws.sent
+      .map((s) => JSON.parse(s) as { method: string; params: Record<string, unknown>; sessionId: string })
+      .find((m) => m.method === 'Input.insertText')
+    expect(textCmd).toBeDefined()
+    expect(textCmd?.params.text).toBe('test_username_123')
+    expect(textCmd?.sessionId).toBe('session-1')
+
+    await session.stop()
+  })
+
   it('stop 幂等：Page.stopScreencast + close，重复 stop 不重复发送', async () => {
     const onFrame = vi.fn()
     const session = connectScreencast(fakeTarget, { onFrame })

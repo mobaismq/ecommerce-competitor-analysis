@@ -61,6 +61,7 @@ export function AnalysisCollectPage() {
   const [screencastError, setScreencastError] = useState('')
   const [frameVisible, setFrameVisible] = useState(false)
   const [dragActive, setDragActive] = useState(false)
+  const [quickInputText, setQuickInputText] = useState('')
   const viewportRef = useRef<{ width: number; height: number }>({ width: 1280, height: 800 })
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const frameImgRef = useRef<HTMLImageElement | null>(null)
@@ -316,6 +317,7 @@ export function AnalysisCollectPage() {
   const handleLoginPointerDown = async (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!screencastConnected) return
     e.preventDefault()
+    canvasRef.current?.focus()
     const p = canvasPoint(e.clientX, e.clientY)
     dragSeqRef.current = 1
     setDragActive(true)
@@ -335,6 +337,84 @@ export function AnalysisCollectPage() {
     dragSeqRef.current = 0
     setDragActive(false)
     await window.desktop?.collection.sendLoginInput?.({ type: 'mouseReleased', x: p.x, y: p.y })
+  }
+
+  const handleLoginKeyDown = async (e: React.KeyboardEvent<HTMLCanvasElement>) => {
+    if (!screencastConnected) return
+    // 阻止页面整体按键滚动等默认行为（如按空格或方向键滚屏）
+    if (['Space', 'ArrowUp', 'ArrowDown', 'Tab'].includes(e.code)) {
+      e.preventDefault()
+    }
+    // 处理 Cmd+V / Ctrl+V 快捷粘贴
+    if ((e.metaKey || e.ctrlKey) && (e.key === 'v' || e.key === 'V')) {
+      e.preventDefault()
+      try {
+        const text = await navigator.clipboard.readText()
+        if (text) {
+          await window.desktop?.collection.sendLoginInsertText?.(text)
+          Message.success('已将剪贴板内容填入当前输入框')
+        }
+      } catch {}
+      return
+    }
+    // 处理 Cmd+A / Ctrl+A 全选
+    if ((e.metaKey || e.ctrlKey) && (e.key === 'a' || e.key === 'A')) {
+      await window.desktop?.collection.sendLoginKey?.({
+        type: 'keyDown',
+        key: 'a',
+        code: 'KeyA',
+        modifiers: 2,
+      })
+      return
+    }
+    // 普通单一字符直接插入文本（确保字母/数字/符号输入稳定）
+    if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) {
+      e.preventDefault()
+      await window.desktop?.collection.sendLoginInsertText?.(e.key)
+      return
+    }
+    // 控制键（Backspace, Enter, Tab, Arrow 等）发送按键事件
+    await window.desktop?.collection.sendLoginKey?.({
+      type: 'keyDown',
+      key: e.key,
+      code: e.code,
+      windowsVirtualKeyCode: e.keyCode,
+    })
+  }
+
+  const handleLoginKeyUp = async (e: React.KeyboardEvent<HTMLCanvasElement>) => {
+    if (!screencastConnected) return
+    await window.desktop?.collection.sendLoginKey?.({
+      type: 'keyUp',
+      key: e.key,
+      code: e.code,
+      windowsVirtualKeyCode: e.keyCode,
+    })
+  }
+
+  const handleInsertQuickText = async () => {
+    if (!quickInputText) return
+    try {
+      await window.desktop?.collection.sendLoginInsertText?.(quickInputText)
+      Message.success('已填入当前光标处')
+      setQuickInputText('')
+    } catch (err) {
+      Message.error('填入失败: ' + String(err))
+    }
+  }
+
+  const handlePasteClipboard = async () => {
+    try {
+      const text = await navigator.clipboard.readText()
+      if (!text) {
+        Message.warning('剪贴板为空')
+        return
+      }
+      await window.desktop?.collection.sendLoginInsertText?.(text)
+      Message.success('已将剪贴板文字填入当前输入框')
+    } catch (err) {
+      Message.error('粘贴失败: ' + String(err))
+    }
   }
 
   const displayParams = activeParams || {
@@ -644,10 +724,13 @@ export function AnalysisCollectPage() {
             )}
             <canvas
               ref={canvasRef}
-              className={`block h-auto w-full select-none ${frameVisible ? '' : 'hidden'} ${dragActive ? 'cursor-grabbing' : 'cursor-crosshair'}`}
+              tabIndex={0}
+              className={`block h-auto w-full select-none outline-none focus:ring-2 focus:ring-[#3388ff] ${frameVisible ? '' : 'hidden'} ${dragActive ? 'cursor-grabbing' : 'cursor-crosshair'}`}
               onMouseDown={(event) => { void handleLoginPointerDown(event) }}
               onMouseMove={(event) => { void handleLoginPointerMove(event) }}
               onMouseUp={(event) => { void handleLoginPointerUp(event) }}
+              onKeyDown={(event) => { void handleLoginKeyDown(event) }}
+              onKeyUp={(event) => { void handleLoginKeyUp(event) }}
               onMouseLeave={(event) => {
                 if (dragActive) void handleLoginPointerUp(event)
               }}
@@ -660,9 +743,44 @@ export function AnalysisCollectPage() {
             )}
           </div>
 
+          {/* 文字填入助手：方便用户直接粘贴或输入账号/密码一键注入当前输入框 */}
+          {frameVisible && (
+            <div className="flex items-center gap-2 rounded-lg border border-[#e5e8ef] bg-[#f8fafc] p-2.5">
+              <span className="text-[12px] font-semibold text-[#475467] shrink-0">文字填入助手:</span>
+              <input
+                type="text"
+                placeholder="先点击上方输入框，在此输入文字后填入..."
+                value={quickInputText}
+                onChange={(e) => setQuickInputText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') void handleInsertQuickText()
+                }}
+                className="flex-1 rounded-md border border-[#d0d5dd] bg-white px-2.5 py-1 text-[12px] text-[#1d2939] outline-none focus:border-[#3388ff]"
+              />
+              <button
+                type="button"
+                onClick={() => { void handleInsertQuickText() }}
+                disabled={!quickInputText}
+                className="rounded-md bg-[#2563eb] px-3 py-1 text-[12px] font-bold text-white hover:bg-[#1d4ed8] disabled:bg-[#93c5fd] cursor-pointer border-0 transition-colors"
+              >
+                填入光标处
+              </button>
+              <button
+                type="button"
+                onClick={() => { void handlePasteClipboard() }}
+                className="rounded-md border border-[#d0d5dd] bg-white px-2.5 py-1 text-[12px] font-semibold text-[#344054] hover:bg-[#f3f4f6] cursor-pointer transition-colors"
+              >
+                粘贴剪贴板
+              </button>
+            </div>
+          )}
+
           <div className="rounded-lg border border-[#dbeafe] bg-[#eff6ff] p-3 text-[12px] leading-5 text-[#3b82f6]">
-            <p className="m-0 font-bold">首次使用</p>
-            <p className="m-0 mt-1">请使用手机淘宝 App 扫描画面中的二维码。二维码和登录页均显示在当前软件内，不会弹出系统浏览器窗口。</p>
+            <p className="m-0 font-bold">登录方式提示</p>
+            <p className="m-0 mt-1">
+              • <strong>推荐方式</strong>：使用手机淘宝 App 扫描画面左侧二维码，一键完成授权，终身免登。<br />
+              • <strong>账号密码</strong>：先点击画面右侧的输入框使其聚焦，即可直接在键盘敲击输入，或使用上方「文字填入助手」直接填入。
+            </p>
           </div>
           {screencastError && (
             <button

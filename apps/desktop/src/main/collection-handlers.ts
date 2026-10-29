@@ -13,6 +13,7 @@ import {
   closeLoginTarget,
   connectScreencast,
   createLoginTarget,
+  type CdpKeyType,
   type CdpMouseType,
   type ScreencastSession,
 } from './screencast'
@@ -397,6 +398,24 @@ export function registerCollectionHandlers(prisma: PrismaClient) {
       button: input.button,
       clickCount: input.clickCount,
     })
+    return { ok: true }
+  })
+  ipcMain.handle('collection:loginKey', async (_event, input: {
+    type: CdpKeyType
+    key?: string
+    code?: string
+    text?: string
+    windowsVirtualKeyCode?: number
+    modifiers?: number
+  }) => {
+    if (!activeLoginScreencast?.alive) throw new Error('登录画面投射尚未连接')
+    activeLoginScreencast.dispatchKey(input)
+    return { ok: true }
+  })
+  ipcMain.handle('collection:loginInsertText', async (_event, text: string) => {
+    if (!activeLoginScreencast?.alive) throw new Error('登录画面投射尚未连接')
+    if (typeof text !== 'string') throw new Error('无效的文本输入')
+    activeLoginScreencast.insertText(text)
     return { ok: true }
   })
 }

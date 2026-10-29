@@ -43,6 +43,19 @@ export interface MouseInput {
   clickCount?: number
 }
 
+/** 注入的键盘事件类型 */
+export type CdpKeyType = 'keyDown' | 'keyUp' | 'rawKeyDown' | 'char'
+
+export interface KeyInput {
+  type: CdpKeyType
+  key?: string
+  code?: string
+  text?: string
+  unmodifiedText?: string
+  windowsVirtualKeyCode?: number
+  modifiers?: number
+}
+
 export interface ConnectScreencastOptions {
   /** JPEG 质量，默认 70 */
   quality?: number
@@ -65,6 +78,10 @@ export interface ScreencastSession {
   stop: () => Promise<void>
   /** 注入一次鼠标事件（坐标系为 CDP 视口） */
   dispatchMouse: (input: MouseInput) => void
+  /** 注入一次键盘事件（供输入账号密码与控制键） */
+  dispatchKey: (input: KeyInput) => void
+  /** 在当前焦点元素直接插入纯文本（支持中文与快捷粘贴） */
+  insertText: (text: string) => void
 }
 
 export const DEFAULT_LOGIN_VIEWPORT = { width: 1280, height: 800 } as const
@@ -274,6 +291,20 @@ export function connectScreencast(target: LoginTarget, options: ConnectScreencas
         button: input.button ?? 'left',
         clickCount: input.clickCount ?? (input.type === 'mousePressed' || input.type === 'mouseReleased' ? 1 : 0),
       }, sessionId)
+    },
+    dispatchKey: (input: KeyInput) => {
+      void send('Input.dispatchKeyEvent', {
+        type: input.type,
+        key: input.key,
+        code: input.code,
+        text: input.text,
+        unmodifiedText: input.unmodifiedText,
+        windowsVirtualKeyCode: input.windowsVirtualKeyCode,
+        modifiers: input.modifiers ?? 0,
+      }, sessionId)
+    },
+    insertText: (text: string) => {
+      void send('Input.insertText', { text }, sessionId)
     },
   }
 }

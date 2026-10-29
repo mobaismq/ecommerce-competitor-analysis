@@ -114,6 +114,15 @@ declare global {
           button?: 'left' | 'right' | 'middle' | 'none'
           clickCount?: number
         }) => Promise<{ ok: boolean }>
+        sendLoginKey: (input: {
+          type: 'keyDown' | 'keyUp' | 'rawKeyDown' | 'char'
+          key?: string
+          code?: string
+          text?: string
+          windowsVirtualKeyCode?: number
+          modifiers?: number
+        }) => Promise<{ ok: boolean }>
+        sendLoginInsertText: (text: string) => Promise<{ ok: boolean }>
         onScreencastFrame: (listener: (frame: { data: string; width: number; height: number; timestamp: number }) => void) => () => void
         onScreencastStatus: (listener: (status: { status: string; error?: string }) => void) => () => void
       }

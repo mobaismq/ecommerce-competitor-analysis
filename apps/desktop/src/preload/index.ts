@@ -58,6 +58,15 @@ contextBridge.exposeInMainWorld('desktop', {
       button?: 'left' | 'right' | 'middle' | 'none'
       clickCount?: number
     }) => ipcRenderer.invoke('collection:loginInput', input),
+    sendLoginKey: (input: {
+      type: 'keyDown' | 'keyUp' | 'rawKeyDown' | 'char'
+      key?: string
+      code?: string
+      text?: string
+      windowsVirtualKeyCode?: number
+      modifiers?: number
+    }) => ipcRenderer.invoke('collection:loginKey', input),
+    sendLoginInsertText: (text: string) => ipcRenderer.invoke('collection:loginInsertText', text),
     onScreencastFrame: (listener: (frame: { data: string; width: number; height: number; timestamp: number }) => void) => {
       const handler = (_e: Electron.IpcRendererEvent, frame: { data: string; width: number; height: number; timestamp: number }) => listener(frame)
       ipcRenderer.on('collection:screencast', handler)
