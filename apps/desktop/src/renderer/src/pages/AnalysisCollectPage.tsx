@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Button, Drawer, Message, Switch, Tooltip } from '@arco-design/web-react'
-import { AlertCircle, CheckCircle2, ExternalLink, Loader2, Play, QrCode, ShieldCheck, Square, Terminal } from 'lucide-react'
+import { AlertCircle, CheckCircle2, ExternalLink, Loader2, Play, QrCode, ShieldCheck, Square, Terminal, X } from 'lucide-react'
 import { parseRpaProgress } from '../utils/rpaProgress'
 import { PageHeader } from '../components/PageHeader'
 import { XInput } from '../components/XInput'
@@ -55,7 +55,16 @@ export function AnalysisCollectPage() {
   const [autoScroll, setAutoScroll] = useState(true)
   const [errorMessage, setErrorMessage] = useState<string>('')
   const [authDrawerVisible, setAuthDrawerVisible] = useState(false)
-  const [isFakeMode, setIsFakeMode] = useState(false)
+
+  // ─── 方案 B：内置画面投射（无头容器 + CDP Screencast）───
+  const [screencastConnected, setScreencastConnected] = useState(false)
+  const [screencastError, setScreencastError] = useState('')
+  const [frameVisible, setFrameVisible] = useState(false)
+  const [dragActive, setDragActive] = useState(false)
+  const viewportRef = useRef<{ width: number; height: number }>({ width: 1280, height: 800 })
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const frameImgRef = useRef<HTMLImageElement | null>(null)
+  const dragSeqRef = useRef(0)
 
   const [activeParams, setActiveParams] = useState<{
     keyword: string
@@ -81,6 +90,45 @@ export function AnalysisCollectPage() {
       logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight
     }
   }, [logs, autoScroll])
+
+  // ─── 方案 B：帧流订阅（红色划线：投射到右侧抽屉的内置浏览器画面）───
+  useEffect(() => {
+    if (!window.desktop?.collection) return
+    const offFrame = window.desktop.collection.onScreencastFrame((frame) => {
+      if (!canvasRef.current) return
+      viewportRef.current = { width: frame.width, height: frame.height }
+      setFrameVisible(true)
+      const img = frameImgRef.current ?? new Image()
+      frameImgRef.current = img
+      img.onload = () => {
+        const canvas = canvasRef.current
+        if (!canvas) return
+        canvas.width = frame.width
+        canvas.height = frame.height
+        canvas.getContext('2d')?.drawImage(img, 0, 0)
+      }
+      img.src = `data:image/jpeg;base64,${frame.data}`
+    })
+    const offStatus = window.desktop.collection.onScreencastStatus((status) => {
+      if (status.status === 'connected') {
+        setScreencastConnected(true)
+        setScreencastError('')
+      } else if (status.status === 'closed') {
+        setScreencastConnected(false)
+        setScreencastError(status.error || '登录画面连接已断开')
+      }
+    })
+    return () => {
+      offFrame()
+      offStatus()
+      void window.desktop?.collection?.stopLoginView?.()
+    }
+  }, [])
+
+  // 滑块检测：从进度流日志中识别「滑块/滑动验证/人机验证」
+  const guardDetected = useMemo(() => {
+    return /滑块|滑动验证|人机验证|安全验证|拖动.*(滑块|解锁)|请.*手动.*解锁/i.test(logs)
+  }, [logs])
 
   // 轮询真实采集状态：本地 job 会真实推进，进度由 run.log 的 === batch item 标记解析
   useEffect(() => {
@@ -161,8 +209,7 @@ export function AnalysisCollectPage() {
     setLoading(true)
 
     const nowStr = new Date().toLocaleTimeString()
-    const modeLabel = isFakeMode ? '离线仿真' : '真实店透视'
-    const initLog = `[${nowStr}] 🚀 正在启动${modeLabel}采集任务...\n[${nowStr}] 目标关键词: ${newParams.keyword} | 计划采集数: ${count} | 价格区间: ${newParams.minPrice ?? '不限'} ~ ${newParams.maxPrice ?? '不限'}\n`
+    const initLog = `[${nowStr}] 🚀 正在启动店透视采集任务...\n[${nowStr}] 目标关键词: ${newParams.keyword} | 计划采集数: ${count} | 价格区间: ${newParams.minPrice ?? '不限'} ~ ${newParams.maxPrice ?? '不限'}\n`
     setLogs(initLog)
     setStatus('running')
 
@@ -178,12 +225,13 @@ export function AnalysisCollectPage() {
         speedProfile: 'fast',
         mode: 'download-and-import',
         importMysql: false,
-        fake: isFakeMode,
+        // 生产业务界面固定为真实采集；fake 仿真仅保留在底层的 vitest 自动化测试中
+        fake: false,
       })
       if (!res?.jobId) throw new Error('未能启动采集任务')
       setJobId(res.jobId)
-      setLogs((prev) => prev + `[${new Date().toLocaleTimeString()}] ${modeLabel}任务已启动，日志将实时刷新。\n`)
-      Message.success(`${modeLabel}任务已启动`)
+      setLogs((prev) => prev + `[${new Date().toLocaleTimeString()}] 店透视采集任务已启动，日志将实时刷新。\n`)
+      Message.success('店透视采集任务已启动')
       const s = await window.desktop.collection.status(res.jobId).catch(() => null)
       if (s?.logTail) setLogs(s.logTail)
     } catch (err: unknown) {
@@ -231,6 +279,64 @@ export function AnalysisCollectPage() {
     setImportedCount(null)
   }
 
+  // ─── 方案 B：唤起内置投射登录视图 ───
+  const handleOpenLoginView = async () => {
+    try {
+      Message.info('正在连接内置浏览器画面...')
+      setAuthDrawerVisible(true)
+      setScreencastConnected(false)
+      setScreencastError('')
+      setFrameVisible(false)
+      const res = await window.desktop?.collection.openLoginView?.()
+      if (res?.viewport) viewportRef.current = res.viewport
+    } catch (err) {
+      setScreencastError(String(err instanceof Error ? err.message : err))
+      Message.error('打开登录画面失败: ' + String(err))
+    }
+  }
+
+  const handleStopLoginView = async () => {
+    await window.desktop?.collection.stopLoginView?.()
+    setScreencastConnected(false)
+    setAuthDrawerVisible(false)
+    Message.info('登录画面已关闭（浏览器容器仍在后台运行）')
+  }
+
+  // 计算画布内点击坐标 → CDP 视口坐标（canvas 显示尺寸 ↔ viewport 比例换算）
+  const canvasPoint = (clientX: number, clientY: number): { x: number; y: number } => {
+    const canvas = canvasRef.current
+    if (!canvas) return { x: 0, y: 0 }
+    const rect = canvas.getBoundingClientRect()
+    const vp = viewportRef.current
+    const x = ((clientX - rect.left) / rect.width) * vp.width
+    const y = ((clientY - rect.top) / rect.height) * vp.height
+    return { x: Math.round(x), y: Math.round(y) }
+  }
+
+  const handleLoginPointerDown = async (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!screencastConnected) return
+    e.preventDefault()
+    const p = canvasPoint(e.clientX, e.clientY)
+    dragSeqRef.current = 1
+    setDragActive(true)
+    await window.desktop?.collection.sendLoginInput?.({ type: 'mousePressed', x: p.x, y: p.y })
+  }
+
+  const handleLoginPointerMove = async (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!dragActive || !screencastConnected) return
+    const p = canvasPoint(e.clientX, e.clientY)
+    dragSeqRef.current += 1
+    await window.desktop?.collection.sendLoginInput?.({ type: 'mouseMoved', x: p.x, y: p.y })
+  }
+
+  const handleLoginPointerUp = async (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!dragActive || !screencastConnected) return
+    const p = canvasPoint(e.clientX, e.clientY)
+    dragSeqRef.current = 0
+    setDragActive(false)
+    await window.desktop?.collection.sendLoginInput?.({ type: 'mouseReleased', x: p.x, y: p.y })
+  }
+
   const displayParams = activeParams || {
     keyword,
     minPrice: minPrice.trim() === '' ? undefined : Number(minPrice),
@@ -247,16 +353,10 @@ export function AnalysisCollectPage() {
         <section className="rounded-2xl bg-white p-6 shadow-[0_8px_32px_rgba(29,38,52,.06)]">
           <div className="mb-5 flex items-center justify-between gap-3">
             <h2 className="text-[17px] font-extrabold text-[#0A1B39]">采集条件</h2>
-            <div className="flex items-center gap-3">
-              <Tooltip content={isFakeMode ? '离线仿真：免扫码登录，使用离线真实样本秒级跑通' : '真实采集：使用内置 Chromium 容器进行实时网络抓取'}>
-                <label className="flex items-center gap-1.5 cursor-pointer text-[12px] font-semibold text-[#475467]">
-                  <span>离线仿真</span>
-                  <Switch size="small" checked={isFakeMode} onChange={setIsFakeMode} />
-                </label>
-              </Tooltip>
+            <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => setAuthDrawerVisible(true)}
+                onClick={() => { void handleOpenLoginView() }}
                 className="flex items-center gap-1.5 rounded-lg border border-[#d0e2ff] bg-[#f0f5ff] px-2.5 py-1 text-[12px] font-bold text-[#3388ff] hover:bg-[#e0edff] transition-colors cursor-pointer"
               >
                 <QrCode className="h-3.5 w-3.5" />
@@ -333,7 +433,7 @@ export function AnalysisCollectPage() {
                         ⚠️ 采集受阻：淘宝账号尚未登录或需扫码验证
                       </p>
                       <p className="m-0 mt-1 text-[12px] text-[#b91c1c] leading-relaxed">
-                        淘宝对未登录访问限制了搜索结果展示（返回空白拦截页）。请点击下方按钮唤起右侧扫码助手，使用手机淘宝扫码登录一次即可永久生效；也可以直接切换为免扫码的离线仿真模式快速体验。
+                        淘宝对未登录访问限制了搜索结果展示（返回空白拦截页）。请点击下方按钮唤起右侧登录画面，使用手机淘宝扫码登录一次即可永久生效。
                       </p>
                     </div>
                   ) : (
@@ -345,29 +445,11 @@ export function AnalysisCollectPage() {
                 <div className="flex items-center gap-2 pl-6 pt-1">
                   <button
                     type="button"
-                    onClick={async () => {
-                      try {
-                        Message.info('正在唤起右侧扫码登录窗口...')
-                        await window.desktop?.collection.openLoginWindow?.()
-                      } catch (err) {
-                        Message.error('唤起扫码窗口失败: ' + String(err))
-                      }
-                    }}
+                    onClick={() => { void handleOpenLoginView() }}
                     className="inline-flex items-center gap-1.5 rounded-lg bg-[#2563eb] px-3.5 py-1.5 text-[12px] font-bold text-white hover:bg-[#1d4ed8] transition-colors border-0 cursor-pointer shadow-sm"
                   >
                     <ExternalLink className="h-3.5 w-3.5" />
-                    立即在右侧打开扫码窗口
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsFakeMode(true)
-                      setErrorMessage('')
-                      Message.success('已切换为离线仿真模式，点击「开始采集」即可免登录秒级跑通！')
-                    }}
-                    className="inline-flex items-center gap-1 rounded-lg border border-[#fca5a5] bg-white px-3 py-1.5 text-[12px] font-bold text-[#b91c1c] hover:bg-[#fff1f2] transition-colors cursor-pointer"
-                  >
-                    切换为离线仿真模式
+                    在右侧打开登录画面
                   </button>
                 </div>
               )}
@@ -518,9 +600,9 @@ export function AnalysisCollectPage() {
         </section>
       </div>
 
-      {/* ─── 方案 A 专属：右侧滑出登录授权助手抽屉 ─── */}
+      {/* ─── 方案 B：无头 Chromium 画面投射登录抽屉 ─── */}
       <Drawer
-        width={480}
+        width={640}
         title={
           <div className="flex items-center gap-2">
             <ShieldCheck className="h-5 w-5 text-[#3388ff]" />
@@ -528,63 +610,69 @@ export function AnalysisCollectPage() {
           </div>
         }
         visible={authDrawerVisible}
-        onOk={() => setAuthDrawerVisible(false)}
-        onCancel={() => setAuthDrawerVisible(false)}
+        onOk={() => { void handleStopLoginView() }}
+        onCancel={() => { void handleStopLoginView() }}
         footer={
-          <div className="flex justify-between items-center w-full">
-            <span className="text-[12px] text-[#86909C]">扫码成功后关闭窗口即可</span>
-            <Button type="primary" onClick={() => setAuthDrawerVisible(false)}>
+          <div className="flex w-full items-center justify-between">
+            <span className="text-[12px] text-[#86909C]">扫码成功后可关闭此画面，登录态会保存在本地 Profile</span>
+            <Button type="primary" onClick={() => { void handleStopLoginView() }}>
               完成并关闭
             </Button>
           </div>
         }
       >
-        <div className="space-y-5 text-[#344054]">
-          <div className="rounded-xl border border-[#e5e8ef] bg-[#f8fafc] p-4">
-            <h4 className="m-0 mb-1.5 text-[14px] font-extrabold text-[#0A1B39] flex items-center gap-2">
-              <span className="h-2 w-2 rounded-full bg-[#10b981]" />
-              全静默无感后台采集
-            </h4>
-            <p className="m-0 text-[13px] text-[#64748b] leading-relaxed">
-              本桌面端内置专属绿色便携 Chromium 容器与店透视插件。在完成首次账号扫码后，后续所有采集任务均在后台<strong>完全静默运行</strong>，绝不弹出外部浏览器窗口，Dock 栏无冗余图标。
-            </p>
-          </div>
-
-          <div className="rounded-xl border border-[#dbeafe] bg-[#eff6ff] p-4">
-            <div className="flex items-start gap-3">
-              <QrCode className="h-6 w-6 text-[#2563eb] shrink-0 mt-0.5" />
-              <div>
-                <h5 className="m-0 text-[14px] font-bold text-[#1e40af]">首次运行扫码登录</h5>
-                <p className="m-0 mt-1 text-[12px] text-[#3b82f6] leading-relaxed">
-                  点击下方按钮，桌面端将打开扫码窗口。请使用手机淘宝 App 扫码登录，完成后关闭窗口即可。登录态将<strong>永久保存在本地专属 Profile</strong> 中，免除重复扫码。
-                </p>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    try {
-                      Message.info('正在打开扫码窗口...')
-                      await window.desktop?.collection.openLoginWindow?.()
-                    } catch (err) {
-                      Message.error('唤起扫码窗口失败: ' + String(err))
-                    }
-                  }}
-                  className="mt-3 inline-flex items-center gap-2 rounded-lg bg-[#2563eb] px-4 py-2 text-[13px] font-bold text-white hover:bg-[#1d4ed8] transition-colors cursor-pointer border-0"
-                >
-                  <ExternalLink className="h-4 w-4" />
-                  立即打开扫码窗口
-                </button>
-              </div>
+        <div className="space-y-4 text-[#344054]">
+          <div className="flex items-center justify-between rounded-lg border border-[#e5e8ef] bg-[#f8fafc] px-3 py-2">
+            <div className="flex items-center gap-2 text-[12px] font-semibold">
+              <span className={`h-2 w-2 rounded-full ${screencastConnected ? 'bg-[#10b981]' : 'bg-[#f59e0b] animate-pulse'}`} />
+              {screencastConnected ? '内置浏览器画面已连接' : '正在连接内置浏览器画面...'}
             </div>
+            <button
+              type="button"
+              onClick={() => { void handleStopLoginView() }}
+              className="flex items-center gap-1 border-0 bg-transparent text-[12px] font-semibold text-[#86909C] hover:text-[#344054]"
+            >
+              <X className="h-3.5 w-3.5" />关闭画面
+            </button>
           </div>
 
-          <div className="space-y-3">
-            <h5 className="m-0 text-[13px] font-bold text-[#0A1B39]">状态与保障说明</h5>
-            <ul className="m-0 space-y-2 pl-4 text-[12px] text-[#64748b]">
-              <li>✅ <strong>数据安全性</strong>：Cookie 与会话凭证仅保存在您本地 <code>dts-profile</code>，杜绝任何云端外泄。</li>
-              <li>✅ <strong>抗封号策略</strong>：自动化具备反反爬检测与退避延迟机制，保障店铺账号安全。</li>
-              <li>✅ <strong>滑块风控协同</strong>：如遇淘宝安全验证，后台自动暂停并提醒您手动滑动解锁。</li>
-            </ul>
+          <div className="relative overflow-hidden rounded-xl border border-[#dce3ee] bg-[#111827] shadow-inner">
+            {!frameVisible && (
+              <div className="flex h-[420px] items-center justify-center text-[13px] text-white/70">
+                {screencastError || '等待淘宝登录画面...'}
+              </div>
+            )}
+            <canvas
+              ref={canvasRef}
+              className={`block h-auto w-full select-none ${frameVisible ? '' : 'hidden'} ${dragActive ? 'cursor-grabbing' : 'cursor-crosshair'}`}
+              onMouseDown={(event) => { void handleLoginPointerDown(event) }}
+              onMouseMove={(event) => { void handleLoginPointerMove(event) }}
+              onMouseUp={(event) => { void handleLoginPointerUp(event) }}
+              onMouseLeave={(event) => {
+                if (dragActive) void handleLoginPointerUp(event)
+              }}
+              onContextMenu={(event) => event.preventDefault()}
+            />
+            {guardDetected && frameVisible && (
+              <div className="pointer-events-none absolute inset-x-3 top-3 rounded-lg border border-[#fbbf24] bg-[#78350f]/90 px-3 py-2 text-center text-[12px] font-bold text-[#fef3c7]">
+                检测到安全验证，请在上方画面中拖动滑块完成解锁
+              </div>
+            )}
           </div>
+
+          <div className="rounded-lg border border-[#dbeafe] bg-[#eff6ff] p-3 text-[12px] leading-5 text-[#3b82f6]">
+            <p className="m-0 font-bold">首次使用</p>
+            <p className="m-0 mt-1">请使用手机淘宝 App 扫描画面中的二维码。二维码和登录页均显示在当前软件内，不会弹出系统浏览器窗口。</p>
+          </div>
+          {screencastError && (
+            <button
+              type="button"
+              onClick={() => { void handleOpenLoginView() }}
+              className="w-full rounded-lg border border-[#fecaca] bg-[#fff1f2] px-3 py-2 text-[12px] font-bold text-[#b91c1c]"
+            >
+              连接已断开，点击重试
+            </button>
+          )}
         </div>
       </Drawer>
     </div>

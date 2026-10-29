@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { app, BrowserWindow, ipcMain } from 'electron'
+import { app, ipcMain, type IpcMainInvokeEvent } from 'electron'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import type { PrismaClient } from '../generated/prisma'
@@ -9,8 +9,18 @@ import { runLocalCollection } from './collection-runner'
 import { resolveDataRoots } from './data-root'
 import { logger } from './logger'
 import { resolveEmbeddedPython, killPythonProcesses } from './python-runner'
+import {
+  closeLoginTarget,
+  connectScreencast,
+  createLoginTarget,
+  type CdpMouseType,
+  type ScreencastSession,
+} from './screencast'
 
 let activeChrome: LaunchedChrome | null = null
+let activeLoginScreencast: ScreencastSession | null = null
+/** 当前登录投射所在的容器端口与 tab，停止时一并关闭 tab，避免累积。 */
+let activeLoginTarget: { port: number; targetId: string } | null = null
 
 export async function ensureChromiumContainer(downloadPath?: string): Promise<LaunchedChrome> {
   if (activeChrome) {
@@ -314,36 +324,79 @@ export function registerCollectionHandlers(prisma: PrismaClient) {
     }
   })
 
-  // 方案 A：供前端侧边抽屉一键唤起独立登录扫码窗口
-  ipcMain.handle('collection:openLoginWindow', async () => {
-    if (activeChrome) {
-      try {
-        closeChrome(activeChrome)
-      } catch {}
-      activeChrome = null
+  /** 停止当前登录画面投射，关闭登录 tab，但保留无头 Chromium 与持久化 Profile。 */
+  const stopLoginView = async () => {
+    if (activeLoginScreencast) {
+      await activeLoginScreencast.stop()
+      activeLoginScreencast = null
     }
+    if (activeLoginTarget) {
+      const { port, targetId } = activeLoginTarget
+      activeLoginTarget = null
+      try {
+        await closeLoginTarget(port, targetId)
+      } catch {}
+    }
+  }
 
-    // 获取当前主窗口几何坐标，让扫码窗口紧贴主窗口右侧
-    const allWindows = BrowserWindow.getAllWindows()
-    const mainWin = allWindows.find((w) => !w.isDestroyed())
-    const bounds = mainWin?.getBounds() ?? { x: 200, y: 150, width: 1100, height: 750 }
-
-    const popupX = Math.round(bounds.x + bounds.width + 10)
-    const popupY = Math.round(bounds.y)
-    const popupW = 460
-    const popupH = Math.round(bounds.height)
-
-    const loginWin = await launchChromeForRpa({
-      headless: false,
-      persistent: true,
-      url: 'https://login.taobao.com',
-      extraArgs: [
-        `--app=https://login.taobao.com`,
-        `--window-position=${popupX},${popupY}`,
-        `--window-size=${popupW},${popupH}`,
-      ],
+  /**
+   * 方案 B：复用无头采集容器，在 Electron 右侧 Drawer 投射淘宝登录页。
+   * 不关闭 activeChrome、不切换 headless、不创建外部窗口，避免 Profile 锁冲突。
+   */
+  const openLoginView = async (event: IpcMainInvokeEvent) => {
+    await stopLoginView()
+    const container = await ensureChromiumContainer()
+    const target = await createLoginTarget(container.port, 'https://login.taobao.com')
+    const sender = event.sender
+    const session = connectScreencast(target, {
+      onFrame: (frame) => {
+        if (!sender.isDestroyed()) sender.send('collection:screencast', frame)
+      },
+      onClose: (error) => {
+        if (!sender.isDestroyed()) {
+          sender.send('collection:screencast-status', {
+            status: 'closed',
+            error: error?.message,
+          })
+        }
+      },
     })
-    activeChrome = loginWin
-    return { ok: true, port: loginWin.port }
+    activeLoginScreencast = session
+    activeLoginTarget = { port: container.port, targetId: target.targetId }
+    if (!sender.isDestroyed()) {
+      sender.send('collection:screencast-status', { status: 'connected' })
+    }
+    return {
+      ok: true,
+      port: container.port,
+      targetId: target.targetId,
+      viewport: target.viewport,
+    }
+  }
+
+  ipcMain.handle('collection:openLoginView', openLoginView)
+  // 保留旧 IPC 名称作为兼容别名，但行为已切换为方案 B，不再打开外部窗口。
+  ipcMain.handle('collection:openLoginWindow', openLoginView)
+  ipcMain.handle('collection:stopLoginView', async () => {
+    await stopLoginView()
+    return { ok: true }
+  })
+  ipcMain.handle('collection:loginInput', async (_event, input: {
+    type: CdpMouseType
+    x: number
+    y: number
+    button?: 'left' | 'right' | 'middle' | 'none'
+    clickCount?: number
+  }) => {
+    if (!activeLoginScreencast?.alive) throw new Error('登录画面投射尚未连接')
+    if (!Number.isFinite(input.x) || !Number.isFinite(input.y)) throw new Error('无效的 CDP 输入坐标')
+    activeLoginScreencast.dispatchMouse({
+      type: input.type,
+      x: input.x,
+      y: input.y,
+      button: input.button,
+      clickCount: input.clickCount,
+    })
+    return { ok: true }
   })
 }

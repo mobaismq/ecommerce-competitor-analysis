@@ -13,6 +13,8 @@ export interface LaunchChromeOptions {
   downloadPath?: string
   extensionPath?: string | null
   extraArgs?: string[]
+  /** headless 下 Screencast 的视口基准（追加 --window-size）。默认 1280x800。 */
+  viewport?: { width: number; height: number }
 }
 
 export interface LaunchedChrome {
@@ -250,6 +252,9 @@ export async function launchChromeForRpa(options: LaunchChromeOptions = {}): Pro
   const isHeadless = options.headless !== false
   if (isHeadless) {
     args.unshift('--headless=new')
+    // Screencast 视口基准：固定窗口尺寸，保证帧坐标映射稳定（方案 B）
+    const viewport = options.viewport ?? { width: 1280, height: 800 }
+    args.push(`--window-size=${viewport.width},${viewport.height}`)
   }
 
   if (options.extraArgs?.length) {

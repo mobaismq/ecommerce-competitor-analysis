@@ -47,6 +47,26 @@ contextBridge.exposeInMainWorld('desktop', {
     status: (jobId?: string) => ipcRenderer.invoke('collection:status', jobId),
     list: (limit?: number) => ipcRenderer.invoke('collection:list', limit),
     probe: () => ipcRenderer.invoke('collection:probe'),
-    openLoginWindow: () => ipcRenderer.invoke('collection:openLoginWindow'),
+    openLoginView: () => ipcRenderer.invoke('collection:openLoginView'),
+    /** 兼容别名：行为与 openLoginView 相同（不再打开外部窗口）。 */
+    openLoginWindow: () => ipcRenderer.invoke('collection:openLoginView'),
+    stopLoginView: () => ipcRenderer.invoke('collection:stopLoginView'),
+    sendLoginInput: (input: {
+      type: 'mousePressed' | 'mouseReleased' | 'mouseMoved'
+      x: number
+      y: number
+      button?: 'left' | 'right' | 'middle' | 'none'
+      clickCount?: number
+    }) => ipcRenderer.invoke('collection:loginInput', input),
+    onScreencastFrame: (listener: (frame: { data: string; width: number; height: number; timestamp: number }) => void) => {
+      const handler = (_e: Electron.IpcRendererEvent, frame: { data: string; width: number; height: number; timestamp: number }) => listener(frame)
+      ipcRenderer.on('collection:screencast', handler)
+      return () => ipcRenderer.removeListener('collection:screencast', handler)
+    },
+    onScreencastStatus: (listener: (status: { status: string; error?: string }) => void) => {
+      const handler = (_e: Electron.IpcRendererEvent, status: { status: string; error?: string }) => listener(status)
+      ipcRenderer.on('collection:screencast-status', handler)
+      return () => ipcRenderer.removeListener('collection:screencast-status', handler)
+    },
   },
 })

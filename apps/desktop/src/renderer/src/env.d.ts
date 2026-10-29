@@ -93,7 +93,29 @@ declare global {
           hasDownloadScript: boolean
           downloadScript: string
         }>
-        openLoginWindow: () => Promise<{ ok: boolean; port?: number }>
+        openLoginView: () => Promise<{
+          ok: boolean
+          port?: number
+          targetId?: string
+          viewport?: { width: number; height: number }
+        }>
+        /** 兼容别名：行为与 openLoginView 相同（不再打开外部窗口）。 */
+        openLoginWindow: () => Promise<{
+          ok: boolean
+          port?: number
+          targetId?: string
+          viewport?: { width: number; height: number }
+        }>
+        stopLoginView: () => Promise<{ ok: boolean }>
+        sendLoginInput: (input: {
+          type: 'mousePressed' | 'mouseReleased' | 'mouseMoved'
+          x: number
+          y: number
+          button?: 'left' | 'right' | 'middle' | 'none'
+          clickCount?: number
+        }) => Promise<{ ok: boolean }>
+        onScreencastFrame: (listener: (frame: { data: string; width: number; height: number; timestamp: number }) => void) => () => void
+        onScreencastStatus: (listener: (status: { status: string; error?: string }) => void) => () => void
       }
     }
   }
