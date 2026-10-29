@@ -84,6 +84,7 @@ export function AnalysisCollectPage() {
   const DEFAULT_DRAWER_WIDTH = 720
   const [drawerWidth, setDrawerWidth] = useState<number>(DEFAULT_DRAWER_WIDTH)
   const [isDrawerFullscreen, setIsDrawerFullscreen] = useState(false)
+  const [isResizing, setIsResizing] = useState(false)
   const isResizingRef = useRef(false)
   const lastNormalWidthRef = useRef<number>(DEFAULT_DRAWER_WIDTH)
 
@@ -426,6 +427,7 @@ export function AnalysisCollectPage() {
   const handleResizeMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
     e.preventDefault()
     isResizingRef.current = true
+    setIsResizing(true)
     const startX = e.clientX
     const startW = drawerWidth
 
@@ -444,6 +446,7 @@ export function AnalysisCollectPage() {
 
     const onMouseUp = () => {
       isResizingRef.current = false
+      setIsResizing(false)
       window.removeEventListener('mousemove', onMouseMove)
       window.removeEventListener('mouseup', onMouseUp)
     }
@@ -718,23 +721,12 @@ export function AnalysisCollectPage() {
       {/* ─── 方案 B：无头 Chromium 画面投射登录抽屉 ─── */}
       <Drawer
         width={isDrawerFullscreen ? '100%' : drawerWidth}
+        className={`login-screencast-drawer ${isResizing ? 'is-resizing' : ''}`}
         unmountOnExit
         title={
-          <div className="flex w-full items-center justify-between pr-3">
-            <div className="flex items-center gap-2">
-              <ShieldCheck className="h-5 w-5 text-[#3388ff]" />
-              <span className="font-extrabold text-[16px] text-[#0A1B39]">店透视 & 淘宝登录授权</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={handleToggleDrawerFullscreen}
-                title={isDrawerFullscreen ? '还原窗口宽度' : '全屏展开窗口'}
-                className="flex h-7 w-7 items-center justify-center rounded-md border border-[#e5e8ef] bg-white text-[#475467] hover:bg-[#f3f4f6] hover:text-[#0A1B39] transition-colors cursor-pointer"
-              >
-                {isDrawerFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
-              </button>
-            </div>
+          <div className="flex items-center gap-2">
+            <ShieldCheck className="h-5 w-5 text-[#3388ff]" />
+            <span className="font-extrabold text-[16px] text-[#0A1B39]">店透视 & 淘宝登录授权</span>
           </div>
         }
         visible={authDrawerVisible}
@@ -764,16 +756,59 @@ export function AnalysisCollectPage() {
               <span className={`h-2 w-2 rounded-full ${screencastConnected ? 'bg-[#10b981]' : 'bg-[#f59e0b] animate-pulse'}`} />
               {screencastConnected ? '内置浏览器画面已连接' : '正在连接内置浏览器画面...'}
             </div>
-            <button
-              type="button"
-              onClick={() => { void handleStopLoginView() }}
-              className="flex items-center gap-1 border-0 bg-transparent text-[12px] font-semibold text-[#86909C] hover:text-[#344054]"
-            >
-              <X className="h-3.5 w-3.5" />关闭画面
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleToggleDrawerFullscreen}
+                title={isDrawerFullscreen ? '还原窗口宽度' : '全屏展开窗口'}
+                className="flex items-center gap-1.5 rounded-md border border-[#dce3ee] bg-white px-2.5 py-1 text-[12px] font-semibold text-[#344054] hover:bg-[#f1f5f9] hover:text-[#0A1B39] transition-all cursor-pointer shadow-xs active:scale-95"
+              >
+                {isDrawerFullscreen ? (
+                  <>
+                    <Minimize2 className="h-3.5 w-3.5 text-[#3388ff]" />
+                    <span>还原窗口</span>
+                  </>
+                ) : (
+                  <>
+                    <Maximize2 className="h-3.5 w-3.5 text-[#3388ff]" />
+                    <span>全屏拉满</span>
+                  </>
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => { void handleStopLoginView() }}
+                className="flex items-center gap-1 rounded-md border border-transparent px-2 py-1 text-[12px] font-semibold text-[#86909C] hover:bg-[#fee2e2] hover:text-[#ef4444] transition-colors cursor-pointer"
+              >
+                <X className="h-3.5 w-3.5" />
+                <span>关闭画面</span>
+              </button>
+            </div>
           </div>
 
-          <div className="relative overflow-hidden rounded-xl border border-[#dce3ee] bg-[#111827] shadow-inner">
+          <div className={`relative overflow-hidden rounded-xl border border-[#dce3ee] bg-[#111827] shadow-inner transition-all duration-300 flex items-center justify-center ${isDrawerFullscreen ? 'min-h-[75vh]' : ''}`}>
+            {/* 淘宝网页画面右上角悬浮全屏/还原按钮 */}
+            <div className="absolute right-3.5 top-3.5 z-30">
+              <button
+                type="button"
+                onClick={handleToggleDrawerFullscreen}
+                title={isDrawerFullscreen ? '还原窗口宽度' : '全屏展开窗口'}
+                className="group flex items-center gap-1.5 rounded-lg border border-white/20 bg-black/60 px-3 py-1.5 text-[12px] font-medium text-white/90 backdrop-blur-md hover:bg-black/80 hover:text-white transition-all cursor-pointer shadow-lg active:scale-95"
+              >
+                {isDrawerFullscreen ? (
+                  <>
+                    <Minimize2 className="h-3.5 w-3.5 text-[#60a5fa] group-hover:scale-110 transition-transform" />
+                    <span>还原</span>
+                  </>
+                ) : (
+                  <>
+                    <Maximize2 className="h-3.5 w-3.5 text-[#60a5fa] group-hover:scale-110 transition-transform" />
+                    <span>全屏</span>
+                  </>
+                )}
+              </button>
+            </div>
+
             {!frameVisible && (
               <div className="flex h-[420px] items-center justify-center text-[13px] text-white/70">
                 {screencastError || '等待淘宝登录画面...'}
@@ -782,7 +817,7 @@ export function AnalysisCollectPage() {
             <canvas
               ref={canvasRef}
               tabIndex={0}
-              className={`block h-auto w-full select-none outline-none focus:ring-2 focus:ring-[#3388ff] ${frameVisible ? '' : 'hidden'} ${dragActive ? 'cursor-grabbing' : 'cursor-crosshair'}`}
+              className={`block select-none outline-none focus:ring-2 focus:ring-[#3388ff] ${frameVisible ? '' : 'hidden'} ${dragActive ? 'cursor-grabbing' : 'cursor-crosshair'} ${isDrawerFullscreen ? 'max-h-[82vh] w-auto max-w-full' : 'h-auto w-full'}`}
               onMouseDown={(event) => { void handleLoginPointerDown(event) }}
               onMouseMove={(event) => { void handleLoginPointerMove(event) }}
               onMouseUp={(event) => { void handleLoginPointerUp(event) }}
