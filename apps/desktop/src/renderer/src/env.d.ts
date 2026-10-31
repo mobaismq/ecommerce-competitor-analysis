@@ -106,11 +106,17 @@ declare global {
           targetId?: string
           viewport?: { width: number; height: number }
         }>
-        stopLoginView: () => Promise<{ ok: boolean }>
+        /** 停止登录视图：SSO 同步中首次调用会被拦截（ok:false + reason），需二次确认后强制关闭。 */
+        stopLoginView: () => Promise<{ ok: boolean; reason?: string; state?: string }>
         checkLoginStatus: () => Promise<{
           isLoggedIn: boolean
           taobaoUid?: string
           taobaoNick?: string
+          diagnostics?: {
+            mode: string
+            webdriverExposed?: boolean
+            note?: string
+          }
         }>
         sendLoginInput: (input: {
           type: 'mousePressed' | 'mouseReleased' | 'mouseMoved'
@@ -132,6 +138,8 @@ declare global {
         sendLoginInsertText: (text: string) => Promise<{ ok: boolean }>
         onScreencastFrame: (listener: (frame: { data: string; width: number; height: number; timestamp: number }) => void) => () => void
         onScreencastStatus: (listener: (status: { status: string; error?: string }) => void) => () => void
+        /** 登录授权状态订阅：idle / opening / waiting-sso / verified。 */
+        onLoginState: (listener: (state: { state: 'idle' | 'opening' | 'waiting-sso' | 'verified' }) => void) => () => void
       }
     }
   }

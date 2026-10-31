@@ -75,6 +75,8 @@ export function AnalysisCollectPage() {
   const [frameVisible, setFrameVisible] = useState(false)
   const [dragActive, setDragActive] = useState(false)
   const [hoverCursor, setHoverCursor] = useState('')
+  /** 登录授权状态：idle/opening/waiting-sso/verified（主进程权威状态，renderer 仅展示） */
+  const [loginAuthState, setLoginAuthState] = useState<'idle' | 'opening' | 'waiting-sso' | 'verified'>('idle')
   // CDP Input 坐标是 CSS viewport；不能用 Retina 帧的物理像素尺寸覆盖它。
   const viewportRef = useRef<{ width: number; height: number }>({ width: 1280, height: 800 })
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -185,9 +187,13 @@ export function AnalysisCollectPage() {
         setScreencastError(status.error || '登录画面连接已断开')
       }
     })
+    const offLoginState = window.desktop.collection.onLoginState?.((state) => {
+      setLoginAuthState(state.state)
+    })
     return () => {
       offFrame()
       offStatus()
+      offLoginState?.()
       void window.desktop?.collection?.stopLoginView?.()
     }
   }, [])
@@ -362,6 +368,7 @@ export function AnalysisCollectPage() {
       Message.info('正在连接内置浏览器画面...')
       setAuthDrawerVisible(true)
       setScreencastConnected(false)
+      setLoginAuthState('opening')
       setScreencastError('')
       setFrameVisible(false)
       const res = await window.desktop?.collection.openLoginView?.()
@@ -373,8 +380,14 @@ export function AnalysisCollectPage() {
   }
 
   const handleStopLoginView = async () => {
-    await window.desktop?.collection.stopLoginView?.()
+    const res = await window.desktop?.collection.stopLoginView?.()
+    // SSO 同步中主动关闭被主进程拦截：提醒用户等待授权完成，不关闭抽屉
+    if (res && res.ok === false && res.reason) {
+      Message.warning(res.reason)
+      return
+    }
     setScreencastConnected(false)
+    setLoginAuthState('idle')
     setAuthDrawerVisible(false)
     setIsDrawerFullscreen(false)
     void refreshLoginStatus()
@@ -892,6 +905,22 @@ export function AnalysisCollectPage() {
                 <span>关闭画面</span>
               </button>
             </div>
+          </div>
+
+          {/* 登录授权状态指示：扫码中 → 授权同步中（SSO 等待）→ 已完成 */}
+          <div className={`rounded-lg border px-3 py-2 text-[12px] font-medium transition-colors ${
+            loginAuthState === 'verified'
+              ? 'border-[#bbf7d0] bg-[#f0fdf4] text-[#15803d]'
+              : loginAuthState === 'waiting-sso'
+                ? 'border-[#fde68a] bg-[#fffbeb] text-[#b45309]'
+                : loginAuthState === 'opening'
+                  ? 'border-[#bfdbfe] bg-[#eff6ff] text-[#1d4ed8]'
+                  : 'border-[#e5e8ef] bg-[#f8fafc] text-[#64748b]'
+          }`}>
+            {loginAuthState === 'opening' && '📱 请使用手机淘宝扫码或输入密码登录'}
+            {loginAuthState === 'waiting-sso' && '⏳ 登录成功，正在同步全域授权（跨域 Cookie 写入中），请稍候…'}
+            {loginAuthState === 'verified' && '✅ 授权已完成，登录状态已生效，可关闭画面开始采集'}
+            {loginAuthState === 'idle' && '未检测到登录授权'}
           </div>
 
           <div className={`relative overflow-hidden rounded-xl border border-[#dce3ee] bg-[#111827] shadow-inner transition-all duration-300 flex items-center justify-center ${isDrawerFullscreen ? 'min-h-[75vh]' : ''}`}>

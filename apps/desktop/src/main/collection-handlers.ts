@@ -17,11 +17,132 @@ import {
   type CdpMouseType,
   type ScreencastSession,
 } from './screencast'
+import { shouldBlockClose, type LoginAuthState } from './login-auth-state'
 
 let activeChrome: LaunchedChrome | null = null
 let activeLoginScreencast: ScreencastSession | null = null
 /** 当前登录投射所在的容器端口与 tab，停止时一并关闭 tab，避免累积。 */
 let activeLoginTarget: { port: number; targetId: string } | null = null
+
+/**
+ * 登录授权状态机（修复"扫码成功后秒关 tab 导致 SSO 握手中断"根因）。
+ * 判据与轮询全部在主进程，renderer 不自造业务字段；状态定义与阻止关闭
+ * 判据收敛在 login-auth-state.ts（唯一权威），此处仅引用。
+ */
+let loginState: LoginAuthState = 'idle'
+/** 登录视图的渲染窗口（用于推送 collection:login-state 事件）。 */
+let loginSender: Electron.WebContents | null = null
+/** 用户主动请求关闭交换（waiting-sso 中首次请求被拦截后置位，二次请求放行）。 */
+let stopByUserRef: { current: boolean } = { current: false }
+/** SSO 轮询定时器句柄。 */
+let loginPollTimer: ReturnType<typeof setInterval> | null = null
+
+const pushLoginState = () => {
+  if (loginSender && !loginSender.isDestroyed()) {
+    loginSender.send('collection:login-state', { state: loginState })
+  }
+}
+
+/** 启动登录 cookie/轻量页轮询：检测 unb 出现 → waiting-sso → 稳定后轻量验证 → verified。 */
+const startLoginPolling = (port: number, sender: Electron.WebContents) => {
+  loginSender = sender
+  clearLoginPolling()
+  loginState = 'opening'
+  pushLoginState()
+  let stableCount = 0
+  loginPollTimer = setInterval(async () => {
+    if (!activeLoginTarget || activeLoginTarget.port !== port) return
+    if (loginState === 'verified') return
+    try {
+      const cookies = await getCookiesFromChrome(port)
+      const hasUnb = cookies.some((c) => (c.domain.includes('taobao.com') || c.domain.includes('tmall.com')) && c.name === 'unb' && c.value.trim().length > 0)
+      if (!hasUnb) {
+        stableCount = 0
+        if (loginState !== 'opening') { loginState = 'opening'; pushLoginState() }
+        return
+      }
+      // 检测到登录 cookie：进入 SSO 等待，要求连续稳定（给跨域跳转/写 cookie 时间）
+      if (loginState === 'opening') {
+        loginState = 'waiting-sso'
+        stableCount = 1
+        pushLoginState()
+        return
+      }
+      stableCount += 1
+      if (stableCount >= 3 && loginState === 'waiting-sso') {
+        // 轻量验证：不触发真实搜索，仅确认身份页可见
+        const verified = await verifyLoginLightweight(port)
+        loginState = verified ? 'verified' : 'waiting-sso'
+        stableCount = verified ? 99 : 0
+        pushLoginState()
+      }
+    } catch {
+      // 容器健康抖动：保持当前状态，下轮重试
+    }
+  }, 1200)
+}
+
+const clearLoginPolling = () => {
+  if (loginPollTimer) {
+    clearInterval(loginPollTimer)
+    loginPollTimer = null
+  }
+}
+
+/**
+ * 轻量登录验证：检索 tbToken/uid 主 cookie 后，打开 https://www.taobao.com 检查
+ * 返回页面是否出现"亲，请登录"/登录二维码/极小空骨架。不触发任何搜索接口。
+ */
+async function verifyLoginLightweight(port: number): Promise<boolean> {
+  try {
+    const container = await ensureChromiumContainer()
+    if (container.port !== port) return false
+    // 用独立 target 验证，避免污染登录 tab；验证完即关
+    const target = await createLoginTarget(port, 'https://www.taobao.com')
+    try {
+      const ws = new WebSocket(target.wsUrl)
+      const result = await new Promise<boolean>((resolve) => {
+        const timer = setTimeout(() => resolve(false), 8000)
+        ws.onopen = () => {
+          ws.send(JSON.stringify({
+            id: 1,
+            method: 'Runtime.evaluate',
+            params: {
+              expression: `(() => {
+                const text = (document.body && document.body.innerText || '').slice(0, 800);
+                return JSON.stringify({
+                  len: text.length,
+                  needLogin: text.includes('亲，请登录'),
+                  qr: text.includes('扫码') || text.includes('登录二维码'),
+                });
+              })()`,
+              returnByValue: true,
+            },
+          }))
+        }
+        ws.onmessage = (ev) => {
+          try {
+            const msg = JSON.parse(String(ev.data)) as { id?: number; result?: { result?: { value?: string } } }
+            if (msg.id === 1) {
+              clearTimeout(timer)
+              try { ws.close() } catch {}
+              const value = msg.result?.result?.value
+              if (!value) return resolve(false)
+              const parsed = JSON.parse(value) as { len: number; needLogin: boolean; qr: boolean }
+              resolve(parsed.len > 120 && !parsed.needLogin && !parsed.qr)
+            }
+          } catch {}
+        }
+        ws.onerror = () => resolve(false)
+      })
+      return result
+    } finally {
+      try { await closeLoginTarget(port, target.targetId) } catch {}
+    }
+  } catch {
+    return false
+  }
+}
 
 export async function ensureChromiumContainer(downloadPath?: string): Promise<LaunchedChrome> {
   if (activeChrome) {
@@ -326,7 +447,12 @@ export function registerCollectionHandlers(prisma: PrismaClient) {
   })
 
   /** 停止当前登录画面投射，关闭登录 tab，但保留无头 Chromium 与持久化 Profile。 */
-  const stopLoginView = async () => {
+  const stopLoginView = async (opts?: { force?: boolean }) => {
+    // 防误触：SSO 同步中/已验证但未等用户确认时，阻止立即关闭登录 tab
+    if (!opts?.force && shouldBlockClose(loginState, stopByUserRef.current)) {
+      stopByUserRef.current = true
+      return { ok: false, state: loginState, reason: '登录成功正在同步授权，请稍候片刻再关闭' }
+    }
     if (activeLoginScreencast) {
       await activeLoginScreencast.stop()
       activeLoginScreencast = null
@@ -338,6 +464,11 @@ export function registerCollectionHandlers(prisma: PrismaClient) {
         await closeLoginTarget(port, targetId)
       } catch {}
     }
+    clearLoginPolling()
+    loginState = 'idle'
+    loginSender = null
+    stopByUserRef.current = false
+    return { ok: true }
   }
 
   /**
@@ -345,7 +476,7 @@ export function registerCollectionHandlers(prisma: PrismaClient) {
    * 不关闭 activeChrome、不切换 headless、不创建外部窗口，避免 Profile 锁冲突。
    */
   const openLoginView = async (event: IpcMainInvokeEvent) => {
-    await stopLoginView()
+    await stopLoginView({ force: true })
     const container = await ensureChromiumContainer()
     const target = await createLoginTarget(container.port, 'https://login.taobao.com')
     const sender = event.sender
@@ -367,6 +498,10 @@ export function registerCollectionHandlers(prisma: PrismaClient) {
     if (!sender.isDestroyed()) {
       sender.send('collection:screencast-status', { status: 'connected' })
     }
+    // 启动登录 cookie/轻量验证轮询（修复"扫码成功立即关闭导致 SSO 未完成"根因）
+    stopByUserRef.current = false
+    startLoginPolling(container.port, sender)
+    pushLoginState()
     return {
       ok: true,
       port: container.port,
@@ -379,8 +514,12 @@ export function registerCollectionHandlers(prisma: PrismaClient) {
   // 保留旧 IPC 名称作为兼容别名，但行为已切换为方案 B，不再打开外部窗口。
   ipcMain.handle('collection:openLoginWindow', openLoginView)
   ipcMain.handle('collection:stopLoginView', async () => {
-    await stopLoginView()
-    return { ok: true }
+    // waiting-sso 中首次请求被拦截，置位 stopByUser；再次请求强制放行（用户确认离开）
+    if (shouldBlockClose(loginState, stopByUserRef.current)) {
+      const result = await stopLoginView()
+      return result
+    }
+    return stopLoginView({ force: true })
   })
   ipcMain.handle('collection:loginInput', async (_event, input: {
     type: CdpMouseType
@@ -439,14 +578,21 @@ export function registerCollectionHandlers(prisma: PrismaClient) {
         }
       }
 
+      // 诊断字段：当前为 headless + CDP 驱动（Chrome for Testing），浏览器暴露自动化特征属于可预期的事实。
+      // 仅用于日志/排查，不做任何 stealth 隐藏（遵守平台规则与诚实原则）。
       return {
         isLoggedIn: Boolean(unbCookie),
         taobaoUid: unbCookie?.value || '',
         taobaoNick: nick,
+        diagnostics: {
+          mode: 'headless-cdp',
+          webdriverExposed: true,
+          note: 'headless 容器暴露 navigator.webdriver=true（诊断用，未做隐藏）',
+        },
       }
     } catch (err) {
       logger.warn('checkLoginStatus failed', err)
-      return { isLoggedIn: false, taobaoUid: '', taobaoNick: '' }
+      return { isLoggedIn: false, taobaoUid: '', taobaoNick: '', diagnostics: { mode: 'error', note: String(err) } }
     }
   })
 }

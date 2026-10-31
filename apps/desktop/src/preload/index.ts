@@ -79,5 +79,10 @@ contextBridge.exposeInMainWorld('desktop', {
       ipcRenderer.on('collection:screencast-status', handler)
       return () => ipcRenderer.removeListener('collection:screencast-status', handler)
     },
+    onLoginState: (listener: (state: { state: 'idle' | 'opening' | 'waiting-sso' | 'verified' }) => void) => {
+      const handler = (_e: Electron.IpcRendererEvent, state: { state: 'idle' | 'opening' | 'waiting-sso' | 'verified' }) => listener(state)
+      ipcRenderer.on('collection:login-state', handler)
+      return () => ipcRenderer.removeListener('collection:login-state', handler)
+    },
   },
 })

@@ -2486,6 +2486,7 @@ def wait_for_search_page_ready(logger: Logger, timeout: float = 35.0) -> dict[st
     ready: document.readyState,
     bodyLength: text.length,
     loadingText: /加载中|loading/i.test(text),
+    guestText: text.includes('亲，请登录') || text.includes('请登录') || text.includes('免费注册'),
     hasRange,
     hasSales,
     cardCount
@@ -2494,6 +2495,13 @@ def wait_for_search_page_ready(logger: Logger, timeout: float = 35.0) -> dict[st
 """))
         last_state = state
         logger.log(json.dumps({"search_ready_probe": state}, ensure_ascii=False))
+        # 早期诊断（修复“未登录返回约 258 字节空骨架导致傻等 35 秒”根因）：
+        # 页面几乎为空且带未登录文案 → 立即判定容器未完成登录授权，避免无意义长等待。
+        if int(state.get("bodyLength") or 0) < 400 and state.get("guestText"):
+            raise RuntimeError(
+                f"AUTH_REQUIRED: 页面为空骨架，容器未完成淘宝登录（bodyLength={state.get('bodyLength')}）。"
+                f"请在软件内重新打开登录助手，等待‘授权已完成’提示后再开始采集。"
+            )
         if state.get("hasRange") and state.get("hasSales") and int(state.get("cardCount") or 0) > 0:
             return state
         time.sleep(2.0)
