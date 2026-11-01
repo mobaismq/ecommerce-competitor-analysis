@@ -43,7 +43,7 @@ const pushLoginState = () => {
   }
 }
 
-/** 启动登录 cookie/轻量页轮询：检测 unb 出现 → waiting-sso → 稳定后轻量验证 → verified。 */
+/** 启动登录态轮询：检测 unb 出现 → waiting-sso → 跳转完成或跨域 Cookie 稳定后立即转为 verified。 */
 const startLoginPolling = (port: number, sender: Electron.WebContents) => {
   loginSender = sender
   clearLoginPolling()
@@ -55,92 +55,68 @@ const startLoginPolling = (port: number, sender: Electron.WebContents) => {
     if (loginState === 'verified') return
     try {
       const cookies = await getCookiesFromChrome(port)
-      const hasUnb = cookies.some((c) => (c.domain.includes('taobao.com') || c.domain.includes('tmall.com')) && c.name === 'unb' && c.value.trim().length > 0)
+      const hasUnb = cookies.some(
+        (c) => (c.domain.includes('taobao.com') || c.domain.includes('tmall.com')) && c.name === 'unb' && c.value.trim().length > 0
+      )
+      const hasSession = cookies.some(
+        (c) => c.domain.includes('taobao.com') && (c.name === 'cookie2' || c.name === '_tb_token_') && c.value.trim().length > 0
+      )
+
       if (!hasUnb) {
         stableCount = 0
-        if (loginState !== 'opening') { loginState = 'opening'; pushLoginState() }
+        if (loginState !== 'opening') {
+          loginState = 'opening'
+          pushLoginState()
+        }
         return
       }
-      // 检测到登录 cookie：进入 SSO 等待，要求连续稳定（给跨域跳转/写 cookie 时间）
+
+      // 检查当前登录 Tab 的 URL：若已跳出登录页（例如跳转到 i.taobao.com 或 www.taobao.com），说明 SSO 已经完成
+      let hasRedirected = false
+      try {
+        const listResp = await fetch(`http://127.0.0.1:${port}/json/list`).then((r) => r.json()).catch(() => [])
+        const currentTarget = Array.isArray(listResp)
+          ? listResp.find((t: { id?: string }) => t.id === activeLoginTarget?.targetId)
+          : null
+        const currentUrl = currentTarget?.url || ''
+        if (currentUrl && !currentUrl.includes('login.taobao.com') && (currentUrl.includes('taobao.com') || currentUrl.includes('tmall.com'))) {
+          hasRedirected = true
+        }
+      } catch {}
+
+      // 初次检测到 unb：进入 waiting-sso 等待状态
       if (loginState === 'opening') {
         loginState = 'waiting-sso'
         stableCount = 1
         pushLoginState()
+        // 若页面已经跳转完成且有 session cookie，无需等待直接通过
+        if (hasRedirected && hasSession) {
+          loginState = 'verified'
+          pushLoginState()
+          clearLoginPolling()
+        }
         return
       }
+
       stableCount += 1
-      if (stableCount >= 3 && loginState === 'waiting-sso') {
-        // 轻量验证：不触发真实搜索，仅确认身份页可见
-        const verified = await verifyLoginLightweight(port)
-        loginState = verified ? 'verified' : 'waiting-sso'
-        stableCount = verified ? 99 : 0
-        pushLoginState()
+      // 满足任意一条即判定授权完成：1) 页面已完成跳转且持有 session；2) unb 与 session 持续稳定 2 秒以上
+      if (loginState === 'waiting-sso') {
+        if ((hasRedirected && hasSession) || (stableCount >= 2 && hasSession)) {
+          loginState = 'verified'
+          pushLoginState()
+          clearLoginPolling()
+        }
       }
     } catch {
       // 容器健康抖动：保持当前状态，下轮重试
     }
-  }, 1200)
+  }, 1000)
 }
 
 const clearLoginPolling = () => {
   if (loginPollTimer) {
     clearInterval(loginPollTimer)
     loginPollTimer = null
-  }
-}
-
-/**
- * 轻量登录验证：检索 tbToken/uid 主 cookie 后，打开 https://www.taobao.com 检查
- * 返回页面是否出现"亲，请登录"/登录二维码/极小空骨架。不触发任何搜索接口。
- */
-async function verifyLoginLightweight(port: number): Promise<boolean> {
-  try {
-    const container = await ensureChromiumContainer()
-    if (container.port !== port) return false
-    // 用独立 target 验证，避免污染登录 tab；验证完即关
-    const target = await createLoginTarget(port, 'https://www.taobao.com')
-    try {
-      const ws = new WebSocket(target.wsUrl)
-      const result = await new Promise<boolean>((resolve) => {
-        const timer = setTimeout(() => resolve(false), 8000)
-        ws.onopen = () => {
-          ws.send(JSON.stringify({
-            id: 1,
-            method: 'Runtime.evaluate',
-            params: {
-              expression: `(() => {
-                const text = (document.body && document.body.innerText || '').slice(0, 800);
-                return JSON.stringify({
-                  len: text.length,
-                  needLogin: text.includes('亲，请登录'),
-                  qr: text.includes('扫码') || text.includes('登录二维码'),
-                });
-              })()`,
-              returnByValue: true,
-            },
-          }))
-        }
-        ws.onmessage = (ev) => {
-          try {
-            const msg = JSON.parse(String(ev.data)) as { id?: number; result?: { result?: { value?: string } } }
-            if (msg.id === 1) {
-              clearTimeout(timer)
-              try { ws.close() } catch {}
-              const value = msg.result?.result?.value
-              if (!value) return resolve(false)
-              const parsed = JSON.parse(value) as { len: number; needLogin: boolean; qr: boolean }
-              resolve(parsed.len > 120 && !parsed.needLogin && !parsed.qr)
-            }
-          } catch {}
-        }
-        ws.onerror = () => resolve(false)
-      })
-      return result
-    } finally {
-      try { await closeLoginTarget(port, target.targetId) } catch {}
-    }
-  } catch {
-    return false
   }
 }
 
