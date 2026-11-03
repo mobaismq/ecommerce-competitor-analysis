@@ -45,6 +45,13 @@ CHECK_JS = r"""
     .map(e => (e.innerText || e.textContent || '').trim())
     .filter(t => ['商品数据', 'SKU预览', '问大家', '导出表格'].includes(t));
   const itemId = new URL(location.href).searchParams.get('id') || (location.href.match(/[?&]id=(\d+)/) || [])[1] || null;
+  // 方案 C 兜底：TMD 风控惩罚 iframe 检测（跨域 iframe 的 src 属性顶层可读）。
+  // 只匹配 /punish、action=captcha、pureCaptcha、x5secdata 等惩罚/验证流；
+  // 不用裸 ____tmd____（静默登录 iframe mtoph5_close_iframe_page 也含该串，会误报）。
+  const iframeSrcs = [...document.querySelectorAll('iframe')]
+    .map(f => f.src || f.getAttribute('src') || '')
+    .filter(Boolean);
+  const punishSrcs = iframeSrcs.filter(s => /\/punish|action=captcha|pureCaptcha|x5secdata/i.test(s));
   return JSON.stringify({
     href: location.href,
     title,
@@ -55,7 +62,9 @@ CHECK_JS = r"""
     matched_busy_terms: busyPatterns.filter(p => combined.includes(p)),
     toolbar_present: combined.includes('diantoushi.com') || combined.includes('店透视'),
     export_controls: [...new Set(controls)],
-    dialogs: dialogs.slice(0, 8).map(t => t.slice(0, 300))
+    dialogs: dialogs.slice(0, 8).map(t => t.slice(0, 300)),
+    punish_detected: punishSrcs.length > 0,
+    punish_srcs: punishSrcs.slice(0, 3)
   });
 })()
 """
@@ -115,9 +124,9 @@ def main() -> int:
         print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False, indent=2))
         return 1
 
-    data["ok"] = not data.get("guard_detected")
+    data["ok"] = not data.get("guard_detected") and not data.get("punish_detected")
     print(json.dumps(data, ensure_ascii=False, indent=2))
-    return 2 if data.get("guard_detected") else 0
+    return 2 if (data.get("guard_detected") or data.get("punish_detected")) else 0
 
 
 if __name__ == "__main__":

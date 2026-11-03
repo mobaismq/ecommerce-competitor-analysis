@@ -1,19 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Button, Drawer, Message, Switch, Tooltip } from '@arco-design/web-react'
+import { Button, Drawer, Message, Modal, Switch, Tooltip } from '@arco-design/web-react'
 import {
   AlertCircle,
-  CheckCircle2,
   ExternalLink,
   Loader2,
-  Maximize2,
-  Minimize2,
   Play,
   QrCode,
   ShieldCheck,
   Square,
   Terminal,
-  X,
 } from 'lucide-react'
 import { parseRpaProgress } from '../utils/rpaProgress'
 import { PageHeader } from '../components/PageHeader'
@@ -69,29 +65,11 @@ export function AnalysisCollectPage() {
   const [errorMessage, setErrorMessage] = useState<string>('')
   const [authDrawerVisible, setAuthDrawerVisible] = useState(false)
 
-  // ─── 方案 B：内置画面投射（无头容器 + CDP Screencast）───
-  const [screencastConnected, setScreencastConnected] = useState(false)
-  const [screencastError, setScreencastError] = useState('')
-  const [frameVisible, setFrameVisible] = useState(false)
-  const [dragActive, setDragActive] = useState(false)
-  const [hoverCursor, setHoverCursor] = useState('')
+  // ─── 方案 A：登录态引导面板（真实 Chrome 窗口直登，桌面端仅展示状态）───
   /** 登录授权状态：idle/opening/waiting-sso/verified（主进程权威状态，renderer 仅展示） */
   const [loginAuthState, setLoginAuthState] = useState<'idle' | 'opening' | 'waiting-sso' | 'verified'>('idle')
-  // CDP Input 坐标是 CSS viewport；不能用 Retina 帧的物理像素尺寸覆盖它。
-  const viewportRef = useRef<{ width: number; height: number }>({ width: 1280, height: 800 })
-  const canvasRef = useRef<HTMLCanvasElement | null>(null)
-  const frameImgRef = useRef<HTMLImageElement | null>(null)
-  const dragSeqRef = useRef(0)
-  const cursorQueryAtRef = useRef(0)
-
-  // 抽屉宽度拖拽与全屏控制
-  const MIN_DRAWER_WIDTH = 540
-  const DEFAULT_DRAWER_WIDTH = 720
-  const [drawerWidth, setDrawerWidth] = useState<number>(DEFAULT_DRAWER_WIDTH)
-  const [isDrawerFullscreen, setIsDrawerFullscreen] = useState(false)
-  const [isResizing, setIsResizing] = useState(false)
-  const isResizingRef = useRef(false)
-  const lastNormalWidthRef = useRef<number>(DEFAULT_DRAWER_WIDTH)
+  /** 引导面板提示：need-reopen 为「未检测到弹出窗口」时的重唤入口。 */
+  const [loginStateHint, setLoginStateHint] = useState<'idle' | 'need-reopen'>('idle')
 
   // 淘宝登录态感知与守门
   const [loginStatus, setLoginStatus] = useState<{
@@ -127,8 +105,43 @@ export function AnalysisCollectPage() {
     }
   }
 
+  // 系统真实 Chrome 环境感知与模态弹窗引导
+  const [chromeModalVisible, setChromeModalVisible] = useState(false)
+  const [chromeProbeResult, setChromeProbeResult] = useState<{
+    installed: boolean
+    path?: string
+    version?: string
+    downloadUrl: string
+  } | null>(null)
+  const [probingChrome, setProbingChrome] = useState(false)
+
+  const checkChrome = async (silent = false): Promise<boolean> => {
+    if (!window.desktop?.collection?.probeChrome) return true
+    setProbingChrome(true)
+    try {
+      const res = await window.desktop.collection.probeChrome()
+      setChromeProbeResult(res)
+      if (!res.installed) {
+        if (!silent) setChromeModalVisible(true)
+        return false
+      } else {
+        if (!silent) {
+          Message.success(`已成功检测到 Google Chrome (版本: ${res.version || '最新'})`)
+          setChromeModalVisible(false)
+        }
+        return true
+      }
+    } catch (err) {
+      console.error('探测 Chrome 失败', err)
+      return false
+    } finally {
+      setProbingChrome(false)
+    }
+  }
+
   useEffect(() => {
     void refreshLoginStatus()
+    void checkChrome(true)
   }, [])
 
   const [activeParams, setActiveParams] = useState<{
@@ -156,52 +169,17 @@ export function AnalysisCollectPage() {
     }
   }, [logs, autoScroll])
 
-  // ─── 方案 B：帧流订阅（红色划线：投射到右侧抽屉的内置浏览器画面）───
+  // ─── 方案 A：登录授权状态订阅（主进程轮询 unb cookie 后推送，renderer 仅展示）───
   useEffect(() => {
     if (!window.desktop?.collection) return
-    const offFrame = window.desktop.collection.onScreencastFrame((frame) => {
-      if (!canvasRef.current) return
-      // frame 尺寸为 Retina 物理像素（2560×1600），仅作为 canvas backing store；
-      // CSS viewport（1280×800）由 openLoginView 返回，坐标映射必须用它，不能被物理像素覆盖。
-      setFrameVisible(true)
-      const img = frameImgRef.current ?? new Image()
-      frameImgRef.current = img
-      img.onload = () => {
-        const canvas = canvasRef.current
-        if (!canvas) return
-        canvas.width = frame.width
-        canvas.height = frame.height
-        const ctx = canvas.getContext('2d')
-        if (ctx) ctx.drawImage(img, 0, 0)
-      }
-      // PNG（Retina 高清）或 JPEG 前缀自适应
-      const prefix = frame.data.startsWith('/9j/') ? 'data:image/jpeg;base64,' : 'data:image/png;base64,'
-      img.src = `${prefix}${frame.data}`
-    })
-    const offStatus = window.desktop.collection.onScreencastStatus((status) => {
-      if (status.status === 'connected') {
-        setScreencastConnected(true)
-        setScreencastError('')
-      } else if (status.status === 'closed') {
-        setScreencastConnected(false)
-        setScreencastError(status.error || '登录画面连接已断开')
-      }
-    })
     const offLoginState = window.desktop.collection.onLoginState?.((state) => {
       setLoginAuthState(state.state)
     })
     return () => {
-      offFrame()
-      offStatus()
       offLoginState?.()
       void window.desktop?.collection?.stopLoginView?.()
     }
   }, [])
-
-  // 滑块检测：从进度流日志中识别「滑块/滑动验证/人机验证」
-  const guardDetected = useMemo(() => {
-    return /滑块|滑动验证|人机验证|安全验证|拖动.*(滑块|解锁)|请.*手动.*解锁/i.test(logs)
-  }, [logs])
 
   // 轮询真实采集状态：本地 job 会真实推进，进度由 run.log 的 === batch item 标记解析
   useEffect(() => {
@@ -243,7 +221,14 @@ export function AnalysisCollectPage() {
   const handleStart = async () => {
     setErrorMessage('')
 
-    // 登录态前置守门拦截：未登录时温馨提示并自动滑出右侧登录授权画面
+    // 1. Chrome 浏览器安装前置守门拦截：未安装官方 Chrome 时坚决阻断并弹出引导对话框
+    const hasChrome = await checkChrome(true)
+    if (!hasChrome) {
+      setChromeModalVisible(true)
+      return
+    }
+
+    // 2. 登录态前置守门拦截：未登录时温馨提示并自动滑出右侧登录授权画面
     if (!loginStatus.isLoggedIn) {
       Message.warning({
         content: '检测到当前尚未登录淘宝账号，已为您在右侧展开登录画面，请先完成授权',
@@ -362,20 +347,18 @@ export function AnalysisCollectPage() {
     setImportedCount(null)
   }
 
-  // ─── 方案 B：唤起内置投射登录视图 ───
+  // ─── 方案 A：唤起真实 Chrome 窗口直登（桌面端仅展示状态引导）───
   const handleOpenLoginView = async () => {
     try {
-      Message.info('正在连接内置浏览器画面...')
+      Message.info('正在唤起真实 Chrome 窗口，请在弹出浏览器中完成扫码登录...')
       setAuthDrawerVisible(true)
-      setScreencastConnected(false)
       setLoginAuthState('opening')
-      setScreencastError('')
-      setFrameVisible(false)
+      setLoginStateHint('idle')
       const res = await window.desktop?.collection.openLoginView?.()
-      if (res?.viewport) viewportRef.current = res.viewport
+      if (!res?.ok) throw new Error('未能打开登录页')
     } catch (err) {
-      setScreencastError(String(err instanceof Error ? err.message : err))
-      Message.error('打开登录画面失败: ' + String(err))
+      setLoginStateHint('need-reopen')
+      Message.error('打开登录页失败: ' + String(err))
     }
   }
 
@@ -386,152 +369,9 @@ export function AnalysisCollectPage() {
       Message.warning(res.reason)
       return
     }
-    setScreencastConnected(false)
     setLoginAuthState('idle')
     setAuthDrawerVisible(false)
-    setIsDrawerFullscreen(false)
     void refreshLoginStatus()
-  }
-
-  // 计算画布内点击坐标 → CDP 视口坐标（canvas 显示尺寸 ↔ viewport 比例换算）
-  const canvasPoint = (clientX: number, clientY: number): { x: number; y: number } => {
-    const canvas = canvasRef.current
-    if (!canvas) return { x: 0, y: 0 }
-    const rect = canvas.getBoundingClientRect()
-    const vp = viewportRef.current
-    const x = ((clientX - rect.left) / rect.width) * vp.width
-    const y = ((clientY - rect.top) / rect.height) * vp.height
-    return { x: Math.round(x), y: Math.round(y) }
-  }
-
-  const handleLoginPointerDown = async (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!screencastConnected) return
-    e.preventDefault()
-    canvasRef.current?.focus()
-    const p = canvasPoint(e.clientX, e.clientY)
-    dragSeqRef.current = 1
-    setDragActive(true)
-    await window.desktop?.collection.sendLoginInput?.({ type: 'mousePressed', x: p.x, y: p.y })
-  }
-
-  const handleLoginPointerMove = async (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!screencastConnected) return
-    if (dragActive) {
-      const p = canvasPoint(e.clientX, e.clientY)
-      dragSeqRef.current += 1
-      await window.desktop?.collection.sendLoginInput?.({ type: 'mouseMoved', x: p.x, y: p.y })
-      return
-    }
-    // 悬停而非拖拽：节流查询页面真实 cursor（text/pointer/…），降低 IPC 频率
-    const now = Date.now()
-    if (now - cursorQueryAtRef.current < 100) return
-    cursorQueryAtRef.current = now
-    const p = canvasPoint(e.clientX, e.clientY)
-    const cursor = await window.desktop?.collection.sendLoginCursor?.({ x: p.x, y: p.y })
-    if (typeof cursor === 'string') setHoverCursor(cursor)
-  }
-
-  const handleLoginPointerUp = async (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!dragActive || !screencastConnected) return
-    const p = canvasPoint(e.clientX, e.clientY)
-    dragSeqRef.current = 0
-    setDragActive(false)
-    await window.desktop?.collection.sendLoginInput?.({ type: 'mouseReleased', x: p.x, y: p.y })
-  }
-
-  const handleLoginKeyDown = async (e: React.KeyboardEvent<HTMLCanvasElement>) => {
-    if (!screencastConnected) return
-    // 阻止页面整体按键滚动等默认行为（如按空格或方向键滚屏）
-    if (['Space', 'ArrowUp', 'ArrowDown', 'Tab'].includes(e.code)) {
-      e.preventDefault()
-    }
-    // 处理 Cmd+V / Ctrl+V 快捷粘贴
-    if ((e.metaKey || e.ctrlKey) && (e.key === 'v' || e.key === 'V')) {
-      e.preventDefault()
-      try {
-        const text = await navigator.clipboard.readText()
-        if (text) {
-          await window.desktop?.collection.sendLoginInsertText?.(text)
-          Message.success('已将剪贴板内容填入当前输入框')
-        }
-      } catch {}
-      return
-    }
-    // 处理 Cmd+A / Ctrl+A 全选
-    if ((e.metaKey || e.ctrlKey) && (e.key === 'a' || e.key === 'A')) {
-      await window.desktop?.collection.sendLoginKey?.({
-        type: 'keyDown',
-        key: 'a',
-        code: 'KeyA',
-        modifiers: 2,
-      })
-      return
-    }
-    // 普通单一字符直接插入文本（确保字母/数字/符号输入稳定）
-    if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) {
-      e.preventDefault()
-      await window.desktop?.collection.sendLoginInsertText?.(e.key)
-      return
-    }
-    // 控制键（Backspace, Enter, Tab, Arrow 等）发送按键事件
-    await window.desktop?.collection.sendLoginKey?.({
-      type: 'keyDown',
-      key: e.key,
-      code: e.code,
-      windowsVirtualKeyCode: e.keyCode,
-    })
-  }
-
-  const handleLoginKeyUp = async (e: React.KeyboardEvent<HTMLCanvasElement>) => {
-    if (!screencastConnected) return
-    await window.desktop?.collection.sendLoginKey?.({
-      type: 'keyUp',
-      key: e.key,
-      code: e.code,
-      windowsVirtualKeyCode: e.keyCode,
-    })
-  }
-
-  const handleToggleDrawerFullscreen = () => {
-    if (!isDrawerFullscreen) {
-      lastNormalWidthRef.current = drawerWidth
-      setDrawerWidth(window.innerWidth)
-      setIsDrawerFullscreen(true)
-    } else {
-      setDrawerWidth(Math.max(MIN_DRAWER_WIDTH, Math.min(lastNormalWidthRef.current, window.innerWidth - 60)))
-      setIsDrawerFullscreen(false)
-    }
-  }
-
-  const handleResizeMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
-    e.preventDefault()
-    isResizingRef.current = true
-    setIsResizing(true)
-    const startX = e.clientX
-    const startW = drawerWidth
-
-    const onMouseMove = (moveEvent: MouseEvent) => {
-      if (!isResizingRef.current) return
-      const deltaX = startX - moveEvent.clientX
-      const nextW = Math.max(MIN_DRAWER_WIDTH, Math.min(startW + deltaX, window.innerWidth))
-      setDrawerWidth(nextW)
-      if (nextW >= window.innerWidth - 20) {
-        setIsDrawerFullscreen(true)
-      } else {
-        setIsDrawerFullscreen(false)
-        lastNormalWidthRef.current = nextW
-      }
-    }
-
-    const onMouseUp = () => {
-      isResizingRef.current = false
-      setIsResizing(false)
-      window.removeEventListener('mousemove', onMouseMove)
-      window.removeEventListener('mouseup', onMouseUp)
-    }
-
-    window.addEventListener('mousemove', onMouseMove)
-    window.addEventListener('mouseup', onMouseUp)
   }
 
   const displayParams = activeParams || {
@@ -609,12 +449,12 @@ export function AnalysisCollectPage() {
                   onClick={() => { void handleOpenLoginView() }}
                   className="flex shrink-0 items-center gap-1 rounded-md bg-[#ea580c] px-3 py-1 text-[12px] font-bold text-white hover:bg-[#c2410c] transition-colors cursor-pointer shadow-xs active:scale-95"
                 >
-                  立即在右侧登录
+                  立即登录
                 </button>
               </div>
             )}
             <p className="text-[12px] leading-5 text-[#86909C]">
-              已内置专属绿色 Chromium 容器与官方店透视插件。全流程<strong>后台无感静默采集</strong>，绝不弹出外部浏览器；如需更新登录态可点击上方「账号登录助手」完成扫码，会话终身持久化。
+              采集由宿主系统真实 Google Chrome 驱动（独立专用 Profile 目录，与日常浏览器互不干扰），并已加载官方店透视插件。采集时会弹出 Chrome 窗口展示操作过程；如需更新登录态可点击上方「账号登录助手」唤起真实 Chrome 完成扫码，会话长期保存。
             </p>
             {/* 桌面端业务保留：快捷热门行业关键词 */}
             <div>
@@ -672,7 +512,7 @@ export function AnalysisCollectPage() {
                         ⚠️ 采集受阻：淘宝账号尚未登录或需扫码验证
                       </p>
                       <p className="m-0 mt-1 text-[12px] text-[#b91c1c] leading-relaxed">
-                        淘宝对未登录访问限制了搜索结果展示（返回空白拦截页）。请点击下方按钮唤起右侧登录画面，使用手机淘宝扫码登录一次即可永久生效。
+                        淘宝对未登录访问限制了搜索结果展示（返回空白拦截页）。请点击下方按钮唤起真实 Chrome 登录窗口，使用手机淘宝扫码完成授权。
                       </p>
                     </div>
                   ) : (
@@ -688,7 +528,7 @@ export function AnalysisCollectPage() {
                     className="inline-flex items-center gap-1.5 rounded-lg bg-[#2563eb] px-3.5 py-1.5 text-[12px] font-bold text-white hover:bg-[#1d4ed8] transition-colors border-0 cursor-pointer shadow-sm"
                   >
                     <ExternalLink className="h-3.5 w-3.5" />
-                    在右侧打开登录画面
+                    唤起 Chrome 登录窗口
                   </button>
                 </div>
               )}
@@ -839,73 +679,51 @@ export function AnalysisCollectPage() {
         </section>
       </div>
 
-      {/* ─── 方案 B：无头 Chromium 画面投射登录抽屉 ─── */}
+      {/* ─── 方案 A：真实 Chrome 窗口直登的状态引导抽屉 ─── */}
       <Drawer
-        width={isDrawerFullscreen ? '100%' : drawerWidth}
-        className={`login-screencast-drawer ${isResizing ? 'is-resizing' : ''}`}
+        width={460}
+        className="login-screencast-drawer"
         unmountOnExit
         title={
           <div className="flex items-center gap-2">
             <ShieldCheck className="h-5 w-5 text-[#3388ff]" />
-            <span className="font-extrabold text-[16px] text-[#0A1B39]">店透视 & 淘宝登录授权</span>
+            <span className="font-extrabold text-[16px] text-[#0A1B39]">淘宝账号登录授权</span>
           </div>
         }
         visible={authDrawerVisible}
-        onOk={() => { void handleStopLoginView() }}
         onCancel={() => { void handleStopLoginView() }}
         footer={
           <div className="flex w-full items-center justify-between">
-            <span className="text-[12px] text-[#86909C]">扫码或输入密码登录成功后，关闭此画面即可</span>
+            <span className="text-[12px] text-[#86909C]">真实 Chrome 窗口弹出后完成扫码，登录态将自动同步</span>
             <Button type="primary" onClick={() => { void handleStopLoginView() }}>
               完成并关闭
             </Button>
           </div>
         }
       >
-        {/* 左边缘拖拽调整宽度把手（支持左右拉伸，设有限定最小宽度） */}
-        <div
-          onMouseDown={handleResizeMouseDown}
-          className="absolute left-0 top-0 bottom-0 w-2.5 cursor-ew-resize hover:bg-[#3388ff]/30 active:bg-[#3388ff]/60 transition-colors z-50 group flex items-center justify-center select-none"
-          title="左右拖拽调整宽度"
-        >
-          <div className="h-12 w-1 rounded-full bg-[#cbd5e1] group-hover:bg-[#3388ff] transition-colors" />
-        </div>
-
         <div className="space-y-4 text-[#344054]">
-          <div className="flex items-center justify-between rounded-lg border border-[#e5e8ef] bg-[#f8fafc] px-3 py-2">
-            <div className="flex items-center gap-2 text-[12px] font-semibold">
-              <span className={`h-2 w-2 rounded-full ${screencastConnected ? 'bg-[#10b981]' : 'bg-[#f59e0b] animate-pulse'}`} />
-              {screencastConnected ? '内置浏览器画面已连接' : '正在连接内置浏览器画面...'}
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={handleToggleDrawerFullscreen}
-                title={isDrawerFullscreen ? '还原窗口宽度' : '全屏展开窗口'}
-                className="flex items-center gap-1.5 rounded-md border border-[#dce3ee] bg-white px-2.5 py-1 text-[12px] font-semibold text-[#344054] hover:bg-[#f1f5f9] hover:text-[#0A1B39] transition-all cursor-pointer shadow-xs active:scale-95"
-              >
-                {isDrawerFullscreen ? (
-                  <>
-                    <Minimize2 className="h-3.5 w-3.5 text-[#3388ff]" />
-                    <span>还原窗口</span>
-                  </>
-                ) : (
-                  <>
-                    <Maximize2 className="h-3.5 w-3.5 text-[#3388ff]" />
-                    <span>全屏拉满</span>
-                  </>
-                )}
-              </button>
-              <button
-                type="button"
-                onClick={() => { void handleStopLoginView() }}
-                className="flex items-center gap-1 rounded-md border border-transparent px-2 py-1 text-[12px] font-semibold text-[#86909C] hover:bg-[#fee2e2] hover:text-[#ef4444] transition-colors cursor-pointer"
-              >
-                <X className="h-3.5 w-3.5" />
-                <span>关闭画面</span>
-              </button>
+          {/* 引导横幅：提示用户去真实 Chrome 窗口扫码（方案 A） */}
+          <div className="flex items-start gap-2.5 rounded-lg border border-[#bfdbfe] bg-[#eff6ff] p-3 text-[12px] leading-5 text-[#1d4ed8]">
+            <ExternalLink className="mt-0.5 h-4 w-4 shrink-0 text-[#2563eb]" />
+            <div>
+              <p className="m-0 font-bold">登录已切换至真实 Google Chrome 窗口</p>
+              <p className="m-0 mt-1">
+                请在弹出的 Chrome 窗口中完成淘宝扫码或账号密码登录；桌面端会自动感知登录成功并展示下方状态。
+              </p>
             </div>
           </div>
+          {loginStateHint === 'need-reopen' && (
+            <div className="flex items-center justify-between rounded-lg border border-[#fde68a] bg-[#fffbeb] p-3 text-[12px] font-semibold text-[#b45309]">
+              <span>未检测到弹出窗口？点击重新唤起。</span>
+              <button
+                type="button"
+                onClick={() => { void handleOpenLoginView() }}
+                className="cursor-pointer rounded-md border-0 bg-[#f59e0b] px-3 py-1 text-[12px] font-bold text-white hover:bg-[#d97706]"
+              >
+                重新唤起 Chrome
+              </button>
+            </div>
+          )}
 
           {/* 登录授权状态指示：扫码中 → 授权同步中（SSO 等待）→ 已完成 */}
           <div className={`rounded-lg border px-3 py-2 text-[12px] font-medium transition-colors ${
@@ -917,80 +735,70 @@ export function AnalysisCollectPage() {
                   ? 'border-[#bfdbfe] bg-[#eff6ff] text-[#1d4ed8]'
                   : 'border-[#e5e8ef] bg-[#f8fafc] text-[#64748b]'
           }`}>
-            {loginAuthState === 'opening' && '📱 请使用手机淘宝扫码或输入密码登录'}
+            {loginAuthState === 'opening' && '📱 请在真实 Chrome 窗口中使用手机淘宝扫码或输入密码登录'}
             {loginAuthState === 'waiting-sso' && '⏳ 登录成功，正在同步全域授权（跨域 Cookie 写入中），请稍候…'}
-            {loginAuthState === 'verified' && '✅ 授权已完成，登录状态已生效，可关闭画面开始采集'}
+            {loginAuthState === 'verified' && `✅ 授权已完成，登录状态已生效（${maskNick(loginStatus.taobaoNick)}），可关闭此面板开始采集`}
             {loginAuthState === 'idle' && '未检测到登录授权'}
           </div>
 
-          <div className={`relative overflow-hidden rounded-xl border border-[#dce3ee] bg-[#111827] shadow-inner transition-all duration-300 flex items-center justify-center ${isDrawerFullscreen ? 'min-h-[75vh]' : ''}`}>
-            {/* 淘宝网页画面右上角悬浮全屏/还原按钮 */}
-            <div className="absolute right-3.5 top-3.5 z-30">
-              <button
-                type="button"
-                onClick={handleToggleDrawerFullscreen}
-                title={isDrawerFullscreen ? '还原窗口宽度' : '全屏展开窗口'}
-                className="group flex items-center gap-1.5 rounded-lg border border-white/20 bg-black/60 px-3 py-1.5 text-[12px] font-medium text-white/90 backdrop-blur-md hover:bg-black/80 hover:text-white transition-all cursor-pointer shadow-lg active:scale-95"
-              >
-                {isDrawerFullscreen ? (
-                  <>
-                    <Minimize2 className="h-3.5 w-3.5 text-[#60a5fa] group-hover:scale-110 transition-transform" />
-                    <span>还原</span>
-                  </>
-                ) : (
-                  <>
-                    <Maximize2 className="h-3.5 w-3.5 text-[#60a5fa] group-hover:scale-110 transition-transform" />
-                    <span>全屏</span>
-                  </>
-                )}
-              </button>
-            </div>
-
-            {!frameVisible && (
-              <div className="flex h-[420px] items-center justify-center text-[13px] text-white/70">
-                {screencastError || '等待淘宝登录画面...'}
-              </div>
-            )}
-            <canvas
-              ref={canvasRef}
-              tabIndex={0}
-              className={`block select-none outline-none focus:ring-2 focus:ring-[#3388ff] ${frameVisible ? '' : 'hidden'} ${dragActive ? 'cursor-grabbing' : ''} ${isDrawerFullscreen ? 'max-h-[82vh] w-auto max-w-full' : 'h-auto w-full'}`}
-              style={{ cursor: dragActive ? 'grabbing' : (hoverCursor || 'default') }}
-              onMouseDown={(event) => { void handleLoginPointerDown(event) }}
-              onMouseMove={(event) => { void handleLoginPointerMove(event) }}
-              onMouseUp={(event) => { void handleLoginPointerUp(event) }}
-              onKeyDown={(event) => { void handleLoginKeyDown(event) }}
-              onKeyUp={(event) => { void handleLoginKeyUp(event) }}
-              onMouseLeave={(event) => {
-                if (dragActive) void handleLoginPointerUp(event)
-              }}
-              onContextMenu={(event) => event.preventDefault()}
-            />
-            {guardDetected && frameVisible && (
-              <div className="pointer-events-none absolute inset-x-3 top-3 rounded-lg border border-[#fbbf24] bg-[#78350f]/90 px-3 py-2 text-center text-[12px] font-bold text-[#fef3c7]">
-                检测到安全验证，请在上方画面中拖动滑块完成解锁
-              </div>
-            )}
-          </div>
-
+          {/* 登录方式指引 */}
           <div className="rounded-lg border border-[#dbeafe] bg-[#eff6ff] p-3 text-[12px] leading-5 text-[#3b82f6]">
             <p className="m-0 font-bold">登录方式指引</p>
             <p className="m-0 mt-1">
-              • <strong>手机扫码</strong>：使用手机淘宝 App 扫描画面左侧二维码，一键完成授权，终身免登。<br />
-              • <strong>账号密码</strong>：直接用鼠标点击画面输入框，即可在物理键盘敲击打字输入（支持退格与粘贴）。
+              • <strong>手机扫码</strong>：使用手机淘宝 App 扫描 Chrome 窗口中的二维码，一键完成授权，会话长期保存。<br />
+              • <strong>账号密码</strong>：直接在 Chrome 窗口输入框里敲击账号密码登录（登录成功后关闭 Chrome 窗口即可）。
+            </p>
+            <p className="m-0 mt-2 border-t border-[#dbeafe] pt-2">
+              ⚠️ 若 Chrome 提示「滑块/安全验证」，请在窗口里用鼠标拖动完成，桌面端会同步识别登录成功。
             </p>
           </div>
-          {screencastError && (
-            <button
-              type="button"
-              onClick={() => { void handleOpenLoginView() }}
-              className="w-full rounded-lg border border-[#fecaca] bg-[#fff1f2] px-3 py-2 text-[12px] font-bold text-[#b91c1c]"
-            >
-              连接已断开，点击重试
-            </button>
-          )}
         </div>
       </Drawer>
+
+      {/* 未安装 Google Chrome 浏览器时的阻断式引导弹窗 */}
+      <Modal
+        title={
+          <div className="flex items-center gap-2 text-[#d97706] font-bold text-[16px]">
+            <AlertCircle className="w-5 h-5" />
+            <span>未检测到 Google Chrome 浏览器</span>
+          </div>
+        }
+        visible={chromeModalVisible}
+        onCancel={() => setChromeModalVisible(false)}
+        footer={
+          <div className="flex justify-end gap-3">
+            <Button
+              loading={probingChrome}
+              onClick={() => { void checkChrome(false) }}
+            >
+              我已安装，重新检测
+            </Button>
+            <Button
+              type="primary"
+              className="!bg-[#3388ff]"
+              icon={<ExternalLink className="w-4 h-4" />}
+              onClick={async () => {
+                const url = chromeProbeResult?.downloadUrl || 'https://www.google.cn/chrome/'
+                await window.desktop?.collection?.openExternalUrl?.(url)
+              }}
+            >
+              前往官网下载 Chrome
+            </Button>
+          </div>
+        }
+        autoFocus={false}
+        focusLock={true}
+      >
+        <div className="py-2 text-[14px] text-[#4e5969] leading-relaxed">
+          <p className="mb-3 text-[#1d2129] font-medium">
+            店透视自动化采集需要依赖本机的官方 <strong className="text-[#165dff]">Google Chrome 浏览器</strong> 以获得最高数据稳定性并杜绝阿里安全风控拦截。
+          </p>
+          <div className="rounded-lg bg-[#fff7e8] border border-[#ffe4ba] p-3 text-[13px] text-[#d46b08] space-y-1">
+            <div>• 请先安装官方 Google Chrome 浏览器后再启动采集。</div>
+            <div>• 安装完成后，点击右下方「我已安装，重新检测」即可立即开启自动化任务。</div>
+          </div>
+        </div>
+      </Modal>
     </div>
   )
 }

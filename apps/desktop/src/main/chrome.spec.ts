@@ -7,6 +7,10 @@ import {
   resolveBuiltinChromiumPath,
   getDefaultDtsProfileDir,
   closeChrome,
+  probeSystemChrome,
+  findSystemChromePath,
+  getSystemChromeCandidates,
+  GOOGLE_CHROME_DOWNLOAD_URL,
   type LaunchedChrome,
 } from './chrome'
 
@@ -22,25 +26,25 @@ describe('chrome 容器生命周期单元测试', () => {
     rmSync(testRoot, { recursive: true, force: true })
   })
 
-  it('resolveChromiumPath 优先解析到工程内置的便携版 Chromium', () => {
+  it('resolveBuiltinChromiumPath 仍能解析便携资源，但 resolveChromiumPath 严格锁定系统真实 Chrome', () => {
     const builtin = resolveBuiltinChromiumPath()
     expect(builtin).not.toBeNull()
     expect(typeof builtin).toBe('string')
-    expect(existsSync(builtin!)).toBe(true)
 
     const resolved = resolveChromiumPath()
-    expect(resolved.isBuiltin).toBe(true)
-    expect(resolved.path).toBe(builtin)
+    expect(resolved.isBuiltin).toBe(false)
+    expect(resolved.path).toContain('Google Chrome')
+    expect(existsSync(resolved.path)).toBe(true)
   })
 
-  it('getDefaultDtsProfileDir 正确解析包含 dts-profile 的持久化路径', () => {
+  it('getDefaultDtsProfileDir 正确解析包含 real-chrome-profile 的持久化路径', () => {
     const profile = getDefaultDtsProfileDir()
-    expect(profile).toContain('dts-profile')
+    expect(profile).toContain('real-chrome-profile')
     expect(typeof profile).toBe('string')
   })
 
-  it('closeChrome 严格守护持久化 profile 不被误删 (任务 2.4 登录态持久化)', () => {
-    const fakeProfile = join(testRoot, 'userData', 'dts-profile')
+  it('closeChrome 严格守护持久化 real-chrome-profile 不被误删', () => {
+    const fakeProfile = join(testRoot, 'userData', 'real-chrome-profile')
     mkdirSync(fakeProfile, { recursive: true })
     writeFileSync(join(fakeProfile, 'Cookies'), 'dummy-cookie-data')
 
@@ -49,7 +53,7 @@ describe('chrome 容器生命周期单元测试', () => {
       port: 9222,
       profileDir: fakeProfile,
       debugUrl: 'http://127.0.0.1:9222',
-      isBuiltin: true,
+      isBuiltin: false,
       executablePath: '/dummy/chrome',
     }
 
@@ -57,7 +61,7 @@ describe('chrome 容器生命周期单元测试', () => {
     closeChrome(fakeLaunched, false)
     expect(existsSync(join(fakeProfile, 'Cookies'))).toBe(true)
 
-    // 即便传 cleanTemporary=true，因为含有 dts-profile 关键字，也坚决不删除！
+    // 即便传 cleanTemporary=true，因为含有 real-chrome-profile 关键字，也坚决不删除！
     closeChrome(fakeLaunched, true)
     expect(existsSync(join(fakeProfile, 'Cookies'))).toBe(true)
   })
@@ -78,5 +82,23 @@ describe('chrome 容器生命周期单元测试', () => {
 
     closeChrome(tempLaunched, true)
     expect(existsSync(tempProfile)).toBe(false)
+  })
+
+  it('getSystemChromeCandidates 返回非空的候选路径列表并包含官方下载链接', () => {
+    const candidates = getSystemChromeCandidates()
+    expect(Array.isArray(candidates)).toBe(true)
+    expect(candidates.length).toBeGreaterThan(0)
+    expect(GOOGLE_CHROME_DOWNLOAD_URL).toBe('https://www.google.cn/chrome/')
+  })
+
+  it('probeSystemChrome 能够安全返回结构化探测结果而不抛异常', async () => {
+    const result = await probeSystemChrome()
+    expect(result).toHaveProperty('installed')
+    expect(typeof result.installed).toBe('boolean')
+    expect(result.downloadUrl).toBe(GOOGLE_CHROME_DOWNLOAD_URL)
+    if (result.installed) {
+      expect(typeof result.path).toBe('string')
+      expect(existsSync(result.path!)).toBe(true)
+    }
   })
 })

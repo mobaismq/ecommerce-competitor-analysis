@@ -1,27 +1,27 @@
 import { randomUUID } from 'node:crypto'
-import { app, ipcMain, type IpcMainInvokeEvent } from 'electron'
+import { app, ipcMain, shell, type IpcMainInvokeEvent } from 'electron'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import type { PrismaClient } from '../generated/prisma'
-import { closeChrome, getCookiesFromChrome, launchChromeForRpa, setDownloadBehavior, type LaunchedChrome } from './chrome'
+import {
+  closeChrome,
+  getCookiesFromChrome,
+  isBrowserCdpHealthy,
+  launchChromeForRpa,
+  probeSystemChrome,
+  setDownloadBehavior,
+  type LaunchedChrome,
+} from './chrome'
 import { assertCollectionMode, type CollectionMode } from './collection-modes'
 import { runLocalCollection } from './collection-runner'
 import { resolveDataRoots } from './data-root'
 import { logger } from './logger'
 import { resolveEmbeddedPython, killPythonProcesses } from './python-runner'
-import {
-  closeLoginTarget,
-  connectScreencast,
-  createLoginTarget,
-  type CdpKeyType,
-  type CdpMouseType,
-  type ScreencastSession,
-} from './screencast'
+import { closeLoginTarget, createLoginTarget } from './screencast'
 import { shouldBlockClose, type LoginAuthState } from './login-auth-state'
 
 let activeChrome: LaunchedChrome | null = null
-let activeLoginScreencast: ScreencastSession | null = null
-/** 当前登录投射所在的容器端口与 tab，停止时一并关闭 tab，避免累积。 */
+/** 当前登录 Tab 所在的容器端口与 targetId，停止时一并关闭，避免累积。 */
 let activeLoginTarget: { port: number; targetId: string } | null = null
 
 /**
@@ -122,17 +122,17 @@ const clearLoginPolling = () => {
 
 export async function ensureChromiumContainer(downloadPath?: string): Promise<LaunchedChrome> {
   if (activeChrome) {
-    try {
-      const resp = await fetch(`http://127.0.0.1:${activeChrome.port}/json/version`)
-      if (resp.ok) {
-        if (downloadPath) {
-          try {
-            await setDownloadBehavior(activeChrome.port, downloadPath)
-          } catch {}
-        }
-        return activeChrome
+    // 缓存实例同样要过完整健康判据：仅 /json/version 通不代表能采集
+    // （用户关掉窗口后 Chrome 进程仍在，会留下 0 page target 的空壳实例）。
+    if (await isBrowserCdpHealthy(activeChrome.port)) {
+      if (downloadPath) {
+        try {
+          await setDownloadBehavior(activeChrome.port, downloadPath)
+        } catch {}
       }
-    } catch {}
+      return activeChrome
+    }
+    activeChrome = null
   }
 
   activeChrome = await launchChromeForRpa({
@@ -177,6 +177,20 @@ function defaultDownloadScript(): string {
   return existsSync(script) ? script : ''
 }
 
+/** 安全探测系统 Chrome 安装状态 */
+export async function handleProbeChrome() {
+  return await probeSystemChrome()
+}
+
+/** 安全唤起宿主系统的默认浏览器打开外部网页 */
+export async function handleOpenExternalUrl(url: string) {
+  if (typeof url !== 'string' || (!url.startsWith('https://') && !url.startsWith('http://'))) {
+    throw new Error('仅允许打开合法的 http/https 链接')
+  }
+  await shell.openExternal(url)
+  return { ok: true }
+}
+
 export function registerCollectionHandlers(prisma: PrismaClient) {
   let running = false
   let currentJobId: string | null = null
@@ -192,9 +206,15 @@ export function registerCollectionHandlers(prisma: PrismaClient) {
     if (!Number.isInteger(topN) || topN < 1 || topN > 100) throw new Error('竞品数量需为 1-100 之间的整数')
     if (!Number.isInteger(searchPages) || searchPages < 1 || searchPages > 100) throw new Error('翻页深度需为 1-100 之间的整数')
     if ([minPrice, maxPrice].some((price) => price !== null && (!Number.isFinite(price) || price < 0))) throw new Error('价格必须是大于等于 0 的数字')
-    if (minPrice !== null && maxPrice !== null && minPrice > maxPrice) throw new Error('最低价不能高于最高价')
     const script = input.downloadScript ?? defaultDownloadScript()
-    if (!input.fake && !script) throw new Error('未找到店透视采集脚本')
+    if (!input.fake) {
+      if (!script) throw new Error('未找到店透视采集脚本')
+      const chromeProbe = await probeSystemChrome()
+      if (!chromeProbe.installed) {
+        throw new Error('CHROME_NOT_FOUND: 本机尚未安装官方 Google Chrome 浏览器，无法启动自动化采集')
+      }
+    }
+
     const jobId = `local-collection-${Date.now()}-${randomUUID().slice(0, 8)}`
     const workDir = workDirFor(jobId)
     const logFile = join(workDir, 'run.log')
@@ -234,11 +254,11 @@ export function registerCollectionHandlers(prisma: PrismaClient) {
           try {
             const container = await ensureChromiumContainer(workDir)
             cdpUrl = container.debugUrl
-            const containerLog = `[INFO] 内置独立绿色 Chromium 容器已就绪 (CDP: ${cdpUrl}, isBuiltin: ${container.isBuiltin})\n[INFO] 请扫码登录淘宝与店透视账号（若尚未登录，自动化将自动等待就绪）\n`
+            const containerLog = `[INFO] 宿主系统真实 Google Chrome 容器已就绪 (CDP: ${cdpUrl}, 独立资料: real-chrome-profile)\n[INFO] 淘宝有头交互窗口已就绪，如遇偶发安全验证可直接在 Chrome 窗口中滑动完成自愈\n`
             appendFileSync(logFile, containerLog)
           } catch (containerErr) {
-            logger.warn('启动内置 Chromium 容器异常:', containerErr)
-            appendFileSync(logFile, `[WARN] 启动内置 Chromium 容器警告: ${containerErr instanceof Error ? containerErr.message : String(containerErr)}\n`)
+            logger.warn('启动系统 Google Chrome 容器异常:', containerErr)
+            appendFileSync(logFile, `[WARN] 启动系统 Google Chrome 容器警告: ${containerErr instanceof Error ? containerErr.message : String(containerErr)}\n`)
           }
         }
 
@@ -422,16 +442,22 @@ export function registerCollectionHandlers(prisma: PrismaClient) {
     }
   })
 
-  /** 停止当前登录画面投射，关闭登录 tab，但保留无头 Chromium 与持久化 Profile。 */
+  // 暴露系统 Chrome 浏览器感知诊断，供前端判断是否需要提示安装
+  ipcMain.handle('collection:probeChrome', async () => {
+    return await handleProbeChrome()
+  })
+
+  // 安全唤起宿主系统的默认浏览器打开外部网页（如 Chrome 官方下载地址）
+  ipcMain.handle('collection:openExternalUrl', async (_event, url: string) => {
+    return await handleOpenExternalUrl(url)
+  })
+
+  /** 关闭当前登录 Tab（保留持久化 Profile 与真实 Chrome 容器）。 */
   const stopLoginView = async (opts?: { force?: boolean }) => {
     // 防误触：SSO 同步中/已验证但未等用户确认时，阻止立即关闭登录 tab
     if (!opts?.force && shouldBlockClose(loginState, stopByUserRef.current)) {
       stopByUserRef.current = true
       return { ok: false, state: loginState, reason: '登录成功正在同步授权，请稍候片刻再关闭' }
-    }
-    if (activeLoginScreencast) {
-      await activeLoginScreencast.stop()
-      activeLoginScreencast = null
     }
     if (activeLoginTarget) {
       const { port, targetId } = activeLoginTarget
@@ -448,46 +474,31 @@ export function registerCollectionHandlers(prisma: PrismaClient) {
   }
 
   /**
-   * 方案 B：复用无头采集容器，在 Electron 右侧 Drawer 投射淘宝登录页。
-   * 不关闭 activeChrome、不切换 headless、不创建外部窗口，避免 Profile 锁冲突。
+   * 方案 A：在真实有头 Chrome 窗口中打开淘宝登录页，用户直接在真实窗口扫码。
+   * 桌面端仅保留登录状态轮询与状态推送（opening/waiting-sso/verified），不再投屏。
    */
   const openLoginView = async (event: IpcMainInvokeEvent) => {
     await stopLoginView({ force: true })
     const container = await ensureChromiumContainer()
     const target = await createLoginTarget(container.port, 'https://login.taobao.com')
-    const sender = event.sender
-    const session = connectScreencast(target, {
-      onFrame: (frame) => {
-        if (!sender.isDestroyed()) sender.send('collection:screencast', frame)
-      },
-      onClose: (error) => {
-        if (!sender.isDestroyed()) {
-          sender.send('collection:screencast-status', {
-            status: 'closed',
-            error: error?.message,
-          })
-        }
-      },
-    })
-    activeLoginScreencast = session
+    // 激活登录 tab 并将真实 Chrome 窗口前置，让用户直接看到登录页
+    try {
+      await fetch(`http://127.0.0.1:${container.port}/json/activate/${encodeURIComponent(target.targetId)}`)
+    } catch {}
     activeLoginTarget = { port: container.port, targetId: target.targetId }
-    if (!sender.isDestroyed()) {
-      sender.send('collection:screencast-status', { status: 'connected' })
-    }
     // 启动登录 cookie/轻量验证轮询（修复"扫码成功立即关闭导致 SSO 未完成"根因）
     stopByUserRef.current = false
-    startLoginPolling(container.port, sender)
+    startLoginPolling(container.port, event.sender)
     pushLoginState()
     return {
       ok: true,
       port: container.port,
       targetId: target.targetId,
-      viewport: target.viewport,
     }
   }
 
   ipcMain.handle('collection:openLoginView', openLoginView)
-  // 保留旧 IPC 名称作为兼容别名，但行为已切换为方案 B，不再打开外部窗口。
+  // 保留旧 IPC 名称作为兼容别名（方案 A：真实 Chrome 窗口直登）。
   ipcMain.handle('collection:openLoginWindow', openLoginView)
   ipcMain.handle('collection:stopLoginView', async () => {
     // waiting-sso 中首次请求被拦截，置位 stopByUser；再次请求强制放行（用户确认离开）
@@ -496,47 +507,6 @@ export function registerCollectionHandlers(prisma: PrismaClient) {
       return result
     }
     return stopLoginView({ force: true })
-  })
-  ipcMain.handle('collection:loginInput', async (_event, input: {
-    type: CdpMouseType
-    x: number
-    y: number
-    button?: 'left' | 'right' | 'middle' | 'none'
-    clickCount?: number
-  }) => {
-    if (!activeLoginScreencast?.alive) throw new Error('登录画面投射尚未连接')
-    if (!Number.isFinite(input.x) || !Number.isFinite(input.y)) throw new Error('无效的 CDP 输入坐标')
-    activeLoginScreencast.dispatchMouse({
-      type: input.type,
-      x: input.x,
-      y: input.y,
-      button: input.button,
-      clickCount: input.clickCount,
-    })
-    return { ok: true }
-  })
-  ipcMain.handle('collection:loginCursor', async (_event, input: { x: number; y: number }) => {
-    if (!activeLoginScreencast?.alive) return ''
-    if (!Number.isFinite(input.x) || !Number.isFinite(input.y)) return ''
-    return activeLoginScreencast.queryCursor(input.x, input.y)
-  })
-  ipcMain.handle('collection:loginKey', async (_event, input: {
-    type: CdpKeyType
-    key?: string
-    code?: string
-    text?: string
-    windowsVirtualKeyCode?: number
-    modifiers?: number
-  }) => {
-    if (!activeLoginScreencast?.alive) throw new Error('登录画面投射尚未连接')
-    activeLoginScreencast.dispatchKey(input)
-    return { ok: true }
-  })
-  ipcMain.handle('collection:loginInsertText', async (_event, text: string) => {
-    if (!activeLoginScreencast?.alive) throw new Error('登录画面投射尚未连接')
-    if (typeof text !== 'string') throw new Error('无效的文本输入')
-    activeLoginScreencast.insertText(text)
-    return { ok: true }
   })
   ipcMain.handle('collection:checkLoginStatus', async () => {
     try {
@@ -554,16 +524,16 @@ export function registerCollectionHandlers(prisma: PrismaClient) {
         }
       }
 
-      // 诊断字段：当前为 headless + CDP 驱动（Chrome for Testing），浏览器暴露自动化特征属于可预期的事实。
-      // 仅用于日志/排查，不做任何 stealth 隐藏（遵守平台规则与诚实原则）。
+      // 诊断字段：当前为宿主系统真实 Google Chrome 有头运行（专用 real-chrome-profile），
+      // 官方签名浏览器 + 真实 GPU，无自动化指纹伪装；仅用于日志/排查，不做任何 stealth 隐藏。
       return {
         isLoggedIn: Boolean(unbCookie),
         taobaoUid: unbCookie?.value || '',
         taobaoNick: nick,
         diagnostics: {
-          mode: 'headless-cdp',
-          webdriverExposed: true,
-          note: 'headless 容器暴露 navigator.webdriver=true（诊断用，未做隐藏）',
+          mode: 'system-chrome-headed',
+          webdriverExposed: false,
+          note: '宿主系统真实 Chrome 有头运行（real-chrome-profile 独立目录，官方签名与真实 GPU，无自动化伪装）',
         },
       }
     } catch (err) {

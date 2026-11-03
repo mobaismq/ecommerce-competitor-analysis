@@ -275,10 +275,12 @@ return (wid as text)
 _CDP_PAGE = None
 _CDP_URL = os.environ.get("CHROME_CDP_URL")
 _USE_CDP = os.environ.get("DTS_USE_CDP") == "1" or bool(os.environ.get("CHROME_CDP_PORT")) or bool(_CDP_URL) or sys.platform != "darwin"
+# 记录最近一次 CDP 连接失败的原始异常，上层报错时透传真实原因（而不是笼统"无法连接端口"）
+_CDP_LAST_ERROR = None
 
 
 def get_cdp_page():
-    global _CDP_PAGE, _CDP_URL
+    global _CDP_PAGE, _CDP_URL, _CDP_LAST_ERROR
     if _CDP_PAGE is not None:
         try:
             if not _CDP_PAGE.is_closed():
@@ -303,6 +305,7 @@ def get_cdp_page():
             time.sleep(0.3 * (2 ** attempt))
 
     if not connected:
+        _CDP_LAST_ERROR = f"无法通过 HTTP 探测 {cdp_url}/json/version（DevTools 端口未监听或不可达）"
         return None
 
     try:
@@ -321,7 +324,9 @@ def get_cdp_page():
                 pass
         _CDP_PAGE = page
         return _CDP_PAGE
-    except Exception:
+    except Exception as cdp_connect_err:
+        # 端口通但浏览器级 CDP 不可用（典型：长期运行的孤儿 Chrome 僵尸实例）→ 记录原始异常供上层透传
+        _CDP_LAST_ERROR = f"CDP 连接失败（可能是浏览器级 DevTools 已不可用，需重启采集容器）: {type(cdp_connect_err).__name__}: {cdp_connect_err}"
         return None
 
 
@@ -339,7 +344,8 @@ def chrome_js(js: str) -> str:
             except Exception as cdp_err:
                 raise RuntimeError(f"Chrome CDP 执行 JavaScript 失败: {cdp_err}")
         if _USE_CDP:
-            raise RuntimeError(f"无法连接至 Chromium CDP 端口 (CDP_URL: {_CDP_URL})")
+            detail = f"；真实原因: {_CDP_LAST_ERROR}" if _CDP_LAST_ERROR else ""
+            raise RuntimeError(f"无法连接至 Chromium CDP 端口 (CDP_URL: {_CDP_URL}){detail}")
 
     last_error: Optional[Exception] = None
     for _ in range(2):
@@ -390,7 +396,8 @@ def chrome_set_url(url: str) -> None:
             except Exception as cdp_err:
                 raise RuntimeError(f"Chrome CDP 页面跳转失败: {cdp_err}")
         if _USE_CDP:
-            raise RuntimeError(f"无法连接至 Chromium CDP 端口 (CDP_URL: {_CDP_URL})")
+            detail = f"；真实原因: {_CDP_LAST_ERROR}" if _CDP_LAST_ERROR else ""
+            raise RuntimeError(f"无法连接至 Chromium CDP 端口 (CDP_URL: {_CDP_URL}){detail}")
 
     last_error: Optional[Exception] = None
     for _ in range(2):
@@ -1943,6 +1950,14 @@ def run_guard(logger: Logger, label: str) -> dict[str, Any]:
             except Exception:
                 pass
         raise RuntimeError(f"Taobao guard detected: {data.get('matched_guard_terms')} at {data.get('href')}")
+    # 方案 C 兜底：TMD 风控 punish 直接报错，不进 60 秒滑块循环（punish 页面在隐藏 iframe 内，
+    # 滑块循环等不到用户解除；明确报错并提示降低速率/人工验证才是诚实处理）。
+    if data.get("punish_detected"):
+        punish_srcs = data.get("punish_srcs") or []
+        raise RuntimeError(
+            f"TMD_PUNISH: 商品接口被淘宝风控拦截（{'、'.join(punish_srcs[:1])}）。"
+            f"请降低采集速率或稍后重试；若持续出现，请在软件内打开登录助手完成一次人工安全验证。"
+        )
     # The next RPA click must stay on the same product window even when Chrome has
     # other Taobao/search windows open.
     chrome_js("location.href")
@@ -2480,6 +2495,12 @@ def wait_for_search_page_ready(logger: Logger, timeout: float = 35.0) -> dict[st
   const cardCount = [...document.querySelectorAll('a[href*="item.htm"], a[href*="id="]')]
     .filter(visible)
     .length;
+  // 方案 C 兜底：TMD 风控惩罚 iframe 检测（跨域 iframe 的 src 属性顶层可读）。
+  // 只匹配 /punish、action=captcha、pureCaptcha、x5secdata 等惩罚/验证流；
+  // 不用裸 ____tmd____（静默登录 iframe mtoph5_close_iframe_page 也含该串，会误报）。
+  const punishSrc = [...document.querySelectorAll('iframe')]
+    .map(f => f.src || '')
+    .find(s => /\/punish|action=captcha|pureCaptcha|x5secdata/i.test(s)) || null;
   return JSON.stringify({
     title: document.title,
     url: location.href,
@@ -2489,7 +2510,8 @@ def wait_for_search_page_ready(logger: Logger, timeout: float = 35.0) -> dict[st
     guestText: text.includes('亲，请登录') || text.includes('请登录') || text.includes('免费注册'),
     hasRange,
     hasSales,
-    cardCount
+    cardCount,
+    punishSrc
   });
 })()
 """))
@@ -2501,6 +2523,13 @@ def wait_for_search_page_ready(logger: Logger, timeout: float = 35.0) -> dict[st
             raise RuntimeError(
                 f"AUTH_REQUIRED: 页面为空骨架，容器未完成淘宝登录（bodyLength={state.get('bodyLength')}）。"
                 f"请在软件内重新打开登录助手，等待‘授权已完成’提示后再开始采集。"
+            )
+        # 方案 C 兜底：商品接口被 TMD 风控惩罚（punish iframe）时立即报错，
+        # 不再傻等 35 秒；提示用户人工过验证或换登录态后重试。
+        if state.get("punishSrc"):
+            raise RuntimeError(
+                f"TMD_PUNISH: 商品接口被淘宝风控拦截（{state.get('punishSrc')[:120]}）。"
+                f"请降低采集速率或稍后重试；若持续出现，请在软件内打开登录助手完成一次人工安全验证。"
             )
         if state.get("hasRange") and state.get("hasSales") and int(state.get("cardCount") or 0) > 0:
             return state

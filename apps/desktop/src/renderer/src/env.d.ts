@@ -93,18 +93,23 @@ declare global {
           hasDownloadScript: boolean
           downloadScript: string
         }>
+        probeChrome: () => Promise<{
+          installed: boolean
+          path?: string
+          version?: string
+          downloadUrl: string
+        }>
+        openExternalUrl: (url: string) => Promise<{ ok: boolean }>
         openLoginView: () => Promise<{
           ok: boolean
           port?: number
           targetId?: string
-          viewport?: { width: number; height: number }
         }>
-        /** 兼容别名：行为与 openLoginView 相同（不再打开外部窗口）。 */
+        /** 兼容别名：行为与 openLoginView 相同（方案 A：真实窗口直登）。 */
         openLoginWindow: () => Promise<{
           ok: boolean
           port?: number
           targetId?: string
-          viewport?: { width: number; height: number }
         }>
         /** 停止登录视图：SSO 同步中首次调用会被拦截（ok:false + reason），需二次确认后强制关闭。 */
         stopLoginView: () => Promise<{ ok: boolean; reason?: string; state?: string }>
@@ -118,26 +123,6 @@ declare global {
             note?: string
           }
         }>
-        sendLoginInput: (input: {
-          type: 'mousePressed' | 'mouseReleased' | 'mouseMoved'
-          x: number
-          y: number
-          button?: 'left' | 'right' | 'middle' | 'none'
-          clickCount?: number
-        }) => Promise<{ ok: boolean }>
-        /** 查询页面指定 CSS 坐标处的 computed cursor（如 'text'/'pointer'），返回空串表示不可用。 */
-        sendLoginCursor: (input: { x: number; y: number }) => Promise<string>
-        sendLoginKey: (input: {
-          type: 'keyDown' | 'keyUp' | 'rawKeyDown' | 'char'
-          key?: string
-          code?: string
-          text?: string
-          windowsVirtualKeyCode?: number
-          modifiers?: number
-        }) => Promise<{ ok: boolean }>
-        sendLoginInsertText: (text: string) => Promise<{ ok: boolean }>
-        onScreencastFrame: (listener: (frame: { data: string; width: number; height: number; timestamp: number }) => void) => () => void
-        onScreencastStatus: (listener: (status: { status: string; error?: string }) => void) => () => void
         /** 登录授权状态订阅：idle / opening / waiting-sso / verified。 */
         onLoginState: (listener: (state: { state: 'idle' | 'opening' | 'waiting-sso' | 'verified' }) => void) => () => void
       }

@@ -1,4 +1,4 @@
-import { closeChrome, launchChromeForRpa, setDownloadBehavior } from '../src/main/chrome'
+import { closeChrome, evaluatePage, launchChromeForRpa, setDownloadBehavior } from '../src/main/chrome'
 import { connectScreencast, createLoginTarget } from '../src/main/screencast'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -27,6 +27,18 @@ async function main() {
   })
 
   await setDownloadBehavior(launched.port, downloadDir)
+
+  // ─── 方案 C：指纹净化验证（navigator.webdriver 应消失、UA 不应含 HeadlessChrome）───
+  const fingerprint = await evaluatePage(
+    launched.port,
+    'JSON.stringify({ webdriver: navigator.webdriver, ua: navigator.userAgent })',
+  ) as string
+  let fingerprintState: { webdriver: unknown; ua: string } = { webdriver: 'unknown', ua: 'unknown' }
+  try {
+    fingerprintState = JSON.parse(fingerprint)
+  } catch {}
+  const webdriverClean = fingerprintState.webdriver !== true
+  const uaNoHeadless = !String(fingerprintState.ua).includes('HeadlessChrome')
 
   // ─── 方案 B：无头容器 + CDP Screencast 画面投射验证（Retina 2x PNG 高清）───
   let frames = 0
@@ -77,22 +89,29 @@ async function main() {
     maxFrameHeight,
     screencastStopped: !session.alive,
     closed: screenClosed,
+    // 方案 C 指纹净化断言
+    webdriverClean,
+    uaNoHeadless,
+    fingerprintUA: fingerprintState.ua,
   }
   console.log(JSON.stringify(result))
 
   closeChrome(launched)
   rmSync(downloadDir, { recursive: true, force: true })
 
-  // PNG 帧应至少 1 帧且帧尺寸与视口匹配（device 帧像素 ≤ CSS ×2 即可满足当前实现）
+  // 系统真实 Chrome 采集容器断言 (isBuiltin 为 false，严格锁定系统官方 Chrome)
   const ok =
-    result.isBuiltin &&
+    !result.isBuiltin &&
     result.downloadDirReady &&
     typeof result.port === 'number' &&
     result.screencastFrames >= 1 &&
     result.pngFrames >= 1 &&
     result.maxFrameWidth >= target.viewport.width &&
     result.maxFrameHeight >= target.viewport.height &&
-    result.screencastStopped
+    result.screencastStopped &&
+    // 方案 C：TMD 风控前提 —— 容器不得暴露 webdriver=true（false 为普通浏览器正常值）/ HeadlessChrome UA
+    result.webdriverClean &&
+    result.uaNoHeadless
   process.exit(ok ? 0 : 1)
 }
 
