@@ -392,12 +392,101 @@ function waitForDevToolsPort(profileDir: string, child: ReturnType<typeof spawn>
   })
 }
 
+/**
+ * 通过浏览器级 CDP (Extensions.loadUnpacked) 确保店透视解包扩展已挂载并激活。
+ * 背景：Google Chrome 137+ / 156+ 正式版已废弃 --load-extension 命令行参数（静默忽略），
+ * 且若携带 --disable-extensions-except 会把动态挂载的扩展也一并禁用。
+ * 必须配合 --enable-unsafe-extension-debugging 启动参数 + CDP Extensions.loadUnpacked 挂载。
+ */
+export async function ensureExtensionLoadedViaCdp(port: number, extensionPath?: string | null): Promise<boolean> {
+  if (!extensionPath) return true
+  const normalizedExt = extensionPath.replace(/\\/g, '/')
+
+  const hasDtsServiceWorker = async (): Promise<boolean> => {
+    try {
+      const list = await fetch(`http://127.0.0.1:${port}/json/list`).then((r) => r.json()) as Array<{ url?: string; type?: string }>
+      if (!Array.isArray(list)) return false
+      return list.some((t) => String(t?.url || '').includes('/script/service_worker.js'))
+    } catch {
+      return false
+    }
+  }
+
+  if (await hasDtsServiceWorker()) return true
+
+  try {
+    const versionResp = await fetch(`http://127.0.0.1:${port}/json/version`).then((r) => r.json()).catch(() => null) as { webSocketDebuggerUrl?: string } | null
+    const wsUrl = versionResp?.webSocketDebuggerUrl
+    if (!wsUrl) return false
+
+    const WebSocketCtor = (globalThis as unknown as { WebSocket?: new (url: string) => WebSocket }).WebSocket
+    if (!WebSocketCtor) return false
+
+    const loadedId = await new Promise<string | null>((resolveLoad) => {
+      const ws = new WebSocketCtor(wsUrl)
+      const timer = setTimeout(() => {
+        try { ws.close() } catch {}
+        resolveLoad(null)
+      }, 4000)
+
+      ws.onopen = () => {
+        ws.send(JSON.stringify({
+          id: 202,
+          method: 'Extensions.loadUnpacked',
+          params: { path: normalizedExt },
+        }))
+      }
+
+      ws.onmessage = (event: MessageEvent) => {
+        try {
+          const msg = JSON.parse(String(event.data)) as { id?: number; result?: { id?: string }; error?: unknown }
+          if (msg.id === 202) {
+            clearTimeout(timer)
+            try { ws.close() } catch {}
+            resolveLoad(msg.result?.id || null)
+          }
+        } catch {
+          clearTimeout(timer)
+          try { ws.close() } catch {}
+          resolveLoad(null)
+        }
+      }
+
+      ws.onerror = () => {
+        clearTimeout(timer)
+        try { ws.close() } catch {}
+        resolveLoad(null)
+      }
+    })
+
+    if (!loadedId) return false
+    // 等待扩展 Service Worker 启动注册到 CDP Target 列表
+    for (let i = 0; i < 6; i++) {
+      if (await hasDtsServiceWorker()) return true
+      await new Promise((r) => setTimeout(r, 250))
+    }
+    return false
+  } catch {
+    return false
+  }
+}
+
 /** 启动专属 Chromium 采集容器 */
 export async function launchChromeForRpa(options: LaunchChromeOptions = {}): Promise<LaunchedChrome> {
   const { path: chromeExe, isBuiltin } = resolveChromiumPath()
   const isPersistent = options.persistent !== false
   const profileDir = options.profileDir ?? (isPersistent ? getDefaultDtsProfileDir() : join(tmpdir(), `eca-rpa-profile-${Date.now()}`))
   mkdirSync(profileDir, { recursive: true })
+
+  // 提前解析店透视扩展路径（供复用健康校验与新启动挂载共用）
+  const extPath = options.extensionPath !== undefined ? options.extensionPath : (() => {
+    try {
+      return resolveActiveExtensionPath()
+    } catch {
+      return null
+    }
+  })()
+  const normalizedExt = extPath ? extPath.replace(/\\/g, '/') : null
 
   // 1. 如果当前 profile 已有活着的 DevTools 端口且不需要切换 url/模式，尝试复用
   const activePortFile = join(profileDir, 'DevToolsActivePort')
@@ -407,7 +496,9 @@ export async function launchChromeForRpa(options: LaunchChromeOptions = {}): Pro
       if (Number.isInteger(port) && port > 0 && await isDevToolsPortAlive(port)) {
         // HTTP 端口通不代表浏览器级 CDP 可用：长期运行的孤儿实例可能已是僵尸态，
         // 直接复用会让 Python 侧 playwright connect_over_cdp 失败。先做 Browser.getVersion 往返。
-        if (await isBrowserCdpHealthy(port)) {
+        const cdpHealthy = await isBrowserCdpHealthy(port)
+        const extHealthy = cdpHealthy ? await ensureExtensionLoadedViaCdp(port, normalizedExt) : false
+        if (cdpHealthy && extHealthy) {
           // 如果当前实例活着且外部未指定要单独打开 URL，可直接复用已有实例
           if (!options.url || options.url === 'about:blank') {
             if (options.downloadPath) {
@@ -422,7 +513,8 @@ export async function launchChromeForRpa(options: LaunchChromeOptions = {}): Pro
             }
           }
         } else {
-          // 端口活着但 CDP 已坏（僵尸实例）：按 PID 终止后走全新拉起，避免误判复用
+          // 端口活着但 CDP 已坏，或旧实例缺少扩展调试支持（如携带了旧的 --disable-extensions-except）：
+          // 按 PID 终止后走全新拉起，自动恢复店透视插件挂载（持久化 Profile 登录态无损保留）。
           await killChromeOnPort(port)
         }
       }
@@ -446,23 +538,22 @@ export async function launchChromeForRpa(options: LaunchChromeOptions = {}): Pro
     '--remote-debugging-port=0',
     '--no-first-run',
     '--no-default-browser-check',
+    '--no-restore-session-state',
     '--disable-background-networking',
     '--disable-features=Translate,OptimizationHints',
+    // 关键反爬指纹净化：在 Blink 引擎内核彻底消除 AutomationControlled 特征（navigator.webdriver=false）
+    // 防止阿里天猫盾 TMD 识别出机器人导致滑块验证死循环报错 error:dwMz3
+    '--disable-blink-features=AutomationControlled',
+    // 搭配 --test-type 参数：Chromium 会在内部抑制 BadFlagsPrompt，绝对不会弹出黄色的“不受支持的命令行标记”警告条！
+    '--test-type',
   ]
 
-  // 挂载店透视扩展
-  const extPath = options.extensionPath !== undefined ? options.extensionPath : (() => {
-    try {
-      return resolveActiveExtensionPath()
-    } catch {
-      return null
-    }
-  })()
-
-  if (extPath) {
-    const normalizedExt = extPath.replace(/\\/g, '/')
+  if (normalizedExt) {
+    // 兼容旧版 Chromium (<137)
     args.push(`--load-extension=${normalizedExt}`)
-    args.push(`--disable-extensions-except=${normalizedExt}`)
+    // 兼容新版官方 Google Chrome (137+ ~ 156+)：开启 CDP Extensions.loadUnpacked 调试通道
+    // 注意：严禁再传 --disable-extensions-except，否则 Chrome 137+ 会将动态挂载的店透视扩展强行禁用！
+    args.push('--enable-unsafe-extension-debugging')
   }
 
   // 默认采用真实系统 Chrome 窗口（有头运行），彻底告别无头猫鼠游戏与 TMD 拦截
@@ -475,8 +566,7 @@ export async function launchChromeForRpa(options: LaunchChromeOptions = {}): Pro
   const viewport = options.viewport ?? { width: 1280, height: 800 }
   args.push(`--window-size=${viewport.width},${viewport.height}`)
 
-  // 最小指纹净化：清除自动化标志与注入官方真实 UA
-  args.push('--disable-blink-features=AutomationControlled')
+  // 注入官方真实 UA（与宿主系统版本严格一致）
   const chromeVersion = await resolveChromeVersion(chromeExe)
   if (chromeVersion) {
     args.push(`--user-agent=${buildRealChromeUserAgent(chromeVersion)}`)
@@ -486,8 +576,8 @@ export async function launchChromeForRpa(options: LaunchChromeOptions = {}): Pro
     args.push(...options.extraArgs)
   }
 
-  // 仅当调用方显式指定 URL 时才作为命令行参数传入；不追加默认 about:blank，
-  // 避免与系统 Chrome 启动自带的默认空 Tab 叠加成双空白页（后续由 CDP 显式导航首个 Target）。
+  // 仅当调用方显式指定 URL 时才作为命令行参数传入；不追加默认外部页面，
+  // 避免与系统自带首 Tab 叠加成双 Tab（由业务管理器通过 Target CDP 统一激活与导航）。
   const hasAppArg = options.extraArgs?.some((a) => a.startsWith('--app='))
   if (!hasAppArg && options.url) {
     args.push(options.url)
@@ -501,6 +591,9 @@ export async function launchChromeForRpa(options: LaunchChromeOptions = {}): Pro
 
   try {
     const port = await waitForDevToolsPort(profileDir, child)
+    if (normalizedExt) {
+      await ensureExtensionLoadedViaCdp(port, normalizedExt)
+    }
     const launched: LaunchedChrome = {
       child,
       port,

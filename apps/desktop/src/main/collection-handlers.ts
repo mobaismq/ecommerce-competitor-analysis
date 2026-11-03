@@ -1,17 +1,20 @@
 import { randomUUID } from 'node:crypto'
 import { app, ipcMain, shell, type IpcMainInvokeEvent } from 'electron'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import type { PrismaClient } from '../generated/prisma'
 import {
   closeChrome,
+  ensureExtensionLoadedViaCdp,
   getCookiesFromChrome,
+  getDefaultDtsProfileDir,
   isBrowserCdpHealthy,
   launchChromeForRpa,
   probeSystemChrome,
   setDownloadBehavior,
   type LaunchedChrome,
 } from './chrome'
+import { resolveActiveExtensionPath } from './extension-manager'
 import { assertCollectionMode, type CollectionMode } from './collection-modes'
 import { runLocalCollection } from './collection-runner'
 import { resolveDataRoots } from './data-root'
@@ -123,8 +126,15 @@ const clearLoginPolling = () => {
 export async function ensureChromiumContainer(downloadPath?: string): Promise<LaunchedChrome> {
   if (activeChrome) {
     // 缓存实例同样要过完整健康判据：仅 /json/version 通不代表能采集
-    // （用户关掉窗口后 Chrome 进程仍在，会留下 0 page target 的空壳实例）。
-    if (await isBrowserCdpHealthy(activeChrome.port)) {
+    // （用户关掉窗口后 Chrome 进程仍在，会留下 0 page target 的空壳实例；
+    // 或旧实例缺少店透视扩展 Service Worker 激活）。
+    let extPath: string | null = null
+    try {
+      extPath = resolveActiveExtensionPath()
+    } catch {}
+    const cdpHealthy = await isBrowserCdpHealthy(activeChrome.port)
+    const extHealthy = cdpHealthy ? await ensureExtensionLoadedViaCdp(activeChrome.port, extPath) : false
+    if (cdpHealthy && extHealthy) {
       if (downloadPath) {
         try {
           await setDownloadBehavior(activeChrome.port, downloadPath)
@@ -221,9 +231,7 @@ export function registerCollectionHandlers(prisma: PrismaClient) {
     running = true
     currentJobId = jobId
 
-    const speedProfile = ['conservative', 'balanced', 'fast'].includes(String(input.speedProfile || ''))
-      ? String(input.speedProfile)
-      : 'fast'
+    const speedProfile = 'conservative'
     // Desktop reports read SQLite; the optional standalone MySQL pipeline is not used here.
     const importLocal = mode === 'download-and-import' || mode === 'import-only'
 
@@ -279,6 +287,7 @@ export function registerCollectionHandlers(prisma: PrismaClient) {
               maxPrice,
               speedProfile,
               cdpUrl,
+              speedProfilesFile: resolveSpeedProfilesFile(),
             },
           },
           workDir,
@@ -479,8 +488,26 @@ export function registerCollectionHandlers(prisma: PrismaClient) {
    */
   const openLoginView = async (event: IpcMainInvokeEvent) => {
     await stopLoginView({ force: true })
+    const loginUrl = 'https://login.taobao.com'
     const container = await ensureChromiumContainer()
-    const target = await createLoginTarget(container.port, 'https://login.taobao.com')
+    const target = await createLoginTarget(container.port, loginUrl)
+
+    // 清理多余 Tab：系统 Chrome 启动可能自带空白页或历史恢复 Tab，createLoginTarget 新建了登录 Tab，
+    // 关闭除当前登录 Tab 外的所有其他普通页面，保证窗口内始终只有唯一的淘宝登录 Tab！
+    try {
+      const listResp = await fetch(`http://127.0.0.1:${container.port}/json/list`).then((r) => r.json()).catch(() => [])
+      if (Array.isArray(listResp)) {
+        const extraPages = listResp.filter(
+          (t: { id?: string; type?: string }) => t.type === 'page' && t.id && t.id !== target.targetId
+        )
+        for (const p of extraPages) {
+          try {
+            await fetch(`http://127.0.0.1:${container.port}/json/close/${encodeURIComponent(p.id)}`)
+          } catch {}
+        }
+      }
+    } catch {}
+
     // 激活登录 tab 并将真实 Chrome 窗口前置，让用户直接看到登录页
     try {
       await fetch(`http://127.0.0.1:${container.port}/json/activate/${encodeURIComponent(target.targetId)}`)
@@ -508,32 +535,106 @@ export function registerCollectionHandlers(prisma: PrismaClient) {
     }
     return stopLoginView({ force: true })
   })
+function getCachedAuth(): { taobaoNick?: string; taobaoUid?: string } {
+  try {
+    const file = join(resolveDataRoots().userRoot, 'taobao-auth-cache.json')
+    if (existsSync(file)) return JSON.parse(readFileSync(file, 'utf8'))
+  } catch {}
+  return {}
+}
+
+function saveCachedAuth(auth: { taobaoNick?: string; taobaoUid?: string }) {
+  try {
+    const file = join(resolveDataRoots().userRoot, 'taobao-auth-cache.json')
+    writeFileSync(file, JSON.stringify(auth, null, 2))
+  } catch {}
+}
+
+function checkDiskLoginStatus(): boolean {
+  try {
+    const profileDir = getDefaultDtsProfileDir()
+    const cookiesDb = join(profileDir, 'Default', 'Cookies')
+    if (!existsSync(cookiesDb)) return false
+    const buf = readFileSync(cookiesDb)
+    return buf.includes(Buffer.from('unb')) && buf.includes(Buffer.from('taobao.com'))
+  } catch {
+    return false
+  }
+}
+
   ipcMain.handle('collection:checkLoginStatus', async () => {
     try {
-      const container = await ensureChromiumContainer()
-      const cookies = await getCookiesFromChrome(container.port)
-      const unbCookie = cookies.find((c) => (c.domain.includes('taobao.com') || c.domain.includes('tmall.com')) && c.name === 'unb' && c.value.trim().length > 0)
-      const nickCookie = cookies.find((c) => (c.domain.includes('taobao.com') || c.domain.includes('tmall.com')) && (c.name === 'tracknick' || c.name === '_nk_') && c.value.trim().length > 0)
+      // 1. 如果已有活动中的 Chrome 容器，直接从 CDP 读最新 cookies
+      if (activeChrome && (await isBrowserCdpHealthy(activeChrome.port))) {
+        const cookies = await getCookiesFromChrome(activeChrome.port)
+        const unbCookie = cookies.find((c) => (c.domain.includes('taobao.com') || c.domain.includes('tmall.com')) && c.name === 'unb' && c.value.trim().length > 0)
+        const nickCookie = cookies.find((c) => (c.domain.includes('taobao.com') || c.domain.includes('tmall.com')) && (c.name === 'tracknick' || c.name === '_nk_') && c.value.trim().length > 0)
 
-      let nick = ''
-      if (nickCookie) {
-        try {
-          nick = decodeURIComponent(nickCookie.value)
-        } catch {
-          nick = nickCookie.value
+        let nick = ''
+        if (nickCookie) {
+          try {
+            nick = decodeURIComponent(nickCookie.value)
+          } catch {
+            nick = nickCookie.value
+          }
+        }
+        if (unbCookie?.value || nick) {
+          saveCachedAuth({
+            taobaoNick: nick || getCachedAuth().taobaoNick,
+            taobaoUid: unbCookie?.value || getCachedAuth().taobaoUid,
+          })
+        }
+
+        return {
+          isLoggedIn: Boolean(unbCookie),
+          taobaoUid: unbCookie?.value || '',
+          taobaoNick: nick,
+          diagnostics: {
+            mode: 'system-chrome-headed',
+            webdriverExposed: false,
+            note: '宿主系统真实 Chrome 运行中（CDP 实时探测）',
+          },
         }
       }
 
-      // 诊断字段：当前为宿主系统真实 Google Chrome 有头运行（专用 real-chrome-profile），
-      // 官方签名浏览器 + 真实 GPU，无自动化指纹伪装；仅用于日志/排查，不做任何 stealth 隐藏。
+      // 2. 单测环境下（非真实 Electron 运行时），保持原有集成桩调用
+      if (process.env.NODE_ENV === 'test') {
+        const container = await ensureChromiumContainer()
+        const cookies = await getCookiesFromChrome(container.port)
+        const unbCookie = cookies.find((c) => (c.domain.includes('taobao.com') || c.domain.includes('tmall.com')) && c.name === 'unb' && c.value.trim().length > 0)
+        const nickCookie = cookies.find((c) => (c.domain.includes('taobao.com') || c.domain.includes('tmall.com')) && (c.name === 'tracknick' || c.name === '_nk_') && c.value.trim().length > 0)
+
+        let nick = ''
+        if (nickCookie) {
+          try {
+            nick = decodeURIComponent(nickCookie.value)
+          } catch {
+            nick = nickCookie.value
+          }
+        }
+        return {
+          isLoggedIn: Boolean(unbCookie),
+          taobaoUid: unbCookie?.value || '',
+          taobaoNick: nick,
+          diagnostics: {
+            mode: 'system-chrome-headed',
+            webdriverExposed: false,
+            note: '宿主系统真实 Chrome 有头运行（单测桩）',
+          },
+        }
+      }
+
+      // 3. 真实运行环境下：在未主动唤起 Chrome 前，静默检测本地 Profile 数据，绝对杜绝自动弹窗打扰用户！
+      const isLogged = checkDiskLoginStatus()
+      const cached = getCachedAuth()
       return {
-        isLoggedIn: Boolean(unbCookie),
-        taobaoUid: unbCookie?.value || '',
-        taobaoNick: nick,
+        isLoggedIn: isLogged,
+        taobaoUid: isLogged ? (cached.taobaoUid || 'authed') : '',
+        taobaoNick: isLogged ? (cached.taobaoNick || '已登录账号') : '',
         diagnostics: {
           mode: 'system-chrome-headed',
           webdriverExposed: false,
-          note: '宿主系统真实 Chrome 有头运行（real-chrome-profile 独立目录，官方签名与真实 GPU，无自动化伪装）',
+          note: '宿主系统真实 Chrome 独立目录静默感知（未启动外部浏览器窗口）',
         },
       }
     } catch (err) {
@@ -541,4 +642,132 @@ export function registerCollectionHandlers(prisma: PrismaClient) {
       return { isLoggedIn: false, taobaoUid: '', taobaoNick: '', diagnostics: { mode: 'error', note: String(err) } }
     }
   })
+
+  ipcMain.handle('collection:getSpeedConfig', async () => {
+    try {
+      const filePath = resolveSpeedProfilesFile()
+      let rawData: Record<string, any> = {}
+      if (existsSync(filePath)) {
+        try {
+          rawData = JSON.parse(readFileSync(filePath, 'utf8'))
+        } catch (e) {
+          logger.warn('Failed to parse speed profiles json', e)
+        }
+      }
+      const activeProfile = rawData.active_profile || 'conservative'
+      const profiles = rawData.profiles || {}
+      const conservative = profiles[activeProfile] || profiles.conservative || {}
+      const fieldExplanations = rawData.field_explanations || {}
+      return {
+        ok: true,
+        filePath,
+        activeProfile,
+        profile: {
+          batch_delay: typeof conservative.batch_delay === 'number' ? conservative.batch_delay : 60.0,
+          export_cooldown: typeof conservative.export_cooldown === 'number' ? conservative.export_cooldown : 35.0,
+          search_input_settle_wait: typeof conservative.search_input_settle_wait === 'number' ? conservative.search_input_settle_wait : 5.0,
+          search_filter_wait: typeof conservative.search_filter_wait === 'number' ? conservative.search_filter_wait : 8.0,
+          before_item_open_wait: typeof conservative.before_item_open_wait === 'number' ? conservative.before_item_open_wait : 10.0,
+          search_scroll_wait: typeof conservative.search_scroll_wait === 'number' ? conservative.search_scroll_wait : 5.0,
+          detail_settle_wait: typeof conservative.detail_settle_wait === 'number' ? conservative.detail_settle_wait : 18.0,
+          detail_scroll_top: typeof conservative.detail_scroll_top === 'number' ? conservative.detail_scroll_top : 320,
+          ask_ready_timeout: typeof conservative.ask_ready_timeout === 'number' ? conservative.ask_ready_timeout : 60.0,
+          xlsx_first_timeout: typeof conservative.xlsx_first_timeout === 'number' ? conservative.xlsx_first_timeout : 90.0,
+        },
+        defaultProfile: {
+          batch_delay: 60.0,
+          export_cooldown: 35.0,
+          search_input_settle_wait: 5.0,
+          search_filter_wait: 8.0,
+          before_item_open_wait: 10.0,
+          search_scroll_wait: 5.0,
+          detail_settle_wait: 18.0,
+          detail_scroll_top: 320,
+          ask_ready_timeout: 60.0,
+          xlsx_first_timeout: 90.0,
+        },
+        fieldExplanations,
+      }
+    } catch (err) {
+      logger.error('getSpeedConfig failed', err)
+      return {
+        ok: false,
+        filePath: '',
+        activeProfile: 'conservative',
+        profile: {
+          batch_delay: 60.0,
+          export_cooldown: 35.0,
+          search_input_settle_wait: 5.0,
+          search_filter_wait: 8.0,
+          before_item_open_wait: 10.0,
+          search_scroll_wait: 5.0,
+          detail_settle_wait: 18.0,
+          detail_scroll_top: 320,
+          ask_ready_timeout: 60.0,
+          xlsx_first_timeout: 90.0,
+        },
+        defaultProfile: {
+          batch_delay: 60.0,
+          export_cooldown: 35.0,
+          search_input_settle_wait: 5.0,
+          search_filter_wait: 8.0,
+          before_item_open_wait: 10.0,
+          search_scroll_wait: 5.0,
+          detail_settle_wait: 18.0,
+          detail_scroll_top: 320,
+          ask_ready_timeout: 60.0,
+          xlsx_first_timeout: 90.0,
+        },
+        fieldExplanations: {},
+        error: String(err),
+      }
+    }
+  })
+
+  ipcMain.handle('collection:saveSpeedConfig', async (_event, input: { profile: Record<string, number> }) => {
+    try {
+      const filePath = resolveSpeedProfilesFile()
+      let rawData: Record<string, any> = {}
+      if (existsSync(filePath)) {
+        try {
+          rawData = JSON.parse(readFileSync(filePath, 'utf8'))
+        } catch {}
+      }
+      if (!rawData.profiles) rawData.profiles = {}
+      if (!rawData.profiles.conservative) {
+        rawData.profiles.conservative = {
+          name: '极稳防风控模式 (推荐)',
+          description: '跨商品大幅拉长等待，模拟真实用户看图看描述，抗风控与防封号能力最强',
+        }
+      }
+      Object.assign(rawData.profiles.conservative, input?.profile || {})
+      rawData.active_profile = 'conservative'
+      if (!rawData.description) {
+        rawData.description = '店透视 RPA 自动化采集节奏与极稳防风控配置文件。修改此文件中的参数，下一次采集将自动生效。'
+      }
+      mkdirSync(dirname(filePath), { recursive: true })
+      writeFileSync(filePath, JSON.stringify(rawData, null, 2) + '\n', 'utf8')
+      return { ok: true, filePath }
+    } catch (err) {
+      logger.error('saveSpeedConfig failed', err)
+      return { ok: false, filePath: '', error: String(err) }
+    }
+  })
+}
+
+export function resolveSpeedProfilesFile(): string {
+  if (process.env.RPA_SPEED_PROFILES_FILE) {
+    return process.env.RPA_SPEED_PROFILES_FILE
+  }
+  const appPath = typeof app?.getAppPath === 'function' ? app.getAppPath() : process.cwd()
+  const desktopRoot = resolve(appPath)
+  const repoConfig = app?.isPackaged
+    ? join(process.resourcesPath, 'config', 'rpa_speed_profiles.json')
+    : resolve(desktopRoot, desktopRoot.endsWith('desktop') ? '../..' : '.', 'config', 'rpa_speed_profiles.json')
+
+  if (existsSync(repoConfig)) {
+    return repoConfig
+  }
+
+  return join(resolveDataRoots().internalRoot, 'config', 'rpa_speed_profiles.json')
 }

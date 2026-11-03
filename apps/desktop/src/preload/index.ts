@@ -54,6 +54,8 @@ contextBridge.exposeInMainWorld('desktop', {
     openLoginWindow: () => ipcRenderer.invoke('collection:openLoginView'),
     stopLoginView: () => ipcRenderer.invoke('collection:stopLoginView'),
     checkLoginStatus: () => ipcRenderer.invoke('collection:checkLoginStatus'),
+    getSpeedConfig: () => ipcRenderer.invoke('collection:getSpeedConfig'),
+    saveSpeedConfig: (input: { profile: Record<string, number> }) => ipcRenderer.invoke('collection:saveSpeedConfig', input),
     /** 登录授权状态订阅：idle / opening / waiting-sso / verified。 */
     onLoginState: (listener: (state: { state: 'idle' | 'opening' | 'waiting-sso' | 'verified' }) => void) => {
       const handler = (_e: Electron.IpcRendererEvent, state: { state: 'idle' | 'opening' | 'waiting-sso' | 'verified' }) => listener(state)

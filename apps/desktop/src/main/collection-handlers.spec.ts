@@ -6,6 +6,7 @@ vi.mock('electron', () => {
   return {
     app: {
       getPath: vi.fn().mockReturnValue('/mock/userData'),
+      getAppPath: vi.fn().mockReturnValue(process.cwd()),
       isPackaged: false,
     },
     ipcMain: {
@@ -215,6 +216,7 @@ describe('collection-handlers 调度器集成测试', () => {
       .mockResolvedValueOnce(fresh as never)
     // 模拟「端口 HTTP 通但 0 page target」的空壳实例：健康检查必须返回 false
     const healthSpy = vi.spyOn(chromeModule, 'isBrowserCdpHealthy').mockResolvedValue(false)
+    const extHealthSpy = vi.spyOn(chromeModule, 'ensureExtensionLoadedViaCdp').mockResolvedValue(true)
     const downloadSpy = vi.spyOn(chromeModule, 'setDownloadBehavior').mockResolvedValue()
 
     const first = await ensureChromiumContainer('/test/workDir')
@@ -234,7 +236,44 @@ describe('collection-handlers 调度器集成测试', () => {
 
     launchSpy.mockRestore()
     healthSpy.mockRestore()
+    extHealthSpy.mockRestore()
     downloadSpy.mockRestore()
+  })
+
+  it('collection:getSpeedConfig 与 collection:saveSpeedConfig 正确读取与更新防风控配置', async () => {
+    const fakePrisma = {} as any
+    registerCollectionHandlers(fakePrisma)
+
+    const getHandler = handlersMap.get('collection:getSpeedConfig')
+    const saveHandler = handlersMap.get('collection:saveSpeedConfig')
+
+    expect(typeof getHandler).toBe('function')
+    expect(typeof saveHandler).toBe('function')
+
+    const initial = await getHandler!()
+    expect(initial.ok).toBe(true)
+    expect(initial.profile.batch_delay).toBeGreaterThanOrEqual(10)
+    expect(initial.defaultProfile.batch_delay).toBe(60)
+
+    const saveRes = await saveHandler!({}, {
+      profile: {
+        batch_delay: 50,
+        export_cooldown: 40,
+      },
+    })
+    expect(saveRes.ok).toBe(true)
+
+    const updated = await getHandler!()
+    expect(updated.profile.batch_delay).toBe(50)
+    expect(updated.profile.export_cooldown).toBe(40)
+
+    // 恢复为默认推荐 60 / 35 避免污染环境
+    await saveHandler!({}, {
+      profile: {
+        batch_delay: 60,
+        export_cooldown: 35,
+      },
+    })
   })
 })
 

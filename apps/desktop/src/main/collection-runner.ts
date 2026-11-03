@@ -52,7 +52,7 @@ export interface RunCollectionOptions {
 export interface CollectionRunResult {
   jobId: string
   mode: CollectionMode
-  status: 'success' | 'failure'
+  status: 'success' | 'failure' | 'cancelled'
   stages: CollectionStage[]
   files: string[]
   counts: Record<string, number>
@@ -99,6 +99,9 @@ export async function defaultDownloader(context: CollectionRunContext): Promise<
   if (context.input.params?.cdpUrl) {
     env.CHROME_CDP_URL = String(context.input.params.cdpUrl)
     env.DTS_USE_CDP = '1'
+  }
+  if (context.input.params?.speedProfilesFile) {
+    env.RPA_SPEED_PROFILES_FILE = String(context.input.params.speedProfilesFile)
   }
   const result = await runPythonTracked(script, buildDownloadArgs(context), {
     cwd: context.workDir,
@@ -301,6 +304,11 @@ export async function runLocalCollection(options: RunCollectionOptions): Promise
       },
     })
   } catch (error) {
+    const job = await prisma.localJob.findUnique({ where: { jobId: localJobId }, select: { status: true } })
+    if (job?.status === 'cancelled') {
+      result.status = 'cancelled'
+      throw error instanceof Error && error.message.includes('用户已停止') ? error : new Error('用户已停止采集任务')
+    }
     result.status = 'failure'
     const message = error instanceof Error ? error.message : String(error)
     await prisma.localJob.updateMany({

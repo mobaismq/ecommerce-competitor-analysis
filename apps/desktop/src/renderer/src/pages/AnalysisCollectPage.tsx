@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Button, Drawer, Message, Modal, Switch, Tooltip } from '@arco-design/web-react'
+import { Button, Drawer, InputNumber, Message, Modal, Switch, Tooltip } from '@arco-design/web-react'
 import {
   AlertCircle,
   ExternalLink,
   Loader2,
   Play,
   QrCode,
+  RotateCcw,
   ShieldCheck,
+  Sliders,
   Square,
   Terminal,
 } from 'lucide-react'
@@ -55,6 +57,7 @@ export function AnalysisCollectPage() {
   const [maxPrice, setMaxPrice] = useState<string>('')
   const [competitorCount, setCompetitorCount] = useState('')
   const [searchPages, setSearchPages] = useState('8')
+  const [speedProfile, setSpeedProfile] = useState<'conservative' | 'balanced' | 'fast'>('conservative')
 
   // 状态控制：驱动主进程真实店透视 RPA（collection:start / collection:status）
   const [status, setStatus] = useState<CollectionStatus>('idle')
@@ -139,9 +142,77 @@ export function AnalysisCollectPage() {
     }
   }
 
+  // 防风控节奏参数配置
+  const DEFAULT_RECOMMENDED_SPEED = useMemo(() => ({
+    batch_delay: 60.0,
+    export_cooldown: 35.0,
+    search_input_settle_wait: 5.0,
+    search_filter_wait: 8.0,
+    before_item_open_wait: 10.0,
+    detail_settle_wait: 18.0,
+    search_scroll_wait: 5.0,
+    detail_scroll_top: 320,
+    ask_ready_timeout: 60.0,
+    xlsx_first_timeout: 90.0,
+  }), [])
+
+  const [speedModalVisible, setSpeedModalVisible] = useState(false)
+  const [speedConfig, setSpeedConfig] = useState(DEFAULT_RECOMMENDED_SPEED)
+  const [speedFormValues, setSpeedFormValues] = useState(DEFAULT_RECOMMENDED_SPEED)
+  const [savingSpeedConfig, setSavingSpeedConfig] = useState(false)
+
+  const loadSpeedConfig = async () => {
+    try {
+      const res = await window.desktop?.collection?.getSpeedConfig?.()
+      if (res?.ok && res.profile) {
+        const p = res.profile as Record<string, number>
+        const updated = {
+          batch_delay: typeof p.batch_delay === 'number' ? p.batch_delay : 60.0,
+          export_cooldown: typeof p.export_cooldown === 'number' ? p.export_cooldown : 35.0,
+          search_input_settle_wait: typeof p.search_input_settle_wait === 'number' ? p.search_input_settle_wait : 5.0,
+          search_filter_wait: typeof p.search_filter_wait === 'number' ? p.search_filter_wait : 8.0,
+          before_item_open_wait: typeof p.before_item_open_wait === 'number' ? p.before_item_open_wait : 10.0,
+          detail_settle_wait: typeof p.detail_settle_wait === 'number' ? p.detail_settle_wait : 18.0,
+          search_scroll_wait: typeof p.search_scroll_wait === 'number' ? p.search_scroll_wait : 5.0,
+          detail_scroll_top: typeof p.detail_scroll_top === 'number' ? p.detail_scroll_top : 320,
+          ask_ready_timeout: typeof p.ask_ready_timeout === 'number' ? p.ask_ready_timeout : 60.0,
+          xlsx_first_timeout: typeof p.xlsx_first_timeout === 'number' ? p.xlsx_first_timeout : 90.0,
+        }
+        setSpeedConfig(updated)
+        setSpeedFormValues(updated)
+      }
+    } catch (err) {
+      console.warn('获取 RPA 速度配置失败', err)
+    }
+  }
+
+  const handleSaveSpeedConfig = async () => {
+    setSavingSpeedConfig(true)
+    try {
+      const res = await window.desktop?.collection?.saveSpeedConfig?.({ profile: speedFormValues })
+      if (res?.ok) {
+        setSpeedConfig({ ...speedFormValues })
+        Message.success('防风控参数配置已保存，下次采集自动生效')
+        setSpeedModalVisible(false)
+      } else {
+        Message.error(`保存配置失败: ${res?.error || '未知错误'}`)
+      }
+    } catch (err) {
+      Message.error(`保存配置失败: ${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setSavingSpeedConfig(false)
+    }
+  }
+
+  const handleResetSpeedConfig = () => {
+    setSpeedFormValues({ ...DEFAULT_RECOMMENDED_SPEED })
+    Message.info('已恢复为官方推荐默认防风控参数')
+  }
+
   useEffect(() => {
     void refreshLoginStatus()
     void checkChrome(true)
+    void loadSpeedConfig()
   }, [])
 
   const [activeParams, setActiveParams] = useState<{
@@ -201,6 +272,7 @@ export function AnalysisCollectPage() {
           setLogs((prev) => prev + `\n[${new Date().toLocaleTimeString()}] ❌ 任务执行失败: ${s.errorMessage || '未知错误'}`)
         } else if (s.status === 'cancelled' || s.status === 'stopped') {
           setStatus('stopped')
+          setErrorMessage('')
         }
       } catch {
         // 忽略轮询偶发报错
@@ -220,6 +292,11 @@ export function AnalysisCollectPage() {
 
   const handleStart = async () => {
     setErrorMessage('')
+
+    if (loginStatus.checking) {
+      Message.info('正在检测登录态，请稍候...')
+      return
+    }
 
     // 1. Chrome 浏览器安装前置守门拦截：未安装官方 Chrome 时坚决阻断并弹出引导对话框
     const hasChrome = await checkChrome(true)
@@ -276,8 +353,9 @@ export function AnalysisCollectPage() {
     setActiveParams(newParams)
     setLoading(true)
 
+    const pacingText = '极稳防风控(单件间隔45s+/冷却30s)'
     const nowStr = new Date().toLocaleTimeString()
-    const initLog = `[${nowStr}] 🚀 正在启动店透视采集任务...\n[${nowStr}] 目标关键词: ${newParams.keyword} | 计划采集数: ${count} | 价格区间: ${newParams.minPrice ?? '不限'} ~ ${newParams.maxPrice ?? '不限'}\n`
+    const initLog = `[${nowStr}] 🚀 正在启动店透视采集任务...\n[${nowStr}] 目标关键词: ${newParams.keyword} | 计划采集数: ${count} | 价格区间: ${newParams.minPrice ?? '不限'} ~ ${newParams.maxPrice ?? '不限'}\n[${nowStr}] 采集节奏: ${pacingText}\n`
     setLogs(initLog)
     setStatus('running')
 
@@ -290,7 +368,7 @@ export function AnalysisCollectPage() {
         maxPrice: newParams.maxPrice,
         topN: count,
         searchPages: pages,
-        speedProfile: 'fast',
+        speedProfile,
         mode: 'download-and-import',
         importMysql: false,
         // 生产业务界面固定为真实采集；fake 仿真仅保留在底层的 vitest 自动化测试中
@@ -318,6 +396,7 @@ export function AnalysisCollectPage() {
         const res = await window.desktop?.collection.cancel()
         if (res?.cancelled) {
           setStatus('stopped')
+          setErrorMessage('')
           setLogs((prev) => prev + `\n[${new Date().toLocaleTimeString()}] ⚠️ 采集任务已停止。`)
         } else {
           setLogs((prev) => prev + `\n[${new Date().toLocaleTimeString()}] ⚠️ ${res?.reason || '取消请求未生效，任务可能仍在运行。'}`)
@@ -329,6 +408,7 @@ export function AnalysisCollectPage() {
       return
     }
     setStatus('stopped')
+    setErrorMessage('')
     setLogs((prev) => prev + `\n[${new Date().toLocaleTimeString()}] ⚠️ 用户手动停止了当前采集任务。`)
     Message.warning('采集任务已停止')
   }
@@ -429,8 +509,8 @@ export function AnalysisCollectPage() {
               <button
                 type="button"
                 onClick={handleReset}
-                disabled={isRunning}
-                className="cursor-pointer border-0 bg-transparent p-0 text-[12px] font-bold text-[#86909C] hover:text-[#344054]"
+                disabled={isRunning || loginStatus.checking}
+                className="cursor-pointer border-0 bg-transparent p-0 text-[12px] font-bold text-[#86909C] hover:text-[#344054] disabled:cursor-not-allowed disabled:opacity-40"
               >
                 重置
               </button>
@@ -494,12 +574,42 @@ export function AnalysisCollectPage() {
                 <XInput value={competitorCount} onChange={setCompetitorCount} disabled={isRunning} placeholder="请输入采集竞品数量，1-100之间" inputMode="numeric" />
                 <p className="m-0 mt-1 text-[12px] text-[#86909C]">限制 1 ~ 100 件商品</p>
               </div>
-            <div>
-              <label className={FIELD_LABEL_CLASS}>翻页深度 (页数)</label>
-              <XInput value={searchPages} onChange={setSearchPages} disabled={isRunning} placeholder="默认检索前 8 页" inputMode="numeric" />
-              <p className="m-0 mt-1 text-[12px] text-[#86909C]">默认检索前 8 页</p>
+              <div>
+                <label className={FIELD_LABEL_CLASS}>翻页深度 (页数)</label>
+                <XInput value={searchPages} onChange={setSearchPages} disabled={isRunning} placeholder="默认检索前 8 页" inputMode="numeric" />
+                <p className="m-0 mt-1 text-[12px] text-[#86909C]">默认检索前 8 页</p>
+              </div>
             </div>
-          </div>
+
+            {/* 采集节奏与防风控策略：固定保留极稳防风控模式 */}
+            <div className="rounded-xl border border-[#bbf7d0] bg-[#f0fdf4] p-3 text-[12px] text-[#166534]">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-2 w-2 rounded-full bg-[#16a34a]"></span>
+                  <span className="font-bold text-[#15803d]">已启用：🛡️ 极稳防风控模式 (推荐)</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="rounded bg-[#dcfce7] px-2 py-0.5 text-[11px] font-semibold text-[#166534]">
+                    单件间隔 {speedConfig.batch_delay}s+ · 导出冷却 {speedConfig.export_cooldown}s
+                  </span>
+                  <Button
+                    type="text"
+                    size="mini"
+                    className="!h-6 !px-2 !text-[#15803d] hover:!bg-[#dcfce7] !font-medium flex items-center gap-1 border border-[#86efac] rounded"
+                    icon={<Sliders className="w-3.5 h-3.5" />}
+                    onClick={() => {
+                      setSpeedFormValues({ ...speedConfig })
+                      setSpeedModalVisible(true)
+                    }}
+                  >
+                    配置参数
+                  </Button>
+                </div>
+              </div>
+              <p className="m-0 mt-1.5 text-[11px] text-[#4b7a5a] leading-relaxed">
+                已自动开启拟人化首屏平滑微滚动与真人浏览停顿，抗拦截与防封号能力最强；点击右侧「配置参数」可按需微调各项延时秒数。
+              </p>
+            </div>
 
           {errorMessage && (
             <div className="flex flex-col gap-2.5 rounded-xl border border-[#fecaca] bg-[#fef2f2] p-4 text-[13px] text-[#991b1b]">
@@ -539,16 +649,30 @@ export function AnalysisCollectPage() {
               <button
                 type="button"
                 onClick={handleStart}
-                disabled={loading || isRunning}
+                disabled={loading || isRunning || loginStatus.checking}
                 className="flex h-11 flex-1 cursor-pointer items-center justify-center gap-2 rounded-lg border-0 bg-[#3388ff] text-[14px] font-extrabold text-white transition-all hover:bg-[#1a6fe8] disabled:cursor-not-allowed disabled:bg-[#b8d7ff]"
               >
-                {loading || isRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4 fill-white" />}
-                开始采集
+                {loginStatus.checking ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span>检测登录态中...</span>
+                  </>
+                ) : loading || isRunning ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span>开始采集</span>
+                  </>
+                ) : (
+                  <>
+                    <Play className="h-4 w-4 fill-white" />
+                    <span>开始采集</span>
+                  </>
+                )}
               </button>
               <button
                 type="button"
                 onClick={handleStop}
-                disabled={loading || !isRunning}
+                disabled={loading || !isRunning || loginStatus.checking}
                 className="flex h-11 w-[120px] cursor-pointer items-center justify-center gap-2 rounded-lg border border-[#ffd7d7] bg-white text-[14px] font-extrabold text-[#c03535] transition-colors hover:bg-[#fff5f5] disabled:cursor-not-allowed disabled:border-[#eef1f5] disabled:bg-white disabled:text-[#b0b7c3]"
               >
                 <Square className="h-4 w-4" />
@@ -796,6 +920,246 @@ export function AnalysisCollectPage() {
           <div className="rounded-lg bg-[#fff7e8] border border-[#ffe4ba] p-3 text-[13px] text-[#d46b08] space-y-1">
             <div>• 请先安装官方 Google Chrome 浏览器后再启动采集。</div>
             <div>• 安装完成后，点击右下方「我已安装，重新检测」即可立即开启自动化任务。</div>
+          </div>
+        </div>
+      </Modal>
+
+      {/* 防风控采集节奏参数微调弹窗 */}
+      <Modal
+        title={
+          <div className="flex items-center gap-2 text-[#15803d] font-bold text-[16px]">
+            <Sliders className="w-5 h-5 text-[#16a34a]" />
+            <span>防风控采集节奏参数设置</span>
+          </div>
+        }
+        visible={speedModalVisible}
+        onCancel={() => setSpeedModalVisible(false)}
+        footer={
+          <div className="flex items-center justify-between w-full">
+            <Button
+              type="secondary"
+              icon={<RotateCcw className="w-3.5 h-3.5" />}
+              onClick={handleResetSpeedConfig}
+              className="!text-[#4e5969]"
+            >
+              恢复默认推荐
+            </Button>
+            <div className="flex items-center gap-2">
+              <Button onClick={() => setSpeedModalVisible(false)}>
+                取消
+              </Button>
+              <Button
+                type="primary"
+                loading={savingSpeedConfig}
+                className="!bg-[#16a34a] hover:!bg-[#15803d]"
+                onClick={handleSaveSpeedConfig}
+              >
+                保存并生效
+              </Button>
+            </div>
+          </div>
+        }
+        autoFocus={false}
+        focusLock={true}
+        style={{ width: 640 }}
+      >
+        <div className="py-1 text-[13px] text-[#4e5969]">
+          <div className="mb-4 rounded-lg bg-[#f0fdf4] border border-[#bbf7d0] p-3 text-[12px] text-[#166534] leading-relaxed">
+            <p className="m-0 font-bold mb-1">🛡️ 极稳防风控策略配置说明</p>
+            <p className="m-0">
+              各参数单位为秒（或像素）。延时越充裕，真人拟人化效果越逼真、防封号与抗拦截能力越强；修改保存后下一次自动化采集即刻生效。
+            </p>
+          </div>
+
+          <div className="space-y-4">
+            <div className="rounded-lg border border-[#e5e6eb] p-3.5 bg-[#fafafa]">
+              <div className="text-[13px] font-bold text-[#1d2129] mb-3 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-[#16a34a]"></span>
+                核心防风控延时（核心判定，推荐保持推荐值）
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-[12px] font-medium text-[#1d2129]">跨商品等待间隔 (秒)</span>
+                    <span className="text-[11px] text-[#86909c]">推荐: 60~90s</span>
+                  </div>
+                  <InputNumber
+                    min={10}
+                    max={300}
+                    step={5}
+                    value={speedFormValues.batch_delay}
+                    onChange={(v) => setSpeedFormValues((prev) => ({ ...prev, batch_delay: v || 60 }))}
+                    style={{ width: '100%' }}
+                    suffix="秒"
+                  />
+                  <p className="m-0 mt-1 text-[11px] text-[#86909c]">一个商品抓完后切入下一商品的缓冲等待</p>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-[12px] font-medium text-[#1d2129]">插件导出冷却 (秒)</span>
+                    <span className="text-[11px] text-[#86909c]">推荐: 35~45s</span>
+                  </div>
+                  <InputNumber
+                    min={5}
+                    max={120}
+                    step={5}
+                    value={speedFormValues.export_cooldown}
+                    onChange={(v) => setSpeedFormValues((prev) => ({ ...prev, export_cooldown: v || 35 }))}
+                    style={{ width: '100%' }}
+                    suffix="秒"
+                  />
+                  <p className="m-0 mt-1 text-[11px] text-[#86909c]">商品图/商品数据/SKU/问大家/评价各模块间冷却</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-[#e5e6eb] p-3.5 bg-[#fafafa]">
+              <div className="text-[13px] font-bold text-[#1d2129] mb-3 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-[#3b82f6]"></span>
+                搜索筛选与进店拟人化停顿
+              </div>
+              <div className="grid grid-cols-3 gap-3 mb-3">
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-[12px] font-medium text-[#1d2129]">搜索页输入前静置</span>
+                  </div>
+                  <InputNumber
+                    min={2}
+                    max={30}
+                    step={1}
+                    value={speedFormValues.search_input_settle_wait}
+                    onChange={(v) => setSpeedFormValues((prev) => ({ ...prev, search_input_settle_wait: v || 5 }))}
+                    style={{ width: '100%' }}
+                    suffix="秒"
+                  />
+                  <p className="m-0 mt-1 text-[11px] text-[#86909c]">等待淘宝埋点就绪防拦截</p>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-[12px] font-medium text-[#1d2129]">筛选与排序间隔</span>
+                  </div>
+                  <InputNumber
+                    min={2}
+                    max={30}
+                    step={1}
+                    value={speedFormValues.search_filter_wait}
+                    onChange={(v) => setSpeedFormValues((prev) => ({ ...prev, search_filter_wait: v || 8 }))}
+                    style={{ width: '100%' }}
+                    suffix="秒"
+                  />
+                  <p className="m-0 mt-1 text-[11px] text-[#86909c]">价格区间与销量排序间隔</p>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-[12px] font-medium text-[#1d2129]">进详情页前停顿</span>
+                  </div>
+                  <InputNumber
+                    min={3}
+                    max={60}
+                    step={1}
+                    value={speedFormValues.before_item_open_wait}
+                    onChange={(v) => setSpeedFormValues((prev) => ({ ...prev, before_item_open_wait: v || 10 }))}
+                    style={{ width: '100%' }}
+                    suffix="秒"
+                  />
+                  <p className="m-0 mt-1 text-[11px] text-[#86909c]">选定商品后进店前停顿</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-[12px] font-medium text-[#1d2129]">详情首屏静置</span>
+                  </div>
+                  <InputNumber
+                    min={5}
+                    max={60}
+                    step={1}
+                    value={speedFormValues.detail_settle_wait}
+                    onChange={(v) => setSpeedFormValues((prev) => ({ ...prev, detail_settle_wait: v || 18 }))}
+                    style={{ width: '100%' }}
+                    suffix="秒"
+                  />
+                  <p className="m-0 mt-1 text-[11px] text-[#86909c]">进店后模拟真人看主图</p>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-[12px] font-medium text-[#1d2129]">搜索扫视停顿</span>
+                  </div>
+                  <InputNumber
+                    min={1}
+                    max={30}
+                    step={0.5}
+                    precision={1}
+                    value={speedFormValues.search_scroll_wait}
+                    onChange={(v) => setSpeedFormValues((prev) => ({ ...prev, search_scroll_wait: v || 5.0 }))}
+                    style={{ width: '100%' }}
+                    suffix="秒"
+                  />
+                  <p className="m-0 mt-1 text-[11px] text-[#86909c]">搜索结果加载后扫视</p>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-[12px] font-medium text-[#1d2129]">详情微滚动</span>
+                  </div>
+                  <InputNumber
+                    min={0}
+                    max={1200}
+                    step={50}
+                    value={speedFormValues.detail_scroll_top}
+                    onChange={(v) => setSpeedFormValues((prev) => ({ ...prev, detail_scroll_top: v || 320 }))}
+                    style={{ width: '100%' }}
+                    suffix="px"
+                  />
+                  <p className="m-0 mt-1 text-[11px] text-[#86909c]">进详情后拟人下滑距离</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-[#e5e6eb] p-3.5 bg-[#fafafa]">
+              <div className="text-[13px] font-bold text-[#1d2129] mb-3 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-[#f59e0b]"></span>
+                超时保护（防止卡死）
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-[12px] font-medium text-[#1d2129]">弹窗渲染等待上限</span>
+                  </div>
+                  <InputNumber
+                    min={15}
+                    max={300}
+                    step={10}
+                    value={speedFormValues.ask_ready_timeout}
+                    onChange={(v) => setSpeedFormValues((prev) => ({ ...prev, ask_ready_timeout: v || 60 }))}
+                    style={{ width: '100%' }}
+                    suffix="秒"
+                  />
+                  <p className="m-0 mt-1 text-[11px] text-[#86909c]">等待店透视弹窗加载超时</p>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-[12px] font-medium text-[#1d2129]">表格下载等待上限</span>
+                  </div>
+                  <InputNumber
+                    min={20}
+                    max={300}
+                    step={10}
+                    value={speedFormValues.xlsx_first_timeout}
+                    onChange={(v) => setSpeedFormValues((prev) => ({ ...prev, xlsx_first_timeout: v || 90 }))}
+                    style={{ width: '100%' }}
+                    suffix="秒"
+                  />
+                  <p className="m-0 mt-1 text-[11px] text-[#86909c]">Excel 数据生成与落盘超时</p>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </Modal>

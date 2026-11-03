@@ -29,6 +29,10 @@ extraResources:
     to: chromium
     filter:
       - '**/*'
+  - from: ../../config
+    to: config
+    filter:
+      - '**/*'
 mac:
   target:
     - dmg

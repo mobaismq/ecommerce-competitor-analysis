@@ -27,10 +27,19 @@ COMPETITOR_ANALYSIS = Path(os.environ.get(
 )).expanduser()
 CHROME_WINDOW_ID: Optional[int] = None
 
-SPEED_PROFILES: dict[str, dict[str, float]] = {
+ROOT_DIR = SKILL_DIR.parent.parent
+CONFIG_PROFILES_PATH = Path(os.environ.get("RPA_SPEED_PROFILES_FILE") or (ROOT_DIR / "config" / "rpa_speed_profiles.json"))
+
+DEFAULT_SPEED_PROFILES: dict[str, dict[str, float]] = {
     "conservative": {
-        "export_cooldown": 30.0,
-        "batch_delay": 45.0,
+        "export_cooldown": 35.0,
+        "batch_delay": 60.0,
+        "search_input_settle_wait": 5.0,
+        "search_filter_wait": 8.0,
+        "before_item_open_wait": 10.0,
+        "search_scroll_wait": 5.0,
+        "detail_settle_wait": 18.0,
+        "detail_scroll_top": 320.0,
         "ask_ready_timeout": 60.0,
         "xlsx_first_timeout": 90.0,
         "xlsx_retry_timeout": 120.0,
@@ -38,52 +47,37 @@ SPEED_PROFILES: dict[str, dict[str, float]] = {
         "ask_export_timeout": 90.0,
         "review_timeout": 120.0,
         "download_poll_interval": 2.0,
-        "search_scroll_wait": 3.5,
-        "diantoushi_click_settle": 0.8,
-        "diantoushi_dialog_settle": 0.8,
-        "diantoushi_hover_dwell_ms": 700.0,
-        "diantoushi_poll_interval": 1.0,
+        "diantoushi_click_settle": 1.0,
+        "diantoushi_dialog_settle": 1.0,
+        "diantoushi_hover_dwell_ms": 800.0,
+        "diantoushi_poll_interval": 1.2,
         "diantoushi_download_idle": 4.0,
-        "diantoushi_file_stable_wait": 0.35,
-    },
-    "balanced": {
-        "export_cooldown": 22.0,
-        "batch_delay": 30.0,
-        "ask_ready_timeout": 45.0,
-        "xlsx_first_timeout": 75.0,
-        "xlsx_retry_timeout": 90.0,
-        "sku_timeout": 150.0,
-        "ask_export_timeout": 60.0,
-        "review_timeout": 75.0,
-        "download_poll_interval": 1.2,
-        "search_scroll_wait": 2.5,
-        "diantoushi_click_settle": 0.55,
-        "diantoushi_dialog_settle": 0.55,
-        "diantoushi_hover_dwell_ms": 500.0,
-        "diantoushi_poll_interval": 0.6,
-        "diantoushi_download_idle": 3.0,
-        "diantoushi_file_stable_wait": 0.25,
-    },
-    "fast": {
-        # 只加速店透视侧等待；batch_delay/search_scroll_wait 与 balanced 保持一致，不改变淘宝页面节奏
-        "export_cooldown": 8.0,
-        "batch_delay": 30.0,
-        "ask_ready_timeout": 28.0,
-        "xlsx_first_timeout": 35.0,
-        "xlsx_retry_timeout": 45.0,
-        "sku_timeout": 70.0,
-        "ask_export_timeout": 30.0,
-        "review_timeout": 42.0,
-        "download_poll_interval": 0.5,
-        "search_scroll_wait": 2.5,
-        "diantoushi_click_settle": 0.08,
-        "diantoushi_dialog_settle": 0.25,
-        "diantoushi_hover_dwell_ms": 180.0,
-        "diantoushi_poll_interval": 0.22,
-        "diantoushi_download_idle": 1.6,
-        "diantoushi_file_stable_wait": 0.16,
+        "diantoushi_file_stable_wait": 0.4,
     },
 }
+
+
+def load_speed_profiles() -> dict[str, dict[str, float]]:
+    """优先从 config/rpa_speed_profiles.json 读取外部集中配置，若未配置则回退默认。"""
+    import copy
+    profiles = copy.deepcopy(DEFAULT_SPEED_PROFILES)
+    if CONFIG_PROFILES_PATH.is_file():
+        try:
+            with open(CONFIG_PROFILES_PATH, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                loaded = data.get("profiles", data)
+                for profile_name, vals in loaded.items():
+                    if isinstance(vals, dict):
+                        profiles.setdefault(profile_name, {})
+                        for k, v in vals.items():
+                            if isinstance(v, (int, float)):
+                                profiles[profile_name][k] = float(v)
+        except Exception as exc:
+            print(f"[WARN] 读取集中防风控配置文件失败 ({CONFIG_PROFILES_PATH}): {exc}", file=sys.stderr)
+    return profiles
+
+
+SPEED_PROFILES: dict[str, dict[str, float]] = load_speed_profiles()
 
 
 def now_stamp() -> str:
@@ -95,12 +89,34 @@ def fs_stamp() -> str:
 
 
 def speed_value(args: Optional[argparse.Namespace], key: str) -> float:
-    profile_name = getattr(args, "speed_profile", "fast") if args is not None else "fast"
-    return float(SPEED_PROFILES.get(profile_name, SPEED_PROFILES["balanced"])[key])
+    profile_name = getattr(args, "speed_profile", "conservative") if args is not None else "conservative"
+    profile = SPEED_PROFILES.get(profile_name) or SPEED_PROFILES.get("conservative") or list(SPEED_PROFILES.values())[0]
+    default_val = DEFAULT_SPEED_PROFILES["conservative"].get(key, 5.0)
+    return float(profile.get(key, default_val))
+
+
+def search_input_settle_wait(args: Optional[argparse.Namespace] = None) -> float:
+    return max(2.0, speed_value(args, "search_input_settle_wait"))
+
+
+def search_filter_wait(args: Optional[argparse.Namespace] = None) -> float:
+    return max(2.0, speed_value(args, "search_filter_wait"))
+
+
+def before_item_open_wait(args: Optional[argparse.Namespace] = None) -> float:
+    return max(3.0, speed_value(args, "before_item_open_wait"))
+
+
+def detail_settle_wait(args: Optional[argparse.Namespace] = None) -> float:
+    return max(5.0, speed_value(args, "detail_settle_wait"))
+
+
+def detail_scroll_top(args: Optional[argparse.Namespace] = None) -> int:
+    return max(0, int(speed_value(args, "detail_scroll_top")))
 
 
 def export_cooldown_seconds(args: argparse.Namespace) -> float:
-    min_seconds = 8.0 if getattr(args, "speed_profile", "") == "fast" else 20.0
+    min_seconds = 20.0
     if args.export_cooldown is not None:
         return max(min_seconds, float(args.export_cooldown))
     return speed_value(args, "export_cooldown")
@@ -308,10 +324,30 @@ def get_cdp_page():
         _CDP_LAST_ERROR = f"无法通过 HTTP 探测 {cdp_url}/json/version（DevTools 端口未监听或不可达）"
         return None
 
+    pw = None
     try:
         from playwright.sync_api import sync_playwright
         pw = sync_playwright().start()
         browser = pw.chromium.connect_over_cdp(cdp_url)
+        # 兼容 Chrome 137+ / 156+：若容器尚未挂载店透视 Service Worker，尝试通过 CDP Extensions.loadUnpacked 兜底挂载
+        try:
+            with urlopen(f"{cdp_url}/json/list", timeout=1.5) as list_resp:
+                targets = json.loads(list_resp.read().decode("utf-8", errors="ignore"))
+            has_dts_sw = any("/script/service_worker.js" in str(t.get("url", "")) for t in targets if isinstance(t, dict))
+            if not has_dts_sw:
+                ext_candidates = [
+                    os.environ.get("DTS_EXTENSION_DIR"),
+                    str(Path.home() / "Library" / "Application Support" / "desktop" / "extensions" / "diantoushi"),
+                    str(ROOT_DIR / "apps" / "desktop" / "resources" / "extensions" / "diantoushi"),
+                ]
+                for ext_cand in ext_candidates:
+                    if ext_cand and os.path.isfile(os.path.join(ext_cand, "manifest.json")):
+                        cdp_sess = browser.new_browser_cdp_session()
+                        cdp_sess.send("Extensions.loadUnpacked", {"path": ext_cand.replace("\\", "/")})
+                        time.sleep(0.6)
+                        break
+        except Exception:
+            pass
         context = browser.contexts[0] if browser.contexts else browser.new_context()
         pages = [p for p in context.pages if not p.is_closed()]
         page = pages[0] if pages else context.new_page()
@@ -325,6 +361,11 @@ def get_cdp_page():
         _CDP_PAGE = page
         return _CDP_PAGE
     except Exception as cdp_connect_err:
+        if pw is not None:
+            try:
+                pw.stop()
+            except Exception:
+                pass
         # 端口通但浏览器级 CDP 不可用（典型：长期运行的孤儿 Chrome 僵尸实例）→ 记录原始异常供上层透传
         _CDP_LAST_ERROR = f"CDP 连接失败（可能是浏览器级 DevTools 已不可用，需重启采集容器）: {type(cdp_connect_err).__name__}: {cdp_connect_err}"
         return None
@@ -595,9 +636,12 @@ def wait_for_search_input_ready(logger: Logger, timeout: float = 35.0) -> dict[s
 """))
         last_state = state
         logger.log(json.dumps({"search_input_ready_probe": state}, ensure_ascii=False))
-        if int(state.get("searchInputCount") or 0) > 0 or int(state.get("inputCount") or 0) > 0:
+        has_input = int(state.get("searchInputCount") or 0) > 0 or int(state.get("inputCount") or 0) > 0
+        if has_input and state.get("ready") == "complete":
             return state
-        time.sleep(1.0)
+        time.sleep(1.2)
+    if int(last_state.get("searchInputCount") or 0) > 0 or int(last_state.get("inputCount") or 0) > 0:
+        return last_state
     return {"ok": False, "reason": "NO_SEARCH_INPUT_AFTER_WAIT", "last_state": last_state}
 
 
@@ -606,9 +650,41 @@ def open_taobao_search_from_page(logger: Logger, product_name: str) -> dict[str,
     chrome_set_url("https://s.taobao.com/search")
     before = wait_for_search_input_ready(logger)
     logger.log(json.dumps({"search_base_page": before}, ensure_ascii=False, indent=2))
-    js = r"""
+    # 关键防风控停顿：等待淘宝搜索页 spm 埋点与安全 SDK 初始化完成，防止产生 spm=0.0.search_.0 触发 TMD_PUNISH
+    human_wait(logger, search_input_settle_wait(), "settle search page before typing keyword")
+    js_fill = r"""
 (() => {
   const keyword = __KEYWORD__;
+  const visible = (e) => {
+    if (!e) return false;
+    const r = e.getBoundingClientRect();
+    const s = getComputedStyle(e);
+    return r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden';
+  };
+  const inputs = [...document.querySelectorAll('input')].filter(visible);
+  const input = inputs.find(i => String(i.className || '').includes('powerfulQuery')) ||
+    inputs.find(i => String(i.className || '').includes('search-suggest')) ||
+    inputs[0];
+  if (!input) return JSON.stringify({ok:false, reason:'NO_SEARCH_INPUT', url:location.href});
+  input.focus();
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+  setter.call(input, keyword);
+  input.dispatchEvent(new InputEvent('input', {bubbles:true, cancelable:true, inputType:'insertText', data:keyword}));
+  input.dispatchEvent(new Event('change', {bubbles:true, cancelable:true}));
+  return JSON.stringify({
+    ok:true,
+    input:{className:String(input.className || ''), value:input.value || ''},
+    beforeUrl:location.href
+  });
+})()
+"""
+    fill_res = json.loads(chrome_js(js_fill.replace("__KEYWORD__", json.dumps(product_name, ensure_ascii=False))))
+    if not fill_res.get("ok"):
+        raise RuntimeError(f"Taobao search input failed: {fill_res.get('reason', 'UNKNOWN')}")
+    # 模拟真人输入完关键词后的停顿，再点击搜索按钮
+    time.sleep(1.5)
+    js_click = r"""
+(() => {
   const visible = (e) => {
     if (!e) return false;
     const r = e.getBoundingClientRect();
@@ -620,12 +696,6 @@ def open_taobao_search_from_page(logger: Logger, product_name: str) -> dict[str,
   const input = inputs.find(i => String(i.className || '').includes('powerfulQuery')) ||
     inputs.find(i => String(i.className || '').includes('search-suggest')) ||
     inputs[0];
-  if (!input) return JSON.stringify({ok:false, reason:'NO_SEARCH_INPUT', url:location.href});
-  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-  setter.call(input, keyword);
-  input.dispatchEvent(new InputEvent('input', {bubbles:true, cancelable:true, inputType:'insertText', data:keyword}));
-  input.dispatchEvent(new Event('change', {bubbles:true, cancelable:true}));
-  input.focus();
   const buttons = [...document.querySelectorAll('button,a,div,span')].filter(visible).filter(e => {
     const text = textOf(e);
     return text === '搜索' || text.startsWith('搜索');
@@ -640,27 +710,26 @@ def open_taobao_search_from_page(logger: Logger, product_name: str) -> dict[str,
     const r = button.getBoundingClientRect();
     const cx = r.x + r.width / 2;
     const cy = r.y + r.height / 2;
+    button.dispatchEvent(new MouseEvent('mouseover', {bubbles:true, cancelable:true, view:window, clientX:cx, clientY:cy}));
     button.dispatchEvent(new MouseEvent('mousedown', {bubbles:true, cancelable:true, view:window, clientX:cx, clientY:cy}));
     button.dispatchEvent(new MouseEvent('mouseup', {bubbles:true, cancelable:true, view:window, clientX:cx, clientY:cy}));
     button.dispatchEvent(new MouseEvent('click', {bubbles:true, cancelable:true, view:window, clientX:cx, clientY:cy}));
     button.click();
-  } else {
+  } else if (input) {
     input.dispatchEvent(new KeyboardEvent('keydown', {key:'Enter', code:'Enter', bubbles:true, cancelable:true}));
     input.dispatchEvent(new KeyboardEvent('keyup', {key:'Enter', code:'Enter', bubbles:true, cancelable:true}));
   }
   return JSON.stringify({
     ok:true,
     method:'page_search_input',
-    input:{className:String(input.className || ''), value:input.value || ''},
     button:button ? {text:textOf(button), className:String(button.className || '')} : null,
     beforeUrl:location.href
   });
 })()
 """
-    result = json.loads(chrome_js(js.replace("__KEYWORD__", json.dumps(product_name, ensure_ascii=False))))
+    result = json.loads(chrome_js(js_click))
+    result["input"] = fill_res.get("input")
     logger.log(json.dumps({"search_submit": result}, ensure_ascii=False, indent=2))
-    if not result.get("ok"):
-        raise RuntimeError(f"Taobao search input failed: {result.get('reason', 'UNKNOWN')}")
     time.sleep(8.0)
     return result
 
@@ -1864,11 +1933,16 @@ def parse_item_id(url: str) -> Optional[str]:
 
 def canonical_item_urls(href: str, item_id: Optional[str]) -> list[str]:
     urls: list[str] = []
-    if item_id:
-        urls.append(f"https://item.taobao.com/item.htm?id={item_id}")
-        urls.append(f"https://detail.tmall.com/item.htm?id={item_id}")
+    # 优先使用带有搜索上下文与防伪追踪参数（spm, utparam 等）的原始真实链接。
+    # 关键防风控原则：若已有带上下文的真实链接，严禁再把无上下文的裸链接追加在后面重试，
+    # 否则一旦因插件未就绪而回退裸链接，天猫/淘宝 100% 会触发 safe-access-tips（访问异常提示）！
     if href:
         urls.append(href)
+        if "spm=" in href or "utparam=" in href or "xxc=" in href:
+            return urls
+    if item_id:
+        urls.append(f"https://detail.tmall.com/item.htm?id={item_id}")
+        urls.append(f"https://item.taobao.com/item.htm?id={item_id}")
     deduped: list[str] = []
     for url in urls:
         if url and url not in deduped:
@@ -1936,6 +2010,13 @@ def run_guard(logger: Logger, label: str) -> dict[str, Any]:
     except Exception as exc:
         raise RuntimeError(f"Could not parse guard result: {exc}")
     
+    matched_guards = data.get("matched_guard_terms") or []
+    if any(k in matched_guards for k in ("访问异常提示", "safe-access-tips", "安全的网络与浏览环境", "系统检测到当前访问存在异常")):
+        raise RuntimeError(
+            "SAFE_ACCESS_BLOCKED: 详情页触发天猫安全访问风控（safe-access-tips），页面价格与详情已被临时隐藏。"
+            "请关闭代理/VPN直连访问，并在浏览器中手动浏览几个商品页面以恢复安全信任；建议在配置中适当增大单件间隔等待时间。"
+        )
+
     if data.get("guard_detected"):
         logger.log(f"[WARN] 触发淘宝安全验证/滑块拦截: {data.get('matched_guard_terms')}，请在 Chromium 窗口中手动滑动解锁...")
         # 等待人工滑块解锁协同（轮询最多 60 秒）
@@ -1950,10 +2031,20 @@ def run_guard(logger: Logger, label: str) -> dict[str, Any]:
             except Exception:
                 pass
         raise RuntimeError(f"Taobao guard detected: {data.get('matched_guard_terms')} at {data.get('href')}")
-    # 方案 C 兜底：TMD 风控 punish 直接报错，不进 60 秒滑块循环（punish 页面在隐藏 iframe 内，
-    # 滑块循环等不到用户解除；明确报错并提示降低速率/人工验证才是诚实处理）。
+    # 遇到 TMD_PUNISH（如 captchadrag 滑块拦截）时，先进入 60 秒人工滑块自愈等待，而不是秒退中断任务
     if data.get("punish_detected"):
         punish_srcs = data.get("punish_srcs") or []
+        logger.log(f"[WARN] 检测到淘宝接口滑块/安全验证 (TMD_PUNISH)，请在 Chrome 窗口中手动滑动完成验证（等待最多 60 秒自愈）...")
+        for _ in range(30):
+            time.sleep(2.0)
+            retry_res = run_process(guard_cmd, logger, check=False)
+            try:
+                retry_data = json.loads(retry_res.stdout)
+                if not retry_data.get("punish_detected") and not retry_data.get("guard_detected"):
+                    logger.log("[INFO] TMD_PUNISH 滑块验证已解除，自动化继续运行！")
+                    return retry_data
+            except Exception:
+                pass
         raise RuntimeError(
             f"TMD_PUNISH: 商品接口被淘宝风控拦截（{'、'.join(punish_srcs[:1])}）。"
             f"请降低采集速率或稍后重试；若持续出现，请在软件内打开登录助手完成一次人工安全验证。"
@@ -2407,6 +2498,7 @@ def apply_search_filters_and_sort(
         return {}
     logger.section("apply search filters and sales sort")
     run_guard(logger, "before search filter/sort")
+    human_wait(logger, search_filter_wait(), "settle search results before applying filter/sort")
     result: dict[str, Any] = {}
     if min_price is not None or max_price is not None:
         result["price_filter_ui"] = apply_price_filter_native(logger, min_price, max_price)
@@ -2429,6 +2521,8 @@ def apply_search_filters_and_sort(
                 "warning": "价格筛选后商品卡片未稳定，继续尝试点击销量。",
                 "error": str(exc),
             }, ensure_ascii=False, indent=2))
+        if sort_by_sales:
+            human_wait(logger, search_filter_wait(), "cooldown between price filter and sales sort")
 
     if sort_by_sales:
         js_sales = r"""
@@ -2498,9 +2592,13 @@ def wait_for_search_page_ready(logger: Logger, timeout: float = 35.0) -> dict[st
   // 方案 C 兜底：TMD 风控惩罚 iframe 检测（跨域 iframe 的 src 属性顶层可读）。
   // 只匹配 /punish、action=captcha、pureCaptcha、x5secdata 等惩罚/验证流；
   // 不用裸 ____tmd____（静默登录 iframe mtoph5_close_iframe_page 也含该串，会误报）。
-  const punishSrc = [...document.querySelectorAll('iframe')]
-    .map(f => f.src || '')
-    .find(s => /\/punish|action=captcha|pureCaptcha|x5secdata/i.test(s)) || null;
+  const punishFrames = [...document.querySelectorAll('iframe')].filter(f => {
+    const s = f.src || '';
+    return /\/punish|action=captcha|pureCaptcha|x5secdata/i.test(s);
+  });
+  const visiblePunishSrc = punishFrames.filter(visible).map(f => f.src || '')[0] || null;
+  const anyPunishSrc = punishFrames.map(f => f.src || '')[0] || null;
+  const punishSrc = visiblePunishSrc || (cardCount === 0 ? anyPunishSrc : null);
   return JSON.stringify({
     title: document.title,
     url: location.href,
@@ -2524,16 +2622,18 @@ def wait_for_search_page_ready(logger: Logger, timeout: float = 35.0) -> dict[st
                 f"AUTH_REQUIRED: 页面为空骨架，容器未完成淘宝登录（bodyLength={state.get('bodyLength')}）。"
                 f"请在软件内重新打开登录助手，等待‘授权已完成’提示后再开始采集。"
             )
-        # 方案 C 兜底：商品接口被 TMD 风控惩罚（punish iframe）时立即报错，
-        # 不再傻等 35 秒；提示用户人工过验证或换登录态后重试。
-        if state.get("punishSrc"):
-            raise RuntimeError(
-                f"TMD_PUNISH: 商品接口被淘宝风控拦截（{state.get('punishSrc')[:120]}）。"
-                f"请降低采集速率或稍后重试；若持续出现，请在软件内打开登录助手完成一次人工安全验证。"
-            )
-        if state.get("hasRange") and state.get("hasSales") and int(state.get("cardCount") or 0) > 0:
+        if state.get("hasRange") and state.get("hasSales") and int(state.get("cardCount") or 0) > 0 and not state.get("punishSrc"):
             return state
+        if state.get("punishSrc"):
+            logger.log(f"[WARN] 搜索页检测到风控验证 (TMD_PUNISH)，请在 Chrome 窗口中完成滑块验证，等待恢复...")
+            # 若遇到滑块验证，延长等待时间给用户留出 60 秒滑动机会
+            deadline = max(deadline, time.time() + 10.0)
         time.sleep(2.0)
+    if last_state.get("punishSrc"):
+        raise RuntimeError(
+            f"TMD_PUNISH: 商品接口被淘宝风控拦截（{str(last_state.get('punishSrc'))[:120]}）。"
+            f"请降低采集速率或稍后重试；若持续出现，请在软件内打开登录助手完成一次人工安全验证。"
+        )
     raise RuntimeError(f"Search page did not become ready before filtering: {last_state}")
 
 
@@ -2946,15 +3046,29 @@ def navigate_to_product_with_toolbar(
     toolbar_poll_interval: float = 5.0,
 ) -> dict[str, Any]:
     item_id = selected.get("item_id") or parse_item_id(selected.get("href", ""))
-    urls = canonical_item_urls(selected.get("href", ""), item_id)
+    target_href = selected.get("original_href") or selected.get("href", "")
+    urls = canonical_item_urls(target_href, item_id)
     last_error = ""
     for url_index, url in enumerate(urls, start=1):
         for attempt in range(1, retries_per_url + 1):
             try:
+                if url_index == 1 and attempt == 1:
+                    human_wait(logger, before_item_open_wait(), "settle on search results before opening product detail page")
                 logger.section(f"navigate+toolbar {label} url {url_index}/{len(urls)} attempt {attempt}/{retries_per_url}")
                 logger.log(f"open_url={url}")
                 chrome_set_url(url)
-                time.sleep(12 + (attempt - 1) * 5)
+                # 拟人化浏览停顿与首屏平滑微滚动，模拟真实用户看主图与详情，随后滚回顶部以便操作店透视工具栏
+                settle_secs = detail_settle_wait() + (attempt - 1) * 5
+                scroll_px = detail_scroll_top()
+                human_wait(logger, settle_secs, "detail page initial settle wait")
+                try:
+                    if scroll_px > 0:
+                        chrome_js(f"window.scrollBy({{ top: {scroll_px}, behavior: 'smooth' }});")
+                        time.sleep(1.8)
+                        chrome_js("window.scrollTo({ top: 0, behavior: 'smooth' });")
+                        time.sleep(1.2)
+                except Exception:
+                    pass
                 state = chrome_title_url()
                 logger.log(json.dumps(state, ensure_ascii=False, indent=2))
                 if is_chrome_privacy_error(state):
@@ -2966,11 +3080,18 @@ def navigate_to_product_with_toolbar(
                     last_error = f"Chrome privacy error after guard readback: {guard}"
                     logger.log(last_error)
                     continue
-                return wait_for_toolbar(logger, timeout=toolbar_timeout, poll_interval=toolbar_poll_interval)
+                toolbar_res = wait_for_toolbar(logger, timeout=toolbar_timeout, poll_interval=toolbar_poll_interval)
+                human_wait(logger, 5.0, "settle after toolbar ready before first export")
+                return toolbar_res
             except RuntimeError as exc:
                 last_error = str(exc)
                 logger.log(f"navigation toolbar attempt failed: {last_error}")
-                if "Taobao guard detected" in last_error:
+                # 若已触发风控或页面已正常打开但仅店透视工具栏未渲染，严禁盲目重刷详情页（重刷会立即触发天猫 safe-access-tips 风控）
+                if (
+                    "Taobao guard detected" in last_error
+                    or "SAFE_ACCESS_BLOCKED" in last_error
+                    or "店透视 toolbar/export controls not ready" in last_error
+                ):
                     raise
                 continue
     raise RuntimeError(f"Product page or 店透视 toolbar failed after clean-link retries: {last_error}")
@@ -2980,6 +3101,9 @@ def click_toolbar_control(label: str) -> dict[str, Any]:
     js = f"""
 (() => {{
   const label = {json.dumps(label, ensure_ascii=False)};
+  if (window.scrollY > 0) {{
+    window.scrollTo(0, 0);
+  }}
   const compact = (value) => {{
     if (!value) return '';
     if (typeof value === 'string') return value.trim().replace(/\\s+/g, '');
@@ -3467,7 +3591,6 @@ def wait_for_ask_dialog_ready(logger: Logger, timeout: float, poll_interval: flo
 
 def export_ask(logger: Logger, args: argparse.Namespace, item_id: str) -> Path:
     close_dialog("SKU预览")
-    human_wait(logger, export_cooldown_seconds(args), "cooldown before opening ask dialog")
     run_guard(logger, "before ask open")
     logger.section("click ask")
     logger.log(json.dumps(click_toolbar_control("问大家"), ensure_ascii=False))
@@ -5753,6 +5876,8 @@ def export_current_product(
             "images": [],
         }
         logger.log(json.dumps({"product_page_images_error": product_page_images}, ensure_ascii=False, indent=2))
+    if not args.skip_product_images:
+        human_wait(logger, export_cooldown_seconds(args), "cooldown between product images and product data export")
     if scrape_mode(args) == "dom":
         try:
             product_file = export_product_data_dom(logger, args, item_id)
@@ -5783,6 +5908,7 @@ def export_current_product(
             "time": now_stamp(),
         }
         logger.log(json.dumps({"sku_status": sku_status}, ensure_ascii=False, indent=2))
+    human_wait(logger, export_cooldown_seconds(args), "cooldown between sku export and ask export")
     ask_file: Optional[Path] = None
     ask_status: dict[str, Any] = {"ok": True}
     try:
@@ -6036,6 +6162,8 @@ def run_pipeline(args: argparse.Namespace, logger: Logger) -> dict[str, Any]:
             "images": [],
         }
         logger.log(json.dumps({"product_page_images_error": product_page_images}, ensure_ascii=False, indent=2))
+    if not args.skip_product_images:
+        human_wait(logger, export_cooldown_seconds(args), "cooldown between product images and product data export")
     if scrape_mode(args) == "dom":
         try:
             product_file = export_product_data_dom(logger, args, item_id)
@@ -6066,6 +6194,7 @@ def run_pipeline(args: argparse.Namespace, logger: Logger) -> dict[str, Any]:
             "time": now_stamp(),
         }
         logger.log(json.dumps({"sku_status": sku_status}, ensure_ascii=False, indent=2))
+    human_wait(logger, export_cooldown_seconds(args), "cooldown between sku export and ask export")
     ask_file: Optional[Path] = None
     ask_status: dict[str, Any] = {"ok": True}
     try:
@@ -6257,7 +6386,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--analysis-target-margin", type=float, default=0.30, help="Target gross margin for post-import profit simulation.")
     parser.add_argument("--top-n", type=int, default=1, help="Export the top N search results by visible sales/payment count. Use 100 for Top100 batch mode.")
     parser.add_argument("--master-dir", help="Batch output root directory. Defaults to package/rpa_runs/店透视批量导出-<product>-TopN-<timestamp>.")
-    parser.add_argument("--speed-profile", choices=sorted(SPEED_PROFILES), default="fast", help="Download pacing profile. Default fast shortens 店透视 export cooldowns/waits only; Taobao page pacing (batch_delay/search_scroll_wait) stays at balanced levels. Use conservative/balanced for >=20s export cooldowns.")
+    parser.add_argument("--speed-profile", choices=sorted(SPEED_PROFILES), default="conservative", help="Download pacing profile. Defaults to conservative (极稳防风控模式).")
     parser.add_argument("--batch-delay", type=float, default=None, help="Seconds to wait between products in batch mode. Defaults by --speed-profile; MySQL import time counts toward this cooldown.")
     parser.add_argument("--export-cooldown", type=float, default=None, help="Minimum seconds between heavy 店透视 export actions. fast allows >=8s; conservative/balanced raise values below 20 to 20.")
     parser.add_argument("--ask-ready-timeout", type=float, default=None, help="Seconds to wait for 问大家 dialog readiness before marking it partial. Defaults by --speed-profile.")

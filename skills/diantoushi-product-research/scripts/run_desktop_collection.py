@@ -153,7 +153,7 @@ def main() -> int:
     parser.add_argument("--search-pages", type=int, default=8)
     parser.add_argument("--min-price", type=float)
     parser.add_argument("--max-price", type=float)
-    parser.add_argument("--speed-profile", choices=["fast", "balanced", "conservative"], default="fast")
+    parser.add_argument("--speed-profile", choices=["fast", "balanced", "conservative"], default="conservative")
     parser.add_argument("--run-dir", type=Path, required=True)
     parser.add_argument("--exports-dir", type=Path)
     parser.add_argument("--cdp-url", help="Chrome DevTools Protocol endpoint (e.g. http://127.0.0.1:9222)")

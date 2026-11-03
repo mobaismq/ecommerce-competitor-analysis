@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "店透视 RPA 自动化采集节奏与极稳防风控配置文件。修改此文件中的参数，下一次采集将自动生效。",
+  "active_profile": "conservative",
+  "profiles": {
+    "conservative": {
+      "name": "极稳防风控模式 (推荐)",
+      "description": "全链路放缓搜索、筛选、进店与插件导出节奏，模拟真实用户浏览，抗风控与防封号能力最强",
+      "batch_delay": 60,
+      "export_cooldown": 35,
+      "search_input_settle_wait": 5,
+      "search_filter_wait": 8,
+      "before_item_open_wait": 10,
+      "search_scroll_wait": 5,
+      "detail_settle_wait": 18,
+      "detail_scroll_top": 320,
+      "ask_ready_timeout": 60,
+      "xlsx_first_timeout": 90,
+      "xlsx_retry_timeout": 120,
+      "sku_timeout": 180,
+      "ask_export_timeout": 90,
+      "review_timeout": 120,
+      "download_poll_interval": 2,
+      "diantoushi_click_settle": 1,
+      "diantoushi_dialog_settle": 1,
+      "diantoushi_hover_dwell_ms": 800,
+      "diantoushi_poll_interval": 1.2,
+      "diantoushi_download_idle": 4,
+      "diantoushi_file_stable_wait": 0.4
+    }
+  },
+  "field_explanations": {
+    "batch_delay": "【核心】完成一个商品采集后，跳转到下一个商品详情页前的等待秒数（默认 60 秒，建议 60~90 秒）",
+    "export_cooldown": "【核心】点击店透视各个导出模块（商品图、商品数据、SKU预览、问大家、评价）之间的冷却秒数（默认 35 秒）",
+    "search_input_settle_wait": "打开淘宝搜索页后等待页面风控与 spm 埋点脚本初始化完成的静置秒数（默认 5 秒，防 TMD_PUNISH）",
+    "search_filter_wait": "搜索页执行价格区间筛选与点击销量排序之间的间隔秒数（默认 8 秒）",
+    "before_item_open_wait": "搜索结果选定商品后、点击进入商品详情页前的拟人审视停顿秒数（默认 10 秒）",
+    "search_scroll_wait": "搜索结果页面加载及滚动时模拟真人扫视与卡片渲染的停顿秒数（默认 5 秒）",
+    "detail_settle_wait": "进入商品详情页后的首屏初始静置浏览秒数（默认 18 秒）",
+    "detail_scroll_top": "进入详情页后拟人化向下微滚动的像素高度（默认 320px，随后自动滚回顶部操作工具栏）",
+    "ask_ready_timeout": "等待店透视弹窗完成数据加载的超时上限（秒）",
+    "xlsx_first_timeout": "等待导出的 Excel 表格落盘完成的首轮超时上限（秒）"
+  }
+}

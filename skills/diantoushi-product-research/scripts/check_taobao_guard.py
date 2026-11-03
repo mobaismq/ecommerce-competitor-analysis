@@ -33,7 +33,11 @@ CHECK_JS = r"""
     '安全验证',
     '验证码',
     '滑块',
-    '人机验证'
+    '人机验证',
+    '访问异常提示',
+    '安全的网络与浏览环境',
+    '系统检测到当前访问存在异常',
+    'safe-access-tips'
   ];
   const busyPatterns = [
     '获取数据中',
@@ -48,10 +52,17 @@ CHECK_JS = r"""
   // 方案 C 兜底：TMD 风控惩罚 iframe 检测（跨域 iframe 的 src 属性顶层可读）。
   // 只匹配 /punish、action=captcha、pureCaptcha、x5secdata 等惩罚/验证流；
   // 不用裸 ____tmd____（静默登录 iframe mtoph5_close_iframe_page 也含该串，会误报）。
-  const iframeSrcs = [...document.querySelectorAll('iframe')]
-    .map(f => f.src || f.getAttribute('src') || '')
-    .filter(Boolean);
-  const punishSrcs = iframeSrcs.filter(s => /\/punish|action=captcha|pureCaptcha|x5secdata/i.test(s));
+  // 同时区分可见的滑块验证 iframe 与后台隐藏的非核心推荐接口 iframe。
+  const toolbarPresent = combined.includes('diantoushi.com') || combined.includes('店透视');
+  const hasSearchCards = [...document.querySelectorAll('a[href*="item.htm"], a[href*="id="]')].filter(isVisible).length > 0;
+  const punishFrames = [...document.querySelectorAll('iframe')].filter(f => {
+    const s = f.src || f.getAttribute('src') || '';
+    return /\/punish|action=captcha|pureCaptcha|x5secdata/i.test(s);
+  });
+  const visiblePunishSrcs = punishFrames.filter(isVisible).map(f => f.src || f.getAttribute('src') || '');
+  const allPunishSrcs = punishFrames.map(f => f.src || f.getAttribute('src') || '');
+  // 若页面主内容（店透视工具栏或搜索商品卡片）已正常渲染，且 punish iframe 处于隐藏状态（如后台 wirelessrecommend 推荐接口），不判定为阻断
+  const punishBlocking = visiblePunishSrcs.length > 0 || (allPunishSrcs.length > 0 && !toolbarPresent && !hasSearchCards);
   return JSON.stringify({
     href: location.href,
     title,
@@ -60,11 +71,12 @@ CHECK_JS = r"""
     busy_detected: busyPatterns.some(p => combined.includes(p)),
     matched_guard_terms: guardPatterns.filter(p => combined.includes(p)),
     matched_busy_terms: busyPatterns.filter(p => combined.includes(p)),
-    toolbar_present: combined.includes('diantoushi.com') || combined.includes('店透视'),
+    toolbar_present: toolbarPresent,
     export_controls: [...new Set(controls)],
     dialogs: dialogs.slice(0, 8).map(t => t.slice(0, 300)),
-    punish_detected: punishSrcs.length > 0,
-    punish_srcs: punishSrcs.slice(0, 3)
+    punish_detected: punishBlocking,
+    punish_visible: visiblePunishSrcs.length > 0,
+    punish_srcs: (visiblePunishSrcs.length > 0 ? visiblePunishSrcs : allPunishSrcs).slice(0, 3)
   });
 })()
 """
@@ -75,6 +87,7 @@ def run_chrome_js(js: str, window_id: Optional[int] = None, cdp_url: Optional[st
     if not url and os.environ.get("CHROME_CDP_PORT"):
         url = f"http://127.0.0.1:{os.environ.get('CHROME_CDP_PORT')}"
     if url or os.environ.get("DTS_USE_CDP") == "1":
+        pw = None
         try:
             from playwright.sync_api import sync_playwright
             target_url = url or "http://127.0.0.1:9222"
@@ -87,6 +100,12 @@ def run_chrome_js(js: str, window_id: Optional[int] = None, cdp_url: Optional[st
         except Exception as cdp_err:
             if url:
                 raise RuntimeError(f"CDP execute failed: {cdp_err}")
+        finally:
+            if pw is not None:
+                try:
+                    pw.stop()
+                except Exception:
+                    pass
 
     if window_id is None:
         target = "set targetWindow to front window"

@@ -123,6 +123,20 @@ declare global {
             note?: string
           }
         }>
+        getSpeedConfig?: () => Promise<{
+          ok: boolean
+          filePath: string
+          activeProfile: string
+          profile: Record<string, number>
+          defaultProfile: Record<string, number>
+          fieldExplanations: Record<string, string>
+          error?: string
+        }>
+        saveSpeedConfig?: (input: { profile: Record<string, number> }) => Promise<{
+          ok: boolean
+          filePath: string
+          error?: string
+        }>
         /** 登录授权状态订阅：idle / opening / waiting-sso / verified。 */
         onLoginState: (listener: (state: { state: 'idle' | 'opening' | 'waiting-sso' | 'verified' }) => void) => () => void
       }
