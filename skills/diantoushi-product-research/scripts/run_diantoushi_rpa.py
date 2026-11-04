@@ -337,6 +337,8 @@ def get_cdp_page():
             if not has_dts_sw:
                 ext_candidates = [
                     os.environ.get("DTS_EXTENSION_DIR"),
+                    str(Path(os.environ["APPDATA"]) / "desktop" / "extensions" / "diantoushi") if os.environ.get("APPDATA") else None,
+                    str(Path.home() / "AppData" / "Roaming" / "desktop" / "extensions" / "diantoushi"),
                     str(Path.home() / "Library" / "Application Support" / "desktop" / "extensions" / "diantoushi"),
                     str(ROOT_DIR / "apps" / "desktop" / "resources" / "extensions" / "diantoushi"),
                 ]

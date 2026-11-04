@@ -3,7 +3,7 @@ import { promisify } from 'node:util'
 import { app } from 'electron'
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { resolveActiveExtensionPath } from './extension-manager'
 
 export interface LaunchChromeOptions {
@@ -110,8 +110,8 @@ export interface SystemChromeProbeResult {
  * 优先级 2：Microsoft Edge（自动降级兼容，Windows 系统通常自带，同样 100% 兼容 CDP 与店透视扩展）
  */
 export function getSystemChromeCandidates(): string[] {
-  const home = process.env.HOME || ''
-  const localAppData = process.env.LOCALAPPDATA || ''
+  const home = process.env.HOME || process.env.USERPROFILE || ''
+  const localAppData = process.env.LOCALAPPDATA || (home ? join(home, 'AppData/Local') : '')
   const progFiles = process.env.PROGRAMFILES || 'C:\\Program Files'
   const progFilesX86 = process.env['PROGRAMFILES(X86)'] || 'C:\\Program Files (x86)'
 
@@ -120,23 +120,27 @@ export function getSystemChromeCandidates(): string[] {
     // macOS
     '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
     home ? join(home, 'Applications/Google Chrome.app/Contents/MacOS/Google Chrome') : undefined,
-    // Windows
+    // Windows (C盘标准目录 + 单用户 AppData + 常见 D盘自定义安装目录)
     join(progFiles, 'Google/Chrome/Application/chrome.exe'),
     join(progFilesX86, 'Google/Chrome/Application/chrome.exe'),
     localAppData ? join(localAppData, 'Google/Chrome/Application/chrome.exe') : undefined,
     'C:/Program Files/Google/Chrome/Application/chrome.exe',
     'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe',
+    'D:/Program Files/Google/Chrome/Application/chrome.exe',
+    'D:/Program Files (x86)/Google/Chrome/Application/chrome.exe',
     // Linux
     '/usr/bin/google-chrome',
     '/usr/bin/google-chrome-stable',
 
-    // 2. Microsoft Edge (未安装 Chrome 时自动降级唤起)
+    // 2. Microsoft Edge (未安装 Chrome 时自动降级唤起，Windows 10/11 默认自带)
     // Windows
     join(progFilesX86, 'Microsoft/Edge/Application/msedge.exe'),
     join(progFiles, 'Microsoft/Edge/Application/msedge.exe'),
     localAppData ? join(localAppData, 'Microsoft/Edge/Application/msedge.exe') : undefined,
     'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
     'C:/Program Files/Microsoft/Edge/Application/msedge.exe',
+    'D:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
+    'D:/Program Files/Microsoft/Edge/Application/msedge.exe',
     // macOS
     '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
     home ? join(home, 'Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge') : undefined,
@@ -360,9 +364,23 @@ async function resolveChromeVersion(chromeExe: string): Promise<string | null> {
   if (cachedChromeVersion !== undefined) return cachedChromeVersion
   cachedChromeVersion = null
   try {
-    const { stdout } = await execFileAsync(chromeExe, ['--version'], { timeout: 5000 })
-    const match = String(stdout).match(/(\d+\.\d+\.\d+\.\d+)/)
-    if (match) cachedChromeVersion = match[1]
+    // Windows 下 Chrome / Edge 的 Application 目录下固定存在形如 136.0.7103.49 的版本子目录。
+    // 直接读取目录名可避免在 Windows 上调用 chrome.exe --version 意外拉起 GUI 浏览器窗口。
+    const appDir = dirname(chromeExe)
+    if (existsSync(appDir)) {
+      const entries = readdirSync(appDir, { withFileTypes: true })
+      for (const entry of entries) {
+        if (entry.isDirectory() && /^\d+\.\d+\.\d+\.\d+$/.test(entry.name)) {
+          cachedChromeVersion = entry.name
+          return cachedChromeVersion
+        }
+      }
+    }
+    if (process.platform !== 'win32') {
+      const { stdout } = await execFileAsync(chromeExe, ['--version'], { timeout: 5000 })
+      const match = String(stdout).match(/(\d+\.\d+\.\d+\.\d+)/)
+      if (match) cachedChromeVersion = match[1]
+    }
   } catch {}
   return cachedChromeVersion
 }
@@ -637,6 +655,7 @@ export async function launchChromeForRpa(options: LaunchChromeOptions = {}): Pro
     rmSync(join(profileDir, 'SingletonLock'), { force: true })
     rmSync(join(profileDir, 'SingletonSocket'), { force: true })
     rmSync(join(profileDir, 'SingletonCookie'), { force: true })
+    rmSync(join(profileDir, 'lockfile'), { force: true })
   } catch {}
 
   // 跨平台规范化路径，避免 Windows 反斜杠转义
