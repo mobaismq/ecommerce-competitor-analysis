@@ -98,7 +98,9 @@ declare global {
           installed: boolean
           path?: string
           version?: string
+          browserName?: 'Google Chrome' | 'Microsoft Edge'
           downloadUrl: string
+          edgeDownloadUrl?: string
         }>
         openExternalUrl: (url: string) => Promise<{ ok: boolean }>
         openLoginView: () => Promise<{

@@ -93,15 +93,22 @@ export function resolveBuiltinChromiumPath(): string | null {
 }
 
 export const GOOGLE_CHROME_DOWNLOAD_URL = 'https://www.google.cn/chrome/'
+export const MICROSOFT_EDGE_DOWNLOAD_URL = 'https://www.microsoft.com/zh-cn/edge/download'
 
 export interface SystemChromeProbeResult {
   installed: boolean
   path?: string
   version?: string
+  browserName?: 'Google Chrome' | 'Microsoft Edge'
   downloadUrl: string
+  edgeDownloadUrl?: string
 }
 
-/** 获取宿主系统官方 Google Chrome 的常见候选安装路径 */
+/**
+ * 获取宿主系统 Chromium 内核浏览器的候选安装路径：
+ * 优先级 1：Google Chrome（首选）
+ * 优先级 2：Microsoft Edge（自动降级兼容，Windows 系统通常自带，同样 100% 兼容 CDP 与店透视扩展）
+ */
 export function getSystemChromeCandidates(): string[] {
   const home = process.env.HOME || ''
   const localAppData = process.env.LOCALAPPDATA || ''
@@ -109,6 +116,7 @@ export function getSystemChromeCandidates(): string[] {
   const progFilesX86 = process.env['PROGRAMFILES(X86)'] || 'C:\\Program Files (x86)'
 
   const candidates: (string | undefined)[] = [
+    // 1. Google Chrome (首选)
     // macOS
     '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
     home ? join(home, 'Applications/Google Chrome.app/Contents/MacOS/Google Chrome') : undefined,
@@ -121,37 +129,64 @@ export function getSystemChromeCandidates(): string[] {
     // Linux
     '/usr/bin/google-chrome',
     '/usr/bin/google-chrome-stable',
+
+    // 2. Microsoft Edge (未安装 Chrome 时自动降级唤起)
+    // Windows
+    join(progFilesX86, 'Microsoft/Edge/Application/msedge.exe'),
+    join(progFiles, 'Microsoft/Edge/Application/msedge.exe'),
+    localAppData ? join(localAppData, 'Microsoft/Edge/Application/msedge.exe') : undefined,
+    'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
+    'C:/Program Files/Microsoft/Edge/Application/msedge.exe',
+    // macOS
+    '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
+    home ? join(home, 'Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge') : undefined,
+    // Linux
+    '/usr/bin/microsoft-edge',
+    '/usr/bin/microsoft-edge-stable',
   ]
   return Array.from(new Set(candidates.filter((p): p is string => Boolean(p))))
 }
 
-/** 探测宿主系统外部已安装的官方 Google Chrome 可执行文件路径 */
+/** 根据可执行文件路径识别浏览器名称 */
+export function detectBrowserName(executablePath: string): 'Google Chrome' | 'Microsoft Edge' {
+  const lower = executablePath.toLowerCase()
+  if (lower.includes('edge') || lower.includes('msedge')) {
+    return 'Microsoft Edge'
+  }
+  return 'Google Chrome'
+}
+
+/** 探测宿主系统外部已安装的 Google Chrome（优先）或 Microsoft Edge（降级）可执行文件路径 */
 export function findSystemChromePath(): string {
   const candidates = getSystemChromeCandidates()
   const found = candidates.find(existsSync)
   if (!found) {
-    const error = new Error('CHROME_NOT_FOUND: 未检测到本机安装的 Google Chrome 浏览器')
+    const error = new Error('CHROME_NOT_FOUND: 未检测到本机安装的 Google Chrome 或 Microsoft Edge 浏览器')
     ;(error as unknown as { code: string }).code = 'CHROME_NOT_FOUND'
     throw error
   }
   return found
 }
 
-/** 安全探测宿主系统 Google Chrome 安装状态、版本号及下载引导信息 */
+/** 安全探测宿主系统 Chrome / Edge 安装状态、版本号及下载引导信息 */
 export async function probeSystemChrome(): Promise<SystemChromeProbeResult> {
   try {
     const chromePath = findSystemChromePath()
     const version = await resolveChromeVersion(chromePath)
+    const browserName = detectBrowserName(chromePath)
     return {
       installed: true,
       path: chromePath,
       version: version ?? undefined,
+      browserName,
       downloadUrl: GOOGLE_CHROME_DOWNLOAD_URL,
+      edgeDownloadUrl: MICROSOFT_EDGE_DOWNLOAD_URL,
     }
   } catch {
     return {
       installed: false,
       downloadUrl: GOOGLE_CHROME_DOWNLOAD_URL,
+      edgeDownloadUrl: MICROSOFT_EDGE_DOWNLOAD_URL,
     }
   }
 }

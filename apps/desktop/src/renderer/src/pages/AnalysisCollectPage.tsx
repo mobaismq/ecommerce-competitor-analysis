@@ -114,7 +114,9 @@ export function AnalysisCollectPage() {
     installed: boolean
     path?: string
     version?: string
+    browserName?: 'Google Chrome' | 'Microsoft Edge'
     downloadUrl: string
+    edgeDownloadUrl?: string
   } | null>(null)
   const [probingChrome, setProbingChrome] = useState(false)
 
@@ -129,13 +131,13 @@ export function AnalysisCollectPage() {
         return false
       } else {
         if (!silent) {
-          Message.success(`已成功检测到 Google Chrome (版本: ${res.version || '最新'})`)
+          Message.success(`已成功检测到 ${res.browserName || 'Google Chrome'}${res.version ? ` (版本: ${res.version})` : ''}`)
           setChromeModalVisible(false)
         }
         return true
       }
     } catch (err) {
-      console.error('探测 Chrome 失败', err)
+      console.error('探测浏览器失败', err)
       return false
     } finally {
       setProbingChrome(false)
@@ -910,23 +912,33 @@ export function AnalysisCollectPage() {
         </div>
       </Drawer>
 
-      {/* 未安装 Google Chrome 浏览器时的阻断式引导弹窗 */}
+      {/* 未安装 Google Chrome 或 Microsoft Edge 浏览器时的阻断式引导弹窗 */}
       <Modal
         title={
           <div className="flex items-center gap-2 text-[#d97706] font-bold text-[16px]">
             <AlertCircle className="w-5 h-5" />
-            <span>未检测到 Google Chrome 浏览器</span>
+            <span>未检测到可用的 Chrome / Edge 浏览器</span>
           </div>
         }
         visible={chromeModalVisible}
         onCancel={() => setChromeModalVisible(false)}
         footer={
-          <div className="flex justify-end gap-3">
+          <div className="flex flex-wrap justify-end gap-2.5">
             <Button
               loading={probingChrome}
               onClick={() => { void checkChrome(false) }}
             >
               我已安装，重新检测
+            </Button>
+            <Button
+              type="secondary"
+              icon={<ExternalLink className="w-4 h-4" />}
+              onClick={async () => {
+                const url = chromeProbeResult?.edgeDownloadUrl || 'https://www.microsoft.com/zh-cn/edge/download'
+                await window.desktop?.collection?.openExternalUrl?.(url)
+              }}
+            >
+              下载 Microsoft Edge
             </Button>
             <Button
               type="primary"
@@ -937,7 +949,7 @@ export function AnalysisCollectPage() {
                 await window.desktop?.collection?.openExternalUrl?.(url)
               }}
             >
-              前往官网下载 Chrome
+              下载 Google Chrome (推荐)
             </Button>
           </div>
         }
@@ -946,11 +958,11 @@ export function AnalysisCollectPage() {
       >
         <div className="py-2 text-[14px] text-[#4e5969] leading-relaxed">
           <p className="mb-3 text-[#1d2129] font-medium">
-            店透视自动化采集需要依赖本机的官方 <strong className="text-[#165dff]">Google Chrome 浏览器</strong> 以获得最高数据稳定性并杜绝阿里安全风控拦截。
+            店透视自动化采集支持调用本机的 <strong className="text-[#165dff]">Google Chrome（优先）</strong> 或 <strong className="text-[#165dff]">Microsoft Edge（自动降级兼容）</strong> 浏览器，以挂载官方店透视插件并保障最佳防风控稳定性。
           </p>
           <div className="rounded-lg bg-[#fff7e8] border border-[#ffe4ba] p-3 text-[13px] text-[#d46b08] space-y-1">
-            <div>• 请先安装官方 Google Chrome 浏览器后再启动采集。</div>
-            <div>• 安装完成后，点击右下方「我已安装，重新检测」即可立即开启自动化任务。</div>
+            <div>• 当前未检测到本机安装 Google Chrome 或 Microsoft Edge 浏览器。</div>
+            <div>• 请点击下方按钮下载安装任一浏览器，安装完成后点击「我已安装，重新检测」即可立即开启采集。</div>
           </div>
         </div>
       </Modal>
