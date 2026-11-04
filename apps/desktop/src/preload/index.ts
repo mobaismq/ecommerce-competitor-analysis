@@ -41,6 +41,7 @@ contextBridge.exposeInMainWorld('desktop', {
       importMysql?: boolean
       mode?: string
       downloadScript?: string
+      resumeJobId?: string
       fake?: boolean
     }) => ipcRenderer.invoke('collection:start', input),
     cancel: () => ipcRenderer.invoke('collection:cancel'),

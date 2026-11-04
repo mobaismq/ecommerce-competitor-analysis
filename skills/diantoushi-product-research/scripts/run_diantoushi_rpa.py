@@ -655,6 +655,32 @@ def wait_for_search_input_ready(logger: Logger, timeout: float = 35.0) -> dict[s
 
 def open_taobao_search_from_page(logger: Logger, product_name: str) -> dict[str, Any]:
     reset_chrome_target()
+    # 断点续采智能复用：若当前页面已经停留在同一关键词的淘宝搜索结果页且已有商品卡片（例如用户刚在搜索页滑完滑块并点击继续），直接复用当前搜索页，避免重复提交搜索
+    try:
+        existing_search = json.loads(chrome_js(r"""
+(() => {
+  const kw = __KEYWORD__;
+  const u = location.href || '';
+  if (!u.includes('s.taobao.com/search')) return JSON.stringify({reuse: false});
+  const qParam = new URL(u).searchParams.get('q') || '';
+  const visible = (e) => {
+    const r = e.getBoundingClientRect();
+    const s = getComputedStyle(e);
+    return r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden';
+  };
+  const cardCount = [...document.querySelectorAll('a[href*="item.htm"], a[href*="id="]')].filter(visible).length;
+  return JSON.stringify({
+    reuse: (qParam === kw || decodeURIComponent(u).includes(kw)) && cardCount > 0,
+    url: u,
+    cardCount
+  });
+})()
+""".replace("__KEYWORD__", json.dumps(product_name, ensure_ascii=False))))
+        if existing_search.get("reuse"):
+            logger.log(json.dumps({"search_page_reused_from_breakpoint": existing_search}, ensure_ascii=False, indent=2))
+            return {"ok": True, "method": "reused_existing_search_page", "url": existing_search.get("url")}
+    except Exception:
+        pass
     # 软重置当前标签页到 about:blank，彻底卸载上一轮残留的 DOM、弹窗与旧页面状态
     try:
         cur = chrome_title_url()
@@ -6032,6 +6058,35 @@ def run_batch_pipeline(args: argparse.Namespace, logger: Logger) -> dict[str, An
     results = []
     selected_total = 0
     seen_item_ids: set[str] = set()
+    # 断点续采支持：扫描 master_dir 下已完成的商品子目录（含 ok=true 的 product_summary.json），直接恢复进度并跳过已采商品
+    if master_dir.is_dir():
+        for existing_dir in sorted(master_dir.iterdir()):
+            if not existing_dir.is_dir():
+                continue
+            summary_file = existing_dir / "product_summary.json"
+            if summary_file.is_file():
+                try:
+                    prev_summary = json.loads(summary_file.read_text(encoding="utf-8"))
+                    prev_id = str(prev_summary.get("item_id") or "").strip()
+                    if prev_summary.get("ok") and prev_id and prev_id not in seen_item_ids:
+                        prev_summary["target_dir"] = str(existing_dir)
+                        results.append(prev_summary)
+                        seen_item_ids.add(prev_id)
+                        selected_total = len(results)
+                        continue
+                except Exception:
+                    pass
+            # 清理停止或异常时留下的未完成半成品目录，以便续采时从该序号干净重采
+            if re.match(r"^\d{3}-", existing_dir.name):
+                shutil.rmtree(existing_dir, ignore_errors=True)
+    if selected_total > 0:
+        logger.section(f"batch item {selected_total}/{args.top_n} resumed")
+        logger.log(json.dumps({
+            "resume_mode": True,
+            "resumed_completed_count": selected_total,
+            "resumed_item_ids": sorted(seen_item_ids),
+            "remaining_to_collect": max(0, args.top_n - selected_total),
+        }, ensure_ascii=False, indent=2))
     logger.log(json.dumps({
         "batch_download_strategy": "prefetch_all_pages_first" if args.prefetch_candidates_first else "sequential_page_first",
         "strategy_explanation": (

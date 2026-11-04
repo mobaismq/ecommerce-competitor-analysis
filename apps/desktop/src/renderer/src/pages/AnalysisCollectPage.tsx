@@ -28,10 +28,10 @@ interface PresetItem {
 }
 
 const PRESETS: PresetItem[] = [
-  { label: '智能手表', keyword: '智能手表', minPrice: 300, maxPrice: 500, count: 20 },
-  { label: '蓝牙耳机', keyword: '蓝牙耳机', minPrice: 50, maxPrice: 300, count: 30 },
-  { label: '猫粮', keyword: '猫粮', minPrice: 80, maxPrice: 300, count: 20 },
-  { label: '冲锋衣', keyword: '冲锋衣', minPrice: 200, maxPrice: 800, count: 20 },
+  { label: '智能手表', keyword: '智能手表', minPrice: 300, maxPrice: 500, count: 2 },
+  { label: '蓝牙耳机', keyword: '蓝牙耳机', minPrice: 50, maxPrice: 300, count: 2 },
+  { label: '猫粮', keyword: '猫粮', minPrice: 80, maxPrice: 300, count: 2 },
+  { label: '冲锋衣', keyword: '冲锋衣', minPrice: 200, maxPrice: 800, count: 2 },
 ]
 
 // 状态徽章配色对照旧版 AIDataCollection.tsx statusConfig
@@ -55,8 +55,8 @@ export function AnalysisCollectPage() {
   const [keyword, setKeyword] = useState('')
   const [minPrice, setMinPrice] = useState<string>('')
   const [maxPrice, setMaxPrice] = useState<string>('')
-  const [competitorCount, setCompetitorCount] = useState('')
-  const [searchPages, setSearchPages] = useState('8')
+  const [competitorCount, setCompetitorCount] = useState('2')
+  const [searchPages, setSearchPages] = useState('3')
   const [speedProfile, setSpeedProfile] = useState<'conservative' | 'balanced' | 'fast'>('conservative')
 
   // 状态控制：驱动主进程真实店透视 RPA（collection:start / collection:status）
@@ -290,7 +290,7 @@ export function AnalysisCollectPage() {
     Message.info(`已套用预设「${preset.label}」`)
   }
 
-  const handleStart = async () => {
+  const handleStart = async (resume = false) => {
     setErrorMessage('')
 
     if (loginStatus.checking) {
@@ -349,14 +349,21 @@ export function AnalysisCollectPage() {
       setErrorMessage('翻页深度需为 1-100 之间的整数')
       return
     }
-    setImportedCount(null)
+    const canResume = Boolean(resume && jobId && activeParams?.keyword === cleanKeyword)
+    if (!canResume) {
+      setImportedCount(null)
+    }
     setActiveParams(newParams)
     setLoading(true)
 
-    const pacingText = '极稳防风控(单件间隔45s+/冷却30s)'
+    const pacingText = `极稳防风控(单件间隔${speedConfig.batch_delay}s+/冷却${speedConfig.export_cooldown}s)`
     const nowStr = new Date().toLocaleTimeString()
-    const initLog = `[${nowStr}] 🚀 正在启动店透视采集任务...\n[${nowStr}] 目标关键词: ${newParams.keyword} | 计划采集数: ${count} | 价格区间: ${newParams.minPrice ?? '不限'} ~ ${newParams.maxPrice ?? '不限'}\n[${nowStr}] 采集节奏: ${pacingText}\n`
-    setLogs(initLog)
+    if (canResume) {
+      setLogs((prev) => prev + `\n[${nowStr}] ▶️ 正在从断点继续采集任务 (${jobId})，已完成的商品将自动跳过...\n`)
+    } else {
+      const initLog = `[${nowStr}] 🚀 正在启动店透视采集任务...\n[${nowStr}] 目标关键词: ${newParams.keyword} | 计划采集数: ${count} | 价格区间: ${newParams.minPrice ?? '不限'} ~ ${newParams.maxPrice ?? '不限'}\n[${nowStr}] 采集节奏: ${pacingText}\n`
+      setLogs(initLog)
+    }
     setStatus('running')
 
     try {
@@ -371,13 +378,14 @@ export function AnalysisCollectPage() {
         speedProfile,
         mode: 'download-and-import',
         importMysql: false,
+        resumeJobId: canResume ? jobId : undefined,
         // 生产业务界面固定为真实采集；fake 仿真仅保留在底层的 vitest 自动化测试中
         fake: false,
       })
       if (!res?.jobId) throw new Error('未能启动采集任务')
       setJobId(res.jobId)
-      setLogs((prev) => prev + `[${new Date().toLocaleTimeString()}] 店透视采集任务已启动，日志将实时刷新。\n`)
-      Message.success('店透视采集任务已启动')
+      setLogs((prev) => prev + `[${new Date().toLocaleTimeString()}] ${canResume ? '已恢复采集任务，接着上次进度继续运行。' : '店透视采集任务已启动，日志将实时刷新。'}\n`)
+      Message.success(canResume ? '已从断点继续采集任务' : '店透视采集任务已启动')
       const s = await window.desktop.collection.status(res.jobId).catch(() => null)
       if (s?.logTail) setLogs(s.logTail)
     } catch (err: unknown) {
@@ -417,8 +425,8 @@ export function AnalysisCollectPage() {
     setKeyword('')
     setMinPrice('')
     setMaxPrice('')
-    setCompetitorCount('')
-    setSearchPages('8')
+    setCompetitorCount('2')
+    setSearchPages('3')
     setStatus('idle')
     setLogs('')
     setActiveParams(null)
@@ -576,8 +584,8 @@ export function AnalysisCollectPage() {
               </div>
               <div>
                 <label className={FIELD_LABEL_CLASS}>翻页深度 (页数)</label>
-                <XInput value={searchPages} onChange={setSearchPages} disabled={isRunning} placeholder="默认检索前 8 页" inputMode="numeric" />
-                <p className="m-0 mt-1 text-[12px] text-[#86909C]">默认检索前 8 页</p>
+                <XInput value={searchPages} onChange={setSearchPages} disabled={isRunning} placeholder="默认检索前 3 页" inputMode="numeric" />
+                <p className="m-0 mt-1 text-[12px] text-[#86909C]">默认检索前 3 页</p>
               </div>
             </div>
 
@@ -646,29 +654,52 @@ export function AnalysisCollectPage() {
           )}
 
             <div className="flex gap-3">
-              <button
-                type="button"
-                onClick={handleStart}
-                disabled={loading || isRunning || loginStatus.checking}
-                className="flex h-11 flex-1 cursor-pointer items-center justify-center gap-2 rounded-lg border-0 bg-[#3388ff] text-[14px] font-extrabold text-white transition-all hover:bg-[#1a6fe8] disabled:cursor-not-allowed disabled:bg-[#b8d7ff]"
-              >
-                {loginStatus.checking ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    <span>检测登录态中...</span>
-                  </>
-                ) : loading || isRunning ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    <span>开始采集</span>
-                  </>
-                ) : (
-                  <>
+              {(status === 'stopped' || status === 'failed') && jobId && activeParams?.keyword === keyword.trim() ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => { void handleStart(true) }}
+                    disabled={loading || isRunning || loginStatus.checking}
+                    className="flex h-11 flex-1 cursor-pointer items-center justify-center gap-2 rounded-lg border-0 bg-[#16a34a] text-[14px] font-extrabold text-white transition-all hover:bg-[#15803d] disabled:cursor-not-allowed disabled:bg-[#86efac]"
+                  >
                     <Play className="h-4 w-4 fill-white" />
-                    <span>开始采集</span>
-                  </>
-                )}
-              </button>
+                    <span>继续采集{collected > 0 ? ` (已完成 ${collected}/${total})` : ''}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { void handleStart(false) }}
+                    disabled={loading || isRunning || loginStatus.checking}
+                    className="flex h-11 px-4 cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-[#dce3ee] bg-white text-[13px] font-bold text-[#344054] transition-colors hover:bg-[#f8fafc] disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <RotateCcw className="h-3.5 w-3.5" />
+                    <span>重新开始</span>
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => { void handleStart(false) }}
+                  disabled={loading || isRunning || loginStatus.checking}
+                  className="flex h-11 flex-1 cursor-pointer items-center justify-center gap-2 rounded-lg border-0 bg-[#3388ff] text-[14px] font-extrabold text-white transition-all hover:bg-[#1a6fe8] disabled:cursor-not-allowed disabled:bg-[#b8d7ff]"
+                >
+                  {loginStatus.checking ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <span>检测登录态中...</span>
+                    </>
+                  ) : loading || isRunning ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <span>采集中...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Play className="h-4 w-4 fill-white" />
+                      <span>开始采集</span>
+                    </>
+                  )}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={handleStop}

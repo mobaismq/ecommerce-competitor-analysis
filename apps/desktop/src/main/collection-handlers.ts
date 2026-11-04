@@ -169,6 +169,8 @@ export interface CollectionStartInput {
   tenantId?: string
   /** 报告检索用关键词（缺省取 productName）。 */
   keyword?: string
+  /** 断点续采：复用已停止或中断的任务 ID 与已采集样本目录，接着继续采集剩余商品。 */
+  resumeJobId?: string
   /** 开发期注入 fake downloader，避免反复触发真实店透视爬虫。 */
   fake?: boolean
 }
@@ -209,8 +211,8 @@ export function registerCollectionHandlers(prisma: PrismaClient) {
   ipcMain.handle('collection:start', async (_event, input: CollectionStartInput = {}) => {
     if (running) throw new Error('已有采集任务正在运行，请等待完成或停止当前任务')
     const mode = assertCollectionMode(input.mode ?? 'download-and-import')
-    const topN = Number(input.topN ?? input.limit ?? 1)
-    const searchPages = Number(input.searchPages ?? 8)
+    const topN = Number(input.topN ?? input.limit ?? 2)
+    const searchPages = Number(input.searchPages ?? 3)
     const minPrice = input.minPrice === '' || input.minPrice == null ? null : Number(input.minPrice)
     const maxPrice = input.maxPrice === '' || input.maxPrice == null ? null : Number(input.maxPrice)
     if (!input.productName?.trim()) throw new Error('请输入采集关键词')
@@ -226,7 +228,8 @@ export function registerCollectionHandlers(prisma: PrismaClient) {
       }
     }
 
-    const jobId = `local-collection-${Date.now()}-${randomUUID().slice(0, 8)}`
+    const isResume = typeof input.resumeJobId === 'string' && /^local-collection-[\w-]+$/.test(input.resumeJobId)
+    const jobId = isResume ? input.resumeJobId! : `local-collection-${Date.now()}-${randomUUID().slice(0, 8)}`
     const workDir = workDirFor(jobId)
     const logFile = join(workDir, 'run.log')
     running = true
@@ -237,7 +240,7 @@ export function registerCollectionHandlers(prisma: PrismaClient) {
     const importLocal = mode === 'download-and-import' || mode === 'import-only'
 
     const initialLog = [
-      `[${new Date().toISOString()}] [INFO] 启动店透视 RPA 采集任务...`,
+      `[${new Date().toISOString()}] [INFO] ${isResume ? '▶️ 断点续采：继续店透视 RPA 采集任务...' : '启动店透视 RPA 采集任务...'}`,
       `[INFO] 任务编号: ${jobId}`,
       `[INFO] 目标商品: ${input.productName || '默认商品'}`,
       `[INFO] 价格区间: ${minPrice != null ? minPrice : '不限'} ~ ${maxPrice != null ? maxPrice : '不限'} 元`,
@@ -245,7 +248,11 @@ export function registerCollectionHandlers(prisma: PrismaClient) {
       `[INFO] 工作目录: ${workDir}`,
       `[INFO] 采集器: 店透视 Mac 完整版；数据保存至本机${importLocal ? '并写入报告数据库' : ''}`,
     ].join('\n') + '\n'
-    writeFileSync(logFile, initialLog, 'utf8')
+    if (isResume && existsSync(logFile)) {
+      appendFileSync(logFile, '\n' + initialLog, 'utf8')
+    } else {
+      writeFileSync(logFile, initialLog, 'utf8')
+    }
 
     // 更新 PID
     const currentPid = process.pid
@@ -262,9 +269,11 @@ export function registerCollectionHandlers(prisma: PrismaClient) {
         if (!input.fake) {
           try {
             const container = await ensureChromiumContainer(workDir)
-            await softResetChromeTabs(container.port)
+            if (!isResume) {
+              await softResetChromeTabs(container.port)
+            }
             cdpUrl = container.debugUrl
-            const containerLog = `[INFO] 宿主系统真实 Google Chrome 容器已就绪并完成工作区软重置 (CDP: ${cdpUrl}, 独立资料: real-chrome-profile)\n[INFO] 淘宝有头交互窗口已就绪，如遇偶发安全验证可直接在 Chrome 窗口中滑动完成自愈\n`
+            const containerLog = `[INFO] 宿主系统真实 Google Chrome 容器已就绪${isResume ? '（保留当前页面断点继续）' : '并完成工作区软重置'} (CDP: ${cdpUrl}, 独立资料: real-chrome-profile)\n[INFO] 淘宝有头交互窗口已就绪，如遇偶发安全验证可直接在 Chrome 窗口中滑动完成自愈\n`
             appendFileSync(logFile, containerLog)
           } catch (containerErr) {
             logger.warn('启动系统 Google Chrome 容器异常:', containerErr)
@@ -352,13 +361,10 @@ export function registerCollectionHandlers(prisma: PrismaClient) {
         },
       })
       killPythonProcesses(targetJobId)
-      if (activeChrome) {
-        void softResetChromeTabs(activeChrome.port)
-      }
       const workDir = workDirFor(targetJobId)
       const logFile = join(workDir, 'run.log')
       if (existsSync(logFile)) {
-        writeFileSync(logFile, `\n[${new Date().toISOString()}] [WARN] 任务已被用户手动停止。\n`, { flag: 'a' })
+        writeFileSync(logFile, `\n[${new Date().toISOString()}] [WARN] 任务已被用户手动暂停/停止（可点击「继续采集」从当前进度接着采集）。\n`, { flag: 'a' })
       }
       return { cancelled: true, jobId: targetJobId }
     } catch (err) {
