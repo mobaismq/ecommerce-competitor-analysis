@@ -471,6 +471,80 @@ export async function ensureExtensionLoadedViaCdp(port: number, extensionPath?: 
   }
 }
 
+/**
+ * 方案 A（软重置）：不杀 Chrome 进程（保留淘宝内存级信任态与店透视 Service Worker 热态），
+ * 自动关闭多余的历史标签页，仅保留 1 个主工作标签页并将其重置为 about:blank，清空上一轮残留弹窗与 DOM。
+ */
+export async function softResetChromeTabs(port: number): Promise<void> {
+  try {
+    const list = await fetch(`http://127.0.0.1:${port}/json/list`).then((r) => r.json()).catch(() => []) as Array<{
+      id?: string
+      type?: string
+      url?: string
+      webSocketDebuggerUrl?: string
+    }>
+    if (!Array.isArray(list)) return
+
+    const pageTargets = list.filter((t) => {
+      if (t?.type !== 'page' || !t.id) return false
+      const u = String(t.url || '')
+      return !u.startsWith('devtools://') && !u.startsWith('chrome-extension://')
+    })
+
+    if (pageTargets.length === 0) return
+
+    const primary = pageTargets[0]
+    // 关闭多余的历史标签页，防止多轮采集或插件打开新标签导致窗口堆积
+    for (const extra of pageTargets.slice(1)) {
+      if (extra.id) {
+        await fetch(`http://127.0.0.1:${port}/json/close/${extra.id}`).catch(() => {})
+      }
+    }
+
+    if (primary.id) {
+      await fetch(`http://127.0.0.1:${port}/json/activate/${primary.id}`).catch(() => {})
+    }
+
+    // 若主标签页当前不在 about:blank，将其软重置到 about:blank，卸载上一轮残留的商品页 DOM 与弹窗
+    if (primary.url && primary.url !== 'about:blank' && primary.webSocketDebuggerUrl) {
+      const WebSocketCtor = (globalThis as unknown as { WebSocket?: new (url: string) => WebSocket }).WebSocket
+      if (WebSocketCtor) {
+        await new Promise<void>((resolveNav) => {
+          const ws = new WebSocketCtor(primary.webSocketDebuggerUrl!)
+          const timer = setTimeout(() => {
+            try { ws.close() } catch {}
+            resolveNav()
+          }, 1500)
+          ws.onopen = () => {
+            ws.send(JSON.stringify({
+              id: 301,
+              method: 'Page.navigate',
+              params: { url: 'about:blank' },
+            }))
+          }
+          ws.onmessage = (event: MessageEvent) => {
+            try {
+              const msg = JSON.parse(String(event.data)) as { id?: number }
+              if (msg.id === 301) {
+                clearTimeout(timer)
+                try { ws.close() } catch {}
+                resolveNav()
+              }
+            } catch {}
+          }
+          ws.onerror = () => {
+            clearTimeout(timer)
+            try { ws.close() } catch {}
+            resolveNav()
+          }
+        })
+      }
+    }
+  } catch {
+    // 忽略软重置过程中的偶发非致命异常
+  }
+}
+
 /** 启动专属 Chromium 采集容器 */
 export async function launchChromeForRpa(options: LaunchChromeOptions = {}): Promise<LaunchedChrome> {
   const { path: chromeExe, isBuiltin } = resolveChromiumPath()

@@ -12,6 +12,7 @@ import {
   launchChromeForRpa,
   probeSystemChrome,
   setDownloadBehavior,
+  softResetChromeTabs,
   type LaunchedChrome,
 } from './chrome'
 import { resolveActiveExtensionPath } from './extension-manager'
@@ -261,8 +262,9 @@ export function registerCollectionHandlers(prisma: PrismaClient) {
         if (!input.fake) {
           try {
             const container = await ensureChromiumContainer(workDir)
+            await softResetChromeTabs(container.port)
             cdpUrl = container.debugUrl
-            const containerLog = `[INFO] 宿主系统真实 Google Chrome 容器已就绪 (CDP: ${cdpUrl}, 独立资料: real-chrome-profile)\n[INFO] 淘宝有头交互窗口已就绪，如遇偶发安全验证可直接在 Chrome 窗口中滑动完成自愈\n`
+            const containerLog = `[INFO] 宿主系统真实 Google Chrome 容器已就绪并完成工作区软重置 (CDP: ${cdpUrl}, 独立资料: real-chrome-profile)\n[INFO] 淘宝有头交互窗口已就绪，如遇偶发安全验证可直接在 Chrome 窗口中滑动完成自愈\n`
             appendFileSync(logFile, containerLog)
           } catch (containerErr) {
             logger.warn('启动系统 Google Chrome 容器异常:', containerErr)
@@ -350,6 +352,9 @@ export function registerCollectionHandlers(prisma: PrismaClient) {
         },
       })
       killPythonProcesses(targetJobId)
+      if (activeChrome) {
+        void softResetChromeTabs(activeChrome.port)
+      }
       const workDir = workDirFor(targetJobId)
       const logFile = join(workDir, 'run.log')
       if (existsSync(logFile)) {

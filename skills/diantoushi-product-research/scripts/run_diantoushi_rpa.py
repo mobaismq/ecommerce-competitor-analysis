@@ -349,15 +349,23 @@ def get_cdp_page():
         except Exception:
             pass
         context = browser.contexts[0] if browser.contexts else browser.new_context()
-        pages = [p for p in context.pages if not p.is_closed()]
-        page = pages[0] if pages else context.new_page()
-        # 自动关闭多余的空白 Tab，保持单一活跃工作页面
-        for extra in pages[1:]:
+        all_pages = [p for p in context.pages if not p.is_closed()]
+        work_pages = [
+            p for p in all_pages
+            if not str(p.url or "").startswith("chrome-extension://")
+            and not str(p.url or "").startswith("devtools://")
+        ]
+        page = work_pages[0] if work_pages else (all_pages[0] if all_pages else context.new_page())
+        # 方案 A（软重置）：自动关闭多余的历史标签页（如上一轮残留的商品页或空白页），仅保留单一干净工作页
+        for extra in work_pages[1:]:
             try:
-                if extra.url in ("about:blank", ""):
-                    extra.close()
+                extra.close()
             except Exception:
                 pass
+        try:
+            page.bring_to_front()
+        except Exception:
+            pass
         _CDP_PAGE = page
         return _CDP_PAGE
     except Exception as cdp_connect_err:
@@ -647,6 +655,14 @@ def wait_for_search_input_ready(logger: Logger, timeout: float = 35.0) -> dict[s
 
 def open_taobao_search_from_page(logger: Logger, product_name: str) -> dict[str, Any]:
     reset_chrome_target()
+    # 软重置当前标签页到 about:blank，彻底卸载上一轮残留的 DOM、弹窗与旧页面状态
+    try:
+        cur = chrome_title_url()
+        if cur.get("url") and cur.get("url") != "about:blank":
+            chrome_set_url("about:blank")
+            time.sleep(0.6)
+    except Exception:
+        pass
     chrome_set_url("https://s.taobao.com/search")
     before = wait_for_search_input_ready(logger)
     logger.log(json.dumps({"search_base_page": before}, ensure_ascii=False, indent=2))
