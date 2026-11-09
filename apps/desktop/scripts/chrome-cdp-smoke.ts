@@ -80,7 +80,7 @@ async function main() {
   const result = {
     port: launched.port,
     profileDir: launched.profileDir,
-    isBuiltin: launched.isBuiltin,
+    executablePath: launched.executablePath,
     downloadDirReady: existsSync(downloadDir),
     viewportCss: target.viewport,
     screencastFrames: frames,
@@ -99,9 +99,9 @@ async function main() {
   closeChrome(launched)
   rmSync(downloadDir, { recursive: true, force: true })
 
-  // 系统真实 Chrome 采集容器断言 (isBuiltin 为 false，严格锁定系统官方 Chrome)
+  // 系统真实 Chrome 采集容器断言（不再支持任何内置便携浏览器）
   const ok =
-    !result.isBuiltin &&
+    /Google[\\/ ]Chrome|msedge/i.test(result.executablePath) &&
     result.downloadDirReady &&
     typeof result.port === 'number' &&
     result.screencastFrames >= 1 &&

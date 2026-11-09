@@ -25,10 +25,6 @@ extraResources:
     to: extensions
     filter:
       - '**/*'
-  - from: resources/chromium
-    to: chromium
-    filter:
-      - '**/*'
   - from: ../../config
     to: config
     filter:

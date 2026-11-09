@@ -1,9 +1,9 @@
 import { execFile, spawn, type ChildProcess } from 'node:child_process'
 import { promisify } from 'node:util'
 import { app } from 'electron'
-import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, join } from 'node:path'
 import { resolveActiveExtensionPath } from './extension-manager'
 
 export interface LaunchChromeOptions {
@@ -23,73 +23,7 @@ export interface LaunchedChrome {
   port: number
   profileDir: string
   debugUrl: string
-  isBuiltin: boolean
   executablePath: string
-}
-
-/** 递归在指定目录下查找有效可执行文件 */
-function findExecutableInDir(dir: string): string | null {
-  if (!existsSync(dir)) return null
-  if (process.platform === 'win32') {
-    const candidates = [
-      join(dir, 'chrome.exe'),
-      join(dir, 'chrome-win', 'chrome.exe'),
-      join(dir, 'chrome-win64', 'chrome.exe'),
-    ]
-    for (const cand of candidates) {
-      if (existsSync(cand)) return cand
-    }
-    // 递归两层查找 chrome.exe
-    try {
-      const entries = readdirSync(dir, { withFileTypes: true })
-      for (const entry of entries) {
-        if (entry.isDirectory()) {
-          const sub = join(dir, entry.name, 'chrome.exe')
-          if (existsSync(sub)) return sub
-        }
-      }
-    } catch {}
-    return null
-  }
-  if (process.platform === 'darwin') {
-    const searchApp = (current: string): string | null => {
-      try {
-        const entries = readdirSync(current, { withFileTypes: true })
-        for (const entry of entries) {
-          const full = join(current, entry.name)
-          if (entry.isDirectory() && entry.name.endsWith('.app')) {
-            const macosDir = join(full, 'Contents', 'MacOS')
-            if (existsSync(macosDir)) {
-              const bins = readdirSync(macosDir)
-              if (bins.length > 0) return join(macosDir, bins[0])
-            }
-          } else if (entry.isDirectory()) {
-            const found = searchApp(full)
-            if (found) return found
-          }
-        }
-      } catch {}
-      return null
-    }
-    return searchApp(dir)
-  }
-  return null
-}
-
-/** 解析出厂打包或工程内置的绿色便携版 Chromium 路径 */
-export function resolveBuiltinChromiumPath(): string | null {
-  const isPackaged = app?.isPackaged ?? false
-  const base = isPackaged && process.resourcesPath
-    ? join(process.resourcesPath, 'chromium')
-    : resolve(__dirname, '..', '..', 'resources', 'chromium')
-
-  const exe = findExecutableInDir(base)
-  if (exe && process.platform !== 'win32') {
-    try {
-      chmodSync(exe, 0o755)
-    } catch {}
-  }
-  return exe
 }
 
 export const GOOGLE_CHROME_DOWNLOAD_URL = 'https://www.google.cn/chrome/'
@@ -195,9 +129,9 @@ export async function probeSystemChrome(): Promise<SystemChromeProbeResult> {
   }
 }
 
-/** 获取最终采纳的系统真实 Google Chrome 可执行文件路径（坚决不降级到内置无头便携版） */
-export function resolveChromiumPath(): { path: string; isBuiltin: boolean } {
-  return { path: findSystemChromePath(), isBuiltin: false }
+/** 获取最终采纳的系统真实 Google Chrome 可执行文件路径（不支持任何内置/无头便携浏览器） */
+export function resolveChromiumPath(): string {
+  return findSystemChromePath()
 }
 
 /** 获取店透视专属用户数据目录 (独立 real-chrome-profile，与日常 Chrome 彻底隔离) */
@@ -600,7 +534,7 @@ export async function softResetChromeTabs(port: number): Promise<void> {
 
 /** 启动专属 Chromium 采集容器 */
 export async function launchChromeForRpa(options: LaunchChromeOptions = {}): Promise<LaunchedChrome> {
-  const { path: chromeExe, isBuiltin } = resolveChromiumPath()
+  const chromeExe = resolveChromiumPath()
   const isPersistent = options.persistent !== false
   const profileDir = options.profileDir ?? (isPersistent ? getDefaultDtsProfileDir() : join(tmpdir(), `eca-rpa-profile-${Date.now()}`))
   mkdirSync(profileDir, { recursive: true })
@@ -635,7 +569,6 @@ export async function launchChromeForRpa(options: LaunchChromeOptions = {}): Pro
               port,
               profileDir,
               debugUrl: `http://127.0.0.1:${port}`,
-              isBuiltin,
               executablePath: chromeExe,
             }
           }
@@ -727,7 +660,6 @@ export async function launchChromeForRpa(options: LaunchChromeOptions = {}): Pro
       port,
       profileDir,
       debugUrl: `http://127.0.0.1:${port}`,
-      isBuiltin,
       executablePath: chromeExe,
     }
 

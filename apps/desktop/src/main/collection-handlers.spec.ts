@@ -37,7 +37,6 @@ describe('collection-handlers 调度器集成测试', () => {
       port: 9999,
       profileDir: '/test/dts-profile',
       debugUrl: 'http://127.0.0.1:9999',
-      isBuiltin: true,
       executablePath: '/test/chrome',
     }
 
@@ -50,7 +49,6 @@ describe('collection-handlers 调度器集成测试', () => {
       downloadPath: '/test/workDir',
     }))
     expect(container.debugUrl).toBe('http://127.0.0.1:9999')
-    expect(container.isBuiltin).toBe(true)
 
     launchSpy.mockRestore()
     downloadSpy.mockRestore()
@@ -113,7 +111,6 @@ describe('collection-handlers 调度器集成测试', () => {
       port: 9998,
       profileDir: '/test/real-chrome-profile',
       debugUrl: 'http://127.0.0.1:9998',
-      isBuiltin: false,
       executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
     }
     const launchSpy = vi.spyOn(chromeModule, 'launchChromeForRpa').mockResolvedValue(fakeLaunched as never)
@@ -158,7 +155,6 @@ describe('collection-handlers 调度器集成测试', () => {
       port: 9997,
       profileDir: '/test/real-chrome-profile',
       debugUrl: 'http://127.0.0.1:9997',
-      isBuiltin: false,
       executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
     }
     const launchSpy = vi.spyOn(chromeModule, 'launchChromeForRpa').mockResolvedValue(fakeLaunched as never)
@@ -202,7 +198,6 @@ describe('collection-handlers 调度器集成测试', () => {
       port: 9996,
       profileDir: '/test/real-chrome-profile',
       debugUrl: 'http://127.0.0.1:9996',
-      isBuiltin: false,
       executablePath: '/test/chrome',
     }
     const fresh = {

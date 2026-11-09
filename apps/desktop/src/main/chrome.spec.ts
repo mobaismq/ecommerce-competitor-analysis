@@ -4,7 +4,6 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import {
   resolveChromiumPath,
-  resolveBuiltinChromiumPath,
   getDefaultDtsProfileDir,
   closeChrome,
   probeSystemChrome,
@@ -26,15 +25,11 @@ describe('chrome 容器生命周期单元测试', () => {
     rmSync(testRoot, { recursive: true, force: true })
   })
 
-  it('resolveBuiltinChromiumPath 仍能解析便携资源，但 resolveChromiumPath 严格锁定系统真实 Chrome', () => {
-    const builtin = resolveBuiltinChromiumPath()
-    expect(builtin).not.toBeNull()
-    expect(typeof builtin).toBe('string')
-
+  it('resolveChromiumPath 严格锁定系统真实 Chrome，不解析任何内置便携浏览器', () => {
     const resolved = resolveChromiumPath()
-    expect(resolved.isBuiltin).toBe(false)
-    expect(resolved.path).toContain('Google Chrome')
-    expect(existsSync(resolved.path)).toBe(true)
+    expect(typeof resolved).toBe('string')
+    expect(resolved).toContain('Google Chrome')
+    expect(existsSync(resolved)).toBe(true)
   })
 
   it('getDefaultDtsProfileDir 正确解析包含 real-chrome-profile 的持久化路径', () => {
@@ -53,7 +48,6 @@ describe('chrome 容器生命周期单元测试', () => {
       port: 9222,
       profileDir: fakeProfile,
       debugUrl: 'http://127.0.0.1:9222',
-      isBuiltin: false,
       executablePath: '/dummy/chrome',
     }
 
@@ -76,7 +70,6 @@ describe('chrome 容器生命周期单元测试', () => {
       port: 9222,
       profileDir: tempProfile,
       debugUrl: 'http://127.0.0.1:9222',
-      isBuiltin: true,
       executablePath: '/dummy/chrome',
     }
 

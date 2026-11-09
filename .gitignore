@@ -10,7 +10,6 @@ apps/desktop/data/
 apps/backend/data/
 apps/desktop/*.db
 apps/desktop/resources/python/
-apps/desktop/resources/chromium/
 .test-user-data/
 apps/desktop/.test-user-data/
 **/.test-user-data/
