@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { createWriteStream, existsSync, mkdirSync, rmSync, readFileSync } from 'node:fs'
+import { createWriteStream, existsSync, mkdirSync, rmSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { Readable } from 'node:stream'
@@ -64,3 +64,4 @@ execFileSync(pythonExecutable, ['-m', 'pip', 'install', '--no-cache-dir', '-r', 
 })
 
 console.log(`Python runtime ready: ${version}+${tag} ${platform}/${arch}`)
+writeFileSync(manifestPath, JSON.stringify({ version, releaseTag: tag, assets }, null, 2) + '\n')

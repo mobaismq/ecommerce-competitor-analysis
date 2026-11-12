@@ -3,7 +3,9 @@ import { Prisma } from '../generated/prisma'
 import { createRealAiProvider, type RealAiProvider } from './ai-provider'
 import { createSkillReports, prepareProductEvidence, type ReportProgress } from './report-skill-pipeline'
 import { createCreativePlan } from './creative-report'
-import { creativePlanMarkdown, type CreativePlan } from '../shared/creative-report'
+import { creativePlanMarkdown, REPORT_PRESENTATION_VERSION, type CreativePlan } from '../shared/creative-report'
+import { creativePlanHtml } from '../shared/creative-report-html'
+import type { ProductSkillReport } from '../shared/report-skill'
 import { getWorkerPrisma, putBytes, readBytesByKey, workerDataRoots } from './worker-db'
 
 export type ReportAiProvider = Pick<RealAiProvider, 'generateText' | 'analyzeImage'>
@@ -449,7 +451,9 @@ function renderReport(run: { reportNo: string | null; reportJson: unknown }, for
     return `- ${String(record.title ?? record.type ?? '')}：${String(record.content ?? '')}`
   }).join('\n')
   const creative = rawRecord(report.creativePlan)
-  const fullMarkdown = [creative ? creativePlanMarkdown(creative as unknown as CreativePlan) : '', typeof report.markdown === 'string' ? report.markdown : ''].filter(Boolean).join('\n\n---\n\n')
+  if (format === 'html' && creative) return creativePlanHtml(creative as unknown as CreativePlan, typeof report.markdown === 'string' ? report.markdown : '', Array.isArray(report.productReports) ? report.productReports as ProductSkillReport[] : [])
+  const researchMarkdown = typeof report.markdown === 'string' ? report.markdown : undefined
+  const fullMarkdown = creative ? creativePlanMarkdown(creative as unknown as CreativePlan, researchMarkdown) : researchMarkdown || ''
   if (format === 'markdown' && fullMarkdown) return fullMarkdown
   const escape = (value: string) => value.replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]!)
   if (format === 'html' && fullMarkdown) return `<!doctype html><html lang="zh"><head><meta charset="utf-8"><title>竞品分析报告 ${escape(run.reportNo ?? '')}</title><style>body{max-width:1100px;margin:40px auto;padding:24px;font:16px/1.8 system-ui}pre{white-space:pre-wrap;overflow-wrap:anywhere}</style></head><body><pre>${escape(fullMarkdown)}</pre></body></html>`
@@ -464,7 +468,7 @@ export async function exportReport(input: { userId: string; tenantId: string; ru
   const db = getWorkerPrisma()
   const run = await resolveRun(input.runId, input.tenantId)
   const extension = input.format === 'markdown' ? 'md' : input.format
-  const storageKey = `users/${input.userId}/reports/${run.reportNo ?? run.id}-${run.reportHash?.slice(0, 10) ?? 'legacy'}/report.${extension}`
+  const storageKey = `users/${input.userId}/reports/${run.reportNo ?? run.id}-${run.reportHash?.slice(0, 10) ?? 'legacy'}/${REPORT_PRESENTATION_VERSION}/report.${extension}`
   const existing = await db.generatedAsset.findUnique({ where: { storageKey } })
   if (existing) {
     const bytes = readBytesByKey(storageKey, workerDataRoots())

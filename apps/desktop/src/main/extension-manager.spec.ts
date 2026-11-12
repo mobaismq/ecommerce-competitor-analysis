@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach, afterEach } from 'vitest'
+import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -6,7 +6,11 @@ import {
   validateExtensionDir,
   atomicReplaceExtension,
   resolveActiveExtensionPath,
+  getBundledExtensionPath,
 } from './extension-manager'
+
+const electronState = vi.hoisted(() => ({ userData: '' }))
+vi.mock('electron', () => ({ app: { isPackaged: false, getPath: () => electronState.userData } }))
 
 describe('extension-manager 单元测试', () => {
   const testRoot = join(tmpdir(), `eca-ext-test-${Date.now()}`)
@@ -14,6 +18,7 @@ describe('extension-manager 单元测试', () => {
   beforeEach(() => {
     rmSync(testRoot, { recursive: true, force: true })
     mkdirSync(testRoot, { recursive: true })
+    electronState.userData = testRoot
   })
 
   afterEach(() => {
@@ -77,6 +82,18 @@ describe('extension-manager 单元测试', () => {
     expect(existsSync(join(active, 'manifest.json'))).toBe(true)
     const validation = validateExtensionDir(active)
     expect(validation.valid).toBe(true)
-    expect(validation.version).toBe('5.0.6')
+    expect(validation.version).toBe(validateExtensionDir(getBundledExtensionPath()).version)
+  })
+
+  it('升级旧版用户副本，并保留更新的用户热更新版本', () => {
+    const userDir = join(testRoot, 'extensions', 'diantoushi')
+    mkdirSync(userDir, { recursive: true })
+    writeFileSync(join(userDir, 'manifest.json'), JSON.stringify({ name: '店透视', version: '0.0.1' }))
+    expect(resolveActiveExtensionPath()).toBe(userDir)
+    expect(validateExtensionDir(userDir).version).toBe(validateExtensionDir(getBundledExtensionPath()).version)
+
+    writeFileSync(join(userDir, 'manifest.json'), JSON.stringify({ name: '店透视', version: '99.0.0' }))
+    expect(resolveActiveExtensionPath()).toBe(userDir)
+    expect(validateExtensionDir(userDir).version).toBe('99.0.0')
   })
 })

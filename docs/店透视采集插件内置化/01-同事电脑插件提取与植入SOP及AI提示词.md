@@ -5,6 +5,31 @@
 
 ---
 
+
+## 当前工程的实施方式（2026-11-12）
+
+当前工程统一将插件存放在 `apps/desktop/resources/extensions/diantoushi/`，下文根目录 `resources/extensions` 为早期示例，请以本节为准。
+
+已从本机 Chrome 提取店透视 **5.1.1**，扩展 ID 为 `ododbknfahcigadhdiamgfelfihkdpme`。只复制扩展静态文件，保留 manifest 的公开 key 以稳定扩展 ID，清理 `_metadata`；不复制 Chrome 账号、Cookie 或其他用户数据。
+
+在其他电脑提取后，可用以下命令导入（Windows 同样传入实际扩展目录）：
+
+```bash
+node apps/desktop/scripts/prepare-diantoushi-extension.mjs --source "/实际路径/插件ID/版本目录"
+pnpm --filter desktop extension-smoke
+```
+
+- `prepare-extension` 默认保留合法的已内置版本，不再因版本不同而自动覆盖成 5.0.6；仅在资产缺失或损坏时下载官方回退版本。`--force` 显式重新下载回退版本。
+- `--verify-only` 检查 manifest 及其引用的入口、脚本和图标文件；这是文件完整性校验，不是 CRX 签名验证。
+- `electron-builder.yml` 已通过 `from: resources/extensions` 打包到 `extensions`；开发和安装包均由 `extension-manager.ts` 解析路径。
+- 用户目录中的静态插件旧于安装包时自动升级；更新的用户热更新版本会保留。浏览器登录状态不在替换范围内。
+- 当前 `chrome.ts` 保留 `--load-extension` 并提供 CDP 挂载兼容逻辑，沿用动态调试端口及独立浏览器 Profile，不应按旧示例强制改为 9222。
+- 首次使用仍须登录淘宝及店透视；登录状态可能过期，不能保证永久免登。
+
+本机文件与离线测试通过不等于真实淘宝采集通过；macOS/Windows 安装包仍须在对应平台做实际验收。
+
+---
+
 ## 🎯 核心目标
 1. 从同事已安装店透视的 Chrome 中找到该插件的解包文件夹（无需重新下载 crx）；
 2. 复制到代码工程的 `resources/extensions/diantoushi` 目录下；

@@ -36,11 +36,11 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter backend build
-      - run: pnpm --filter frontend build
       - run: pnpm --filter desktop db:generate
       - run: pnpm --filter desktop build
       - run: pnpm --filter desktop local-db-smoke
       - run: pnpm --filter desktop prepare-python
+      - run: pnpm --filter desktop prepare-assets
       - run: pnpm --filter desktop exec electron-builder -- --config electron-builder.yml ${{ startsWith(github.ref, 'refs/tags/') && '--publish always' || '--publish never' }}
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
@@ -49,6 +49,6 @@ jobs:
           name: ${{ matrix.artifact }}
           if-no-files-found: error
           path: |
-            desktop/dist/*.dmg
-            desktop/dist/*.exe
-            desktop/dist/latest*.yml
+            apps/desktop/dist/*.dmg
+            apps/desktop/dist/*.exe
+            apps/desktop/dist/latest*.yml

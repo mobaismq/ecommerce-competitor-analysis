@@ -1,5 +1,5 @@
 import { app } from 'electron'
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, renameSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, renameSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 
 export interface ExtensionValidationResult {
@@ -65,29 +65,41 @@ export function getUserDataExtensionPath(): string {
 
 /**
  * 获取当前生效的店透视扩展路径（双级自愈保底）：
- * 1. 优先使用用户数据目录中的热更新版本；
+ * 1. 保留用户数据目录中与出厂同版或更新的热更新版本；
  * 2. 若用户目录缺失或损坏，自动从安装包出厂内置目录拷贝恢复；
  * 3. 最终返回合法的扩展目录路径；若均不可用抛出明确异常。
  */
 export function resolveActiveExtensionPath(): string {
   const userPath = getUserDataExtensionPath()
   const userValid = validateExtensionDir(userPath)
-  if (userValid.valid) {
+  const bundledPath = getBundledExtensionPath()
+  const bundledValid = validateExtensionDir(bundledPath)
+  const versionParts = (version?: string) => (version || '0').split('.').map(Number)
+  const newer = (left?: string, right?: string) => {
+    const a = versionParts(left), b = versionParts(right)
+    for (let i = 0; i < Math.max(a.length, b.length); i++) {
+      if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) > (b[i] || 0)
+    }
+    return false
+  }
+  if (userValid.valid && (!bundledValid.valid || !newer(bundledValid.version, userValid.version))) {
     return userPath
   }
 
-  // 出厂兜底恢复
-  const bundledPath = getBundledExtensionPath()
-  const bundledValid = validateExtensionDir(bundledPath)
+  // 出厂兜底恢复或升级。只替换扩展静态文件，不修改浏览器登录数据。
   if (bundledValid.valid) {
+    let staging: string | undefined
     try {
       mkdirSync(join(userPath, '..'), { recursive: true })
-      rmSync(userPath, { recursive: true, force: true })
-      cpSync(bundledPath, userPath, { recursive: true })
+      staging = mkdtempSync(join(userPath, '..', '.diantoushi-'))
+      cpSync(bundledPath, staging, { recursive: true })
+      atomicReplaceExtension(staging, userPath)
       return userPath
     } catch {
       // 拷贝失败直接退守出厂内置路径
       return bundledPath
+    } finally {
+      if (staging) rmSync(staging, { recursive: true, force: true })
     }
   }
 

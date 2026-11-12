@@ -29,10 +29,11 @@ export function ReportMarkdown({ text }: { text: string }) {
 }
 
 export function SkillProductReports({ reports }: { reports: ProductSkillReport[] }) {
-  return <div className="my-5 space-y-5">{reports.map((report, index) => <details key={`${report.productId}-${index}`} open className="rounded-2xl bg-white p-6 shadow-[0_8px_32px_rgba(29,38,52,.06)]">
-    <summary className="cursor-pointer text-[18px] font-bold text-[#0A1B39]">{index + 1}. {report.title} <span className="text-[12px] font-normal text-[#86909C]">商品 {report.productId}</span></summary>
+  return <div className="my-5 space-y-5">{reports.map((report, index) => <article key={`${report.productId}-${index}`} className="rounded-2xl bg-white p-6 shadow-[0_8px_32px_rgba(29,38,52,.06)]">
+    <h3 className="text-[18px] font-bold text-[#0A1B39]">{index + 1}. {report.title} <span className="text-[12px] font-normal text-[#86909C]">商品 {report.productId}</span></h3>
     <p className="my-3 rounded-lg bg-[#f0f7ff] p-3 text-[13px] text-[#344054]">{report.summary}</p>
     <p className="text-[12px] text-[#86909C]">实际使用：图片 {report.sampleCounts.imagesUsed}/{report.sampleCounts.imagesAvailable} 张 · 评价 {report.sampleCounts.reviewsUsed}/{report.sampleCounts.reviewsTotal} 条 · 问答 {report.sampleCounts.qaUsed}/{report.sampleCounts.qaTotal} 条</p>
+    <details className="mt-4"><summary className="cursor-pointer text-[14px] font-semibold text-[#3388ff]">展开完整八模块分析与局限</summary>
     {report.limitations.length > 0 && <div className="my-3 rounded-lg bg-[#fff8e8] p-3 text-[13px] text-[#8c6526]">{report.limitations.map((item, i) => <p className="my-1" key={i}>{item}</p>)}</div>}
     <ReportMarkdown text={report.markdown} />
     <details className="mt-6 rounded-lg border border-[#e6e9ef] p-4"><summary className="cursor-pointer text-[14px] font-semibold">查看证据、图片解析和评价分析</summary>
@@ -43,5 +44,6 @@ export function SkillProductReports({ reports }: { reports: ProductSkillReport[]
       <h4 className="mb-2 mt-4">评价解析</h4>
       {report.reviewAnalysis.map((item, i) => <p key={i} className="my-2 text-[13px]">{item.reviewId} · {{ positive: '正面', negative: '负面', neutral: '中性', mixed: '混合' }[item.sentiment]}：「{item.quote}」— {item.point}</p>)}
     </details>
-  </details>)}</div>
+    </details>
+  </article>)}</div>
 }

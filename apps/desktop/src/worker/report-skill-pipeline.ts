@@ -211,7 +211,7 @@ export async function createProductSkillReport(product: ReportProductInput, prov
           '每张图片最多8条关键文字，每条最多40字，observation最多150字。不可读图片的 observation 写无法读取；不得根据文件名猜图。',
           `图片解析规则：${skill.parsing.split('## 评价解析到报告证据')[0]}`,
           JSON.stringify({ productId: product.externalProductId, images: activeImages.map(({ id, kind }) => ({ id, kind })) }),
-        ].join('\n'), images: activeImages.map((image) => image.image), maxTokens: 6000,
+        ].join('\n'), images: activeImages.map((image) => image.image), maxTokens: 6000, jsonOutput: true,
       }))
       const parsedVision = parseReportObject(vision.text)
       const imageIds = new Set(activeImages.map((image) => image.id))
@@ -234,7 +234,7 @@ export async function createProductSkillReport(product: ReportProductInput, prov
     }
   }
   onStage?.('正在分析评价并生成八模块报告')
-  const result = await retryTransient(() => provider.generateText({ system, prompt: prompt(), maxTokens: 10000 }))
+  const result = await retryTransient(() => provider.generateText({ system, prompt: prompt(), maxTokens: 10000, jsonOutput: true }))
   const parsed = parseReportObject(result.text)
   const markdown = normalizeReportConfidence(text(parsed.markdown), sources)
   validateReportMarkdown(markdown)

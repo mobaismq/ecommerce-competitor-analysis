@@ -1,4 +1,4 @@
-import { createRealAiProvider, type StreamEvent } from './ai-provider'
+import { createRealAiProvider, EmptyAiResponseError, type StreamEvent } from './ai-provider'
 import {
   buildAiHelpWritePrompt,
   buildImagePromptGenerationPrompt,
@@ -271,16 +271,21 @@ export async function generateDetailWorkflow(input: ProductSetsInput) {
   let designPlan = ''
   let lastFinishReason = ''
   for (let attempt = 0; attempt < 2 && !designPlan; attempt += 1) {
-    const plan = await provider.generateText({
-      prompt: attempt === 0
-        ? planningPrompt
-        : `${planningPrompt}\n\n上次请求未返回规划正文。请直接输出精简但完整的规划；每个模块先用一至两句覆盖所需字段。`,
-      system: '你是资深电商详情页策划师，只输出规划正文。',
-      // 部分兼容模型会先消耗输出额度进行推理，额度过小时正文可能为空。
-      maxTokens: attempt === 0 ? 6000 : 8000,
-    })
-    designPlan = String(plan.text ?? '').trim()
-    lastFinishReason = plan.finishReason ?? ''
+    try {
+      const plan = await provider.generateText({
+        prompt: attempt === 0
+          ? planningPrompt
+          : `${planningPrompt}\n\n上次请求未返回规划正文。请直接输出精简但完整的规划；每个模块先用一至两句覆盖所需字段。`,
+        system: '你是资深电商详情页策划师，只输出规划正文。',
+        // 部分兼容模型会先消耗输出额度进行推理，额度过小时正文可能为空。
+        maxTokens: attempt === 0 ? 6000 : 8000,
+      })
+      designPlan = String(plan.text ?? '').trim()
+      lastFinishReason = plan.finishReason ?? ''
+    } catch (error) {
+      if (!(error instanceof EmptyAiResponseError)) throw error
+      lastFinishReason = error.finishReason ?? ''
+    }
   }
   if (!designPlan) {
     throw new Error(lastFinishReason === 'length' || lastFinishReason === 'max_tokens'

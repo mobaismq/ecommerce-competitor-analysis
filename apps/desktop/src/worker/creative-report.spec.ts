@@ -13,6 +13,14 @@ describe('creative report', () => {
     fixture.mainImages[0].evidenceIds = ['missing'] as never[]
     expect(() => validateCreativePlan(fixture, sources, counts, 'mock')).toThrow('未提供的证据')
   })
+  it('validates summary length and evidence while retaining older reports', () => {
+    const fixture = { ...creativeFixture(), brief: { conclusion: '先核对实际规格', priorities: [{ title: '拍实物', finding: '已有评价线索', action: '准备参考图', evidenceIds: ['p1:review-0'] }] } }
+    expect(validateCreativePlan(fixture, sources, counts, 'mock').brief?.priorities).toHaveLength(1)
+    fixture.brief.priorities[0].evidenceIds = ['missing']
+    expect(() => validateCreativePlan(fixture, sources, counts, 'mock')).toThrow('未提供的证据')
+    fixture.brief.conclusion = '长'.repeat(101)
+    expect(() => validateCreativePlan(fixture, sources, counts, 'mock')).toThrow('重点摘要')
+  })
   it('exports scripts, requirements and traceable evidence in markdown', () => {
     const fixture = creativeFixture()
     const plan = validateCreativePlan(fixture, sources, counts, 'mock')
