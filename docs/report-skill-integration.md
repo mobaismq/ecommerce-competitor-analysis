@@ -45,12 +45,13 @@ ZIP SHA-256：`ae27241f4242be433b74be5b2a7a773f8a5f0e57cff48ffa3002acd9dd09283a`
 
 分析报告列表展示批次数、当前页主图/详情脚本数、采集数据量与策划状态。已有报告通过「查看出图方案」进入新工作台；尚未生成策划的批次可生成或更新报告。
 
-- 详情分为「主图脚本」「详情页脚本」「竞品依据」「完整分析」。每组默认5张主图与8屏详情，每个任务包含文案、构图、来源、待补素材和画面简报，支持单张或整组复制。
-- 来源页按商品保留标题、评价、问答和已完成的图片观察，可检索来源、回看本机主图与数据局限。
+- 详情采用页面内的文档布局：左侧展示参考商品、策划目标、数据范围与章节目录；右侧连续展示总览、差异化机会、已采集竞品、评价洞察、主图策划、详情策划、素材依据与单品全文。目录定位章节并随阅读位置更新，报告不使用弹窗。
+- 主图与详情脚本用表格对照任务、文案、画面和使用条件，支持单张或整组复制；制作简报按需展开。「复制完整报告」同时包含已存单品全文。
+- 点击依据会筛选证据并定位到原文，支持搜索和恢复全部；「竞品原图」单独展示参考图片，与图片解析数量分开标注。竞品表读取当前报告对应的采集商品，价格为快照，不补造市场排名或缺失评分。
 - `report.generate` 在八模块分析后增加独立的内容策划步骤，读取 `references/creative-brief-template.md`；返回5+8结构、校验证据ID和必需字段后才在事务中替换旧报告。暂时供应商错误最多重试失败阶段一次。
 - 对大批次均匀抽取最多20件商品，评价选样优先保留已有的负面和混合解析，其余均匀选取；选样数量和文本截断限制写入risks。完整单品分析仍保留在productReports中。
 - 结构化方案保存于 `AnalysisRun.reportJson.creativePlan`，含版本、数据量、脚本、证据、素材需求及研究正文。旧报告字段保留；原有采集表和数据库连接配置不变。
 - 新导出包含完整策划及证据，导出缓存路径带reportHash，避免更新策划后仍读取旧文件。页面支持Markdown、HTML、JSON文件导出；智能问答上下文也包含主图与详情脚本。
 - 本机猫粮、冲锋衣两份既有策划已按之前交付的研究内容分别导入对应报告，不通过运行时硬编码品类样例来替代新数据。导入前已备份本机数据库。
 
-相关新增文件：`shared/creative-report.ts`、`worker/creative-report.ts`、`renderer/src/components/CreativeReportView.tsx`、`renderer/src/styles/creative-report.css`。
+相关文件：`shared/creative-report.ts`、`worker/creative-report.ts`、`renderer/src/components/CreativeReportView.tsx`、`renderer/src/components/CreativeReportDocument.tsx`、`renderer/src/styles/creative-report.css`、`renderer/src/styles/creative-report-document.css`。
