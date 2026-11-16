@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft, ArrowUpRight, Copy, Download, FileText, Image as ImageIcon } from 'lucide-react'
 import { Dropdown, Menu, Message } from '@arco-design/web-react'
@@ -7,6 +7,8 @@ import type { CreativePlan } from '../../../shared/creative-report'
 import type { ProductSkillReport } from '../../../shared/report-skill'
 import { creativePlanMarkdown } from '../../../shared/creative-report'
 import { CreativeReportDocument, DOCUMENT_SECTIONS, type DocumentSection, type ReportProduct } from './CreativeReportDocument'
+import { findActiveReportSection, scrollReportToTarget, type ReportNavigationTarget } from './report-scroll'
+import { createReportGenerationHandoff, REPORT_GENERATION_ROUTES, type ReportGenerationKind } from './report-generation-handoff'
 import { PageHeader } from './PageHeader'
 import '../styles/creative-report.css'
 import '../styles/creative-report-document.css'
@@ -25,33 +27,41 @@ function ReferencePhoto({ image, className = '' }: { image?: ReferenceImage; cla
 export function CreativeReportView({ plan, reportId, reportNo, keyword, userId, updatedAt, productReports }: {
   plan: CreativePlan; reportId: string; reportNo: string | null; keyword: string; userId: string; updatedAt: string; productReports?: ProductSkillReport[]
 }) {
+  const navigate = useNavigate()
   const [mode, setMode] = useState<ReportMode>('report')
   const [exporting, setExporting] = useState(false)
   const [activeSection, setActiveSection] = useState<DocumentSection>('overview')
   const [pendingSection, setPendingSection] = useState<{ section: DocumentSection; target?: 'evidence' } | null>(null)
   const [selectedProductId, setSelectedProductId] = useState('')
   const root = useRef<HTMLDivElement>(null)
+  const navigationTarget = useRef<ReportNavigationTarget<DocumentSection> | null>(null)
   const references = useQuery<{ images: ReferenceImage[] }>({
     queryKey: ['report-image-references', reportId, updatedAt], retry: false, staleTime: 60_000,
     queryFn: async () => await window.desktop?.capabilities.invoke('report.references', { tenantId: 'local', runId: reportId }) as { images: ReferenceImage[] },
   })
   const products = useQuery<{ products: ReportProduct[]; total: number }>({
-    queryKey: ['report-document-products', reportId, updatedAt], retry: false, staleTime: 60_000,
-    queryFn: async () => await window.desktop?.capabilities.invoke('report.products', { tenantId: 'local', runId: reportId, page: 1, pageSize: 10 }) as { products: ReportProduct[]; total: number },
+    queryKey: ['report-document-products', reportId, updatedAt, 100], retry: false, staleTime: 60_000,
+    queryFn: async () => await window.desktop?.capabilities.invoke('report.products', { tenantId: 'local', runId: reportId, page: 1, pageSize: 100 }) as { products: ReportProduct[]; total: number },
   })
 
   useEffect(() => {
     setMode('report')
     setActiveSection('overview')
     setSelectedProductId('')
+    navigationTarget.current = null
     root.current?.scrollTo({ top: 0 })
   }, [reportId])
 
   useEffect(() => {
     if (mode !== 'report' || !pendingSection) return
-    const section = root.current?.querySelector<HTMLElement>(`#creative-document-${pendingSection.target || pendingSection.section}`)
-    section?.scrollIntoView({ block: 'start', behavior: 'auto' })
-    section?.focus({ preventScroll: true })
+    const scrollRoot = root.current
+    const section = scrollRoot?.querySelector<HTMLElement>(`#creative-document-${pendingSection.target || pendingSection.section}`)
+    if (scrollRoot && section) {
+      const offset = (scrollRoot.querySelector<HTMLElement>('.cr-document-toolbar')?.offsetHeight ?? 0) + 8
+      const scrollTop = scrollReportToTarget(scrollRoot, section, offset)
+      navigationTarget.current = { id: pendingSection.section, scrollTop }
+      setActiveSection(pendingSection.section)
+    }
     setPendingSection(null)
   }, [mode, pendingSection])
 
@@ -62,15 +72,24 @@ export function CreativeReportView({ plan, reportId, reportNo, keyword, userId, 
     const trackSection = () => {
       cancelAnimationFrame(frame)
       frame = requestAnimationFrame(() => {
-        const top = scrollRoot.getBoundingClientRect().top + 110
-        const sections = Array.from(scrollRoot.querySelectorAll<HTMLElement>('[data-report-section]'))
-        const current = sections.filter((section) => section.getBoundingClientRect().top <= top).at(-1)
-        setActiveSection((current?.dataset.reportSection as DocumentSection | undefined) ?? 'overview')
+        const bounds = scrollRoot.getBoundingClientRect()
+        const toolbarHeight = scrollRoot.querySelector<HTMLElement>('.cr-document-toolbar')?.offsetHeight ?? 0
+        const sections = Array.from(scrollRoot.querySelectorAll<HTMLElement>('[data-report-section]')).map((section) => {
+          const position = section.getBoundingClientRect()
+          return { id: section.dataset.reportSection as DocumentSection, top: position.top, bottom: position.bottom }
+        })
+        const current = findActiveReportSection({ scrollTop: scrollRoot.scrollTop, scrollHeight: scrollRoot.scrollHeight, clientHeight: scrollRoot.clientHeight, viewportTop: bounds.top + scrollRoot.clientTop, viewportBottom: bounds.top + scrollRoot.clientTop + scrollRoot.clientHeight, readingOffset: toolbarHeight + 48, sections, navigationTarget: navigationTarget.current })
+        navigationTarget.current = current.navigationTarget
+        setActiveSection(current.id ?? 'overview')
       })
     }
     scrollRoot.addEventListener('scroll', trackSection, { passive: true })
+    const observer = new ResizeObserver(trackSection)
+    observer.observe(scrollRoot)
+    const reader = scrollRoot.querySelector('.cr-document-reader')
+    if (reader) observer.observe(reader)
     trackSection()
-    return () => { scrollRoot.removeEventListener('scroll', trackSection); cancelAnimationFrame(frame) }
+    return () => { scrollRoot.removeEventListener('scroll', trackSection); observer.disconnect(); cancelAnimationFrame(frame) }
   }, [mode, reportId])
 
   const navigateSection = (section: DocumentSection, target?: 'evidence') => {
@@ -81,7 +100,7 @@ export function CreativeReportView({ plan, reportId, reportNo, keyword, userId, 
   const changeMode = (next: ReportMode) => {
     setMode(next)
     if (next === 'report') setPendingSection({ section: activeSection })
-    else root.current?.scrollTo({ top: 0 })
+    else { navigationTarget.current = null; root.current?.scrollTo({ top: 0 }) }
   }
   const copy = async (content: string) => {
     try { await navigator.clipboard.writeText(content); Message.success('已复制，可粘贴给设计师或作图工具') }
@@ -110,7 +129,10 @@ export function CreativeReportView({ plan, reportId, reportNo, keyword, userId, 
   const cover = covers.find((image) => image.productId === selectedProductId) ?? covers[0]
   const imageCounts = productReports?.reduce((sum, report) => ({ used: sum.used + report.sampleCounts.imagesUsed, available: sum.available + report.sampleCounts.imagesAvailable }), { used: 0, available: 0 })
   const reportTitle = keyword ? `${keyword} · 竞品内容策划` : plan.title
-  const fullReportText = () => creativePlanMarkdown(plan, plan.researchMarkdown || productReports?.map((report) => `## ${report.title}\n\n${report.markdown}`).join('\n\n') || '')
+  const fullReportText = () => creativePlanMarkdown(plan, plan.researchMarkdown || productReports?.map((report) => `## ${report.title}\n\n${report.markdown}`).join('\n\n') || '', { products: products.data?.products ?? [], reports: productReports })
+  const generateImages = (kind: ReportGenerationKind) => navigate(REPORT_GENERATION_ROUTES[kind], {
+    state: { reportGeneration: createReportGenerationHandoff(plan, kind, reportId, keyword) },
+  })
 
   return <div ref={root} className="cr-page cr-document-page custom-scrollbar">
     <PageHeader breadcrumbs={[{ label: '市场' }, { label: '竞品分析' }, { label: '分析报告', to: '/market/competitive/report' }, { label: keyword || '竞品内容策划' }]} />
@@ -124,16 +146,14 @@ export function CreativeReportView({ plan, reportId, reportNo, keyword, userId, 
     <div className="cr-document-layout">
       <aside className="cr-document-sidebar" aria-label="报告资料与目录">
         <section className="cr-document-context">
-          <h2>商品与策划需求</h2>
+          <h2>本次参考</h2>
           {references.isLoading ? <div className="cr-document-photo cr-document-photo-empty" role="status"><ImageIcon size={26} /><span>正在读取商品图片…</span></div> : <button className="cr-document-cover-button" onClick={() => changeMode('images')} aria-label="查看竞品参考原图"><ReferencePhoto image={cover} /></button>}
           {covers.length > 1 && <div className="cr-document-thumbnails" aria-label="切换参考商品">{covers.map((image, index) => <button key={image.productId} title={image.title} aria-label={`查看商品 ${index + 1} 参考图`} aria-pressed={cover?.productId === image.productId} onClick={() => setSelectedProductId(image.productId)}><ReferencePhoto image={image} /></button>)}</div>}
           {cover && <p className="cr-document-product-caption" title={cover.title}>{cover.title || `商品 ${cover.productId}`}</p>}
           {references.isError && <p className="cr-document-note">原图暂时无法读取。<button className="cr-document-text-button" onClick={() => void references.refetch()}>重试</button></p>}
-          <p className="cr-document-context-label">策划目标</p>
-          <p className="cr-document-request">参考竞品资料，确定内容切入点，输出主图文案、详情页顺序与制作简报。</p>
           <dl className="cr-document-scope"><div><dt>竞品</dt><dd>{plan.dataCounts.products} 件</dd></div><div><dt>评价</dt><dd>{plan.dataCounts.reviews} 条</dd></div><div><dt>问答</dt><dd>{plan.dataCounts.qa} 条</dd></div><div><dt>图片解析</dt><dd>{imageCounts ? `${imageCounts.used} / ${imageCounts.available} 张` : `${plan.dataCounts.images} 条图片记录`}</dd></div></dl>
         </section>
-        <nav className="cr-document-outline" aria-label="报告章节目录"><h2>报告目录</h2>{DOCUMENT_SECTIONS.map((section, index) => <button key={section.id} aria-current={mode === 'report' && activeSection === section.id ? 'location' : undefined} onClick={() => navigateSection(section.id)}><span>{String(index + 1).padStart(2, '0')}</span>{section.title}</button>)}</nav>
+        <nav className="cr-document-outline" aria-label="报告章节目录"><h2>报告目录</h2>{DOCUMENT_SECTIONS.map((section, index) => <button key={section.id} data-report-module={section.id} aria-current={mode === 'report' && activeSection === section.id ? 'location' : undefined} onClick={() => navigateSection(section.id)}><span>{String(index + 1).padStart(2, '0')}</span>{section.title}</button>)}</nav>
       </aside>
 
       <main className="cr-document-reader">
@@ -149,7 +169,7 @@ export function CreativeReportView({ plan, reportId, reportNo, keyword, userId, 
           <button className="cr-document-text-button" onClick={() => void copy(fullReportText())}><Copy size={14} />复制完整报告</button>
         </div>
         <div id="creative-view-panel-report" role="tabpanel" aria-labelledby="creative-view-report" hidden={mode !== 'report'}>
-          <CreativeReportDocument key={reportId} plan={plan} keyword={keyword} productReports={productReports} products={products.data?.products ?? []} totalProducts={products.data?.total ?? plan.dataCounts.products} productsLoading={products.isLoading} productsError={products.isError} onRetryProducts={() => void products.refetch()} onCopy={(text) => void copy(text)} onNavigate={navigateSection} />
+          <CreativeReportDocument key={reportId} plan={plan} keyword={keyword} productReports={productReports} products={products.data?.products ?? []} totalProducts={products.data?.total ?? plan.dataCounts.products} productsLoading={products.isLoading} productsError={products.isError} onRetryProducts={() => void products.refetch()} onCopy={(text) => void copy(text)} onNavigate={navigateSection} onGenerate={generateImages} referenceImages={images} />
         </div>
         <div id="creative-view-panel-images" role="tabpanel" aria-labelledby="creative-view-images" hidden={mode !== 'images'}>
           <div className="cr-document-reference-page"><h2>竞品原图参考</h2><p className="cr-document-note">原图供核对商品和画面，展示原图不代表已完成 AI 解析。当前最多展示本批前 6 件商品、每件 2 张主图。</p>

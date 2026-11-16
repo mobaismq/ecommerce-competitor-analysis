@@ -25,6 +25,7 @@ import {
   X,
 } from 'lucide-react'
 import { AIReportSelector, SectionTitle, type SuiteProduct } from '../components/AIReportSelector'
+import { useReportGenerationHandoff } from '../components/useReportGenerationHandoff'
 import { AiHelpPopover } from '../components/AiHelpPopover'
 import { ProductImageHelpTooltip } from '../components/ProductImageHelpTooltip'
 import { ResultActionDialog } from '../components/ResultActionDialog'
@@ -171,14 +172,16 @@ async function clearProductSetsDraft(): Promise<void> {
 export function ProductImageSetsPage() {
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const currentUserId = useAuth((s) => s.user?.id ?? '')
+  const reportHandoff = useReportGenerationHandoff('main')
+  const linkedReportRef = useRef(reportHandoff)
 
   // 1. 商品原图 (<=6张)
   const [uploadedImages, setUploadedImages] = useState<UploadedImage[]>([])
   const uploadInProgressRef = useRef(false)
 
   // 2. 选报告
-  const [selectedReportId, setSelectedReportId] = useState('')
-  const [selectedReport, setSelectedReport] = useState<SuiteProduct | null>(null)
+  const [selectedReportId, setSelectedReportId] = useState(reportHandoff?.report.value ?? '')
+  const [selectedReport, setSelectedReport] = useState<SuiteProduct | null>(reportHandoff?.report ?? null)
 
   // 3. 四维参数设置
   const [settings, setSettings] = useState<GenerationSettings>({
@@ -189,10 +192,10 @@ export function ProductImageSetsPage() {
   })
 
   // 4. 商品卖点 & AI帮写
-  const [generationText, setGenerationText] = useState('')
+  const [generationText, setGenerationText] = useState(reportHandoff?.text ?? '')
   // 关联商品名（图库真源：选填，填入后随生图写入 GeneratedAsset）
   const [productName, setProductName] = useState('')
-  const [reportSellingPoints, setReportSellingPoints] = useState<string[]>([])
+  const [reportSellingPoints, setReportSellingPoints] = useState<string[]>(reportHandoff?.headlines ?? [])
   const [loadingDescriptions, setLoadingDescriptions] = useState(false)
   const [aiHelpOpen, setAiHelpOpen] = useState(false)
   const [expandingPrompts, setExpandingPrompts] = useState(false)
@@ -350,6 +353,8 @@ export function ProductImageSetsPage() {
       setReportSellingPoints([])
       return
     }
+    // The report already supplied the complete main-image plan; legacy summary loading must not replace it.
+    if (linkedReportRef.current?.report.value === selectedReportId) return
     const preserveGenerationText = preserveGenerationTextFromDraftRef.current
     preserveGenerationTextFromDraftRef.current = false
     let cancelled = false
@@ -403,6 +408,8 @@ export function ProductImageSetsPage() {
 
   // 刷新后按最近一次生成批次回显真实结果，同时恢复生成时的左侧表单快照。
   useEffect(() => {
+    // An explicit report handoff starts a new form instead of reopening an unrelated prior result.
+    if (reportHandoff) return
     const latestJobId = localStorage.getItem(PRODUCT_SETS_LATEST_JOB_KEY)
     if (!latestJobId) return
     let cancelled = false
@@ -462,7 +469,7 @@ export function ProductImageSetsPage() {
     return () => {
       cancelled = true
     }
-  }, [loadAssetImg])
+  }, [loadAssetImg, reportHandoff])
 
   // 触发 AI 帮写 (流式 SSE)
   const handleAiHelp = async () => {
@@ -1024,11 +1031,14 @@ export function ProductImageSetsPage() {
         <div className="mb-5">
           <AIReportSelector
             value={selectedReportId}
+            report={selectedReport}
             onChange={(runId, report) => {
+              linkedReportRef.current = null
               setSelectedReportId(runId)
               setSelectedReport(report)
             }}
           />
+          {reportHandoff?.report.value === selectedReportId && <p role="status" className="mt-2 text-[11px] leading-5 text-[#52789c]">已带入 {reportHandoff.headlines.length} 张主图方案，可在下方编辑。上传我方商品原图后继续生成。</p>}
           {loadingDescriptions && (
             <div className="mt-2 flex items-center gap-1.5 text-[11px] text-[#86909C]">
               <Loader2 className="h-3 w-3 animate-spin" />

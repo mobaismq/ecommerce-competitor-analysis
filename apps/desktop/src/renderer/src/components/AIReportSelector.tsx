@@ -27,9 +27,11 @@ export interface AIReportSelectorProps {
   value: string
   /** 选中/清除报告时回调 */
   onChange: (reportId: string, report: SuiteProduct | null) => void
+  /** A report linked from its detail page may fall outside the first page of options. */
+  report?: SuiteProduct | null
 }
 
-export function AIReportSelector({ value, onChange }: AIReportSelectorProps) {
+export function AIReportSelector({ value, onChange, report }: AIReportSelectorProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const [suiteProducts, setSuiteProducts] = useState<SuiteProduct[]>([])
   const [productSearch, setProductSearch] = useState('')
@@ -39,7 +41,7 @@ export function AIReportSelector({ value, onChange }: AIReportSelectorProps) {
   const [recentSelected, setRecentSelected] = useState<SuiteProduct | null>(null)
 
   const matchedFromList = suiteProducts.find((item) => item.value === value) || null
-  const selectedReport = matchedFromList || (value === recentSelected?.value ? recentSelected : null)
+  const selectedReport = matchedFromList || (value === recentSelected?.value ? recentSelected : null) || (value === report?.value ? report : null)
 
   // 数据流保持桌面端现状：数据流：IPC report.list 读取本地 SQLite 报告
   async function loadReports(search = '') {

@@ -436,7 +436,7 @@ export async function getReport(input: { tenantId: string; runId: string }) {
   }
 }
 
-function renderReport(run: { reportNo: string | null; reportJson: unknown }, format: ReportExportFormat) {
+function renderReport(run: { reportNo: string | null; reportJson: unknown }, format: ReportExportFormat, products: import('../shared/report-charts').ReportChartProduct[] = []) {
   const report = rawRecord(run.reportJson) ?? {}
   const priceBands = Array.isArray(report.priceBands) ? report.priceBands : []
   const insights = Array.isArray(report.insights) ? report.insights : []
@@ -451,9 +451,10 @@ function renderReport(run: { reportNo: string | null; reportJson: unknown }, for
     return `- ${String(record.title ?? record.type ?? '')}：${String(record.content ?? '')}`
   }).join('\n')
   const creative = rawRecord(report.creativePlan)
-  if (format === 'html' && creative) return creativePlanHtml(creative as unknown as CreativePlan, typeof report.markdown === 'string' ? report.markdown : '', Array.isArray(report.productReports) ? report.productReports as ProductSkillReport[] : [])
+  const productReports = Array.isArray(report.productReports) ? report.productReports as ProductSkillReport[] : []
+  if (format === 'html' && creative) return creativePlanHtml(creative as unknown as CreativePlan, typeof report.markdown === 'string' ? report.markdown : '', productReports, products)
   const researchMarkdown = typeof report.markdown === 'string' ? report.markdown : undefined
-  const fullMarkdown = creative ? creativePlanMarkdown(creative as unknown as CreativePlan, researchMarkdown) : researchMarkdown || ''
+  const fullMarkdown = creative ? creativePlanMarkdown(creative as unknown as CreativePlan, researchMarkdown, { products, reports: productReports }) : researchMarkdown || ''
   if (format === 'markdown' && fullMarkdown) return fullMarkdown
   const escape = (value: string) => value.replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]!)
   if (format === 'html' && fullMarkdown) return `<!doctype html><html lang="zh"><head><meta charset="utf-8"><title>竞品分析报告 ${escape(run.reportNo ?? '')}</title><style>body{max-width:1100px;margin:40px auto;padding:24px;font:16px/1.8 system-ui}pre{white-space:pre-wrap;overflow-wrap:anywhere}</style></head><body><pre>${escape(fullMarkdown)}</pre></body></html>`
@@ -474,7 +475,9 @@ export async function exportReport(input: { userId: string; tenantId: string; ru
     const bytes = readBytesByKey(storageKey, workerDataRoots())
     if (bytes) return { ok: true, storageKey, mimeType: existing.mimeType, size: existing.size, reused: true, content: bytes.toString('utf8') }
   }
-  const content = renderReport(run, input.format)
+  const chartProducts = input.format !== 'json' && rawRecord(rawRecord(run.reportJson)?.creativePlan)
+    ? (await reportProducts({ tenantId: input.tenantId, runId: run.id, pageSize: 100 })).products : []
+  const content = renderReport(run, input.format, chartProducts)
   const bytes = Buffer.from(content, 'utf8')
   putBytes(storageKey, bytes, { userRoot: workerDataRoots().userRoot })
   const asset = await db.generatedAsset.create({

@@ -5,6 +5,7 @@ import { saveAs } from 'file-saver'
 import { nanoid } from 'nanoid'
 import { useAuth } from '../store/auth'
 import { AIReportSelector, type SuiteProduct } from '../components/AIReportSelector'
+import { useReportGenerationHandoff } from '../components/useReportGenerationHandoff'
 import { AiHelpPopover } from '../components/AiHelpPopover'
 import { ProductImageHelpTooltip } from '../components/ProductImageHelpTooltip'
 import { ResultActionDialog } from '../components/ResultActionDialog'
@@ -84,6 +85,7 @@ function desktopInvoke(capability: string, payload?: unknown): Promise<unknown> 
 
 export function APlusDetailPage() {
   const currentUserId = useAuth((s) => s.user?.id ?? '')
+  const reportHandoff = useReportGenerationHandoff('detail')
   // 上传商品原图（对照旧版：uploadedImages，生成入口依赖它）
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const uploadInProgressRef = useRef(false)
@@ -93,14 +95,14 @@ export function APlusDetailPage() {
   const [error, setError] = useState('')
 
   // 联动报告
-  const [selectedReportId, setSelectedReportId] = useState('')
-  const [currentReport, setCurrentReport] = useState<SuiteProduct | null>(null)
+  const [selectedReportId, setSelectedReportId] = useState(reportHandoff?.report.value ?? '')
+  const [currentReport, setCurrentReport] = useState<SuiteProduct | null>(reportHandoff?.report ?? null)
 
   // 生成设置（对照旧版 settings 四项）
   const [settings, setSettings] = useState({ platform: '淘宝天猫1688', country: '中国', language: '中文', ratio: '1:1' })
 
   // 商品卖点 & 要求 + AI 帮写（弹窗态：流式到 aiHelpText，确认后回填 detailGenerationText）
-  const [detailGenerationText, setDetailGenerationText] = useState('')
+  const [detailGenerationText, setDetailGenerationText] = useState(reportHandoff?.text ?? '')
   const [aiHelpOpen, setAiHelpOpen] = useState(false)
   const [aiHelpText, setAiHelpText] = useState('')
   const [aiWriting, setAiWriting] = useState(false)
@@ -798,7 +800,8 @@ export function APlusDetailPage() {
 
             {/* AI 报告联动 */}
             <div className="mb-4">
-              <AIReportSelector value={selectedReportId} onChange={handleReportChange} />
+              <AIReportSelector value={selectedReportId} report={currentReport} onChange={handleReportChange} />
+              {reportHandoff?.report.value === selectedReportId && <p role="status" className="mb-3 text-[11px] leading-5 text-[#52789c]">已带入 {reportHandoff.headlines.length} 屏详情策划，请确认下方模块并上传我方商品原图。</p>}
               {selectedReportId && (
                 <button
                   type="button"

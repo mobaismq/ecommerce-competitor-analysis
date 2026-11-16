@@ -161,6 +161,9 @@ describe('report capabilities', () => {
     for (const title of REPORT_SECTION_TITLES) expect(exported.content).toContain(title)
     expect(exported.content).toContain('主图内容脚本')
     expect(exported.content).toContain('详情页内容脚本')
+    expect(exported.content).toContain('竞品池 Top 10')
+    expect(exported.content).toContain('好评卖点 Top 3')
+    expect(exported.content).toContain('¥199 | 120 | —')
     const asset = await db.generatedAsset.findUnique({ where: { storageKey: exported.storageKey } })
     expect(asset?.analysisRunId).toBe(generated.reportId)
 
