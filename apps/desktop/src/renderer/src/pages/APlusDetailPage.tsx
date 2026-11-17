@@ -199,8 +199,14 @@ export function APlusDetailPage() {
   }
 
   const removeUploadedImage = (id: string) => {
+    const removingLastImage = uploadedImages.length === 1 && uploadedImages[0]?.id === id
     planRequestIdRef.current += 1
     setUploadedImages((prev) => prev.filter((img) => img.id !== id))
+    if (removingLastImage) {
+      setDetailGenerationText('')
+      setSelectedReportId('')
+      setCurrentReport(null)
+    }
     // 删图后重置生成结果与规划（对照旧版联动）
     setSelectedModules([])
     setOrderedTitles([])

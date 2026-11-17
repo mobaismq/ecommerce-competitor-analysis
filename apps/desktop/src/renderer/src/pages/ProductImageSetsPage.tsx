@@ -335,6 +335,7 @@ export function ProductImageSetsPage() {
   }
 
   const removeUploadedImage = (id: string) => {
+    const removingLastImage = uploadedImages.length === 1 && uploadedImages[0]?.id === id
     setUploadedImages((prev) => {
       const next = prev.filter((img) => img.id !== id)
       if (next.length > 0 && !next.some((img) => img.isMain)) {
@@ -342,6 +343,10 @@ export function ProductImageSetsPage() {
       }
       return next
     })
+    if (removingLastImage) {
+      setGenerationText('')
+      setProductName('')
+    }
     if (resultViewActive || generationJobId || localStorage.getItem(PRODUCT_SETS_LATEST_JOB_KEY)) {
       clearGeneratedResults()
     }
