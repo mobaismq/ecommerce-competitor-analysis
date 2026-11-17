@@ -141,7 +141,10 @@ export function createRealAiProvider(userId: string): RealAiProvider {
           signal: AbortSignal.timeout(timeout),
         })
         const payload = await response.json().catch(() => ({}))
-        if (!response.ok) throw new Error(`AI 请求失败: HTTP ${response.status}`)
+        if (!response.ok) {
+          const message = (payload as { error?: { message?: string } })?.error?.message
+          throw new Error(`AI 视觉请求失败: HTTP ${response.status}${message ? ` · ${message}` : ''}`)
+        }
         return { text: textOf(payload), model: visionModel }
       },
       streamText: (request, emit) => stream(request, request.prompt, config.textModel, emit),
@@ -260,7 +263,7 @@ export function createRealAiProvider(userId: string): RealAiProvider {
       const payload = await response.json().catch(() => ({}))
       if (!response.ok) {
         const errMessage = (payload as { error?: { message?: string } })?.error?.message
-        throw new Error(errMessage ? `AI 视觉请求失败: ${errMessage}` : `AI 视觉请求失败: HTTP ${response.status}`)
+        throw new Error(`AI 视觉请求失败: HTTP ${response.status}${errMessage ? ` · ${errMessage}` : ''}`)
       }
       return { ...completionText(payload), model: visionModel }
     },

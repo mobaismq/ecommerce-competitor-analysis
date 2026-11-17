@@ -9,6 +9,8 @@ asar: true
 asarUnpack:
   - resources/python/**
   - resources/skills/**
+  - '**/node_modules/sharp/**/*'
+  - '**/node_modules/@img/**/*'
 extraResources:
   - from: resources/python
     to: python

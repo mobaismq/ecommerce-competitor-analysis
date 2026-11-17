@@ -2,10 +2,11 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import sharp from 'sharp'
 import { REPORT_SECTION_TITLES } from '../shared/report-skill'
 import type { TextRequest, VisionRequest } from './ai-provider'
 import { anthropicImage } from './ai-provider'
-import { createProductSkillReport, createSkillReports, normalizeReportConfidence, prepareProductEvidence, readReportSkill, validateReportMarkdown, type ReportProductInput } from './report-skill-pipeline'
+import { createProductSkillReport, createSkillReports, normalizeReportConfidence, parseProductImages, prepareProductEvidence, readReportSkill, validateReportMarkdown, type ReportProductInput } from './report-skill-pipeline'
 
 const root = mkdtempSync(join(tmpdir(), 'report-evidence-'))
 const original = process.env.ECOMMERCE_DATA_ROOT
@@ -51,8 +52,51 @@ describe('skill report evidence and validation', () => {
     const report = await createProductSkillReport({ ...product, imageUrl: 'https://example.invalid/main.png' }, { generateText: text, analyzeImage: async () => { throw new Error('vision unavailable') } }, readReportSkill())
     expect(report.limitations.join()).toContain('视觉模型调用或解析失败')
     expect(report.sampleCounts.imagesUsed).toBe(0)
-    expect(text.mock.calls[0][0].prompt).not.toContain('main_image-0')
+    const input = JSON.parse(text.mock.calls[0][0].prompt.split('\n').at(-1)!)
+    expect(input.images).toEqual([])
+    expect(input.parsedImageObservations).toEqual([])
+    expect(input.sources.some((source: { kind: string }) => source.kind.endsWith('_image'))).toBe(false)
     await expect(createProductSkillReport(product, { generateText: async () => result({ evidence: [{ claim: '编造', sourceIds: ['missing'], quote: 'test' }] }), analyzeImage: vi.fn() }, readReportSkill())).rejects.toThrow('未提供的数据来源')
+  })
+  it('merges long-image parts into one original image with stable evidence IDs and counts', async () => {
+    const path = join(root, 'ecommerce', 'long-detail.jpg')
+    writeFileSync(path, await sharp({ create: { width: 790, height: 20232, channels: 3, background: '#fff' } }).jpeg().toBuffer())
+    const vision = vi.fn(async (request: VisionRequest) => {
+      const data = JSON.parse(request.prompt.split('\n').at(-1)!)
+      return result({ imageObservations: data.images.map((image: { id: string }) => ({ imageId: image.id, observation: '本段可见商品说明', ocr: ['商品配方'] })) })
+    })
+    const generateText = vi.fn(async () => result())
+    const report = await createProductSkillReport({ ...product, rawJson: { sourceData: { exportDirectory: join(root, 'ecommerce'), images: { images: [{ image_type: 'detail_image', storage_path: 'long-detail.jpg' }] } } } }, { generateText, analyzeImage: vision }, readReportSkill())
+    expect(vision.mock.calls.length).toBeGreaterThan(1)
+    expect(vision.mock.calls.every(([request]) => request.images.length <= 4)).toBe(true)
+    expect(report.sampleCounts).toMatchObject({ imagesAvailable: 1, imagesUsed: 1 })
+    expect(report.imageObservations).toHaveLength(1)
+    expect(report.imageObservations[0]).toMatchObject({ imageId: 'detail_image-0', ocr: ['商品配方'] })
+    expect(report.sources.some((source) => source.id.includes('-part-'))).toBe(false)
+    expect(report.limitations.join()).toContain('分 11 段解析')
+    expect(generateText.mock.calls).toHaveLength(1)
+  })
+  it('isolates a rejected image, retains valid observations, and keeps a redacted failure reason', async () => {
+    const analyzeImage = vi.fn(async (request: VisionRequest) => {
+      if (request.images.some((image) => image.endsWith('/bad.jpg'))) throw new Error('HTTP 400 unsupported image; Bearer sk-secret-value')
+      return result({ imageObservations: [{ imageId: 'main_image-0', observation: '包装实物', ocr: ['真实原文'] }] })
+    })
+    const parsed = await parseProductImages('p1', [
+      { id: 'main_image-0', kind: 'main_image', image: 'https://example.invalid/good.jpg' },
+      { id: 'detail_image-0', kind: 'detail_image', image: 'https://example.invalid/bad.jpg' },
+    ], { generateText: vi.fn(), analyzeImage }, '')
+    expect(parsed.imageObservations).toEqual([{ imageId: 'main_image-0', observation: '包装实物', ocr: ['真实原文'] }])
+    expect(analyzeImage).toHaveBeenCalledTimes(3)
+    expect(parsed.limitations.join()).toContain('detail_image-0 图片解析失败：HTTP 400 unsupported image')
+    expect(parsed.limitations.join()).not.toContain('sk-secret-value')
+    expect(parsed.limitations.join()).not.toContain('本报告改用标题')
+  })
+  it('stops vision requests on authentication failure and records why no images were used', async () => {
+    const analyzeImage = vi.fn(async () => { throw new Error('HTTP 401 Invalid API key') })
+    const parsed = await parseProductImages('p1', Array.from({ length: 6 }, (_, index) => ({ id: `main_image-${index}`, kind: 'main_image' as const, image: `https://example.invalid/${index}.jpg` })), { generateText: vi.fn(), analyzeImage }, '')
+    expect(analyzeImage).toHaveBeenCalledTimes(1)
+    expect(parsed.imageObservations).toEqual([])
+    expect(parsed.limitations.join()).toContain('HTTP 401')
   })
   it('stops scheduling more products after a failure and settles active calls before rejecting', async () => {
     let active = false

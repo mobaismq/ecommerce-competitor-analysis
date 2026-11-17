@@ -25,4 +25,8 @@ describe('AI completion response contract', () => {
     await expect(provider.generateText({ prompt: 'report' })).rejects.toThrow('长度上限')
     await expect(provider.generateText({ prompt: 'report' })).rejects.toThrow('未返回可用正文')
   })
+  it('preserves status and provider reason for rejected vision input', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: { message: 'unsupported image' } }), { status: 400 })))
+    await expect(createRealAiProvider('u1').analyzeImage({ prompt: '解析图片', images: ['data:image/jpeg;base64,dGVzdA=='] })).rejects.toThrow('HTTP 400 · unsupported image')
+  })
 })
