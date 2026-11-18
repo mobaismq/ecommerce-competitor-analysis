@@ -169,7 +169,7 @@ export function CreativeReportView({ plan, reportId, reportNo, keyword, userId, 
           <button className="cr-document-text-button" onClick={() => void copy(fullReportText())}><Copy size={14} />复制完整报告</button>
         </div>
         <div id="creative-view-panel-report" role="tabpanel" aria-labelledby="creative-view-report" hidden={mode !== 'report'}>
-          <CreativeReportDocument key={reportId} plan={plan} keyword={keyword} productReports={productReports} products={products.data?.products ?? []} totalProducts={products.data?.total ?? plan.dataCounts.products} productsLoading={products.isLoading} productsError={products.isError} onRetryProducts={() => void products.refetch()} onCopy={(text) => void copy(text)} onNavigate={navigateSection} onGenerate={generateImages} referenceImages={images} />
+          <CreativeReportDocument key={reportId} plan={plan} keyword={keyword} productReports={productReports} products={products.data?.products ?? []} totalProducts={products.data?.total ?? plan.dataCounts.products} productsLoading={products.isLoading} productsError={products.isError} onRetryProducts={() => void products.refetch()} onCopy={(text) => void copy(text)} onNavigate={navigateSection} onGenerate={generateImages} referenceImages={images} reportId={reportId} />
         </div>
         <div id="creative-view-panel-images" role="tabpanel" aria-labelledby="creative-view-images" hidden={mode !== 'images'}>
           <div className="cr-document-reference-page"><h2>竞品原图参考</h2><p className="cr-document-note">原图供核对商品和画面，展示原图不代表已完成 AI 解析。当前最多展示本批前 6 件商品、每件 2 张主图。</p>

@@ -3,6 +3,7 @@ import { ArrowRight, ArrowUpRight, BarChart3, BookOpen, ChevronDown, ClipboardCh
 import { creativeBrief, creativeScriptInstructions, creativeScriptText, type CreativePlan, type CreativePriority, type CreativeScript } from '../../../shared/creative-report'
 import type { ProductSkillReport } from '../../../shared/report-skill'
 import { ReportMarkdown } from './SkillProductReports'
+import { ImageAssetPanel, imageCountText } from './ImageAssetList'
 import type { ReportGenerationKind } from './report-generation-handoff'
 import { CompetitorPoolChart, PositiveSellingPointChart, type ReportChartImage } from './CompetitorReportCharts'
 import type { ReportChartProduct } from '../../../shared/report-charts'
@@ -106,12 +107,13 @@ function ScriptTable({ items, plan, onCopy, onEvidence, onGenerate, kind }: {
   </>
 }
 
-export function CreativeReportDocument({ plan, keyword, productReports = [], products, totalProducts, productsLoading, productsError, onRetryProducts, onCopy, onNavigate, onGenerate, referenceImages = [] }: {
+export function CreativeReportDocument({ plan, keyword, productReports = [], products, totalProducts, productsLoading, productsError, onRetryProducts, onCopy, onNavigate, onGenerate, referenceImages = [], reportId }: {
   plan: CreativePlan; keyword: string; productReports?: ProductSkillReport[]; products: ReportProduct[]; totalProducts: number
   productsLoading: boolean; productsError: boolean; onRetryProducts: () => void; onCopy: (text: string) => void
   onNavigate: (section: DocumentSection, target?: 'evidence') => void
   onGenerate: (kind: ReportGenerationKind) => void
   referenceImages?: ReportChartImage[]
+  reportId?: string
 }) {
   const [query, setQuery] = useState('')
   const [selectedIds, setSelectedIds] = useState<string[]>([])
@@ -180,11 +182,11 @@ export function CreativeReportDocument({ plan, keyword, productReports = [], pro
       {!!concernSignals.length && <ReportDisclosure title="顾虑与体验分歧" icon={MessageSquareText} meta={`${concernSignals.length} 条摘录`}>{reviewSection('代表摘录', concernSignals)}</ReportDisclosure>}
       {!!plan.insights.length && <ReportDisclosure title="竞品发现与内容动作" icon={Lightbulb} meta={`${plan.insights.length} 项发现`}>{plan.insights.map((item, index) => <div className="cr-document-prompt" key={index}><h3>{item.title}</h3><p>{item.finding}</p><p className="cr-document-insight-action"><strong>我方动作：{item.action}</strong></p><button className="cr-document-text-button" disabled={!item.evidenceIds.length} onClick={() => showEvidence(item.evidenceIds)}>核对依据<ArrowUpRight size={12} /></button></div>)}</ReportDisclosure>}
       {plan.researchMarkdown ? <ReportDisclosure title="完整研究报告" meta="保留全部研究正文"><ReportMarkdown text={plan.researchMarkdown} /></ReportDisclosure> : productReports.length ? productReports.map((report, index) => <ReportDisclosure key={report.productId} icon={FileSearch} title={`单品分析 ${index + 1} · ${report.title}`} meta={`商品 ${report.productId}`}>
-        <p><strong>单品结论：</strong>{report.summary}</p><p className="cr-document-note">图片 {report.sampleCounts.imagesUsed}/{report.sampleCounts.imagesAvailable} 张 · 评价 {report.sampleCounts.reviewsUsed}/{report.sampleCounts.reviewsTotal} 条 · 问答 {report.sampleCounts.qaUsed}/{report.sampleCounts.qaTotal} 条</p>
+        <p><strong>单品结论：</strong>{report.summary}</p><p className="cr-document-note">图片{imageCountText(report)} · 评价 {report.sampleCounts.reviewsUsed}/{report.sampleCounts.reviewsTotal} 条 · 问答 {report.sampleCounts.qaUsed}/{report.sampleCounts.qaTotal} 条</p>
         <ReportDisclosure title="完整八模块分析"><ReportMarkdown text={report.markdown} />{!!report.limitations.length && <><h4>补充局限</h4><ul className="cr-document-list">{report.limitations.map((item, itemIndex) => <li key={itemIndex}>{item}</li>)}</ul></>}</ReportDisclosure>
         <ReportDisclosure title="结论证据、图片与评价解析">
           <h4>结论证据</h4>{report.evidence.map((item, itemIndex) => <p key={itemIndex}>{item.claim}【{item.confidence}】<br />{item.quote}<br /><span className="cr-document-note">来源：{item.sourceIds.join('、')}</span></p>)}
-          <h4>图片 OCR 与视觉观察</h4>{report.imageObservations.length ? report.imageObservations.map((item) => <p key={item.imageId}>{item.imageId}：{item.observation}<br />可见文字：{item.ocr.join('、') || '未识别到文字'}</p>) : <p className="cr-document-note">未保存图片解析结果。</p>}
+          <h4>图片 OCR 与视觉观察</h4>{report.imageAssets?.length ? <ImageAssetPanel report={report} reportId={reportId} /> : report.imageObservations.length ? report.imageObservations.map((item) => <p key={item.imageId}>{item.imageId}：{item.observation}<br />可见文字：{item.ocr.join('、') || '未识别到文字'}</p>) : <p className="cr-document-note">未保存图片解析结果。</p>}
           <h4>全部评价分析</h4>{report.reviewAnalysis.map((item, itemIndex) => <p key={itemIndex}>{item.reviewId} · {{ positive: '正面', negative: '负面', neutral: '中性', mixed: '混合' }[item.sentiment]}：「{item.quote}」— {item.point}</p>)}
         </ReportDisclosure>
       </ReportDisclosure>) : <p className="cr-document-note">当前报告没有附加的单品全文，建议与来源见上文。</p>}

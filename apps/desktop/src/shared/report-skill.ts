@@ -7,6 +7,23 @@ export interface ReportSource {
   label: string
 }
 
+export type ImageAssetStatus = 'parsed' | 'failed' | 'skipped'
+
+/** One collected image and what happened to it; the only source of image counts. */
+export interface ImageAsset {
+  id: string
+  kind: 'main_image' | 'detail_image' | 'sku_image'
+  location: string
+  status: ImageAssetStatus
+  reason?: string
+}
+
+export function countImageAssets(assets: ImageAsset[]) {
+  const parsed = assets.filter((item) => item.status === 'parsed').length
+  const skipped = assets.filter((item) => item.status === 'skipped').length
+  return { total: assets.length, parsed, skipped, failed: assets.length - parsed - skipped }
+}
+
 export interface ProductSkillReport {
   productId: string
   title: string
@@ -16,6 +33,8 @@ export interface ProductSkillReport {
   visionModel?: string
   sources: ReportSource[]
   evidence: Array<{ claim: string; sourceIds: string[]; quote: string; confidence: '多源印证' | '双源印证' | '单源推断' }>
+  /** Absent in reports generated before full-image parsing. */
+  imageAssets?: ImageAsset[]
   imageObservations: Array<{ imageId: string; observation: string; ocr: string[] }>
   reviewAnalysis: Array<{ reviewId: string; sentiment: 'positive' | 'negative' | 'neutral' | 'mixed'; quote: string; point: string }>
   sampleCounts: { reviewsTotal: number; reviewsUsed: number; reviewsExcluded: number; qaTotal: number; qaUsed: number; imagesAvailable: number; imagesUsed: number }

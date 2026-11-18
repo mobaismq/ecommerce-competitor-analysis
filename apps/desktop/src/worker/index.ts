@@ -276,7 +276,7 @@ export function createBuiltinHandlers(): Record<string, CapabilityHandler> {
     'report.latest': async (payload) => latestReport(payload as { tenantId: string; keyword?: string }),
     'report.detail': async (payload) => getReport(payload as { tenantId: string; runId: string }),
     'report.export': async (payload) => exportReport(payload as { userId: string; tenantId: string; runId: string; format: ReportExportFormat }),
-    'report.references': async (payload) => reportReferenceImages(payload as { tenantId: string; runId: string }),
+    'report.references': async (payload) => reportReferenceImages(payload as { tenantId: string; runId: string; productId?: string }),
     'report.products': async (payload) => reportProducts(payload as { tenantId: string; runId: string; keyword?: string; productId?: string; shopName?: string; skuKeyword?: string; page?: number; pageSize?: number }),
     'report.mainImageAnalysis.run': async (payload) => runMainImageAnalysis(payload as { userId: string; tenantId: string; runId: string; productId?: string; imageUrl?: string }),
     'report.mainImageAnalysis.get': async (payload) => getMainImageAnalysis(payload as { tenantId: string; runId: string; productId: string }),

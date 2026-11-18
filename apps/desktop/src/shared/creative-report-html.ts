@@ -11,7 +11,7 @@ export function creativePlanHtml(plan: CreativePlan, research = '', reports: Pro
   const refs = (ids: string[]) => ids.map(id => numbers.has(id) ? `<a href="#source-${numbers.get(id)}">依据 ${numbers.get(id)}</a>` : escape(id)).join(' ') || '待补证据'
   const used = reports.reduce((sum, item) => sum + item.sampleCounts.imagesUsed, 0)
   const available = reports.reduce((sum, item) => sum + item.sampleCounts.imagesAvailable, 0)
-  const coverage = reports.length ? `图片实际解析 ${used}/${available} 张 · 问答 ${plan.dataCounts.qa} 条` : `图片记录 ${plan.dataCounts.images} 条，解析情况见完整分析`
+  const coverage = reports.length ? `图片已解析 ${used} / 共 ${available} 张 · 问答 ${plan.dataCounts.qa} 条` : `图片记录 ${plan.dataCounts.images} 条，解析情况见完整分析`
   const list = (items: string[]) => `<ul>${items.map(item => `<li>${escape(item)}</li>`).join('')}</ul>`
   const scripts = (label: string, items: CreativeScript[]) => items.map(item => {
     const [visual, supplement] = creativeScriptInstructions(item)

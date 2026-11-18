@@ -543,11 +543,16 @@ export async function reportProducts(input: { tenantId: string; runId: string; k
 }
 
 /** Read preview bytes only for products belonging to this tenant's selected report. */
-export async function reportReferenceImages(input: { tenantId: string; runId: string }) {
+export async function reportReferenceImages(input: { tenantId: string; runId: string; productId?: string }) {
   const db = getWorkerPrisma(), run = await resolveRun(input.runId, input.tenantId)
   const collection = await db.collectionJob.findFirst({ where: { tenantId: input.tenantId, jobId: run.jobId } })
   if (!collection) return { images: [] }
   const products = await loadProducts(collection.id)
+  if (input.productId) {
+    // Thumbnails for the per-image status list: every readable image of one product, keyed by its stable imageId.
+    const product = products.find((item) => item.externalProductId === input.productId)
+    return { images: product ? prepareProductEvidence(product).images.map((image) => ({ productId: product.externalProductId, title: product.title, id: image.id, kind: image.kind, dataUrl: image.image })) : [] }
+  }
   return { images: products.slice(0, 6).flatMap((product) => prepareProductEvidence(product).images.filter((image) => image.kind === 'main_image').slice(0, 2)
     .map((image) => ({ productId: product.externalProductId, title: product.title, id: `${product.externalProductId}:${image.id}`, dataUrl: image.image }))) }
 }

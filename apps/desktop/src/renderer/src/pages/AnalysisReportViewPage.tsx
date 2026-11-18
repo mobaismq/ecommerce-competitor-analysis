@@ -589,7 +589,7 @@ export function AnalysisReportViewPage() {
         />
       </SectionCard>
 
-      {rj.productReports?.length ? <SkillProductReports reports={rj.productReports} /> : !hasRichStory ? (
+      {rj.productReports?.length ? <SkillProductReports reports={rj.productReports} reportId={report.id} /> : !hasRichStory ? (
         // 无富结构（老报告）时仅展示 AI 策略总结
         <SectionCard badge="S" badgeColor="bg-[#7a5af8]" title="AI 策略总结" subtitle="AI 提炼的核心结论与策略建议">
           <div className="rounded-xl border border-[#eef1f5] bg-[#f8fafc] p-4 text-[14px] leading-7 text-[#344054]">

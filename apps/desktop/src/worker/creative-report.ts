@@ -54,7 +54,7 @@ export async function createCreativePlan(keyword: string, products: ReportProduc
     sampledReviews += selected.length
     for (const review of selected) evidence.push({ id: `${id}:${review.id}`, productId: id, kind: 'review', label: '评价原文', text: review.content.slice(0, 600) })
     for (const qa of prepared.qas.slice(0, 3)) evidence.push({ id: `${id}:${qa.id}`, productId: id, kind: 'qa', label: '问大家及回答', text: qa.content.slice(0, 500) })
-    for (const image of (report?.imageObservations ?? []).slice(0, 3)) {
+    for (const image of (report?.imageObservations ?? [])) {
       const kind = report?.sources.find((source) => source.id === image.imageId)?.kind
       if (kind?.endsWith('_image')) evidence.push({ id: `${id}:${image.imageId}`, productId: id, kind: kind as CreativeEvidence['kind'], label: kind === 'main_image' ? '主图观察' : '详情 / SKU 图观察', text: `${image.observation}；可见文字：${image.ocr.join('、')}`.slice(0, 500) })
     }
