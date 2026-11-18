@@ -30,6 +30,7 @@ extraResources:
     filter:
       - '**/*'
 mac:
+  artifactName: "${productName}-${version}-${arch}.${ext}"
   target:
     - dmg
     - dir

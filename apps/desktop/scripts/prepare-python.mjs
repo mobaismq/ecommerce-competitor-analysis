@@ -30,9 +30,10 @@ if (existsSync(manifestPath)) {
 }
 const baseUrl = `https://github.com/astral-sh/python-build-standalone/releases/download/${tag}`
 
-const asset = assets[platform]?.[arch]
+const targetArch = process.env.TARGET_ARCH || arch
+const asset = assets[platform]?.[targetArch]
 if (!asset) {
-  throw new Error(`unsupported Python runtime target: ${platform}/${arch}`)
+  throw new Error(`unsupported Python runtime target: ${platform}/${targetArch}`)
 }
 
 mkdirSync(pythonDir, { recursive: true })
@@ -63,5 +64,5 @@ execFileSync(pythonExecutable, ['-m', 'pip', 'install', '--no-cache-dir', '-r', 
   stdio: 'inherit',
 })
 
-console.log(`Python runtime ready: ${version}+${tag} ${platform}/${arch}`)
+console.log(`Python runtime ready: ${version}+${tag} ${platform}/${targetArch}`)
 writeFileSync(manifestPath, JSON.stringify({ version, releaseTag: tag, assets }, null, 2) + '\n')
