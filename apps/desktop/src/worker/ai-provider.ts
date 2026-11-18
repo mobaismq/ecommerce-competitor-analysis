@@ -17,7 +17,7 @@ export class EmptyAiResponseError extends Error {
   constructor(readonly finishReason?: string) {
     super(finishReason === 'length' || finishReason === 'max_tokens'
       ? 'AI 输出达到长度上限，报告可能不完整，请增加输出预算或减少输入资料'
-      : 'AI 未返回可用正文，请检查模型输出预算与接口响应')
+      : `AI 未返回可用正文${finishReason ? `（finish_reason=${finishReason}）` : ''}，请检查模型接口响应`)
     this.name = 'EmptyAiResponseError'
   }
 }
