@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Alert, DatePicker, Dropdown, Empty, Menu, Message, Table } from '@arco-design/web-react'
+import { Alert, DatePicker, Dropdown, Empty, Menu, Message, Modal, Table } from '@arco-design/web-react'
 import { ArrowUpRight, ClipboardList, Image as ImageIcon, Layers3, MoreHorizontal, RefreshCw, Search, Sparkles } from 'lucide-react'
 import dayjs from 'dayjs'
 import type { CreativePlan } from '../../../shared/creative-report'
@@ -12,7 +12,7 @@ import '../styles/creative-report.css'
 
 interface AnalysisRun {
   id: string; jobId: string; reportNo: string | null; status: string; competitorCount: number | null; keyword?: string | null; updatedAt: string
-  source?: 'collection' | 'report'; collectionJobId?: string | null; priceMin?: number | null; priceMax?: number | null
+  source?: 'collection' | 'report'; collectionJobId?: string | null; priceMin?: number | null; priceMax?: number | null; generating?: boolean
   reportJson?: { priceBands?: Array<{ priceMin: number; priceMax: number }>; creativePlan?: CreativePlan; productReports?: Array<{ sampleCounts: { reviewsTotal: number; imagesAvailable: number } }> } | null
 }
 function priceRange(row: AnalysisRun) {
@@ -41,6 +41,31 @@ export function ReportsListPage() {
   })
   useEffect(() => { setCurrentPage(1) }, [filters])
   const rows = data?.rows ?? [], plans = rows.flatMap((row) => row.reportJson?.creativePlan ? [row.reportJson.creativePlan] : [])
+  const hasBgGenerating = rows.some((row) => row.generating && generatingId !== row.id)
+  useEffect(() => {
+    if (!hasBgGenerating) return
+    const timer = setInterval(() => { void refetch() }, 4000)
+    return () => clearInterval(timer)
+  }, [hasBgGenerating, refetch])
+  const isRowGenerating = (row: AnalysisRun) => generatingId === row.id || Boolean(row.generating)
+  const remove = (row: AnalysisRun) => {
+    if (isRowGenerating(row)) { Message.warning('该批次正在生成报告，请等待完成后再删除'); return }
+    Modal.confirm({
+      title: '确认删除该批次？',
+      content: `将永久删除「${row.keyword || '竞品分析'}」及其对应的采集快照与分析报告，删除后不可恢复。`,
+      okText: '确认删除',
+      okButtonProps: { status: 'danger' },
+      onOk: async () => {
+        try {
+          await window.desktop?.capabilities.invoke('report.delete', { tenantId: 'local', id: row.id, jobId: row.jobId, collectionJobId: row.collectionJobId ?? undefined })
+          Message.success('已删除')
+          await refetch()
+        } catch (err) {
+          Message.error(`删除失败：${err instanceof Error ? err.message : String(err)}`)
+        }
+      },
+    })
+  }
   const apply = () => { const next = { keyword: searchKeyword, startTime, endTime, status: reportStatus }; if (JSON.stringify(next) === JSON.stringify(filters) && currentPage === 1) void refetch(); else { setFilters(next); setCurrentPage(1) } }
   const reset = () => { setSearchKeyword(''); setStartTime(''); setEndTime(''); setReportStatus(''); setFilters({ keyword: '', startTime: '', endTime: '', status: '' }); setCurrentPage(1) }
   const generate = async (row: AnalysisRun) => {
@@ -63,8 +88,8 @@ export function ReportsListPage() {
     { title: '数据基础', dataIndex: 'competitorCount', width: 150, render: (_: unknown, row: AnalysisRun) => { const counts = row.reportJson?.creativePlan?.dataCounts; return <div><div style={{ color: '#526b87', fontWeight: 550 }}>{row.competitorCount ?? 0} 件竞品 · {priceRange(row)}</div><p className="cr-meta" style={{ marginTop: 6 }}>{counts ? `${counts.reviews} 条评价 · ${counts.images} 条图片记录` : '点击查看采集数据'}</p></div> } },
     { title: '内容交付', dataIndex: 'reportJson', width: 145, render: (_: unknown, row: AnalysisRun) => { const plan = row.reportJson?.creativePlan; return plan ? <div><div className="cr-script-counts"><span className="cr-tag">主图 {plan.mainImages.length} 张</span><span className="cr-tag">详情 {plan.detailImages.length} 屏</span></div><span className="cr-meta">含文案、画面与证据</span></div> : <span className="cr-meta">生成后查看图片脚本</span> } },
     { title: '更新时间', dataIndex: 'updatedAt', width: 155, render: (value: string) => <span style={{ fontSize: 11, whiteSpace: 'nowrap' }}>{formatDateTime(value)}</span> },
-    { title: '报告状态', dataIndex: 'status', width: 105, render: (_: unknown, row: AnalysisRun) => <span className={`cr-status ${row.reportJson?.creativePlan ? '' : 'pending'}`}><span className="cr-dot" style={{ width: 4, height: 4, background: 'currentColor' }} />{generatingId === row.id ? '正在生成' : row.reportJson?.creativePlan ? '策划已就绪' : row.source === 'collection' ? '待生成' : ['failure', 'failed'].includes(row.status) ? '生成失败' : '分析已生成'}</span> },
-    { title: '操作', dataIndex: 'op', width: 170, render: (_: unknown, row: AnalysisRun) => <div className="cr-row-actions"><button className="cr-button cr-primary" disabled={!row.reportJson?.creativePlan && generatingId !== null} onClick={() => row.reportJson?.creativePlan ? navigate(`/market/competitive/report/view?id=${encodeURIComponent(row.id)}`) : void generate(row)}>{generatingId === row.id ? '生成中…' : row.reportJson?.creativePlan ? '查看出图方案' : '生成出图方案'}{generatingId !== row.id && <ArrowUpRight size={13} />}</button><Dropdown trigger="click" position="br" droplist={<Menu><Menu.Item key="data" onClick={() => navigate(`/market/competitive/report/products?id=${encodeURIComponent(row.id)}`)}>查看采集数据</Menu.Item>{row.source !== 'collection' && <Menu.Item key="analysis" onClick={() => navigate(`/market/competitive/report/view?id=${encodeURIComponent(row.id)}`)}>查看分析报告</Menu.Item>}{row.source !== 'collection' && <Menu.Item key="regenerate" disabled={generatingId !== null} onClick={() => void generate(row)}>重新生成报告</Menu.Item>}<Menu.Item key="chat" onClick={() => navigate(`/market/competitive/agent?reportId=${encodeURIComponent(row.id)}`)}>智能问答</Menu.Item></Menu>}><button className="cr-text-button" aria-label={`${row.keyword}的更多操作`}><MoreHorizontal size={18} /></button></Dropdown></div> },
+    { title: '报告状态', dataIndex: 'status', width: 105, render: (_: unknown, row: AnalysisRun) => <span className={`cr-status ${row.reportJson?.creativePlan && !isRowGenerating(row) ? '' : 'pending'}`}><span className="cr-dot" style={{ width: 4, height: 4, background: 'currentColor' }} />{isRowGenerating(row) ? '正在生成' : row.reportJson?.creativePlan ? '策划已就绪' : row.source === 'collection' ? '待生成' : ['failure', 'failed'].includes(row.status) ? '生成失败' : '分析已生成'}</span> },
+    { title: '操作', dataIndex: 'op', width: 170, render: (_: unknown, row: AnalysisRun) => <div className="cr-row-actions"><button className="cr-button cr-primary" disabled={isRowGenerating(row) || (!row.reportJson?.creativePlan && generatingId !== null)} onClick={() => row.reportJson?.creativePlan ? navigate(`/market/competitive/report/view?id=${encodeURIComponent(row.id)}`) : void generate(row)}>{isRowGenerating(row) ? '生成中…' : row.reportJson?.creativePlan ? '查看出图方案' : '生成出图方案'}{!isRowGenerating(row) && <ArrowUpRight size={13} />}</button><Dropdown trigger="click" position="br" droplist={<Menu><Menu.Item key="data" onClick={() => navigate(`/market/competitive/report/products?id=${encodeURIComponent(row.id)}`)}>查看采集数据</Menu.Item>{row.source !== 'collection' && <Menu.Item key="analysis" onClick={() => navigate(`/market/competitive/report/view?id=${encodeURIComponent(row.id)}`)}>查看分析报告</Menu.Item>}{row.source !== 'collection' && <Menu.Item key="regenerate" disabled={isRowGenerating(row) || generatingId !== null} onClick={() => void generate(row)}>重新生成报告</Menu.Item>}<Menu.Item key="chat" onClick={() => navigate(`/market/competitive/agent?reportId=${encodeURIComponent(row.id)}`)}>智能问答</Menu.Item><Menu.Item key="delete" disabled={isRowGenerating(row)} onClick={() => remove(row)}><span style={{ color: isRowGenerating(row) ? undefined : '#d92d20' }}>删除</span></Menu.Item></Menu>}><button className="cr-text-button" aria-label={`${row.keyword}的更多操作`}><MoreHorizontal size={18} /></button></Dropdown></div> },
   ]
   return <div className="cr-page cr-catalog custom-scrollbar"><PageHeader breadcrumbs={[{ label: '市场' }, { label: '竞品分析' }, { label: '分析报告' }]} />
     <header className="cr-title-row"><div><div className="cr-eyebrow"><Sparkles size={14} />把竞品资料转成图片内容</div><h1>竞品内容策划</h1><p className="cr-meta">从图片、评价和问答提炼方向，生成可交给美工的主图与详情页脚本。</p></div><button className="cr-button" onClick={() => void refetch()}><RefreshCw size={14} />刷新列表</button></header>

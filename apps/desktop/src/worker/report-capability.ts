@@ -6,7 +6,8 @@ import { createCreativePlan } from './creative-report'
 import { creativePlanMarkdown, REPORT_PRESENTATION_VERSION, type CreativePlan } from '../shared/creative-report'
 import { creativePlanHtml } from '../shared/creative-report-html'
 import type { ProductSkillReport } from '../shared/report-skill'
-import { getWorkerPrisma, putBytes, readBytesByKey, workerDataRoots } from './worker-db'
+import { getWorkerPrisma, putBytes, readBytesByKey, resolveSnapshotMainImageDataUrl, workerDataRoots } from './worker-db'
+import { logPipeline } from './pipeline-logger'
 
 export type ReportAiProvider = Pick<RealAiProvider, 'generateText' | 'analyzeImage'>
 
@@ -245,10 +246,12 @@ export async function generateReport(input: GenerateReportInput, provider?: Repo
   if (!collection) throw new Error('未找到本机采集数据，请先完成采集')
   const existing = await db.analysisRun.findUnique({ where: { jobId: collection.jobId } })
   if (existing && ['success', 'completed'].includes(existing.status) && !input.regenerate && rawRecord(existing.reportJson)?.creativePlan) {
+    logPipeline('report:reused', '命中已生成报告缓存，跳过图片与报告重算', { jobId: existing.jobId, reportId: existing.id, keyword: collection.keyword ?? keyword })
     return { ok: true, reused: true, jobId: existing.jobId, reportId: existing.id,
       reportNo: existing.reportNo ?? undefined, reportHash: existing.reportHash ?? undefined,
       competitorCount: existing.competitorCount ?? undefined, status: existing.status }
   }
+  logPipeline('report:start', '开始生成竞品报告', { jobId: collection.jobId, keyword: collection.keyword ?? keyword, regenerate: Boolean(input.regenerate), limit: input.limit ?? null })
   if (generatingJobs.has(collection.jobId)) throw new Error('该批次正在生成报告，请等待完成')
   generatingJobs.add(collection.jobId)
   try {
@@ -261,6 +264,11 @@ export async function generateReport(input: GenerateReportInput, provider?: Repo
     const selected = provider ?? createRealAiProvider(input.userId)
     const generated = await createSkillReports(products, selected, progress)
     const productReports = generated.reports
+    logPipeline('report:images_done', '所有商品图片与单品报告解析完成', {
+      jobId: collection.jobId,
+      productCount: productReports.length,
+      perProduct: productReports.map((r) => ({ productId: r.productId, used: r.sampleCounts.imagesUsed, available: r.sampleCounts.imagesAvailable })),
+    })
     progress?.({ done: products.length, total: products.length, stage: '正在整理主图与详情页内容脚本' })
     const creativePlan = await createCreativePlan(collection.keyword ?? keyword, products, productReports, selected)
     const summary = productReports.map((report) => `${report.title}：${report.summary}`).join('\n\n')
@@ -391,13 +399,58 @@ export async function listReports(input: ReportListInput) {
     }) : []
     const rows = [...runs.map((run) => ({ ...run, collectionJobId: null, source: 'report' as const })), ...rawRows]
       .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime() || a.id.localeCompare(b.id))
-    return { rows: rows.slice((page - 1) * pageSize, page * pageSize), total: rows.length, page, pageSize }
+      .map((row) => ({ ...row, generating: generatingJobs.has(row.jobId) }))
+    return { rows: rows.slice((page - 1) * pageSize, page * pageSize), total: rows.length, page, pageSize, generatingJobIds: [...generatingJobs] }
   }
   const [rows, total] = await Promise.all([
     db.analysisRun.findMany({ where, orderBy: { updatedAt: 'desc' }, skip: (page - 1) * pageSize, take: pageSize }),
     db.analysisRun.count({ where }),
   ])
-  return { rows, total, page, pageSize }
+  return { rows: rows.map((row) => ({ ...row, generating: generatingJobs.has(row.jobId) })), total, page, pageSize, generatingJobIds: [...generatingJobs] }
+}
+
+/** Delete an analysis report and/or its underlying collected batch snapshots in one transaction. */
+export async function deleteReport(input: { tenantId: string; id?: string; jobId?: string; collectionJobId?: string }) {
+  const db = getWorkerPrisma()
+  const rawId = input.id?.startsWith('raw-') ? input.id.slice(4) : undefined
+  let targetJobId = input.jobId?.trim() || rawId
+  let run = targetJobId
+    ? await db.analysisRun.findFirst({ where: { tenantId: input.tenantId, jobId: targetJobId } })
+    : input.id
+      ? await db.analysisRun.findFirst({ where: { tenantId: input.tenantId, id: input.id } })
+      : null
+  if (run && !targetJobId) targetJobId = run.jobId
+  let collection = input.collectionJobId
+    ? await db.collectionJob.findFirst({ where: { tenantId: input.tenantId, id: input.collectionJobId } })
+    : targetJobId
+      ? await db.collectionJob.findFirst({ where: { tenantId: input.tenantId, jobId: targetJobId } })
+      : null
+  if (collection && !targetJobId) targetJobId = collection.jobId
+  if (!run && !collection) throw new Error('未找到可删除的报告或采集批次')
+  if (targetJobId && generatingJobs.has(targetJobId)) throw new Error('该批次正在生成报告，请等待完成后再删除')
+  await db.$transaction(async (tx) => {
+    if (run) {
+      const bands = await tx.analysisPriceBand.findMany({ where: { analysisRunId: run.id }, select: { id: true } })
+      if (bands.length) await tx.analysisBandProduct.deleteMany({ where: { priceBandId: { in: bands.map((band) => band.id) } } })
+      await tx.analysisPriceBand.deleteMany({ where: { analysisRunId: run.id } })
+      await tx.analysisInsight.deleteMany({ where: { analysisRunId: run.id } })
+      await tx.mainImageAnalysis.deleteMany({ where: { analysisRunId: run.id } })
+      await tx.analysisRun.delete({ where: { id: run.id } })
+    }
+    if (collection) {
+      const snapshots = await tx.productSnapshot.findMany({ where: { collectionJobId: collection.id }, select: { id: true } })
+      const snapshotIds = snapshots.map((item) => item.id)
+      if (snapshotIds.length) {
+        await tx.productSkuSnapshot.deleteMany({ where: { productSnapshotId: { in: snapshotIds } } })
+        await tx.productQaSnapshot.deleteMany({ where: { productSnapshotId: { in: snapshotIds } } })
+        await tx.productReviewSnapshot.deleteMany({ where: { productSnapshotId: { in: snapshotIds } } })
+        await tx.productSnapshot.deleteMany({ where: { id: { in: snapshotIds } } })
+      }
+      await tx.sourceFileRecord.deleteMany({ where: { collectionJobId: collection.id } })
+      await tx.collectionJob.delete({ where: { id: collection.id } })
+    }
+  })
+  return { ok: true, deletedJobId: targetJobId ?? null }
 }
 
 export async function latestReport(input: { tenantId: string; keyword?: string }) {
@@ -520,6 +573,7 @@ export async function reportProducts(input: { tenantId: string; runId: string; k
     run ? db.mainImageAnalysis.findMany({ where: { analysisRunId: run.id, productId: { in: rows.map((row) => row.externalProductId) } } }) : Promise.resolve([]),
   ])
   const analysisByProduct = new Map(analyses.filter((item) => item.productId).map((item) => [item.productId as string, item]))
+  const roots = workerDataRoots()
   const products = rows.map((row) => {
     const raw = rawRecord(row.rawJson) ?? {}
     const analysis = analysisByProduct.get(row.externalProductId)
@@ -529,7 +583,7 @@ export async function reportProducts(input: { tenantId: string; runId: string; k
       title: row.title,
       shopName: row.shopName,
       price: row.price,
-      imageUrl: rawString(raw, 'imageUrl'),
+      imageUrl: resolveSnapshotMainImageDataUrl(raw, roots),
       productUrl: rawString(raw, 'productUrl'),
       sold: rawNumber(raw, 'sold'),
       salesAmount: rawNumber(raw, 'salesAmount'),

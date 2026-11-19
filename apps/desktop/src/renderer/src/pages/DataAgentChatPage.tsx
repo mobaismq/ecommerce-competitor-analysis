@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Bot, Database, Loader2, MessageSquareText, RefreshCw, Search, Send, Sparkles } from 'lucide-react'
-import { Message } from '@arco-design/web-react'
+import { Bot, Database, Loader2, MessageSquareText, RefreshCw, Search, Send, Sparkles, Trash2 } from 'lucide-react'
+import { Message, Modal } from '@arco-design/web-react'
 import { nanoid } from 'nanoid'
 import { PageHeader } from '../components/PageHeader'
+import { ReportMarkdown } from '../components/SkillProductReports'
 import { useAuth } from '../store/auth'
 
 interface Dataset {
@@ -40,6 +41,30 @@ function statusText(status?: string) {
 function formatDate(value?: string) {
   if (!value) return '-'
   return String(value).replace('T', ' ').slice(0, 16)
+}
+
+const CHAT_STORAGE_PREFIX = 'data-agent-chat-history:'
+
+function loadChatHistory(id: string): ChatMessage[] {
+  if (!id) return []
+  try {
+    const raw = localStorage.getItem(`${CHAT_STORAGE_PREFIX}${id}`)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed.filter((m) => m && typeof m.id === 'string' && typeof m.content === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+function saveChatHistory(id: string, list: ChatMessage[]) {
+  if (!id) return
+  try {
+    if (!list.length) localStorage.removeItem(`${CHAT_STORAGE_PREFIX}${id}`)
+    else localStorage.setItem(`${CHAT_STORAGE_PREFIX}${id}`, JSON.stringify(list.slice(-100)))
+  } catch {
+    // Ignore storage quota errors.
+  }
 }
 
 export function DataAgentChatPage() {
@@ -83,8 +108,32 @@ export function DataAgentChatPage() {
   }, [])
 
   useEffect(() => {
+    setMessages(loadChatHistory(datasetId))
+    setAnswerError('')
+  }, [datasetId])
+
+  useEffect(() => {
+    if (datasetId) saveChatHistory(datasetId, messages)
+  }, [datasetId, messages])
+
+  useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
   }, [messages, asking])
+
+  const handleClearHistory = () => {
+    if (!datasetId || !messages.length) return
+    Modal.confirm({
+      title: '清空当前对话记录？',
+      content: `将删除「${selectedDataset?.keyword || '当前数据集'}」的所有本地历史问答记录，删除后不可恢复。`,
+      okText: '确认清空',
+      okButtonProps: { status: 'danger' },
+      onOk: () => {
+        setMessages([])
+        saveChatHistory(datasetId, [])
+        Message.success('已清空对话记录')
+      },
+    })
+  }
 
   // 数据流保持桌面端现状：IPC dataAgent.chat
   const handleAsk = async (queryText?: string) => {
@@ -129,7 +178,7 @@ export function DataAgentChatPage() {
   }
 
   return (
-    <div className="min-h-full bg-[#f6f8fb] px-6 py-5">
+    <div className="flex h-full flex-col overflow-hidden bg-[#f6f8fb] px-6 py-5">
       <PageHeader
         breadcrumbs={[{ label: '市场' }, { label: '竞品分析' }, { label: '数据智能体' }]}
         trailing={
@@ -144,9 +193,9 @@ export function DataAgentChatPage() {
         }
       />
 
-      <div className="grid h-[calc(100vh-116px)] min-h-[620px] grid-cols-[340px_minmax(0,1fr)] gap-4">
+      <div className="grid min-h-0 flex-1 grid-cols-[340px_minmax(0,1fr)] gap-4">
         {/* 左：数据集选择抽屉 */}
-        <aside className="flex min-h-0 flex-col rounded-xl border border-[#e5eaf2] bg-white">
+        <aside className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-[#e5eaf2] bg-white">
           <div className="border-b border-[#eef1f5] p-4">
             <div className="flex items-center gap-2">
               <div className="grid h-9 w-9 place-items-center rounded-lg bg-[#e8f3ff] text-[#3388ff]">
@@ -189,8 +238,6 @@ export function DataAgentChatPage() {
                       type="button"
                       onClick={() => {
                         setDatasetId(item.id)
-                        setMessages([])
-                        setAnswerError('')
                       }}
                       className={`w-full cursor-pointer rounded-lg border p-3 text-left transition-colors ${
                         active ? 'border-[#3388ff] bg-[#f0f7ff]' : 'border-[#eef1f5] bg-white hover:border-[#c9ddff] hover:bg-[#f8fbff]'
@@ -224,8 +271,8 @@ export function DataAgentChatPage() {
         </aside>
 
         {/* 右：对话主体 */}
-        <main className="flex min-h-0 flex-col rounded-xl border border-[#e5eaf2] bg-white">
-          <div className="border-b border-[#eef1f5] p-4">
+        <main className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-[#e5eaf2] bg-white">
+          <div className="shrink-0 border-b border-[#eef1f5] p-4">
             <div className="flex items-center justify-between gap-4">
               <div className="flex min-w-0 items-center gap-2">
                 <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-[#f3edff] text-[#7c3aed]">
@@ -238,9 +285,22 @@ export function DataAgentChatPage() {
                   </p>
                 </div>
               </div>
-              <div className="hidden items-center gap-2 rounded-full bg-[#f8fafc] px-3 py-2 text-[12px] font-bold text-[#667085] md:flex">
-                <Sparkles className="h-4 w-4 text-[#3388ff]" />
-                {selectedDataset?.keyword || '未选择'}
+              <div className="flex shrink-0 items-center gap-2">
+                {messages.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleClearHistory}
+                    className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-[#e5eaf2] bg-white px-2.5 text-[12px] font-semibold text-[#667085] hover:border-[#fda29b] hover:text-[#d92d20]"
+                    title="清空当前数据集历史对话"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    清空对话
+                  </button>
+                )}
+                <div className="hidden items-center gap-2 rounded-full bg-[#f8fafc] px-3 py-2 text-[12px] font-bold text-[#667085] md:flex">
+                  <Sparkles className="h-4 w-4 text-[#3388ff]" />
+                  {selectedDataset?.keyword || '未选择'}
+                </div>
               </div>
             </div>
           </div>
@@ -271,16 +331,36 @@ export function DataAgentChatPage() {
             ) : (
               <div className="mx-auto flex max-w-4xl flex-col gap-4">
                 {messages.map((message) => (
-                  <div key={message.id} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  <div key={message.id} className={`group flex items-start gap-2 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                    {message.role === 'user' && (
+                      <button
+                        type="button"
+                        onClick={() => setMessages((prev) => prev.filter((item) => item.id !== message.id))}
+                        className="mt-2 hidden cursor-pointer border-0 bg-transparent p-1 text-[#98A2B3] hover:text-[#d92d20] group-hover:inline-flex"
+                        title="删除这条消息"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    )}
                     <div
-                      className={`max-w-[78%] whitespace-pre-wrap rounded-2xl px-4 py-3 text-[14px] leading-7 ${
+                      className={`max-w-[78%] rounded-2xl px-4 py-3 text-[14px] leading-7 ${
                         message.role === 'user'
-                          ? 'bg-[#3388ff] font-bold text-white'
+                          ? 'whitespace-pre-wrap bg-[#3388ff] font-bold text-white'
                           : 'border border-[#eef1f5] bg-[#f8fafc] font-medium text-[#0A1B39]'
                       }`}
                     >
-                      {message.content}
+                      {message.role === 'assistant' ? <ReportMarkdown text={message.content} /> : message.content}
                     </div>
+                    {message.role === 'assistant' && (
+                      <button
+                        type="button"
+                        onClick={() => setMessages((prev) => prev.filter((item) => item.id !== message.id))}
+                        className="mt-2 hidden cursor-pointer border-0 bg-transparent p-1 text-[#98A2B3] hover:text-[#d92d20] group-hover:inline-flex"
+                        title="删除这条回答"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    )}
                   </div>
                 ))}
                 {asking ? (
@@ -296,7 +376,7 @@ export function DataAgentChatPage() {
             )}
           </div>
 
-          <div className="border-t border-[#eef1f5] p-4">
+          <div className="shrink-0 border-t border-[#eef1f5] p-4">
             {answerError ? (
               <div className="mb-3 rounded-lg bg-[#fff1f0] px-3 py-2 text-[12px] font-bold text-[#c62828]">{answerError}</div>
             ) : null}

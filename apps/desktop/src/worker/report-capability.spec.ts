@@ -8,6 +8,7 @@ import {
   computePriceBands,
   dataAgentChat,
   dataAgentDatasets,
+  deleteReport,
   exportReport,
   generateReport,
   getMainImageAnalysis,
@@ -239,5 +240,13 @@ describe('report capabilities', () => {
     expect(rawChat.answer).toContain('高性价比需求明确')
     expect(rawChat.sources[0]?.type).toBe('product')
     expect(await dataAgentChat({ userId: 'u1', tenantId: 'local', question: '没有选择数据集' }).catch((error: Error) => error.message)).toBe('请先选择要问答的数据')
+
+    const deletedRaw = await deleteReport({ tenantId: 'local', id: `raw-job-raw-${bareSuffix}` })
+    expect(deletedRaw.ok).toBe(true)
+    const deletedGenerated = await deleteReport({ tenantId: 'local', id: generated.reportId })
+    expect(deletedGenerated.ok).toBe(true)
+    const afterDelete = await listReports({ tenantId: 'local', includeCollections: true, keyword: '耳机' })
+    expect(afterDelete.rows.some((row) => row.id === generated.reportId || row.id === `raw-job-raw-${bareSuffix}`)).toBe(false)
+    await expect(deleteReport({ tenantId: 'local', id: 'missing-id' })).rejects.toThrow('未找到可删除的报告或采集批次')
   })
 })

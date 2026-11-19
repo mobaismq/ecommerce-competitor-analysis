@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
@@ -6,6 +6,7 @@ import { REPORT_SECTION_TITLES } from '../shared/report-skill'
 import type { TextRequest, VisionRequest } from './ai-provider'
 import { anthropicImage } from './ai-provider'
 import { countImageAssets } from '../shared/report-skill'
+import { getPipelineLogPath, isPipelineLoggingEnabled } from './pipeline-logger'
 import { createProductSkillReport, createSkillReports, splitImageBatches, normalizeReportConfidence, prepareProductEvidence, readReportSkill, validateReportMarkdown, type ReportProductInput } from './report-skill-pipeline'
 
 const root = mkdtempSync(join(tmpdir(), 'report-evidence-'))
@@ -95,21 +96,42 @@ describe('skill report evidence and validation', () => {
     expect(data.images).toHaveLength(6)
     expect(data.imageAssets.find((a) => a.status === 'skipped')?.reason).toContain('缺失')
     expect(countImageAssets(data.imageAssets)).toMatchObject({ total: 7, skipped: 1 })
-    expect(splitImageBatches(data.images).map((b) => b.length)).toEqual([4, 2])
+    expect(splitImageBatches(data.images).map((b) => b.length)).toEqual([2, 2, 2])
     expect(splitImageBatches([{ image: 'a'.repeat(10) }, { image: 'b'.repeat(10) }, { image: 'c'.repeat(10) }], 4, 15).map((b) => b.length)).toEqual([1, 1, 1])
   })
   it('isolates a failing vision batch and reports per-image status', async () => {
     const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1cAAAAASUVORK5CYII=', 'base64')
-    const rows = Array.from({ length: 6 }, (_, i) => { writeFileSync(join(root, 'ecommerce', `b-${i}.png`), png); return { image_type: 'main_image', storage_path: `b-${i}.png` } })
+    const rows = Array.from({ length: 5 }, (_, i) => { writeFileSync(join(root, 'ecommerce', `b-${i}.png`), png); return { image_type: 'main_image', storage_path: `b-${i}.png` } })
     const vision = vi.fn(async (request: VisionRequest) => {
-      if (request.images.length === 2) throw new Error('boom')
+      if (request.images.length === 1) throw new Error('boom')
       const ids = (JSON.parse(request.prompt.split('\n').pop()!) as { images: Array<{ id: string }> }).images.map((i) => i.id)
-      return result({ imageObservations: ids.slice(0, 3).map((imageId) => ({ imageId, ocr: [], observation: `观察${imageId}` })) })
+      return result({ imageObservations: ids.slice(0, 1).map((imageId) => ({ imageId, ocr: [], observation: `观察${imageId}` })) })
     })
     const report = await createProductSkillReport({ ...product, rawJson: { sourceData: { exportDirectory: join(root, 'ecommerce'), images: { images: rows } } } }, { generateText: vi.fn(async () => result()), analyzeImage: vision }, readReportSkill())
-    expect(report.sampleCounts).toMatchObject({ imagesAvailable: 6, imagesUsed: 3 })
-    expect(report.imageAssets?.filter((a) => a.status === 'parsed')).toHaveLength(3)
+    expect(report.sampleCounts).toMatchObject({ imagesAvailable: 5, imagesUsed: 2 })
+    expect(report.imageAssets?.filter((a) => a.status === 'parsed')).toHaveLength(2)
     expect(report.imageAssets?.filter((a) => a.status === 'failed').map((a) => a.reason).join()).toContain('视觉模型调用失败')
     expect(report.imageAssets?.some((a) => a.reason === '模型未返回该图解析')).toBe(true)
+  })
+  it('keeps unknown image_type rows and writes end-to-end pipeline logs to disk', async () => {
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1cAAAAASUVORK5CYII=', 'base64')
+    const rows = ['主图', 'detail_image', 'custom_banner'].map((image_type, i) => {
+      writeFileSync(join(root, 'ecommerce', `u-${i}.png`), png)
+      return { image_type, storage_path: `u-${i}.png` }
+    })
+    const vision = vi.fn(async (request: VisionRequest) => {
+      const ids = (JSON.parse(request.prompt.split('\n').pop()!) as { images: Array<{ id: string }> }).images.map((i) => i.id)
+      return result({ imageObservations: ids.map((imageId) => ({ imageId, ocr: [], observation: `ok:${imageId}` })) })
+    })
+    const report = await createProductSkillReport({ ...product, rawJson: { sourceData: { exportDirectory: join(root, 'ecommerce'), images: { images: rows } } } }, { generateText: vi.fn(async () => result()), analyzeImage: vision }, readReportSkill())
+    expect(report.sampleCounts).toMatchObject({ imagesAvailable: 3, imagesUsed: 3 })
+    const logContent = readFileSync(getPipelineLogPath(), 'utf8')
+    expect(logContent).toContain('[prepare]')
+    expect(logContent).toContain('[vision:start]')
+    expect(logContent).toContain('[vision:batch]')
+    expect(logContent).toContain('[vision:summary]')
+    process.env.ECOMMERCE_IS_DEV = '0'
+    expect(isPipelineLoggingEnabled()).toBe(false)
+    delete process.env.ECOMMERCE_IS_DEV
   })
 })

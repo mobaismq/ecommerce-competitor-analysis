@@ -238,9 +238,17 @@ export function ReportProductsPage() {
     }
   }
 
-  const handleOpenExternal = (url?: string | null) => {
+  const handleOpenExternal = async (url?: string | null) => {
     if (!url) {
       Message.warning('该商品暂无外部直达链接')
+      return
+    }
+    if (window.desktop?.collection?.openExternalUrl) {
+      try {
+        await window.desktop.collection.openExternalUrl(url)
+      } catch (err) {
+        Message.error(`打开链接失败：${err instanceof Error ? err.message : String(err)}`)
+      }
       return
     }
     window.open(url, '_blank', 'noopener,noreferrer')

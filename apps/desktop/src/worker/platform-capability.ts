@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { extname, join } from 'node:path'
-import { getWorkerPrisma, putBytes, readBytesByKey, removeBytes, workerDataRoots } from './worker-db'
+import { extname, join, normalize } from 'node:path'
+import { getWorkerPrisma, putBytes, readBytesByKey, removeBytes, resolveSnapshotMainImageKey, workerDataRoots } from './worker-db'
 
 // ---- 平台适配器类型与注册（移植自 apps/backend/src/platform/platform.types.ts） ----
 
@@ -445,10 +445,12 @@ const MIME_BY_EXT: Record<string, string> = {
 }
 
 export async function rawListingMedia(storageKey: string): Promise<{ dataUrl: string; mimeType: string; size: number } | null> {
-  if (!storageKey || !storageKey.startsWith(LISTINGS_MEDIA_PREFIX)) return null
-  const bytes = readBytesByKey(storageKey, workerDataRoots())
+  if (!storageKey) return null
+  const normalized = normalize(storageKey).replace(/\\/g, '/')
+  if (normalized.startsWith('..') || (!normalized.startsWith(LISTINGS_MEDIA_PREFIX) && !normalized.startsWith('collections/'))) return null
+  const bytes = readBytesByKey(normalized, workerDataRoots())
   if (!bytes) return null
-  const mimeType = MIME_BY_EXT[extname(storageKey).toLowerCase()] ?? 'application/octet-stream'
+  const mimeType = MIME_BY_EXT[extname(normalized).toLowerCase()] ?? 'application/octet-stream'
   return { dataUrl: `data:${mimeType};base64,${bytes.toString('base64')}`, mimeType, size: bytes.length }
 }
 
@@ -725,7 +727,7 @@ function snapshotToView(snapshot: {
   updatedAt: Date
 }): PlatformProductView {
   const raw = rawRecord(snapshot.rawJson) ?? {}
-  const image = stringOrNull(raw.mainImage) ?? stringOrNull(raw.imageUrl) ?? stringOrNull(raw.picUrl)
+  const image = resolveSnapshotMainImageKey(raw, workerDataRoots().userRoot)
   const price = snapshot.price ? Number(snapshot.price) : 0
   return {
     id: snapshot.id,

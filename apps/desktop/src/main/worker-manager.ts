@@ -1,4 +1,4 @@
-import { utilityProcess } from 'electron'
+import { app, utilityProcess } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import type { CapabilityErrorMessage, CapabilityResultMessage, CapabilityStreamMessage, WorkerOutbound } from '../worker/protocol'
@@ -48,7 +48,11 @@ export class WorkerManager {
   start() {
     if (this.child) return
     this.stopping = false
-    const fork = this.opts.forkImpl ?? ((entry) => utilityProcess.fork(entry, [], { serviceName: 'capability-worker', stdio: 'inherit' }) as unknown as UtilityChild)
+    const fork = this.opts.forkImpl ?? ((entry) => utilityProcess.fork(entry, [], {
+      serviceName: 'capability-worker',
+      stdio: 'inherit',
+      env: { ...process.env, ECOMMERCE_IS_DEV: app?.isPackaged ? '0' : '1' },
+    }) as unknown as UtilityChild)
     const child = fork(this.entry)
     this.child = child
     this.ready = false

@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { DatePicker, Message } from '@arco-design/web-react'
+import { DatePicker, Empty, Message, Table, type TableColumnProps } from '@arco-design/web-react'
 import dayjs from 'dayjs'
-import { ChevronDown, ChevronRight, Plus, RotateCcw, Search, Upload, X } from 'lucide-react'
+import { ChevronDown, Plus, RotateCcw, Search, Upload, X } from 'lucide-react'
 import { PageHeader } from '../components/PageHeader'
 import { Can } from '../components/Can'
 import { api } from '../api/client'
@@ -125,125 +125,6 @@ function ListingThumb({ value, size = 40 }: { value: string | null; size?: numbe
 }
 
 /** 旧版 ProductRow：主行 + 展开后的 SKU 子表（浅灰底）。 */
-function ProductRow({
-  product,
-  isExpanded,
-  onToggleExpand,
-  onEdit,
-  onPublish,
-  onToggleListing,
-  storeLabel,
-}: {
-  product: PlatformProduct
-  isExpanded: boolean
-  onToggleExpand: () => void
-  onEdit: () => void
-  onPublish: () => void
-  onToggleListing: () => void
-  storeLabel: string
-}) {
-  return (
-    <>
-      <tr className="border-b border-[#f0f2f5] hover:bg-[#fafafa]">
-        <td className="py-3 pl-4 pr-2">
-          <button
-            type="button"
-            onClick={onToggleExpand}
-            className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent hover:bg-[#e9edf3]"
-          >
-            {isExpanded ? <ChevronDown className="h-4 w-4 text-[#86909C]" /> : <ChevronRight className="h-4 w-4 text-[#86909C]" />}
-          </button>
-        </td>
-        <td className="py-3 pr-2">
-          <ListingThumb value={product.productImage} size={40} />
-        </td>
-        <td className="py-3 pr-2 text-[14px] text-[#0A1B39]">{product.productName}</td>
-        <td className="py-3 pr-2 text-[14px] text-[#0A1B39]">{product.productCode || '--'}</td>
-        <td className="py-3 pr-2 text-[14px] text-[#0A1B39]">{product.productId || '--'}</td>
-        <td className="py-3 pr-2 text-[14px] text-[#0A1B39]">{product.category || '--'}</td>
-        <td className="whitespace-nowrap py-3 pr-2 text-[14px] text-[#0A1B39]">
-          {product.minPrice === product.maxPrice ? `¥${product.minPrice}` : `¥${product.minPrice}-¥${product.maxPrice}`}
-        </td>
-        <td className="whitespace-nowrap py-3 pr-2 text-[14px] text-[#0A1B39]">{storeLabel}</td>
-        <td className="py-3 pr-2">
-          <span className="inline-block whitespace-nowrap rounded-full px-3 py-0.5 text-[12px] text-black">{product.publishStatus}</span>
-        </td>
-        <td className="py-3 pr-2">
-          <span className="inline-block whitespace-nowrap rounded-full px-3 py-0.5 text-[12px] text-black">{product.listingStatus}</span>
-        </td>
-        <td className="whitespace-nowrap py-3 pr-2 text-[14px] text-[#0A1B39]">{formatDateTime(product.updateTime, '--')}</td>
-        <td className="whitespace-nowrap py-3 pr-2 text-[14px] text-[#0A1B39]">{formatDateTime(product.createTime, '--')}</td>
-        <td className="py-3 pr-4">
-          <div className="flex items-center gap-3">
-            <Can code="product:listing:edit">
-              <button type="button" onClick={onEdit} className="cursor-pointer whitespace-nowrap border-0 bg-transparent p-0 text-[14px] text-[#409eff] hover:text-[#66b1ff]">
-                编辑
-              </button>
-            </Can>
-            <Can code="product:listing:publish">
-              <button type="button" onClick={onPublish} className="cursor-pointer whitespace-nowrap border-0 bg-transparent p-0 text-[14px] text-[#409eff] hover:text-[#66b1ff]">
-                发布
-              </button>
-            </Can>
-            <Can code="product:listing:toggle">
-              <button type="button" onClick={onToggleListing} className="cursor-pointer whitespace-nowrap border-0 bg-transparent p-0 text-[14px] text-[#409eff] hover:text-[#66b1ff]">
-                {product.listingStatus === '上架' ? '下架' : '上架'}
-              </button>
-            </Can>
-          </div>
-        </td>
-      </tr>
-      {isExpanded && (
-        <>
-          <tr className="border-b border-[#f0f2f5] bg-[#fafbfc]">
-            <td className="py-2 pl-4 pr-2"></td>
-            <td className="py-2 pr-2 text-[12px] font-normal text-[#86909C]">sku图片</td>
-            <td className="py-2 pr-2 text-[12px] font-normal text-[#86909C]">sku名称</td>
-            <td className="py-2 pr-2 text-[12px] font-normal text-[#86909C]">sku编码</td>
-            <td className="py-2 pr-2 text-[12px] font-normal text-[#86909C]">sku ID</td>
-            <td className="py-2 pr-2 text-[12px] font-normal text-[#86909C]">价格</td>
-            <td className="py-2 pr-2"></td>
-            <td className="py-2 pr-2"></td>
-            <td className="py-2 pr-2"></td>
-            <td className="py-2 pr-2"></td>
-            <td className="py-2 pr-2"></td>
-            <td className="py-2 pr-2"></td>
-            <td className="py-2 pr-4"></td>
-          </tr>
-          {product.skus.length === 0 ? (
-            <tr className="border-b border-[#f0f2f5] bg-[#fafbfc]">
-              <td className="py-2 pl-4 pr-2"></td>
-              <td colSpan={12} className="py-2 pr-2 text-[13px] text-[#86909C]">
-                该商品暂无规格数据
-              </td>
-            </tr>
-          ) : (
-            product.skus.map((sku, index) => (
-              <tr key={sku.skuId || sku.skuCode || index} className="border-b border-[#f0f2f5] bg-[#fafbfc]">
-                <td className="py-2 pl-4 pr-2"></td>
-                <td className="py-2 pr-2">
-                  <ListingThumb value={sku.skuImage} size={32} />
-                </td>
-                <td className="py-2 pr-2 text-[13px] text-[#0A1B39]">{sku.skuName || '--'}</td>
-                <td className="py-2 pr-2 text-[13px] text-[#0A1B39]">{sku.skuCode || '--'}</td>
-                <td className="py-2 pr-2 text-[13px] text-[#0A1B39]">{sku.skuId || '--'}</td>
-                <td className="py-2 pr-2 text-[13px] text-[#0A1B39]">{Number(sku.price) > 0 ? `¥${sku.price}` : '--'}</td>
-                <td className="py-2 pr-2"></td>
-                <td className="py-2 pr-2"></td>
-                <td className="py-2 pr-2"></td>
-                <td className="py-2 pr-2"></td>
-                <td className="py-2 pr-2"></td>
-                <td className="py-2 pr-2"></td>
-                <td className="py-2 pr-4"></td>
-              </tr>
-            ))
-          )}
-        </>
-      )}
-    </>
-  )
-}
-
 export function ProductManagementPage() {
   const navigate = useNavigate()
 
@@ -251,7 +132,6 @@ export function ProductManagementPage() {
   const [draft, setDraft] = useState<Filters>(EMPTY_FILTERS)
   const [applied, setApplied] = useState<Filters>(EMPTY_FILTERS)
   const [page, setPage] = useState(1)
-  const [expanded, setExpanded] = useState<Set<string>>(new Set())
 
   const platformsQuery = useQuery({
     queryKey: ['platform-dictionary'],
@@ -328,7 +208,6 @@ export function ProductManagementPage() {
 
   const items = listQuery.data?.items ?? []
   const total = listQuery.data?.total ?? 0
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
 
   const platformLabel = (code: string) =>
     platforms.find((platform) => platform.code === code)?.name || PLATFORM_LABELS[code?.toLowerCase()] || code || '电商平台'
@@ -344,14 +223,6 @@ export function ProductManagementPage() {
     if (record.storeId) return storeNameById.get(record.storeId) ?? record.storeId
     return '--'
   }
-
-  const toggleExpand = (id: string) =>
-    setExpanded((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
 
   const goPublishPage = (state?: Record<string, unknown>) =>
     navigate('/product/management/manual', state ? { state: { platform: currentPlatform, ...state } } : { state: { platform: currentPlatform } })
@@ -390,8 +261,66 @@ export function ProductManagementPage() {
     setDraft((prev) => ({ ...prev, storeId: '' }))
     setApplied((prev) => ({ ...prev, storeId: '' }))
     setPage(1)
-    setExpanded(new Set())
   }
+
+  const columns: TableColumnProps<PlatformProduct>[] = [
+    {
+      title: '商品图片',
+      dataIndex: 'productImage',
+      width: 100,
+      render: (value: string | null) => <ListingThumb value={value} size={40} />,
+    },
+    { title: '商品名称', dataIndex: 'productName', width: 200 },
+    { title: '商品编码', dataIndex: 'productCode', width: 130, render: (v: string) => v || '--' },
+    { title: '商品ID', dataIndex: 'productId', width: 130, render: (v: string) => v || '--' },
+    { title: '商品类目', dataIndex: 'category', width: 120, render: (v: string) => v || '--' },
+    {
+      title: '价格',
+      dataIndex: 'minPrice',
+      width: 110,
+      render: (_: unknown, product: PlatformProduct) =>
+        product.minPrice === product.maxPrice ? `¥${product.minPrice}` : `¥${product.minPrice}-¥${product.maxPrice}`,
+    },
+    { title: '店铺', dataIndex: 'storeName', width: 120, render: (_: unknown, product: PlatformProduct) => displayStore(product) },
+    {
+      title: '发布状态',
+      dataIndex: 'publishStatus',
+      width: 112,
+      render: (status: string) => <span className="inline-block whitespace-nowrap rounded-full px-3 py-0.5 text-[12px] text-black">{status}</span>,
+    },
+    {
+      title: '上下架状态',
+      dataIndex: 'listingStatus',
+      width: 116,
+      render: (status: string) => <span className="inline-block whitespace-nowrap rounded-full px-3 py-0.5 text-[12px] text-black">{status}</span>,
+    },
+    { title: '更新时间', dataIndex: 'updateTime', width: 165, render: (v: string) => formatDateTime(v, '--') },
+    { title: '创建时间', dataIndex: 'createTime', width: 165, render: (v: string) => formatDateTime(v, '--') },
+    {
+      title: '操作',
+      dataIndex: 'op',
+      width: 140,
+      render: (_: unknown, product: PlatformProduct) => (
+        <div className="flex items-center gap-3 whitespace-nowrap">
+          <Can code="product:listing:edit">
+            <button type="button" onClick={() => handleEdit(product)} className="cursor-pointer border-0 bg-transparent p-0 text-[14px] text-[#409eff] hover:text-[#66b1ff]">
+              编辑
+            </button>
+          </Can>
+          <Can code="product:listing:publish">
+            <button type="button" onClick={() => handlePublish(product)} className="cursor-pointer border-0 bg-transparent p-0 text-[14px] text-[#409eff] hover:text-[#66b1ff]">
+              发布
+            </button>
+          </Can>
+          <Can code="product:listing:toggle">
+            <button type="button" onClick={handleToggleListing} className="cursor-pointer border-0 bg-transparent p-0 text-[14px] text-[#409eff] hover:text-[#66b1ff]">
+              {product.listingStatus === '上架' ? '下架' : '上架'}
+            </button>
+          </Can>
+        </div>
+      ),
+    },
+  ]
 
   return (
     <div className="h-full overflow-y-auto p-6">
@@ -579,91 +508,38 @@ export function ProductManagementPage() {
           平台商品加载失败：{errorText(listQuery.error)}
         </div>
       )}
-      <div className="overflow-hidden rounded-xl bg-white">
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[1280px] text-[14px]">
-            <thead>
-              <tr className="border-b border-[#f0f2f5] bg-[#fafbfc]">
-                <th className="w-10 py-3 pl-4 pr-2 text-center text-[13px] font-normal text-[#86909C]"></th>
-                <th className="py-3 pr-2 text-left text-[13px] font-normal text-[#86909C]">商品图片</th>
-                <th className="py-3 pr-2 text-left text-[13px] font-normal text-[#86909C]">商品名称</th>
-                <th className="py-3 pr-2 text-left text-[13px] font-normal text-[#86909C]">商品编码</th>
-                <th className="py-3 pr-2 text-left text-[13px] font-normal text-[#86909C]">商品ID</th>
-                <th className="py-3 pr-2 text-left text-[13px] font-normal text-[#86909C]">商品类目</th>
-                <th className="py-3 pr-2 text-left text-[13px] font-normal text-[#86909C]">价格</th>
-                <th className="py-3 pr-2 text-left text-[13px] font-normal text-[#86909C]">店铺</th>
-                <th className="py-3 pr-2 text-left text-[13px] font-normal text-[#86909C]">发布状态</th>
-                <th className="py-3 pr-2 text-left text-[13px] font-normal text-[#86909C]">上下架状态</th>
-                <th className="py-3 pr-2 text-left text-[13px] font-normal text-[#86909C]">更新时间</th>
-                <th className="py-3 pr-2 text-left text-[13px] font-normal text-[#86909C]">创建时间</th>
-                <th className="py-3 pr-4 text-left text-[13px] font-normal text-[#86909C]">操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {listQuery.isLoading ? (
-                <tr>
-                  <td colSpan={13} className="py-12 text-center text-[14px] text-[#86909C]">
-                    加载中…
-                  </td>
-                </tr>
-              ) : items.length === 0 ? (
-                <tr>
-                  <td colSpan={13} className="py-12 text-center text-[14px] text-[#86909C]">
-                    暂无数据
-                  </td>
-                </tr>
-              ) : (
-                items.map((product) => (
-                  <ProductRow
-                    key={product.id}
-                    product={product}
-                    isExpanded={expanded.has(product.id)}
-                    onToggleExpand={() => toggleExpand(product.id)}
-                    onEdit={() => handleEdit(product)}
-                    onPublish={() => handlePublish(product)}
-                    onToggleListing={handleToggleListing}
-                    storeLabel={displayStore(product)}
-                  />
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        {/* 分页（旧版：卡片内部） */}
-        <div className="flex items-center justify-between border-t border-[#f0f2f5] px-4 py-3">
-          <div className="text-[13px] text-[#86909C]">共 {total} 条</div>
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              onClick={() => setPage((prev) => Math.max(1, prev - 1))}
-              disabled={page === 1}
-              className="h-7 w-7 rounded-md border border-[#e6e9ef] bg-white text-[13px] text-[#86909C] transition-colors hover:bg-[#f5f6f8] disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              &lt;
-            </button>
-            {Array.from({ length: totalPages }, (_, index) => index + 1).map((pageNumber) => (
-              <button
-                key={pageNumber}
-                type="button"
-                onClick={() => setPage(pageNumber)}
-                className={`h-7 w-7 rounded-md text-[13px] transition-colors ${
-                  page === pageNumber ? 'bg-[#409eff] text-white' : 'border border-[#e6e9ef] bg-white text-[#0A1B39] hover:bg-[#f5f6f8]'
-                }`}
-              >
-                {pageNumber}
-              </button>
-            ))}
-            <button
-              type="button"
-              onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
-              disabled={page === totalPages}
-              className="h-7 w-7 rounded-md border border-[#e6e9ef] bg-white text-[13px] text-[#86909C] transition-colors hover:bg-[#f5f6f8] disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              &gt;
-            </button>
-          </div>
-        </div>
+      <div className="overflow-hidden rounded-xl bg-white p-2">
+        <Table
+          rowKey="id"
+          loading={listQuery.isLoading}
+          border={false}
+          scroll={{ x: 1460 }}
+          columns={columns}
+          data={items}
+          noDataElement={<Empty description="暂无平台商品数据" />}
+          expandedRowRender={(product) => (
+            <Table
+              rowKey="_rowKey"
+              size="small"
+              border={false}
+              pagination={false}
+              data={product.skus.map((sku, idx) => ({ ...sku, _rowKey: sku.skuId || sku.skuCode || String(idx) }))}
+              noDataElement={<div className="py-2 text-[13px] text-[#86909C]">该商品暂无规格数据</div>}
+              columns={[
+                { title: 'sku图片', dataIndex: 'skuImage', width: 80, render: (v: string | null) => <ListingThumb value={v} size={32} /> },
+                { title: 'sku名称', dataIndex: 'skuName', width: 200, render: (v: string) => v || '--' },
+                { title: 'sku编码', dataIndex: 'skuCode', width: 160, render: (v: string) => v || '--' },
+                { title: 'sku ID', dataIndex: 'skuId', width: 160, render: (v: string) => v || '--' },
+                { title: '价格', dataIndex: 'price', width: 120, render: (v: number) => (Number(v) > 0 ? `¥${v}` : '--') },
+              ]}
+            />
+          )}
+          pagination={
+            total > 0
+              ? { current: page, pageSize: PAGE_SIZE, total, showTotal: true, onChange: setPage }
+              : false
+          }
+        />
       </div>
     </div>
   )

@@ -1,10 +1,10 @@
 import React, { useState, useRef, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Search, RotateCcw, Plus, Upload, Edit, Trash2, ChevronDown, ChevronRight, X, Calendar } from "lucide-react";
+import { Search, RotateCcw, Plus, Upload, Edit, Trash2, X, Calendar } from "lucide-react";
 import { PageHeader } from "../components/PageHeader";
 import { useAuth } from "../store/auth";
 import { hasPermission } from "../utils/permission";
-import { Message } from "@arco-design/web-react";
+import { Empty, Message, Table, type TableColumnProps } from "@arco-design/web-react";
 import dayjs from "dayjs";
 
 
@@ -143,7 +143,7 @@ export function ProductMasterData() {
     }
     setShowCreateTimeRange(!showCreateTimeRange);
   };
-  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+  const [currentPage, setCurrentPage] = useState(1);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -339,15 +339,6 @@ export function ProductMasterData() {
     setFilterCreateTimeEnd("");
   };
 
-  const toggleExpand = (id: string) => {
-    setExpandedRows((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
   const handleEdit = (product: Product) => {
     setEditingProduct(product);
     setEditProductImage(product.productImage);
@@ -409,6 +400,81 @@ export function ProductMasterData() {
       Message.error((error as Error)?.message ?? "状态更新失败");
     }
   };
+
+  const masterColumns: TableColumnProps<Product>[] = [
+    {
+      title: "商品图片",
+      dataIndex: "productImage",
+      width: 100,
+      render: (src: string) =>
+        src ? (
+          <img src={src} alt="商品主图" className="h-10 w-10 rounded-lg object-cover" />
+        ) : (
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#f2f4f7]">
+            <svg className="h-5 w-5 text-[#c0c4cc]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0022.5 18.75V5.25A2.25 2.25 0 0020.25 3H3.75A2.25 2.25 0 001.5 5.25v13.5A2.25 2.25 0 003.75 21z" />
+            </svg>
+          </div>
+        ),
+    },
+    { title: "商品编码", dataIndex: "productCode", width: 140 },
+    { title: "商品名称", dataIndex: "productName", width: 200 },
+    { title: "品牌", dataIndex: "brand", width: 110, render: (v: string) => v || "--" },
+    {
+      title: "成本价",
+      dataIndex: "costPrice",
+      width: 110,
+      render: (_: unknown, product: Product) => {
+        if (!product.skus.length) return "--";
+        const min = Math.min(...product.skus.map((s) => s.costPrice));
+        const max = Math.max(...product.skus.map((s) => s.costPrice));
+        return min === max ? `¥${min}` : `¥${min}-¥${max}`;
+      },
+    },
+    {
+      title: "标准售价",
+      dataIndex: "standardPrice",
+      width: 110,
+      render: (_: unknown, product: Product) => {
+        if (!product.skus.length) return "--";
+        const min = Math.min(...product.skus.map((s) => s.standardPrice));
+        const max = Math.max(...product.skus.map((s) => s.standardPrice));
+        return min === max ? `¥${min}` : `¥${min}-¥${max}`;
+      },
+    },
+    {
+      title: "状态",
+      dataIndex: "status",
+      width: 96,
+      render: (status: string) => <span className="inline-block rounded-full px-3 py-0.5 text-[12px] text-black">{status}</span>,
+    },
+    { title: "更新时间", dataIndex: "updateTime", width: 165 },
+    { title: "创建时间", dataIndex: "createTime", width: 165 },
+    {
+      title: "操作",
+      dataIndex: "op",
+      width: 140,
+      render: (_: unknown, product: Product) => (
+        <div className="flex items-center gap-3 whitespace-nowrap">
+          {hasButtonPermission(2003) && (
+            <button onClick={() => handleEdit(product)} className="text-[14px] text-[#409eff] hover:text-[#66b1ff]">
+              编辑
+            </button>
+          )}
+          {hasButtonPermission(2004) && (
+            <button onClick={() => toggleStatus(product)} className="text-[14px] text-[#409eff] hover:text-[#66b1ff]">
+              {product.status === "启用" ? "停用" : "启用"}
+            </button>
+          )}
+          {hasButtonPermission(2005) && (
+            <button onClick={() => handleDelete(product)} className="text-[14px] text-[#409eff] hover:text-[#66b1ff]">
+              删除
+            </button>
+          )}
+        </div>
+      ),
+    },
+  ];
 
   return (
     <div className="h-full overflow-auto bg-[#f4f7fb]">
@@ -668,157 +734,42 @@ export function ProductMasterData() {
         </div>
 
         {/* 表单信息 */}
-        <div className="rounded-xl bg-white">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-[#e9edf3] text-left">
-                <th className="py-3 pl-4 pr-2 text-[13px] font-medium text-[#86909C]"></th>
-                <th className="py-3 pr-2 text-[13px] font-medium text-[#86909C]">商品图片</th>
-                <th className="py-3 pr-2 text-[13px] font-medium text-[#86909C]">商品编码</th>
-                <th className="py-3 pr-2 text-[13px] font-medium text-[#86909C]">商品名称</th>
-                <th className="py-3 pr-2 text-[13px] font-medium text-[#86909C]">品牌</th>
-                <th className="py-3 pr-2 text-[13px] font-medium text-[#86909C]">成本价</th>
-                <th className="py-3 pr-2 text-[13px] font-medium text-[#86909C]">标准售价</th>
-                <th className="py-3 pr-2 text-[13px] font-medium text-[#86909C]">状态</th>
-                <th className="py-3 pr-2 text-[13px] font-medium text-[#86909C]">更新时间</th>
-                <th className="py-3 pr-2 text-[13px] font-medium text-[#86909C]">创建时间</th>
-                <th className="py-3 pr-4 text-[13px] font-medium text-[#86909C]">操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredProducts.map((product) => {
-                const isExpanded = expandedRows.has(product.id);
-                const hasSkus = product.skus.length > 0;
-                const minPrice = hasSkus ? Math.min(...product.skus.map((s) => s.costPrice)) : 0;
-                const maxPrice = hasSkus ? Math.max(...product.skus.map((s) => s.costPrice)) : 0;
-                const minStandardPrice = hasSkus ? Math.min(...product.skus.map((s) => s.standardPrice)) : 0;
-                const maxStandardPrice = hasSkus ? Math.max(...product.skus.map((s) => s.standardPrice)) : 0;
-
-                return (
-                  <React.Fragment key={product.id}>
-                    <tr className="border-b border-[#f0f2f5] hover:bg-[#fafafa]">
-                      <td className="py-3 pl-4 pr-2">
-                        <button
-                          onClick={() => toggleExpand(product.id)}
-                          className="flex h-6 w-6 items-center justify-center rounded-full hover:bg-[#e9edf3]"
-                        >
-                          {isExpanded ? (
-                            <ChevronDown className="h-4 w-4 text-[#86909C]" />
-                          ) : (
-                            <ChevronRight className="h-4 w-4 text-[#86909C]" />
-                          )}
-                        </button>
-                      </td>
-                      <td className="py-3 pr-2">
-                        <div className="h-10 w-10 rounded-lg bg-[#f2f4f7] flex items-center justify-center">
-                          <svg className="h-5 w-5 text-[#c0c4cc]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0022.5 18.75V5.25A2.25 2.25 0 0020.25 3H3.75A2.25 2.25 0 001.5 5.25v13.5A2.25 2.25 0 003.75 21z" />
-                          </svg>
-                        </div>
-                      </td>
-                      <td className="py-3 pr-2 text-[14px] text-[#0A1B39]">{product.productCode}</td>
-                      <td className="py-3 pr-2 text-[14px] text-[#0A1B39]">{product.productName}</td>
-                      <td className="py-3 pr-2 text-[14px] text-[#0A1B39]">{product.brand}</td>
-                      <td className="py-3 pr-2 text-[14px] text-[#0A1B39]">
-                        {!hasSkus ? "--" : minPrice === maxPrice ? `¥${minPrice}` : `¥${minPrice}-¥${maxPrice}`}
-                      </td>
-                      <td className="py-3 pr-2 text-[14px] text-[#0A1B39]">
-                        {!hasSkus
-                          ? "--"
-                          : minStandardPrice === maxStandardPrice
-                          ? `¥${minStandardPrice}`
-                          : `¥${minStandardPrice}-¥${maxStandardPrice}`}
-                      </td>
-                      <td className="py-3 pr-2 whitespace-nowrap">
-                        <span className="inline-block rounded-full px-3 py-0.5 text-[12px] text-black">
-                          {product.status}
-                        </span>
-                      </td>
-                      <td className="py-3 pr-2 text-[14px] text-[#0A1B39]">{product.updateTime}</td>
-                      <td className="py-3 pr-2 text-[14px] text-[#0A1B39]">{product.createTime}</td>
-                      <td className="py-3 pr-4 whitespace-nowrap">
-                        <div className="flex items-center gap-3">
-                          {hasButtonPermission(2003) && (
-                            <button
-                              onClick={() => handleEdit(product)}
-                              className="text-[14px] text-[#409eff] hover:text-[#66b1ff]"
-                            >
-                              编辑
-                            </button>
-                          )}
-                          {hasButtonPermission(2004) && (
-                            <button
-                              onClick={() => toggleStatus(product)}
-                              className="text-[14px] text-[#409eff] hover:text-[#66b1ff]"
-                            >
-                              {product.status === "启用" ? "停用" : "启用"}
-                            </button>
-                          )}
-                          {hasButtonPermission(2005) && (
-                            <button
-                              onClick={() => handleDelete(product)}
-                              className="text-[14px] text-[#409eff] hover:text-[#66b1ff]"
-                            >
-                              删除
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                    {isExpanded && (
-                      <>
-                        <tr className="border-b border-[#f0f2f5] bg-[#fafbfc]">
-                          <td className="py-2 pl-4 pr-2"></td>
-                          <td className="py-2 pr-2 text-[12px] font-medium text-[#86909C]">sku图片</td>
-                          <td className="py-2 pr-2 text-[12px] font-medium text-[#86909C]">sku编码</td>
-                          <td className="py-2 pr-2 text-[12px] font-medium text-[#86909C]">规格</td>
-                          <td className="py-2 pr-2"></td>
-                          <td className="py-2 pr-2 text-[12px] font-medium text-[#86909C]">成本价</td>
-                          <td className="py-2 pr-2 text-[12px] font-medium text-[#86909C]">标准售价</td>
-                          <td className="py-2 pr-2"></td>
-                          <td className="py-2 pr-2"></td>
-                          <td className="py-2 pr-2"></td>
-                          <td className="py-2 pr-4"></td>
-                        </tr>
-                        {product.skus.map((sku) => (
-                          <tr key={sku.id} className="border-b border-[#f0f2f5] bg-[#fafbfc]">
-                            <td className="py-3 pl-4 pr-2"></td>
-                            <td className="py-3 pr-2">
-                              <div className="h-8 w-8 rounded bg-[#e9edf3]"></div>
-                            </td>
-                            <td className="py-3 pr-2 text-[13px] text-[#86909C]">{sku.skuCode}</td>
-                            <td className="py-3 pr-2 text-[13px] text-[#86909C]">{sku.specName}</td>
-                            <td className="py-3 pr-2"></td>
-                            <td className="py-3 pr-2 text-[13px] text-[#86909C]">¥{sku.costPrice}</td>
-                            <td className="py-3 pr-2 text-[13px] text-[#86909C]">¥{sku.standardPrice}</td>
-                            <td className="py-3 pr-2"></td>
-                            <td className="py-3 pr-2"></td>
-                            <td className="py-3 pr-2"></td>
-                            <td className="py-3 pr-4"></td>
-                          </tr>
-                        ))}
-                      </>
-                    )}
-                  </React.Fragment>
-                );
-              })}
-            </tbody>
-          </table>
-
-          {/* 分页器 */}
-          <div className="flex items-center justify-between px-4 py-3 border-t border-[#f0f2f5]">
-            <div className="text-[13px] text-[#86909C]">共 {filteredProducts.length} 条</div>
-            <div className="flex items-center gap-1">
-              <button className="h-8 w-8 rounded-lg border border-[#e6e9ef] bg-white text-[13px] text-[#86909C] hover:bg-[#f5f6f8] flex items-center justify-center">
-                &lt;
-              </button>
-              <button className="h-8 w-8 rounded-full bg-[#409eff] text-[13px] text-white flex items-center justify-center">1</button>
-              <button className="h-8 w-8 rounded-lg border border-[#e6e9ef] bg-white text-[13px] text-[#0A1B39] hover:bg-[#f5f6f8] flex items-center justify-center">2</button>
-              <button className="h-8 w-8 rounded-lg border border-[#e6e9ef] bg-white text-[13px] text-[#86909C] hover:bg-[#f5f6f8] flex items-center justify-center">
-                &gt;
-              </button>
-            </div>
-          </div>
+        <div className="overflow-hidden rounded-xl bg-white p-2">
+          <Table
+            rowKey="id"
+            border={false}
+            scroll={{ x: 1220 }}
+            columns={masterColumns}
+            data={filteredProducts}
+            noDataElement={<Empty description="暂无商品主档数据" />}
+            expandedRowRender={(product) => (
+              <Table
+                rowKey="id"
+                size="small"
+                border={false}
+                pagination={false}
+                data={product.skus}
+                noDataElement={<div className="py-2 text-[13px] text-[#86909C]">该商品暂无 SKU 规格</div>}
+                columns={[
+                  {
+                    title: "sku图片",
+                    dataIndex: "skuImage",
+                    width: 80,
+                    render: (src: string) => (src ? <img src={src} alt="SKU图" className="h-8 w-8 rounded object-cover" /> : <div className="h-8 w-8 rounded bg-[#e9edf3]" />),
+                  },
+                  { title: "sku编码", dataIndex: "skuCode", width: 160 },
+                  { title: "规格", dataIndex: "specName", width: 200 },
+                  { title: "成本价", dataIndex: "costPrice", width: 120, render: (v: number) => `¥${v}` },
+                  { title: "标准售价", dataIndex: "standardPrice", width: 120, render: (v: number) => `¥${v}` },
+                ]}
+              />
+            )}
+            pagination={
+              filteredProducts.length > 0
+                ? { current: currentPage, pageSize: 10, total: filteredProducts.length, showTotal: true, onChange: setCurrentPage }
+                : false
+            }
+          />
         </div>
       </div>
 

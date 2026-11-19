@@ -3,6 +3,7 @@ import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import { dirname, extname, isAbsolute, join, relative, resolve } from 'node:path'
 import { REPORT_SECTION_TITLES, REPORT_SKILL_VERSION, countImageAssets, type ImageAsset, type ProductSkillReport, type ReportSource } from '../shared/report-skill'
 import type { RealAiProvider } from './ai-provider'
+import { logPipeline } from './pipeline-logger'
 import { workerDataRoots } from './worker-db'
 
 export interface ReportProductInput {
@@ -113,8 +114,8 @@ function readImage(path: string): { image: string } | { reason: string } {
 }
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024
-export const IMAGE_BATCH_MAX_COUNT = 4
-export const IMAGE_BATCH_MAX_BYTES = 12 * 1024 * 1024
+export const IMAGE_BATCH_MAX_COUNT = 2
+export const IMAGE_BATCH_MAX_BYTES = 6 * 1024 * 1024
 
 /** Split images into ordered batches bounded by count and payload size; an oversized image forms its own batch. */
 export function splitImageBatches<T extends { image: string }>(images: T[], maxCount = IMAGE_BATCH_MAX_COUNT, maxBytes = IMAGE_BATCH_MAX_BYTES): T[][] {
@@ -135,14 +136,27 @@ export function prepareProductEvidence(product: ReportProductInput) {
   const imageRows = record(source.images).images
   const directory = text(source.exportDirectory)
   const candidates: Array<{ kind: 'main_image' | 'detail_image' | 'sku_image'; location: string; remote?: string }> = []
+  const rawImageRows = Array.isArray(imageRows) ? imageRows : []
+  const unknownTypes: string[] = []
   if (Array.isArray(imageRows)) for (const value of imageRows) {
     const row = record(value)
-    const type = text(row.image_type)
-    const kind = type.includes('detail') ? 'detail_image' : type.includes('main') ? 'main_image' : type.includes('sku') ? 'sku_image' : null
-    if (!kind) continue
+    const type = text(row.image_type).toLowerCase()
+    let kind: 'main_image' | 'detail_image' | 'sku_image' | null =
+      type.includes('detail') || type.includes('详情') ? 'detail_image'
+        : type.includes('main') || type.includes('主图') || type.includes('cover') || type.includes('gallery') ? 'main_image'
+          : type.includes('sku') || type.includes('规格') ? 'sku_image'
+            : null
+    if (!kind) {
+      // Never drop an image silently because of an unexpected image_type; keep it as detail_image and log it.
+      unknownTypes.push(type || '(empty)')
+      kind = 'detail_image'
+    }
     const storage = text(row.storage_path)
     const remote = text(row.source_url)
     candidates.push({ kind, location: storage ? isAbsolute(storage) ? storage : directory ? resolve(directory, storage) : '' : remote, remote })
+  }
+  if (unknownTypes.length) {
+    logPipeline('prepare', '遇到未识别 image_type，已兜底归入 detail_image', { productId: product.externalProductId, unknownTypes }, 'warn')
   }
   if (product.imageUrl && !candidates.some((image) => image.location === product.imageUrl || image.remote === product.imageUrl)) {
     const isSku = product.skus.some((sku) => sku.imageUrl === product.imageUrl)
@@ -178,6 +192,15 @@ export function prepareProductEvidence(product: ReportProductInput) {
     ...reviews.map((review) => ({ id: review.id, kind: 'review' as const, label: '用户评价' })),
     ...qas.map((qa) => ({ id: qa.id, kind: 'qa' as const, label: '问大家（含回答）' })),
   ]
+  const skippedAssets = imageAssets.filter((item) => item.status === 'skipped')
+  logPipeline('prepare', '商品图片候选归一化完成', {
+    productId: product.externalProductId,
+    rawImageRows: rawImageRows.length,
+    candidates: candidates.length,
+    readable: images.length,
+    skipped: skippedAssets.length,
+    skippedDetails: skippedAssets.map((item) => ({ id: item.id, location: item.location, reason: item.reason })),
+  })
   return { sources, reviews, qas, images, imageAssets, limitations, imagesAvailable: imageAssets.length, reviewsTotal: original.length, reviewsExcluded: original.length - valid.length }
 }
 
@@ -223,8 +246,15 @@ export async function createProductSkillReport(product: ReportProductInput, prov
   const assetById = new Map(assets.map((asset) => [asset.id, asset]))
   if (activeImages.length) {
     const batches = splitImageBatches(activeImages)
+    logPipeline('vision:start', '开始分批视觉解析', {
+      productId: product.externalProductId,
+      readableCount: activeImages.length,
+      batchCount: batches.length,
+      batches: batches.map((batch, idx) => ({ batchIndex: idx + 1, ids: batch.map((img) => img.id), bytes: batch.reduce((s, img) => s + img.image.length, 0) })),
+    })
     let finished = 0
-    const analyzeBatch = async (batch: typeof activeImages) => {
+    const analyzeBatch = async (batch: typeof activeImages, batchIndex: number) => {
+      const startedAt = Date.now()
       const ids = new Set(batch.map((image) => image.id))
       const attempt = async () => {
         const vision = await retryTransient(() => provider.analyzeImage({
@@ -235,7 +265,7 @@ export async function createProductSkillReport(product: ReportProductInput, prov
             '每张图片最多8条关键文字，每条最多40字，observation最多150字。不可读图片的 observation 写无法读取；不得根据文件名猜图。',
             `图片解析规则：${skill.parsing.split('## 评价解析到报告证据')[0]}`,
             JSON.stringify({ productId: product.externalProductId, images: batch.map(({ id, kind }) => ({ id, kind })) }),
-          ].join('\n'), images: batch.map((image) => image.image), maxTokens: 6000,
+          ].join('\n'), images: batch.map((image) => image.image), maxTokens: 8192,
         }))
         const parsedVision = parseReportObject(vision.text)
         return { model: vision.model, rows: Array.isArray(parsedVision.imageObservations) ? parsedVision.imageObservations : [] }
@@ -246,19 +276,43 @@ export async function createProductSkillReport(product: ReportProductInput, prov
         try { outcome = await attempt() } catch { outcome = await attempt() }
         visionModel = outcome.model
         const seen = new Set<string>()
+        const unmatchedIds: string[] = []
+        const returnedIds: string[] = []
         for (const value of outcome.rows) {
           const row = record(value), id = text(row.imageId), observation = text(row.observation)
-          if (!ids.has(id) || seen.has(id) || !observation) continue
+          if (id) returnedIds.push(id)
+          if (!ids.has(id) || seen.has(id) || !observation) {
+            if (id && !ids.has(id)) unmatchedIds.push(id)
+            continue
+          }
           seen.add(id)
           const asset = assetById.get(id)!
           if (/无法读取|无法识别|图片损坏/.test(observation)) { asset.status = 'failed'; asset.reason = '模型无法读取该图片'; continue }
           asset.status = 'parsed'; delete asset.reason
           imageObservations.push({ imageId: id, observation, ocr: strings(row.ocr) })
         }
-        for (const id of ids) if (!seen.has(id)) { const asset = assetById.get(id)!; asset.status = 'failed'; asset.reason = '模型未返回该图解析' }
+        const missingIds = [...ids].filter((id) => !seen.has(id))
+        for (const id of missingIds) { const asset = assetById.get(id)!; asset.status = 'failed'; asset.reason = '模型未返回该图解析' }
+        logPipeline('vision:batch', '视觉批次解析完成', {
+          productId: product.externalProductId,
+          batchIndex: batchIndex + 1,
+          model: outcome.model,
+          durationMs: Date.now() - startedAt,
+          sentIds: [...ids],
+          returnedIds,
+          unmatchedIds,
+          missingIds,
+        }, missingIds.length || unmatchedIds.length ? 'warn' : 'info')
       } catch (error) {
         const message = (error instanceof Error ? error.message : String(error)).slice(0, 80)
         for (const id of ids) { const asset = assetById.get(id)!; asset.status = 'failed'; asset.reason = `视觉模型调用失败：${message}` }
+        logPipeline('vision:batch', '视觉批次调用异常', {
+          productId: product.externalProductId,
+          batchIndex: batchIndex + 1,
+          durationMs: Date.now() - startedAt,
+          sentIds: [...ids],
+          error: error instanceof Error ? error.message : String(error),
+        }, 'error')
       }
       finished += 1
       onStage?.(`正在解析商品图片与可见文字（${finished}/${batches.length} 批）`)
@@ -266,7 +320,7 @@ export async function createProductSkillReport(product: ReportProductInput, prov
     onStage?.(`正在解析商品图片与可见文字（0/${batches.length} 批）`)
     let nextBatch = 0
     await Promise.all(Array.from({ length: Math.min(2, batches.length) }, async () => {
-      for (;;) { const index = nextBatch++; if (index >= batches.length) return; await analyzeBatch(batches[index]) }
+      for (;;) { const index = nextBatch++; if (index >= batches.length) return; await analyzeBatch(batches[index], index) }
     }))
     const order = new Map(activeImages.map((image, index) => [image.id, index]))
     imageObservations.sort((a, b) => order.get(a.imageId)! - order.get(b.imageId)!)
@@ -283,6 +337,11 @@ export async function createProductSkillReport(product: ReportProductInput, prov
     }
   }
   const imageCounts = countImageAssets(assets)
+  logPipeline('vision:summary', '单品图片解析汇总', {
+    productId: product.externalProductId,
+    ...imageCounts,
+    nonParsed: assets.filter((item) => item.status !== 'parsed').map((item) => ({ id: item.id, status: item.status, reason: item.reason })),
+  }, imageCounts.failed || imageCounts.skipped ? 'warn' : 'info')
   onStage?.('正在分析评价并生成八模块报告')
   const result = await retryTransient(() => provider.generateText({ system, prompt: prompt(), maxTokens: 10000, jsonOutput: true }))
   const parsed = parseReportObject(result.text)
