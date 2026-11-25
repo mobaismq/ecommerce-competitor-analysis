@@ -242,17 +242,57 @@ describe('detail planning workflow', () => {
 })
 
 describe('mainImageDescriptions', () => {
-  it('reads local AnalysisRun reportJson', async () => {
+  it('reads local AnalysisRun reportJson including detail creativePlan', async () => {
     const db = getWorkerPrisma()
     await db.analysisRun.create({
       data: {
         id: 'r1', tenantId: 't', jobId: 'j1', analysisType: 'price', status: 'success',
-        reportJson: { summary: '本款定位高性价比', sellingPoints: [{ term: '无线' }, { term: '降噪' }], painPoints: ['延迟'], userDemands: ['低延迟'], opportunities: ['学生群体'] },
+        reportJson: {
+          summary: '本款定位高性价比',
+          sellingPoints: [{ term: '无线' }, { term: '降噪' }],
+          painPoints: ['延迟'],
+          userDemands: ['低延迟'],
+          opportunities: ['学生群体'],
+          creativePlan: {
+            direction: '突出通勤降噪与长续航',
+            audience: '年轻通勤族',
+            detailImages: [{ order: 1, purpose: '首屏主视觉', headline: '40dB 深度降噪', visual: '地铁通勤场景' }],
+          },
+        },
       },
     })
     const res = await mainImageDescriptions('r1')
     expect(res.source).toBe('ai')
     expect(res.sellingPoints).toEqual(['无线', '降噪'])
     expect(res.promptText).toContain('核心卖点：无线、降噪')
+    expect(res.detailPromptText).toContain('40dB 深度降噪')
+    expect(res.detailHeadlines).toEqual(['40dB 深度降噪'])
+  })
+
+  it('batches generatePrompts into <=3 slots per call with jsonOutput enabled', async () => {
+    const originalFetch = global.fetch
+    const calls: Array<{ body: Record<string, unknown> }> = []
+    global.fetch = vi.fn(async (_url, init) => {
+      const body = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>
+      calls.push({ body })
+      const userMsg = (body.messages as Array<{ content: unknown }>)?.slice(-1)[0]?.content
+      if (Array.isArray(userMsg)) {
+        return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ productType: '激光水平仪', visibleFeatures: ['绿光'], colorPalette: ['黑黄'], materialFinish: '塑料', textOrBadges: [], uncertainFeatures: [] }) }, finish_reason: 'stop' }] }))
+      }
+      const promptText = String(userMsg ?? '')
+      const ids = [...promptText.matchAll(/"id":\s*"([^"]+)"/g)].map((m) => m[1])
+      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ prompts: ids.map((id) => ({ id, prompt: `prompt-${id}` })) }) }, finish_reason: 'stop' }] }))
+    }) as unknown as typeof fetch
+    try {
+      const slots = ['s1', 's2', 's3', 's4', 's5'].map((id, i) => ({ id, name: `图${i + 1}`, type: '白底图', sequence: i + 1 }))
+      const res = await generatePrompts({ userId: 'u1', image: 'data:image/png;base64,AA==', promptSlots: slots })
+      expect(res.prompts).toHaveLength(5)
+      // 1 vision facts call + 2 batched prompt calls (3 + 2)
+      const textCalls = calls.filter((c) => !Array.isArray((c.body.messages as Array<{ content: unknown }>).slice(-1)[0]?.content))
+      expect(textCalls).toHaveLength(2)
+      expect(textCalls.every((c) => (c.body.response_format as { type?: string })?.type === 'json_object')).toBe(true)
+    } finally {
+      global.fetch = originalFetch
+    }
   })
 })

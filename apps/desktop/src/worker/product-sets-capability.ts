@@ -78,23 +78,50 @@ async function analyzeProductVisualFacts(input: ProductSetsInput, provider: Retu
   return normalizeProductVisualFacts(parseJsonFromText(result.text), result.text)
 }
 
-/** 主图提示词生成（text）。对齐后端 product-sets.generatePrompts。 */
+const PROMPT_SLOT_BATCH_SIZE = 3
+
+/** 主图提示词生成（text）。对齐后端 product-sets.generatePrompts；按图位分批生成防止输出超限。 */
 export async function generatePrompts(input: ProductSetsInput) {
   const selected = normalizeSelectedSlots(input.selectedSlots ?? [])
   const slots = selected.length ? selected : normalizeRequestedPromptSlots(input.promptSlots ?? [])
   const provider = createRealAiProvider(input.userId)
   const visualFacts = await analyzeProductVisualFacts(input, provider)
-  const prompt = buildImagePromptGenerationPrompt({
-    settings: input.settings,
-    information: input.information,
-    designPlan: input.reportText,
-    visualFacts,
-    promptSlots: slots,
-  })
-  const ai = await provider.generateText({ prompt, system: '只输出 JSON，不要输出多余文字。', maxTokens: 4000 })
-  const parsed = ai.text ? parseJsonFromText(ai.text) : null
-  const prompts = normalizeGeneratedImagePrompts(parsed ?? {}, slots)
-  return { ok: true, prompts, model: ai.model }
+  // Keep full report context under normal lengths; only guard against extreme (>12000 chars) inputs.
+  const conciseDesignPlan = input.reportText && input.reportText.length > 12000
+    ? `${input.reportText.slice(0, 12000)}\n...(输入过长，已保留前 12000 字符)`
+    : input.reportText
+  const batches: typeof slots[] = []
+  for (let i = 0; i < slots.length; i += PROMPT_SLOT_BATCH_SIZE) {
+    batches.push(slots.slice(i, i + PROMPT_SLOT_BATCH_SIZE))
+  }
+  const results = new Array<ReturnType<typeof normalizeGeneratedImagePrompts>>(batches.length)
+  let nextBatch = 0
+  let lastModel = ''
+  const runBatch = async () => {
+    for (;;) {
+      const index = nextBatch++
+      if (index >= batches.length) return
+      const batch = batches[index]
+      const prompt = buildImagePromptGenerationPrompt({
+        settings: input.settings,
+        information: input.information,
+        designPlan: conciseDesignPlan,
+        visualFacts,
+        promptSlots: batch,
+      })
+      const ai = await provider.generateText({
+        prompt,
+        system: '只输出 JSON，不要输出多余文字。',
+        jsonOutput: true,
+        maxTokens: Math.min(8192, Math.max(4000, batch.length * 1600)),
+      })
+      lastModel = ai.model || lastModel
+      const parsed = ai.text ? parseJsonFromText(ai.text) : null
+      results[index] = normalizeGeneratedImagePrompts(parsed ?? {}, batch)
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(2, batches.length) }, runBatch))
+  return { ok: true, prompts: results.flat(), model: lastModel }
 }
 
 /** AI 帮写（走查 M6/D1）：输出商品信息 5 段结构。对齐后端 expandPrompts；经 IPC 事件流逐块下发。 */
@@ -419,7 +446,7 @@ export async function extractImageText(input: { userId: string; imageUrl?: strin
   }
 }
 
-/** 主图描述：读本地 AnalysisRun.reportJson 生成设计输入（对齐后端 mainImageDescriptions）。 */
+/** 主图/详情图描述：读本地 AnalysisRun.reportJson 生成设计输入（对齐后端 mainImageDescriptions）。 */
 export async function mainImageDescriptions(runId: string) {
   const db = getWorkerPrisma()
   const run = await db.analysisRun.findFirst({
@@ -431,6 +458,11 @@ export async function mainImageDescriptions(runId: string) {
     painPoints?: string[]
     userDemands?: string[]
     opportunities?: string[]
+    creativePlan?: {
+      direction?: string
+      audience?: string
+      detailImages?: Array<{ order?: number; purpose?: string; headline?: string; visual?: string; requirements?: string[] }>
+    }
   } | null
   const sellingPoints = reportJson?.sellingPoints?.map((item) => String(item?.term ?? '').trim()).filter(Boolean) ?? []
   const promptParts = [
@@ -439,6 +471,16 @@ export async function mainImageDescriptions(runId: string) {
     reportJson?.painPoints?.length ? `规避痛点：${reportJson.painPoints.join('、')}` : '',
     reportJson?.userDemands?.length ? `满足需求：${reportJson.userDemands.join('、')}` : '',
     reportJson?.opportunities?.length ? `机会方向：${reportJson.opportunities.join('、')}` : '',
+  ].filter(Boolean)
+  const detailItems = Array.isArray(reportJson?.creativePlan?.detailImages) ? reportJson!.creativePlan!.detailImages! : []
+  const detailHeadlines = detailItems.map((item) => String(item?.headline ?? '').trim()).filter(Boolean)
+  const detailParts = [
+    ...promptParts,
+    reportJson?.creativePlan?.direction ? `详情页策划方向：${reportJson.creativePlan.direction}` : '',
+    reportJson?.creativePlan?.audience ? `目标人群：${reportJson.creativePlan.audience}` : '',
+    ...detailItems.map((item, idx) =>
+      `【屏${item.order ?? idx + 1} · ${item.purpose || '详情屏'}】${item.headline || ''}${item.visual ? `（画面：${item.visual}）` : ''}`,
+    ),
   ].filter(Boolean)
   return {
     ok: true,
@@ -449,5 +491,7 @@ export async function mainImageDescriptions(runId: string) {
     userDemands: reportJson?.userDemands ?? [],
     opportunities: reportJson?.opportunities ?? [],
     promptText: promptParts.join('\n'),
+    detailPromptText: detailParts.join('\n'),
+    detailHeadlines: detailHeadlines.length ? detailHeadlines : sellingPoints,
   }
 }

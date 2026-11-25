@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Check, ChevronDown, Download, Eye, GripVertical, Loader2, Minus, MoreHorizontal, Plus, Sparkles, Trash2, Type, Upload, Wand2, X } from 'lucide-react'
 import { Message, Select, Trigger } from '@arco-design/web-react'
 import { saveAs } from 'file-saver'
@@ -95,8 +95,11 @@ export function APlusDetailPage() {
   const [error, setError] = useState('')
 
   // 联动报告
+  const linkedReportRef = useRef(reportHandoff)
   const [selectedReportId, setSelectedReportId] = useState(reportHandoff?.report.value ?? '')
   const [currentReport, setCurrentReport] = useState<SuiteProduct | null>(reportHandoff?.report ?? null)
+  const [reportSellingPoints, setReportSellingPoints] = useState<string[]>(reportHandoff?.headlines ?? [])
+  const [loadingReportDescriptions, setLoadingReportDescriptions] = useState(false)
 
   // 生成设置（对照旧版 settings 四项）
   const [settings, setSettings] = useState({ platform: '淘宝天猫1688', country: '中国', language: '中文', ratio: '1:1' })
@@ -218,12 +221,47 @@ export function APlusDetailPage() {
   }
 
   const handleReportChange = (reportId: string, report: SuiteProduct | null) => {
+    linkedReportRef.current = null
     planRequestIdRef.current += 1
     setSelectedReportId(reportId)
     setCurrentReport(report)
     setError('')
     setStrategyStatus('idle')
   }
+
+  // 选择 AI 报告后回读卖点与详情策划，自动填充详情页卖点要求（与主图页保持一致）
+  useEffect(() => {
+    if (!selectedReportId) {
+      setReportSellingPoints([])
+      return
+    }
+    if (linkedReportRef.current?.report.value === selectedReportId) return
+    let cancelled = false
+    setLoadingReportDescriptions(true)
+    desktopInvoke('productSets.mainImageDescriptions', { runId: selectedReportId })
+      .then((data) => {
+        if (cancelled) return
+        const result = data as {
+          sellingPoints?: string[]
+          detailHeadlines?: string[]
+          detailPromptText?: string
+          promptText?: string
+        } | undefined
+        const points = result?.sellingPoints?.length ? result.sellingPoints : (result?.detailHeadlines ?? [])
+        setReportSellingPoints(points)
+        const nextText = (result?.detailPromptText || result?.promptText || '').trim()
+        if (nextText) setDetailGenerationText(nextText)
+      })
+      .catch(() => {
+        if (!cancelled) setReportSellingPoints([])
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingReportDescriptions(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [selectedReportId])
 
   // AI 帮写：真实流式调用 expandPrompts（经本地 IPC 事件通道流式下发，替代原 SSE HTTP）
   const handleAiHelp = async () => {
@@ -808,14 +846,38 @@ export function APlusDetailPage() {
             <div className="mb-4">
               <AIReportSelector value={selectedReportId} report={currentReport} onChange={handleReportChange} />
               {reportHandoff?.report.value === selectedReportId && <p role="status" className="mb-3 text-[11px] leading-5 text-[#52789c]">已带入 {reportHandoff.headlines.length} 屏详情策划，请确认下方模块并上传我方商品原图。</p>}
+              {loadingReportDescriptions && (
+                <div className="mb-3 flex items-center gap-1.5 text-[11px] text-[#86909C]">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  正在读取报告详情策划与卖点...
+                </div>
+              )}
+              {!loadingReportDescriptions && reportSellingPoints.length > 0 && (
+                <div className="mb-3 rounded-lg border border-[#e8f2ff] bg-[#f7fbff] p-2.5">
+                  <div className="mb-1.5 flex items-center gap-1 text-[11px] font-bold text-[#1683FF]">
+                    <Sparkles className="h-3 w-3" />
+                    已回传详情卖点
+                    <span className="rounded-full bg-[#e8f2ff] px-1.5 text-[10px]">{reportSellingPoints.length} 条</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {reportSellingPoints.slice(0, 6).map((point) => (
+                      <span key={point} className="max-w-full truncate rounded bg-white px-2 py-1 text-[11px] text-[#4e5969]">
+                        {point}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
               {selectedReportId && (
                 <button
                   type="button"
                   onClick={() => {
+                    linkedReportRef.current = null
                     setSelectedReportId('')
                     setCurrentReport(null)
+                    setReportSellingPoints([])
                   }}
-                  className="-mt-2 mb-4 h-8 w-full cursor-pointer rounded-lg border-0 bg-[#F2F3F5] text-[12px] font-semibold text-[#5F6B7A] transition-colors hover:bg-[#E8EAED]"
+                  className="-mt-1 mb-4 h-8 w-full cursor-pointer rounded-lg border-0 bg-[#F2F3F5] text-[12px] font-semibold text-[#5F6B7A] transition-colors hover:bg-[#E8EAED]"
                 >
                   不引用AI报告
                 </button>
