@@ -1,7 +1,7 @@
 {
   "name": "desktop",
   "private": true,
-  "version": "0.1.2",
+  "version": "0.1.3",
   "main": "out/main/index.js",
   "description": "桌面端电商竞品分析工具",
   "author": "Ecommerce Competitor Analysis",
