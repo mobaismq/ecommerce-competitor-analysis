@@ -62,7 +62,8 @@ async function analyzeProductVisualFacts(input: ProductSetsInput, provider: Retu
   const result = await provider.analyzeImage({
     images,
     system: '你是严谨的电商商品视觉识别助手。只根据图片可见内容回答，不推测不可见信息。',
-    maxTokens: 1200,
+    maxTokens: 2500,
+    jsonOutput: true,
     prompt: `识别用户上传的商品原图，并只输出 JSON：
 {
   "product": "商品的完整可见定义",
@@ -134,9 +135,20 @@ export async function expandPrompts(input: ProductSetsInput, emit: (event: Strea
     information: input.information,
   })
   // 帮写必须在同一个视觉流式请求中同时携带商品图和用户文字，不能先识图再让纯文本模型续写。
-  const ai = await provider.streamVisionText({ images, prompt, system: '你是电商资深运营，只输出商品信息 5 段结构，不要输出任何解释。', maxTokens: 2000 }, emit)
-  emit({ type: 'done', text: ai.text, data: { content: ai.text, model: ai.model } })
-  return { text: ai.text, model: ai.model }
+  const system = '你是电商资深运营，只输出商品信息 5 段结构，不要输出任何解释。'
+  try {
+    const ai = await provider.streamVisionText({ images, prompt, system, maxTokens: 4000 }, emit)
+    emit({ type: 'done', text: ai.text, data: { content: ai.text, model: ai.model } })
+    return { text: ai.text, model: ai.model }
+  } catch (error) {
+    // 某些视觉/思考模型流式首包为空时，自动回退一次非流式调用，避免报错中断帮写
+    if (!(error instanceof Error) || !error.message.includes('AI 流式未返回可用内容')) throw error
+    const fallback = await provider.analyzeImage({ images, prompt, system, maxTokens: 4000 })
+    if (!fallback.text?.trim()) throw error
+    emit({ type: 'content', text: fallback.text, data: { content: fallback.text } })
+    emit({ type: 'done', text: fallback.text, data: { content: fallback.text, model: fallback.model } })
+    return { text: fallback.text, model: fallback.model }
+  }
 }
 
 /** AI 改图提示词（text）。对齐后端 generateRetouchPrompt（返回模型原文作为 prompt）。 */
@@ -319,17 +331,40 @@ export async function generateDetailWorkflow(input: ProductSetsInput) {
       ? '详情页规划未生成正文：模型输出长度已耗尽，请稍后重试或调整文本模型。'
       : '详情页规划连续两次未返回正文，请稍后重试或调整文本模型。')
   }
-  const prompt = buildDetailImagePromptGenerationPrompt({
-    settings: input.settings,
-    information,
-    designPlan,
-    promptSlots: slots,
-  })
-  const ai = await provider.generateText({ prompt, system: '只输出 JSON，不要输出多余文字。', maxTokens: Math.min(12000, Math.max(4000, slots.length * 1100)) })
-  const parsed = ai.text ? parseJsonFromText(ai.text) : null
-  const detailWorkflowPrompt = normalizeGeneratedImagePrompts(parsed ?? {}, slots)
+  const DETAIL_PROMPT_BATCH_SIZE = 4
+  const slotBatches: typeof slots[] = []
+  for (let i = 0; i < slots.length; i += DETAIL_PROMPT_BATCH_SIZE) {
+    slotBatches.push(slots.slice(i, i + DETAIL_PROMPT_BATCH_SIZE))
+  }
+  const batchPrompts = new Array<ReturnType<typeof normalizeGeneratedImagePrompts>>(slotBatches.length)
+  let nextSlotBatch = 0
+  let lastModel = ''
+  const runDetailBatch = async () => {
+    for (;;) {
+      const idx = nextSlotBatch++
+      if (idx >= slotBatches.length) return
+      const batch = slotBatches[idx]
+      const prompt = buildDetailImagePromptGenerationPrompt({
+        settings: input.settings,
+        information,
+        designPlan,
+        promptSlots: batch,
+      })
+      const ai = await provider.generateText({
+        prompt,
+        system: '只输出 JSON，不要输出多余文字。',
+        jsonOutput: true,
+        maxTokens: Math.min(8192, Math.max(4000, batch.length * 1600)),
+      })
+      lastModel = ai.model || lastModel
+      const parsed = ai.text ? parseJsonFromText(ai.text) : null
+      batchPrompts[idx] = normalizeGeneratedImagePrompts(parsed ?? {}, batch)
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(2, slotBatches.length) }, runDetailBatch))
+  const detailWorkflowPrompt = batchPrompts.flat()
   if (detailWorkflowPrompt.length < slots.length) throw new Error('详情图提示词返回不完整，请重试。')
-  return { ok: true, data: detailWorkflowPrompt, designPlan, model: ai.model }
+  return { ok: true, data: detailWorkflowPrompt, designPlan, model: lastModel }
 }
 
 const IMAGE_TEXT_UI_BLACKLIST = [

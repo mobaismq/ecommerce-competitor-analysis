@@ -180,10 +180,17 @@ export function createRealAiProvider(userId: string): RealAiProvider {
   const model = config.textModel
   const visionModel = config.visionModel || config.textModel
   const stream = async (request: TextRequest, completionMessages: unknown[], streamModel: string, emit: (event: StreamEvent) => void) => {
+    const isDeepSeek = new URL(config.baseUrl).hostname === 'api.deepseek.com'
     const response = await fetch(endpoint, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ model: streamModel, messages: completionMessages, stream: true, ...(request.maxTokens ? { max_tokens: request.maxTokens } : {}) }),
+      body: JSON.stringify({
+        model: streamModel,
+        messages: completionMessages,
+        stream: true,
+        ...(isDeepSeek ? { thinking: { type: 'disabled' } } : {}),
+        ...(request.maxTokens ? { max_tokens: request.maxTokens } : {}),
+      }),
       signal: AbortSignal.timeout(timeout + 30_000),
     })
     if (!response.ok || !response.body) {
@@ -195,6 +202,7 @@ export function createRealAiProvider(userId: string): RealAiProvider {
     const decoder = new TextDecoder()
     let buffer = ''
     let full = ''
+    let streamError = ''
     for (;;) {
       const { value, done } = await reader.read()
       buffer += decoder.decode(value || new Uint8Array(), { stream: !done })
@@ -206,7 +214,8 @@ export function createRealAiProvider(userId: string): RealAiProvider {
         const data = trimmed.slice(5).trim()
         if (data === '[DONE]') continue
         try {
-          const parsed = JSON.parse(data) as { choices?: Array<{ delta?: { content?: string } }> }
+          const parsed = JSON.parse(data) as { error?: { message?: string }; choices?: Array<{ delta?: { content?: string } }> }
+          if (parsed.error?.message) streamError = parsed.error.message
           const delta = parsed.choices?.[0]?.delta?.content
           if (delta) {
             full += delta
@@ -218,7 +227,9 @@ export function createRealAiProvider(userId: string): RealAiProvider {
       }
       if (done) break
     }
-    if (!full.trim()) throw new Error('AI 流式未返回可用内容')
+    if (!full.trim()) {
+      throw new Error(streamError ? `AI 流式请求失败: ${streamError}` : 'AI 流式未返回可用内容')
+    }
     return { text: full, model: streamModel }
   }
   return {

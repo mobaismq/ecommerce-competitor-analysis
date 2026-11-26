@@ -866,6 +866,9 @@ export function APlusDetailPage() {
                       </span>
                     ))}
                   </div>
+                  <p className="mt-1.5 mb-0 text-[11px] leading-4 text-[#52789c]">
+                    已将报告要点填入下方「商品卖点&amp;要求」，可点击「AI 帮写」结合原图梳理为标准卖点。
+                  </p>
                 </div>
               )}
               {selectedReportId && (

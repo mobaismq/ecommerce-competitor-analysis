@@ -265,7 +265,7 @@ export async function createProductSkillReport(product: ReportProductInput, prov
             '每张图片最多8条关键文字，每条最多40字，observation最多150字。不可读图片的 observation 写无法读取；不得根据文件名猜图。',
             `图片解析规则：${skill.parsing.split('## 评价解析到报告证据')[0]}`,
             JSON.stringify({ productId: product.externalProductId, images: batch.map(({ id, kind }) => ({ id, kind })) }),
-          ].join('\n'), images: batch.map((image) => image.image), maxTokens: 8192,
+          ].join('\n'), images: batch.map((image) => image.image), maxTokens: 8192, jsonOutput: true,
         }))
         const parsedVision = parseReportObject(vision.text)
         return { model: vision.model, rows: Array.isArray(parsedVision.imageObservations) ? parsedVision.imageObservations : [] }

@@ -109,6 +109,32 @@ describe('expandPrompts streaming', () => {
   it('requires a product image before starting AI help', async () => {
     await expect(expandPrompts({ userId: 'u1', information: '灰色毛衣' }, () => undefined)).rejects.toThrow('请先上传商品原图')
   })
+
+  it('falls back to non-streaming analyzeImage when stream returns empty content', async () => {
+    const originalFetch = global.fetch
+    let callCount = 0
+    global.fetch = vi.fn(async () => {
+      callCount += 1
+      if (callCount === 1) {
+        return new Response('data: {"choices":[{"delta":{"reasoning_content":"thinking..."}}]}\n\ndata: [DONE]\n\n', {
+          status: 200,
+          headers: { 'content-type': 'text/event-stream' },
+        })
+      }
+      return new Response(JSON.stringify({
+        choices: [{ message: { content: '1.产品名称：激光水平仪\n2.核心卖点：强绿光' }, finish_reason: 'stop' }],
+      }), { status: 200, headers: { 'content-type': 'application/json' } })
+    }) as unknown as typeof fetch
+    const events: string[] = []
+    try {
+      const res = await expandPrompts({ userId: 'u1', image: 'data:image/png;base64,AA==', information: '竞品报告长文案' }, (e) => events.push(e.type))
+      expect(res.text).toContain('1.产品名称：激光水平仪')
+      expect(events).toEqual(['content', 'done'])
+      expect(callCount).toBe(2)
+    } finally {
+      global.fetch = originalFetch
+    }
+  })
 })
 
 describe('product visual grounding', () => {
