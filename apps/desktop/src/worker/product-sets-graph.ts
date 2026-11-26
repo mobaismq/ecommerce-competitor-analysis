@@ -72,6 +72,9 @@ export function buildProductSetGraph(deps: ProductSetGraphDeps) {
   const planPromptsNode = async (state: ProductSetGraphState) => {
     const prompts = await deps.planPrompts(state.slots)
     const plannedSlots = state.slots.map((s) => ({ ...s, prompt: prompts[s.id] ?? s.prompt }))
+    if (plannedSlots.some((slot) => slot.status !== 'done' && !slot.prompt.trim())) {
+      throw new Error('主图提示词规划未覆盖全部图位，请重新生成套图。')
+    }
     return new Command({
       update: { slots: plannedSlots },
       goto: plannedSlots.map((s) => new Send('generateOne', { slot: s })),
@@ -141,7 +144,7 @@ export async function runProductSetGraph(
           if (slot) {
             run.emit({
               type: 'node',
-              data: { jobId, node: 'generateImage', slotId: slot.id, status: slot.status, imageUrl: slot.imageUrl, error: slot.error },
+              data: { jobId, node: 'generateImage', slotId: slot.id, status: slot.status, imageUrl: slot.imageUrl, prompt: slot.prompt, error: slot.error },
             })
           }
         }

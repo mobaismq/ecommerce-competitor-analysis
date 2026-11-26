@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { resolveEffectiveConfig, CapabilityNotConfiguredError } from './ai-config'
+import { resolveEffectiveImageConfig, CapabilityNotConfiguredError } from './ai-config'
 import { getWorkerPrisma, putBytes, removeBytes, storageKeyToLocalPath, workerDataRoots } from './worker-db'
 
 export interface ImageProvider {
@@ -83,19 +83,28 @@ async function resolveBytes(imageRef: string): Promise<{ buffer: Buffer; content
 }
 
 export function createRealImageProvider(userId: string): ImageProvider {
-  const config = resolveEffectiveConfig(userId)
+  const config = resolveEffectiveImageConfig(userId)
   if (!config) throw new CapabilityNotConfiguredError()
+  const host = new URL(config.baseUrl).hostname
+  if (host === 'api.deepseek.com') {
+    throw new Error('当前 DeepSeek 接口只输出文字。请在「设置 → AI 配置」中填写 OpenRouter 生图 Key。')
+  }
+  const openRouter = host === 'openrouter.ai'
+  const supportsReferences = openRouter || config.kind === 'openrouter'
+  const endpoint = openRouter
+    ? 'https://openrouter.ai/api/v1/images'
+    : `${config.baseUrl.replace(/\/+$/, '')}/images/generations`
+
   return {
     async generate(input) {
       // 真实生图请求过并发闸（默认 5），排队等待而非无界并发，避免触发供应商限流
       return imageGenerateSemaphore.run(async () => {
-        // 当前仅 OpenRouter 的 images/generations 适配了 input_references；其他协议不得静默丢弃商品原图。
-        if (input.referenceImageUrls.length && config.kind !== 'openrouter') {
+        if (input.referenceImageUrls.length && !supportsReferences) {
           throw new Error('当前生图供应商不支持参考商品图，已停止生成以避免生成错误商品。请在设置中选择支持参考图的 OpenRouter 图像模型后重试。')
         }
-        const endpoint = `${config.baseUrl.replace(/\/+$/, '')}/images/generations`
         const body: Record<string, unknown> = { model: config.imageModel, prompt: input.prompt, n: input.count }
-        if (config.kind === 'openrouter') {
+        if (openRouter) body.response_format = 'url'
+        if (supportsReferences) {
           if (input.aspectRatio) body.aspect_ratio = input.aspectRatio
           if (input.referenceImageUrls.length) body.input_references = input.referenceImageUrls.map((url) => ({ type: 'image_url', image_url: { url } }))
         } else body.size = input.size ?? '1024x1024'
@@ -104,9 +113,12 @@ export function createRealImageProvider(userId: string): ImageProvider {
           headers: { 'content-type': 'application/json', authorization: `Bearer ${config.apiKey}` },
           body: JSON.stringify(body),
           signal: AbortSignal.timeout(config.timeoutMs ?? 120_000),
+          ...(openRouter ? { redirect: 'error' } : {}),
         })
-        const payload = await response.json().catch(() => ({}))
+        if (openRouter && response.status === 401) throw new Error('OpenRouter 生图鉴权失败，请在「AI 配置」中更新生图 Key。')
+        if (openRouter && response.status === 402) throw new Error('OpenRouter 生图额度不足，请检查账户余额和 Key 的消费限额。')
         if (!response.ok) throw new Error(`AI 生图请求失败: HTTP ${response.status}`)
+        const payload = await response.json().catch(() => ({}))
         return ((payload as { data?: Array<{ url?: string; b64_json?: string; media_type?: string }> }).data ?? [])
           .map((item) => item.url || (item.b64_json ? `data:${item.media_type || 'image/png'};base64,${item.b64_json}` : ''))
           .filter(Boolean)

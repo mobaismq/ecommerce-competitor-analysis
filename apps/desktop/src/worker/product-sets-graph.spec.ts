@@ -1,9 +1,10 @@
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, mkdirSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { runProductSetGraph, type GenerationSlotGraph, type GeneratedAssetGraph } from './product-sets-graph'
+import { generatePrompts } from './product-sets-capability'
 import { PrismaCheckpointSaver } from './checkpoint-saver'
 import { getWorkerPrisma } from './worker-db'
 
@@ -64,6 +65,62 @@ function makeDeps(opts: { planError?: boolean; onGenerate?: (slot: GenerationSlo
 }
 
 describe('productSets.graph.run (LangGraph 编排)', () => {
+  it('recovers both truncated planning stages and dispatches all five image slots with matching prompts', async () => {
+    const userId = 'vision-retry-user'
+    const configDir = join(root, '.ecommerce', 'users', userId, 'config')
+    mkdirSync(configDir, { recursive: true })
+    writeFileSync(join(configDir, 'ai-default.json'), JSON.stringify({
+      baseUrl: 'https://api.deepseek.com',
+      apiKey: 'mock-only',
+      visionModel: 'deepseek-flash',
+      textModel: 'deepseek-v4-pro',
+    }))
+    const slots = makeSlots(5)
+    const reply = (content: string | null, finishReason = 'stop') => new Response(JSON.stringify({
+      choices: [{ finish_reason: finishReason, message: { content } }],
+    }))
+    const mockFetch = vi.spyOn(globalThis, 'fetch')
+      .mockRejectedValue(new Error('Unexpected AI request'))
+      .mockResolvedValueOnce(reply(null, 'length'))
+      .mockResolvedValueOnce(reply(JSON.stringify({ product: '褐皮鲜梨', lockedFeatures: ['可见褐色果皮'] })))
+      .mockResolvedValueOnce(reply('{"prompts":[', 'length'))
+      .mockResolvedValueOnce(reply(JSON.stringify({
+        prompts: slots.slice().reverse().map((slot) => ({ id: slot.id, prompt: `鲜梨画面 ${slot.id}` })),
+      })))
+    const generateImage = vi.fn(fakeImageDep())
+    try {
+      const result = await runProductSetGraph({
+        checkpointer: new PrismaCheckpointSaver(),
+        planPrompts: async (requested) => {
+          const planned = await generatePrompts({
+            userId,
+            image: 'data:image/png;base64,AA==',
+            information: '产品名称：褐皮鲜梨',
+            reportText: '猫粮 · 冻干看得见',
+            promptSlots: requested,
+          })
+          return Object.fromEntries(planned.prompts.map((item) => [item.id, item.prompt]))
+        },
+        generateImage,
+      }, { slots }, { threadId: 'job-planning-retry' })
+
+      expect(result.failedCount).toBe(0)
+      expect(generateImage).toHaveBeenCalledTimes(5)
+      expect(result.slots.map((slot) => slot.prompt)).toEqual(slots.map((slot) => `鲜梨画面 ${slot.id}`))
+      expect(mockFetch).toHaveBeenCalledTimes(4)
+      const [vision, visionRetry, plan, planRetry] = mockFetch.mock.calls.map(([, init]) => JSON.parse(String(init?.body)))
+      for (const request of [vision, visionRetry, plan, planRetry]) {
+        expect(request).toMatchObject({ thinking: { type: 'disabled' }, response_format: { type: 'json_object' } })
+      }
+      expect(visionRetry.max_tokens).toBeGreaterThan(vision.max_tokens)
+      expect(planRetry.max_tokens).toBeGreaterThan(plan.max_tokens)
+      expect(plan.messages[1].content).toContain('商品主体：褐皮鲜梨')
+      expect(plan.messages[1].content).toContain('如果竞品报告与原图品类不同')
+    } finally {
+      mockFetch.mockRestore()
+    }
+  })
+
   it('全量成功：planPrompts → 逐图生成，所有 slot done，assets 落库并持久化 checkpoint', async () => {
     const emitted: Array<{ type: string; data?: Record<string, unknown> }> = []
     const result = await runProductSetGraph(
@@ -86,19 +143,31 @@ describe('productSets.graph.run (LangGraph 编排)', () => {
   })
 
   it('部分失败：单个图位抛错只标 failed，其余照常 done，整图不中断', async () => {
-    const onGenerate = (slot: GenerationSlotGraph) => {
-      if (slot.id === 'slot-2') throw new Error('图生图失败')
-    }
     const deps = makeDeps({})
     deps.generateImage = async ({ slot, jobId }) => {
       if (slot.id === 'slot-2') throw new Error('图生图失败')
       return fakeImageDep()({ slot, jobId })
     }
-    const result = await runProductSetGraph(deps, { slots: makeSlots(3) }, { threadId: 'job-partial' })
+    const events: Record<string, unknown>[] = []
+    const result = await runProductSetGraph(deps, { slots: makeSlots(3) }, {
+      threadId: 'job-partial',
+      emit: ({ data }) => { if (data) events.push(data) },
+    })
     expect(result.ok).toBe(true)
     expect(result.failedCount).toBe(1)
     expect(result.slots.find((s) => s.id === 'slot-2')?.status).toBe('failed')
     expect(result.slots.filter((s) => s.status === 'done')).toHaveLength(2)
+    expect(events).toContainEqual(expect.objectContaining({ node: 'generateImage', slotId: 'slot-2', status: 'failed', prompt: 'prompt-slot-2' }))
+  })
+
+  it('never dispatches image jobs with missing prompts', async () => {
+    const generateImage = vi.fn(fakeImageDep())
+    await expect(runProductSetGraph({
+      checkpointer: new PrismaCheckpointSaver(),
+      planPrompts: async () => ({ 'slot-1': '已有提示词' }),
+      generateImage,
+    }, { slots: makeSlots(2) }, { threadId: 'job-missing-prompt' })).rejects.toThrow('主图提示词规划未覆盖全部图位')
+    expect(generateImage).not.toHaveBeenCalled()
   })
 
   it('断点续跑：ABORT 中止整图后，同 jobId 再次运行从 checkpoint 恢复补跑，最终全部 done', async () => {

@@ -15,6 +15,7 @@ interface SelfConfig {
   defaultBaseUrl: string | null
   defaultTextModel: string | null
   defaultImageModel: string | null
+  openRouterImage: { model: string; apiKeyConfigured: boolean }
 }
 
 const PROTOCOLS = [
@@ -32,6 +33,8 @@ export function AiConfigPage() {
   const [timeoutMs, setTimeoutMs] = useState('120000')
   const [apiKey, setApiKey] = useState('')
   const [saving, setSaving] = useState(false)
+  const [imageApiKey, setImageApiKey] = useState('')
+  const [savingImage, setSavingImage] = useState(false)
 
   useEffect(() => {
     void (async () => {
@@ -81,6 +84,25 @@ export function AiConfigPage() {
   }
 
   const needReminder = cfg ? !cfg.selfEnabled && !cfg.hasDefaultProvider : false
+  const openRouterImage = cfg?.openRouterImage
+
+  const saveImageConfig = async (clear = false) => {
+    setSavingImage(true)
+    try {
+      const result = await window.desktop?.capabilities.invoke('ai.openRouterImageConfig.save', {
+        userId: currentUserId,
+        ...(clear ? { clear: true } : { apiKey: imageApiKey.trim() }),
+      }) as SelfConfig | undefined
+      if (!result) throw new Error('无法保存生图配置')
+      setCfg(result)
+      setImageApiKey('')
+      Message.success(clear ? '已清除 OpenRouter 生图 Key' : '已保存 OpenRouter 生图配置')
+    } catch {
+      Message.error('OpenRouter 生图配置保存失败，请检查 Key 格式')
+    } finally {
+      setSavingImage(false)
+    }
+  }
 
   return (
     <div className="h-full overflow-y-auto p-6 bg-[#f4f7fb] flex flex-col gap-4">
@@ -93,13 +115,32 @@ export function AiConfigPage() {
         </div>
       </div>
 
-      <Card bordered className="rounded-lg shadow-sm bg-white max-w-2xl">
+      <Card bordered title="OpenRouter 生图" className="rounded-lg shadow-sm bg-white max-w-2xl">
+        <Form layout="vertical">
+          <p className="mb-4 text-sm text-gray-600">{openRouterImage?.model ?? 'openai/gpt-image-2'} · 商品主图与详情图</p>
+          <Form.Item label={`生图 API Key（${openRouterImage?.apiKeyConfigured ? '已配置' : '未配置'}）`}>
+            <Input.Password value={imageApiKey} onChange={setImageApiKey} placeholder="sk-or-v1-..." autoComplete="off" />
+          </Form.Item>
+          <div className="flex gap-3">
+            <Button type="primary" loading={savingImage} disabled={saving || !currentUserId || !imageApiKey.trim()} onClick={() => saveImageConfig()}>
+              保存生图配置
+            </Button>
+            {openRouterImage?.apiKeyConfigured && (
+              <Button status="danger" disabled={saving || savingImage} onClick={() => saveImageConfig(true)}>
+                清除生图 Key
+              </Button>
+            )}
+          </div>
+        </Form>
+      </Card>
+
+      <Card bordered title="通用 AI 供应商" className="rounded-lg shadow-sm bg-white max-w-2xl">
         {needReminder && (
           <Alert
             type="warning"
             showIcon
             style={{ marginBottom: 16 }}
-            content="当前无可用 AI 供应商。为避免 AI 生图或大模型功能不可用，请在下方配置 Key。"
+            content="请配置通用 AI 供应商，用于文本分析和生成提示词。"
           />
         )}
 
@@ -118,7 +159,7 @@ export function AiConfigPage() {
           <Form.Item label="文本模型">
             <Input value={textModel} onChange={setTextModel} placeholder="deepseek/deepseek-chat / gpt-4o-mini / claude-sonnet-4-5" />
           </Form.Item>
-          <Form.Item label="生图模型">
+          <Form.Item label={openRouterImage?.apiKeyConfigured ? '备用生图模型' : '生图模型'}>
             <Input value={imageModel} onChange={setImageModel} placeholder="openai/gpt-image-2 / gpt-image-1" />
           </Form.Item>
           <Form.Item label="超时 (ms)">
@@ -128,11 +169,11 @@ export function AiConfigPage() {
             <Input.Password value={apiKey} onChange={setApiKey} placeholder="sk-..." />
           </Form.Item>
           <div className="flex gap-3">
-            <Button type="primary" loading={saving} onClick={() => save(false)} style={{ width: 120 }}>
+            <Button type="primary" loading={saving} disabled={savingImage} onClick={() => save(false)} style={{ width: 120 }}>
               保存配置
             </Button>
             {cfg?.selfEnabled && (
-              <Button status="danger" disabled={saving} onClick={() => save(true)} style={{ width: 120 }}>
+              <Button status="danger" disabled={saving || savingImage} onClick={() => save(true)} style={{ width: 120 }}>
                 清除个人配置
               </Button>
             )}

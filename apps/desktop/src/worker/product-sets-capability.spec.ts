@@ -148,6 +148,51 @@ describe('product visual grounding', () => {
   })
 })
 
+describe('main image prompt planning', () => {
+  it('plans larger sets in groups and retries only the group with a missing slot ID', async () => {
+    const slots = Array.from({ length: 6 }, (_, index) => ({
+      id: `scene-${index + 1}`,
+      name: `场景图 ${index + 1}`,
+      type: '场景图',
+      sequence: index + 1,
+    }))
+    const reply = (ids: string[]) => new Response(JSON.stringify({
+      choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({
+        prompts: ids.map((id) => ({ id, prompt: `鲜梨场景 ${id}` })),
+      }) } }],
+    }))
+    const mockFetch = vi.spyOn(globalThis, 'fetch')
+      .mockRejectedValue(new Error('Unexpected AI request'))
+      .mockResolvedValueOnce(reply(slots.slice(0, 5).map((slot) => slot.id)))
+      .mockResolvedValueOnce(reply(['scene-5']))
+      .mockResolvedValueOnce(reply(['scene-6']))
+    const result = await generatePrompts({ userId: 'u1', promptSlots: slots })
+    expect(result.prompts.map(({ id, prompt }) => [id, prompt])).toEqual(slots.map(({ id }) => [id, `鲜梨场景 ${id}`]))
+    expect(mockFetch).toHaveBeenCalledTimes(3)
+    const next = JSON.parse(String(mockFetch.mock.calls[1][1]?.body))
+    expect(next.messages[1].content).toContain('鲜梨场景 scene-5')
+    expect(next.messages[1].content).not.toContain('"id": "scene-5"')
+  })
+
+  it('reports the image recognition stage when an Anthropic-compatible provider runs out of output twice', async () => {
+    writeFileSync(join(dirs.at(-1)!, '.ecommerce', 'users', 'u1', 'config', 'ai-self.json'), JSON.stringify({
+      selfEnabled: true,
+      protocol: 'anthropic',
+      apiKey: 'mock-only',
+      baseUrl: 'https://example.invalid/v1',
+      model: 'vision-model',
+    }))
+    const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify({
+      stop_reason: 'max_tokens',
+      content: [{ type: 'text', text: '{"product":"褐皮鲜梨"}' }],
+    })))
+
+    await expect(generatePrompts({ userId: 'u1', image: 'data:image/png;base64,AA==', selectedSlots: ['image-1'] }))
+      .rejects.toThrow('商品原图识别失败，模型输出达到长度上限')
+    expect(fetch).toHaveBeenCalledTimes(2)
+  })
+})
+
 describe('detail planning workflow', () => {
   it('returns a separate read-only design plan and generates prompts from it', async () => {
     const originalFetch = global.fetch

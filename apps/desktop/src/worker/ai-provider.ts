@@ -12,14 +12,31 @@ export interface VisionRequest extends TextRequest {
   images: string[]
 }
 
+const outputLimitMessage = 'AI 输出达到长度上限，报告可能不完整，请增加输出预算或减少输入资料'
+
+export function isAiOutputLimit(finishReason?: string): boolean {
+  return finishReason === 'length' || finishReason === 'max_tokens'
+}
+
 /** 让需要重试的工作流识别空正文，同时保留模型的终止原因。 */
 export class EmptyAiResponseError extends Error {
   constructor(readonly finishReason?: string) {
-    super(finishReason === 'length' || finishReason === 'max_tokens'
-      ? 'AI 输出达到长度上限，报告可能不完整，请增加输出预算或减少输入资料'
-      : 'AI 未返回可用正文，请检查模型输出预算与接口响应')
+    super(isAiOutputLimit(finishReason) ? outputLimitMessage : 'AI 未返回可用正文，请检查模型输出预算与接口响应')
     this.name = 'EmptyAiResponseError'
   }
+}
+
+export class AiOutputLimitError extends Error {
+  constructor() {
+    super(outputLimitMessage)
+    this.name = 'AiOutputLimitError'
+  }
+}
+
+function usableCompletionText(content: unknown, finishReason?: string) {
+  if (typeof content !== 'string' || !content.trim()) throw new EmptyAiResponseError(finishReason)
+  if (isAiOutputLimit(finishReason)) throw new AiOutputLimitError()
+  return { text: content, finishReason }
 }
 
 export interface StreamEvent {
@@ -46,15 +63,20 @@ export function createRealAiProvider(userId: string): RealAiProvider {
   const config = resolveEffectiveConfig(userId)
   if (!config) throw new CapabilityNotConfiguredError()
   const timeout = config.timeoutMs ?? 120_000
+  // DeepSeek 的思考过程也占用输出额度，结构化任务直接请求正文。
+  const structuredThinkingOptions = (request: TextRequest) => request.jsonOutput && new URL(config.baseUrl).hostname === 'api.deepseek.com'
+    ? { thinking: { type: 'disabled' } } : {}
 
   // Anthropic 兼容协议（/messages）：x-api-key + anthropic-version，文本/视觉走 Messages API
   if (config.protocol === 'anthropic') {
     const endpoint = `${config.baseUrl.replace(/\/+$/, '')}/messages`
     const headers = { 'content-type': 'application/json', 'x-api-key': config.apiKey, 'anthropic-version': '2023-06-01' }
-    const textOf = (payload: unknown) => {
+    const completionOf = (payload: unknown, request: TextRequest) => {
       const blocks = Array.isArray((payload as { content?: unknown[] })?.content) ? (payload as { content: unknown[] }).content : []
       const text = blocks.filter((b) => (b as { type?: string })?.type === 'text').map((b) => (b as { text?: string }).text ?? '').join('')
-      return text || JSON.stringify(payload)
+      const finishReason = String((payload as { stop_reason?: string })?.stop_reason ?? '')
+      if (request.jsonOutput) return usableCompletionText(text, finishReason)
+      return { text: text || JSON.stringify(payload), finishReason }
     }
     const readSseText = (raw: string): string => {
       const data = raw.startsWith('data:') ? raw.slice(5).trim() : raw.trim()
@@ -113,6 +135,7 @@ export function createRealAiProvider(userId: string): RealAiProvider {
           body: JSON.stringify({
             model: config.textModel,
             max_tokens: request.maxTokens ?? 1024,
+            ...structuredThinkingOptions(request),
             ...(request.system ? { system: request.system } : {}),
             messages: [{ role: 'user', content: request.prompt }],
           }),
@@ -120,11 +143,7 @@ export function createRealAiProvider(userId: string): RealAiProvider {
         })
         const payload = await response.json().catch(() => ({}))
         if (!response.ok) throw new Error(`AI 请求失败: HTTP ${response.status}`)
-        return {
-          text: textOf(payload),
-          model: config.textModel,
-          finishReason: String((payload as { stop_reason?: string })?.stop_reason ?? ''),
-        }
+        return { ...completionOf(payload, request), model: config.textModel }
       },
       analyzeImage: async (request) => {
         const content: unknown[] = [{ type: 'text', text: request.prompt }]
@@ -135,6 +154,7 @@ export function createRealAiProvider(userId: string): RealAiProvider {
           body: JSON.stringify({
             model: visionModel,
             max_tokens: request.maxTokens ?? 1024,
+            ...structuredThinkingOptions(request),
             ...(request.system ? { system: request.system } : {}),
             messages: [{ role: 'user', content }],
           }),
@@ -145,7 +165,7 @@ export function createRealAiProvider(userId: string): RealAiProvider {
           const message = (payload as { error?: { message?: string } })?.error?.message
           throw new Error(`AI 视觉请求失败: HTTP ${response.status}${message ? ` · ${message}` : ''}`)
         }
-        return { text: textOf(payload), model: visionModel }
+        return { text: completionOf(payload, request).text, model: visionModel }
       },
       streamText: (request, emit) => stream(request, request.prompt, config.textModel, emit),
       streamVisionText: (request, emit) => stream(
@@ -170,15 +190,11 @@ export function createRealAiProvider(userId: string): RealAiProvider {
 
   const jsonOptions = (request: TextRequest) => request.jsonOutput ? {
     response_format: { type: 'json_object' },
-    // DeepSeek 的推理内容也占输出预算；结构化报告直接生成最终 JSON。
-    ...(new URL(config.baseUrl).hostname === 'api.deepseek.com' ? { thinking: { type: 'disabled' } } : {}),
+    ...structuredThinkingOptions(request),
   } : {}
   const completionText = (payload: unknown) => {
     const choice = (payload as { choices?: Array<{ finish_reason?: string; message?: { content?: unknown } }> }).choices?.[0]
-    const content = choice?.message?.content
-    if (typeof content !== 'string' || !content.trim()) throw new EmptyAiResponseError(choice?.finish_reason)
-    if (choice?.finish_reason === 'length') throw new Error('AI 输出达到长度上限，报告可能不完整，请增加输出预算或减少输入资料')
-    return { text: content, finishReason: choice?.finish_reason }
+    return usableCompletionText(choice?.message?.content, choice?.finish_reason)
   }
   const model = config.textModel
   const visionModel = config.visionModel || config.textModel

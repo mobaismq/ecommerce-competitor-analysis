@@ -1,7 +1,7 @@
 import type { CapabilityInvokeMessage, WorkerOutbound } from './protocol'
 import { isInvoke } from './protocol'
 import { getWorkerPrisma, putBytes, removeBytes, workerDataRoots } from './worker-db'
-import { generateImageCapability, type GenerateImageInput } from './image-capability'
+import { createRealImageProvider, generateImageCapability, type GenerateImageInput } from './image-capability'
 import { listAssets, rawAsset, deleteAsset } from './asset-capability'
 import { deleteMedia, listMedia, mediaRaw, replicateVideo } from './media-capability'
 import {
@@ -21,7 +21,7 @@ import { expandPrompts, extractImageText, generateDetailWorkflow, generatePrompt
 import { PrismaCheckpointSaver } from './checkpoint-saver'
 import { runProductSetGraph, type GenerationSlotGraph } from './product-sets-graph'
 import { runDetailGraph, type DetailModuleGraph } from './detail-graph'
-import { getSelfConfig, saveSelfConfig, setServerDefault, type SaveSelfConfigInput } from './ai-config'
+import { getSelfConfig, saveOpenRouterImageConfig, saveSelfConfig, setServerDefault, type SaveOpenRouterImageConfigInput, type SaveSelfConfigInput } from './ai-config'
 import { cancelAnalysisJob, createAnalysisJob, getAnalysisJob, type CreateAnalysisJobInput } from './analysis-capability'
 import { createProduct, deleteProduct, listProducts, updateProduct, type ListProductsOptions, type SaveProductInput } from './product-capability'
 import {
@@ -148,6 +148,7 @@ export function createBuiltinHandlers(): Record<string, CapabilityHandler> {
         slots?: unknown[]
         jobId: string
       }
+      const imageProvider = createRealImageProvider(p.userId)
       const slots: GenerationSlotGraph[] = (Array.isArray(p.slots) ? p.slots : []).map((s, index) => {
         const rec = (s ?? {}) as Record<string, unknown>
         return {
@@ -190,7 +191,7 @@ export function createBuiltinHandlers(): Record<string, CapabilityHandler> {
               productName: p.productName?.trim() || undefined,
               jobId,
             },
-            undefined,
+            imageProvider,
             roots.userRoot,
           )
           const img = imgRes.images[0]
@@ -286,6 +287,10 @@ export function createBuiltinHandlers(): Record<string, CapabilityHandler> {
     'dataAgent.chat': async (payload) => dataAgentChat(payload as { userId: string; tenantId: string; question: string; datasetId?: string; jobId?: string; keyword?: string; history?: Array<{ role?: string; content?: string }> }),
     'ai.selfConfig.get': async (payload) => getSelfConfig(String((payload as { userId?: string })?.userId ?? '')),
     'ai.selfConfig.save': async (payload) => saveSelfConfig(String((payload as { userId?: string })?.userId ?? ''), payload as SaveSelfConfigInput),
+    'ai.openRouterImageConfig.save': async (payload) => {
+      const { userId, ...config } = (payload ?? {}) as SaveOpenRouterImageConfigInput & { userId?: string }
+      return saveOpenRouterImageConfig(String(userId ?? ''), config)
+    },
     'ai.defaultConfig.set': async (payload) => setServerDefault(String((payload as { userId?: string })?.userId ?? ''), payload as Parameters<typeof setServerDefault>[1]),
     'analysis.jobs.create': async (payload) => createAnalysisJob(payload as CreateAnalysisJobInput & { tenantId?: string; userId?: string }),
     'analysis.jobs.get': async (payload) => getAnalysisJob(String((payload as { id?: string })?.id ?? ''), String((payload as { tenantId?: string })?.tenantId ?? 'local')),

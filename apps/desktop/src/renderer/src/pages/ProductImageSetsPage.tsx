@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
+  Alert,
   Button,
   Grid,
   Input,
@@ -47,6 +48,11 @@ const PRODUCT_SETS_DRAFT_DATABASE = 'ecommerce-competitor-analysis'
 const PRODUCT_SETS_DRAFT_STORE = 'product-image-sets'
 const PRODUCT_SETS_DRAFT_KEY = 'latest-form'
 const PRODUCT_SETS_LATEST_JOB_KEY = 'eca.productImageSets.latestJobId'
+
+function generationErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error)
+  return message.replace(/^Error invoking remote method '[^']+':\s*/, '').replace(/^Error:\s*/, '')
+}
 
 // 生成设置三组 options 逐字对照旧版 ProductImageSets.tsx GENERATION_OPTIONS（平台 17 / 国家 17 / 语言 14 / 比例 5）
 const PLATFORM_OPTIONS = [
@@ -200,7 +206,7 @@ export function ProductImageSetsPage() {
   const [aiHelpOpen, setAiHelpOpen] = useState(false)
   const [expandingPrompts, setExpandingPrompts] = useState(false)
   const [aiHelpText, setAiHelpText] = useState('')
-  const [error, setError] = useState('')
+  const [batchError, setBatchError] = useState('')
 
   // 5. 套图结构配置
   const [mode, setMode] = useState<'智能匹配' | '自定义配置'>('智能匹配')
@@ -280,7 +286,7 @@ export function ProductImageSetsPage() {
     setSelectedSlotIds([])
     setGenerationJobId('')
     setGenerating(false)
-    setError('')
+    setBatchError('')
     setActionPanel(null)
     setMoreMenuSlotId(null)
     setResizeTargets(null)
@@ -542,7 +548,7 @@ export function ProductImageSetsPage() {
     }
     setGenerating(true)
     setResultViewActive(true)
-    setError('')
+    setBatchError('')
 
     // 构建图位
     const newSlots: GenerationSlot[] = []
@@ -597,13 +603,17 @@ export function ProductImageSetsPage() {
       // LangGraph 编排：planPrompts → 逐图 generateOne（worker 内 Send 扇出 + checkpoint 落本地 SQLite）。
       // 每张图位的进度经 IPC 流式节点事件回显；jobId 即 thread_id，崩溃后可同 jobId 续跑。
       const unsub = window.desktop?.capabilities.onStream((event) => {
-        if (event.type === 'node' && event.data?.node === 'generateImage') {
+        if (event.type === 'node' && event.data?.node === 'generateImage' && event.data.jobId === jobId) {
           if (activeGenerationJobRef.current !== jobId) return
-          const d = event.data as { slotId?: string; status?: GenerationSlot['status']; imageUrl?: string; error?: string }
+          const d = event.data as { slotId?: string; status?: GenerationSlot['status']; imageUrl?: string; prompt?: string; error?: string }
           if (!d.slotId) return
-          setSlots((prev) =>
-            prev.map((s) => (s.id === d.slotId ? { ...s, status: d.status ?? s.status, imageUrl: d.imageUrl, error: d.error } : s)),
-          )
+          setSlots((prev) => prev.map((slot) => slot.id === d.slotId ? {
+            ...slot,
+            status: d.status ?? slot.status,
+            imageUrl: d.imageUrl,
+            prompt: d.prompt ?? slot.prompt,
+            error: d.error,
+          } : slot))
         }
       })
       let failedCount = 0
@@ -628,18 +638,18 @@ export function ProductImageSetsPage() {
           })),
           jobId,
         })) as { ok?: boolean; failedCount?: number } | undefined
-        failedCount = res?.failedCount ?? 0
+        if (!res?.ok) throw new Error('套图任务未完成，请重试。')
+        failedCount = res.failedCount ?? 0
       } finally {
         unsub?.()
       }
       if (activeGenerationJobRef.current === jobId && failedCount) {
-        setError(`${failedCount} 张图片生成失败，其余图片已保留在右侧。`)
+        setBatchError(`${failedCount} 张图片生成失败，可在对应图位重试。`)
       }
     } catch (err) {
       if (!jobId || activeGenerationJobRef.current !== jobId) return
-      const message = err instanceof Error ? err.message : String(err)
-      setError(message)
-      setSlots((prev) => prev.map((slot) => ({ ...slot, status: 'failed', error: message })))
+      setBatchError(generationErrorMessage(err))
+      setSlots((prev) => prev.map((slot) => slot.status === 'generating' ? { ...slot, status: 'failed' } : slot))
     } finally {
       if (activeGenerationJobRef.current === jobId) setGenerating(false)
     }
@@ -647,17 +657,19 @@ export function ProductImageSetsPage() {
 
   // 单图重绘
   const handleRegenerateSingle = async (slotId: string) => {
-    setSlots((prev) => prev.map((s) => (s.id === slotId ? { ...s, status: 'generating' } : s)))
+    const slot = slots.find((item) => item.id === slotId)
+    if (!slot?.prompt.trim()) return
+    setBatchError('')
+    setSlots((prev) => prev.map((item) => item.id === slotId ? { ...item, status: 'generating', error: undefined } : item))
     try {
-      const slot = slots.find((s) => s.id === slotId)
       const res = await window.desktop?.capabilities.invoke('image.generate', {
         userId: currentUserId,
         tenantId: 'local',
-        prompt: slot?.prompt || '电商高清主图',
+        prompt: slot.prompt,
         size: '2K',
         jobId: generationJobId || `product-sets-${nanoid(12)}`,
-        name: slot?.name,
-        slotType: slot?.type,
+        name: slot.name,
+        slotType: slot.type,
         image: uploadedImages.find((i) => i.isMain)?.url || uploadedImages[0]?.url,
         images: uploadedImages.map((i) => i.url),
         ratio: settings.ratio,
@@ -667,9 +679,8 @@ export function ProductImageSetsPage() {
       if (!imgUrl) throw new Error('生成成功但没有返回图片 URL')
       setSlots((prev) => prev.map((s) => (s.id === slotId ? { ...s, status: 'done', imageUrl: imgUrl } : s)))
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
+      const message = generationErrorMessage(err)
       setSlots((prev) => prev.map((s) => (s.id === slotId ? { ...s, status: 'failed', error: message } : s)))
-      setError(message)
     }
   }
 
@@ -1401,6 +1412,8 @@ export function ProductImageSetsPage() {
               </div>
             </div>
 
+            {batchError && <Alert type="error" showIcon content={batchError} className="mb-4" />}
+
             {/* 成图网格（M8：首个格显示上传商品图，区域 1:1，左下角类型标签） */}
             <div className="grid grid-cols-3 gap-5">
               {/* 首位原图格：展示用户上传的商品图 */}
@@ -1558,14 +1571,13 @@ export function ProductImageSetsPage() {
                     </div>
                   )}
 
-                  {slot.status === 'failed' && (
+                  {slot.status === 'failed' && slot.error && (
                     <span className="absolute inset-x-2 bottom-2 rounded bg-[#ffEBEE]/95 px-2 py-1 text-[10px] font-bold text-[#c62828]">
-                      {slot.error || '生成失败'}
+                      {slot.error}
                     </span>
                   )}
 
-                  {/* 失败/生成中保留重新生成入口，避免能力丢失（走查成功态悬浮操作不含重试） */}
-                  {!slot.imageUrl && slot.status !== 'generating' && (
+                  {slot.status === 'failed' && !slot.imageUrl && slot.prompt && (
                     <button
                       type="button"
                       onClick={() => void handleRegenerateSingle(slot.id)}

@@ -1,4 +1,4 @@
-import { createRealAiProvider, EmptyAiResponseError, type StreamEvent } from './ai-provider'
+import { AiOutputLimitError, createRealAiProvider, EmptyAiResponseError, isAiOutputLimit, type StreamEvent } from './ai-provider'
 import {
   buildAiHelpWritePrompt,
   buildImagePromptGenerationPrompt,
@@ -8,6 +8,7 @@ import {
   normalizeSelectedSlots,
   parseJsonFromText,
   type PromptSettings,
+  type PromptSlot,
 } from './image-prompt'
 import { getWorkerPrisma, readBytesByKey, workerDataRoots } from './worker-db'
 
@@ -33,23 +34,49 @@ function referenceImages(input: Pick<ProductSetsInput, 'image' | 'images'>): str
 function normalizeVisualFactList(value: unknown): string[] {
   if (!Array.isArray(value)) return []
   return value
-    .map((item) => String(item ?? '').replace(/\s+/g, ' ').trim())
+    .filter((item): item is string => typeof item === 'string')
+    .map((item) => item.replace(/\s+/g, ' ').trim())
     .filter(Boolean)
     .slice(0, 12)
 }
 
 /** 将视觉模型输出压缩为后续文本模型可稳定遵守的商品锁定事实。 */
-function normalizeProductVisualFacts(value: Record<string, unknown> | null, fallbackText: string): string {
-  const product = String(value?.product ?? value?.productName ?? '').replace(/\s+/g, ' ').trim()
-  const lockedFeatures = normalizeVisualFactList(value?.lockedFeatures ?? value?.features)
-  const uncertainFeatures = normalizeVisualFactList(value?.uncertainFeatures)
-  const facts = [
+function normalizeProductVisualFacts(value: Record<string, unknown>): string {
+  const productName = value.product ?? value.productName
+  const product = typeof productName === 'string' ? productName.replace(/\s+/g, ' ').trim() : ''
+  const lockedFeatures = normalizeVisualFactList(value.lockedFeatures ?? value.features)
+  const uncertainFeatures = normalizeVisualFactList(value.uncertainFeatures)
+  return [
     product ? `商品主体：${product}` : '',
     lockedFeatures.length ? `必须保持：${lockedFeatures.join('；')}` : '',
     uncertainFeatures.length ? `不可臆测：${uncertainFeatures.join('；')}` : '',
-  ].filter(Boolean)
-  if (facts.length) return facts.join('\n')
-  return String(fallbackText || '').replace(/\s+/g, ' ').trim().slice(0, 1200)
+  ].filter(Boolean).join('\n')
+}
+
+async function requestProductSetJson<T>(
+  stage: string,
+  request: (retry: boolean) => Promise<{ text: string; model: string }>,
+  read: (value: Record<string, unknown>) => T | null,
+): Promise<{ data: T; model: string }> {
+  let reason = ''
+  for (const retry of [false, true]) {
+    try {
+      const response = await request(retry)
+      const parsed = parseJsonFromText(response.text)
+      const data = parsed ? read(parsed) : null
+      if (data) return { data, model: response.model }
+      reason = '模型返回的内容不完整'
+    } catch (error) {
+      if (error instanceof AiOutputLimitError || (error instanceof EmptyAiResponseError && isAiOutputLimit(error.finishReason))) {
+        reason = '模型输出达到长度上限'
+      } else if (error instanceof EmptyAiResponseError) {
+        reason = '模型未返回可用内容'
+      } else {
+        throw new Error(`${stage}失败，${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
+  }
+  throw new Error(`${stage}失败，${reason}。请重试。`)
 }
 
 /**
@@ -59,11 +86,7 @@ function normalizeProductVisualFacts(value: Record<string, unknown> | null, fall
 async function analyzeProductVisualFacts(input: ProductSetsInput, provider: ReturnType<typeof createRealAiProvider>): Promise<string> {
   const images = referenceImages(input)
   if (!images.length) return ''
-  const result = await provider.analyzeImage({
-    images,
-    system: '你是严谨的电商商品视觉识别助手。只根据图片可见内容回答，不推测不可见信息。',
-    maxTokens: 1200,
-    prompt: `识别用户上传的商品原图，并只输出 JSON：
+  const prompt = `识别用户上传的商品原图，并只输出 JSON：
 {
   "product": "商品的完整可见定义",
   "lockedFeatures": ["颜色", "品类和袖型/领型", "轮廓版型", "材质或纹理", "可见关键细节"],
@@ -73,28 +96,54 @@ async function analyzeProductVisualFacts(input: ProductSetsInput, provider: Retu
 要求：
 1. 只描述商品本体，不把模特、背景、姿势或搭配物当作商品特征。
 2. 颜色、品类、袖型、领型、轮廓、纹理、图案和关键结构必须准确；看不清则放入 uncertainFeatures。
-3. 不得把原图商品替换为更常见的品类，也不得输出品牌、价格、材质成分等原图不可见的信息。`,
-  })
-  return normalizeProductVisualFacts(parseJsonFromText(result.text), result.text)
+3. 不得把原图商品替换为更常见的品类，也不得输出品牌、价格、材质成分等原图不可见的信息。
+4. 商品定义和各条特征各用一句短语，lockedFeatures 最多 6 条，uncertainFeatures 最多 3 条。`
+  const result = await requestProductSetJson('商品原图识别', (retry) => provider.analyzeImage({
+    images,
+    system: '你是电商商品视觉识别助手。只根据图片可见内容回答，输出 JSON。',
+    jsonOutput: true,
+    maxTokens: retry ? 3600 : 2000,
+    prompt: retry ? `${prompt}\n请直接返回最重要的可见特征，保持 JSON 完整。` : prompt,
+  }), (value) => normalizeProductVisualFacts(value) || null)
+  return result.data
 }
+
+const MAIN_PROMPT_BATCH_SIZE = 5
 
 /** 主图提示词生成（text）。对齐后端 product-sets.generatePrompts。 */
 export async function generatePrompts(input: ProductSetsInput) {
   const selected = normalizeSelectedSlots(input.selectedSlots ?? [])
   const slots = selected.length ? selected : normalizeRequestedPromptSlots(input.promptSlots ?? [])
+  if (!slots.length) throw new Error('请至少选择一个主图图位。')
   const provider = createRealAiProvider(input.userId)
   const visualFacts = await analyzeProductVisualFacts(input, provider)
-  const prompt = buildImagePromptGenerationPrompt({
-    settings: input.settings,
-    information: input.information,
-    designPlan: input.reportText,
-    visualFacts,
-    promptSlots: slots,
-  })
-  const ai = await provider.generateText({ prompt, system: '只输出 JSON，不要输出多余文字。', maxTokens: 4000 })
-  const parsed = ai.text ? parseJsonFromText(ai.text) : null
-  const prompts = normalizeGeneratedImagePrompts(parsed ?? {}, slots)
-  return { ok: true, prompts, model: ai.model }
+  const prompts: Array<PromptSlot & { prompt: string }> = []
+  let model = ''
+  for (let offset = 0; offset < slots.length; offset += MAIN_PROMPT_BATCH_SIZE) {
+    const batch = slots.slice(offset, offset + MAIN_PROMPT_BATCH_SIZE)
+    const plannedSameType = prompts.filter((item) => batch.some((slot) => slot.type === item.type))
+    const prompt = buildImagePromptGenerationPrompt({
+      settings: input.settings,
+      information: input.information,
+      designPlan: input.reportText,
+      visualFacts,
+      promptSlots: batch,
+      plannedSameType,
+    })
+    const budget = Math.max(2400, batch.length * 1100)
+    const result = await requestProductSetJson('主图提示词规划', (retry) => provider.generateText({
+      prompt: retry ? `${prompt}\n本次将每条缩至约 120–200 字。必须按图位 ID 给出完整 JSON。` : prompt,
+      system: '只输出 JSON，不要输出多余文字。',
+      jsonOutput: true,
+      maxTokens: retry ? budget + 2000 : budget,
+    }), (value) => {
+      const planned = normalizeGeneratedImagePrompts(value, batch, { requireIds: true })
+      return planned.length === batch.length ? planned : null
+    })
+    prompts.push(...result.data)
+    model = result.model
+  }
+  return { ok: true, prompts, model }
 }
 
 /** AI 帮写（走查 M6/D1）：输出商品信息 5 段结构。对齐后端 expandPrompts；经 IPC 事件流逐块下发。 */

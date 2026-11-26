@@ -81,17 +81,22 @@ export function normalizeSelectedSlots(selectedSlots: unknown[]): PromptSlot[] {
   return DEFAULT_SLOT_CONFIGS.filter((item) => selectedIds.has(item.id))
 }
 
-export function normalizeGeneratedImagePrompts(json: Record<string, unknown>, promptSlots: PromptSlot[]): Array<PromptSlot & { prompt: string }> {
+export function normalizeGeneratedImagePrompts(
+  json: Record<string, unknown>,
+  promptSlots: PromptSlot[],
+  { requireIds = false }: { requireIds?: boolean } = {},
+): Array<PromptSlot & { prompt: string }> {
   const rawPrompts = Array.isArray(json?.prompts) ? (json.prompts as Array<Record<string, unknown>>) : []
   const promptsById = new Map(rawPrompts.map((item) => [String(item?.id ?? '').trim(), item]))
   return promptSlots.map((slot, index) => {
-    const raw = promptsById.get(slot.id) ?? rawPrompts[index] ?? {}
+    const raw = promptsById.get(slot.id) ?? (requireIds ? undefined : rawPrompts[index])
+    const prompt = raw?.prompt
     return {
       id: slot.id,
       name: slot.name,
       type: slot.type,
       sequence: slot.sequence,
-      prompt: String(raw.prompt ?? '').trim(),
+      prompt: requireIds && typeof prompt !== 'string' ? '' : String(prompt ?? '').trim(),
     } as PromptSlot & { prompt: string }
   }).filter((item) => item.prompt)
 }
@@ -104,7 +109,14 @@ export const DEFAULT_SLOT_CONFIGS: PromptSlot[] = [
   { id: 'image-5', name: '图5｜买点详解', type: '买点详解', sequence: 5 },
 ]
 
-export function buildImagePromptGenerationPrompt(options: { settings?: PromptSettings; information?: string; designPlan?: string; visualFacts?: string; promptSlots: PromptSlot[] }): string {
+export function buildImagePromptGenerationPrompt(options: {
+  settings?: PromptSettings
+  information?: string
+  designPlan?: string
+  visualFacts?: string
+  promptSlots: PromptSlot[]
+  plannedSameType?: Array<Pick<PromptSlot, 'name'> & { prompt: string }>
+}): string {
   const schema = options.promptSlots.map((slot) => ({
     id: slot.id,
     name: slot.name,
@@ -113,6 +125,7 @@ export function buildImagePromptGenerationPrompt(options: { settings?: PromptSet
   }))
   const slotList = options.promptSlots.map((slot, index) => `${index + 1}. ${slot.name}：${slot.type}`).join('\n')
   const typeRules = options.promptSlots.map((slot) => `【${slot.name}｜${slot.type}】\n${IMAGE_PROMPT_TYPE_RULES[slot.type] || ''}`).join('\n\n')
+  const planned = options.plannedSameType?.map((slot) => `${slot.name}：${slot.prompt.slice(0, 180)}`).join('\n')
 
   return `你正在执行商品主图生图工作流第4步：根据主图设计规划生成各图位完整生图提示词。
 
@@ -136,15 +149,15 @@ ${slotList}
 
 【各类型规则】
 ${typeRules}
-
+${planned ? `\n【已规划的同类型图位，仅供避重】\n${planned}\n` : ''}
 【总规则】
 1. 《商品原图视觉事实》是商品识别的最高优先级。它与《信息整理补全》或《主图设计规划》冲突时，必须以视觉事实为准；不得把商品替换成外观相近但颜色、品类、袖型、领型、轮廓或纹理不同的商品。
-2. 只为“需要生成的图位”输出 prompts，数量和顺序必须完全一致。
-3. 每条 prompt 都必须严格基于对应图位的“主图设计规划”和该图位规则生成，不得只套用通用短规则。
+2. 只为“需要生成的图位”输出 prompts，数量、ID 和顺序必须完全一致。
+3. 根据该图位的规则设计，并采用适合当前商品的规划内容。如果竞品报告与原图品类不同，只借鉴通用构图、光影或排版；忽略竞品品类、文案、卖点和参数。这也适用于从报告带入商品信息栏的参考内容。
 4. 必须以用户上传的商品图为唯一商品主体，保持商品外观、颜色、结构、比例、关键部件、包装文字和可见特征一致，不替换商品，不生成其他品类。
 5. 所有颜色、材质、结构、花型、纹理、参数、场景和文案都只能来自商品图片、商品信息或保守可确认的品类常识。
 6. 同类型多张图必须各自有不同主题：场景图区分使用场景、人物姿势、镜头距离和光线；卖点图区分核心卖点；买点详解图区分购买理由组合；细节说明图区分真实细节对象。
-7. 每条 prompt 写成中文自然段，包含图位目标、主体要求、背景/场景、构图、光影、配色、文字版式、禁止事项，长度300-600字。
+7. 每条 prompt 约 200–350 字，写清图位目标、主体要求、背景/场景、构图、光影、配色、文字版式和禁止事项。
 8. 文案必须短、清楚、适合${options.settings?.language || '简体中文'}，不得输出无法读清的小字、错字、无关品牌、水印、UI按钮或促销角标。
 
 【输出格式】

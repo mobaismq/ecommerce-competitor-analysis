@@ -1,7 +1,11 @@
-import { readFileSync, existsSync, mkdirSync, writeFileSync, unlinkSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
+import { readFileSync, existsSync, mkdirSync, writeFileSync, unlinkSync, renameSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { resolveDataRoots } from '../main/data-root'
-import { encryptSecret, decryptSecret } from './ai-secret'
+import { encryptSecret, decryptSecret, getEncryptionKey } from './ai-secret'
+
+const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1'
+const OPENROUTER_IMAGE_MODEL = 'openai/gpt-image-2'
 
 // ===== 个人/默认 AI 供应商配置（本地闭环，密钥只落本机） =====
 // 解析优先级：个人自配（ai-self.json，users/<id>/config/）→ 系统默认（桌面 env 的 OpenRouter 默认供应商，先体验用）。
@@ -21,7 +25,7 @@ export interface LocalAiConfig {
   textModel: string
   /** 视觉分析模型（多模态/识图） */
   visionModel?: string
-  /** 生图模型（images/generations） */
+  /** 生图模型 */
   imageModel: string
   timeoutMs?: number
 }
@@ -57,6 +61,7 @@ export interface SelfConfigView {
   defaultBaseUrl: string | null
   defaultTextModel: string | null
   defaultImageModel: string | null
+  openRouterImage: { model: string; apiKeyConfigured: boolean }
 }
 
 export interface SaveSelfConfigInput {
@@ -70,12 +75,35 @@ export interface SaveSelfConfigInput {
   clear?: boolean
 }
 
+export interface SaveOpenRouterImageConfigInput {
+  apiKey?: string
+  clear?: boolean
+}
+
 function aiSelfConfigPath(userId: string, env: Record<string, string | undefined>): string {
   return join(resolveDataRoots(env).internalRoot, 'users', userId, 'config', 'ai-self.json')
 }
 
 function aiDefaultPath(userId: string, env: Record<string, string | undefined>): string {
   return join(resolveDataRoots(env).internalRoot, 'users', userId, 'config', 'ai-default.json')
+}
+
+function openRouterImagePath(userId: string, env: Record<string, string | undefined>): string | null {
+  return /^[a-z\d_-]+$/i.test(userId)
+    ? join(resolveDataRoots(env).internalRoot, 'users', userId, 'config', 'ai-openrouter-image.json')
+    : null
+}
+
+function readOpenRouterImageKey(userId: string, env: Record<string, string | undefined>): string | null {
+  const file = openRouterImagePath(userId, env)
+  if (!file) return null
+  try {
+    const { apiKey } = JSON.parse(readFileSync(file, 'utf8')) as { apiKey: string }
+    const key = decryptSecret(apiKey, undefined, env)
+    return key.startsWith('sk-or-') ? key : null
+  } catch {
+    return null
+  }
 }
 
 /** 读取服务端下发的默认供应商（apiKey 落盘加密）；无文件/无 Key 返回 null。 */
@@ -191,6 +219,16 @@ export function resolveEffectiveConfig(userId: string, env: Record<string, strin
   }
 }
 
+/** 生图可单独使用 OpenRouter，文本和视觉仍由通用配置决定。 */
+export function resolveEffectiveImageConfig(
+  userId: string,
+  env: Record<string, string | undefined> = process.env,
+): Pick<LocalAiConfig, 'kind' | 'baseUrl' | 'apiKey' | 'imageModel' | 'timeoutMs'> | null {
+  const apiKey = readOpenRouterImageKey(userId, env)
+  if (!apiKey) return resolveEffectiveConfig(userId, env)
+  return { kind: 'openrouter', baseUrl: OPENROUTER_BASE_URL, apiKey, imageModel: OPENROUTER_IMAGE_MODEL }
+}
+
 /** 读取自配 + 默认供应商状态（给配置页展示；不回传明文密钥）。 */
 export async function getSelfConfig(userId: string, env: Record<string, string | undefined> = process.env): Promise<SelfConfigView> {
   const cfg = readAiSelfConfigFile(userId, env)
@@ -209,7 +247,33 @@ export async function getSelfConfig(userId: string, env: Record<string, string |
     defaultBaseUrl: def?.baseUrl ?? null,
     defaultTextModel: def?.textModel ?? null,
     defaultImageModel: def?.imageModel ?? null,
+    openRouterImage: { model: OPENROUTER_IMAGE_MODEL, apiKeyConfigured: !!readOpenRouterImageKey(userId, env) },
   }
+}
+
+export async function saveOpenRouterImageConfig(
+  userId: string,
+  body: SaveOpenRouterImageConfigInput,
+  env: Record<string, string | undefined> = process.env,
+): Promise<SelfConfigView> {
+  const file = openRouterImagePath(userId, env)
+  if (!file) throw new Error('请先登录再配置 OpenRouter 生图')
+  if (body.clear) {
+    rmSync(file, { force: true })
+  } else {
+    const apiKey = body.apiKey?.trim() ?? ''
+    if (!apiKey.startsWith('sk-or-') || /\s/.test(apiKey)) throw new Error('请输入有效的 OpenRouter API Key')
+    const encryptedKey = encryptSecret(apiKey, getEncryptionKey(env), env)
+    mkdirSync(join(file, '..'), { recursive: true })
+    const tempFile = `${file}.${randomUUID()}.tmp`
+    try {
+      writeFileSync(tempFile, JSON.stringify({ apiKey: encryptedKey }), { mode: 0o600, flag: 'wx' })
+      renameSync(tempFile, file)
+    } finally {
+      rmSync(tempFile, { force: true })
+    }
+  }
+  return getSelfConfig(userId, env)
 }
 
 /** 保存个人自配：配置了 Key 即生效（无需显式开关）；clear=true 则清除个人配置回落默认。 */
